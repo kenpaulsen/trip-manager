@@ -612,7 +612,7 @@ public class TripsResourceTest extends ResourceTestSupport {
         final TripDto body = new TripDto(null, null, null, null, false, null, null, null, null,
                 null, null, null, null, null, null, null, null, null,
                 List.of(new org.paulsens.trip.api.dto.RegOptionDto(null, "Admission", "", null, "choice", true,
-                        List.of(full, hotel), Boolean.FALSE)),
+                        List.of(full, hotel))),
                 null, null, "conference");
         final jakarta.ws.rs.core.Response response = resource.update(TRIP_ID, CSRF_OK, body);
         assertOk(response);
@@ -621,7 +621,6 @@ public class TripsResourceTest extends ResourceTestSupport {
         final org.paulsens.trip.model.RegistrationOption admission = existing.getRegOptions().get(0);
         Assert.assertEquals(admission.getType(), org.paulsens.trip.model.RegistrationOption.QuestionType.CHOICE);
         Assert.assertTrue(admission.isRequiredFlag());
-        Assert.assertFalse(admission.isAgeBandsApplyFlag());
         Assert.assertEquals(admission.choice("full").getPriceCents(), 15000L);
         Assert.assertEquals(admission.getChoices().get(1).getPriceCents(), 0L, "a missing price is free");
         Assert.assertFalse(admission.getChoices().get(1).isOffered());
@@ -642,7 +641,7 @@ public class TripsResourceTest extends ResourceTestSupport {
 
         final TripDto badType = new TripDto(null, null, null, null, false, null, null, null, null,
                 null, null, null, null, null, null, null, null, null,
-                List.of(new org.paulsens.trip.api.dto.RegOptionDto(null, "Q", "", null, "essay", null, null, null)),
+                List.of(new org.paulsens.trip.api.dto.RegOptionDto(null, "Q", "", null, "essay", null, null)),
                 null, null);
         Assert.assertEquals(resource.update(TRIP_ID, CSRF_OK, badType).getStatus(), 400);
         Assert.assertNull(TripsResource.badEnumValue(null));

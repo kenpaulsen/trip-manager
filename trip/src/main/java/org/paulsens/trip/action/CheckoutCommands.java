@@ -64,6 +64,9 @@ public class CheckoutCommands {
     public static final String BILL_CATEGORY = "Registration";
     /** The offline methods an admin may record (docs/checkout.md, "Offline payments"). */
     public static final List<String> OFFLINE_METHODS = List.of("CHECK", "CASH", "COMP", "OTHER");
+    /** How the page and the mail print the balance due date: "March 1, 2027". */
+    public static final java.time.format.DateTimeFormatter LONG_DATE =
+            java.time.format.DateTimeFormatter.ofPattern("MMMM d, yyyy", java.util.Locale.US);
 
     private final Supplier<Caller> callerSource;
     private final Supplier<PaymentCommands> paymentSource;
@@ -106,8 +109,9 @@ public class CheckoutCommands {
     }
 
     /**
-     * What one choice costs THIS person, after their age band (codes are not applied here: a code is typed later
-     * and shows in the person's total): the registration form's choice labels.
+     * What one choice costs THIS person, after their age band when the choice is an admission (bands never touch an
+     * add-on; codes are not applied here either: a code is typed later and shows in the person's total): the
+     * registration form's choice labels.
      */
     public String choiceLabel(final Trip trip, final RegistrationOption question, final OptionChoice choice,
             final Person person) {
@@ -123,7 +127,7 @@ public class CheckoutCommands {
 
     static long personalPrice(final Trip trip, final RegistrationOption question, final OptionChoice choice,
             final LocalDate birthdate) {
-        if (trip == null || trip.getStartDate() == null || question == null || !question.isAgeBandsApplyFlag()) {
+        if (trip == null || trip.getStartDate() == null || !CheckoutPricing.isAdmissionQuestion(trip, question)) {
             return choice.getPriceCents();
         }
         final java.util.OptionalInt age = Ages.ageAt(birthdate, trip.getStartDate().toLocalDate());
@@ -139,16 +143,51 @@ public class CheckoutCommands {
     }
 
     /**
-     * The registration form's live totals: each selected person's price and problems, and the party's total with
-     * the processor fee when the payer pays it. Recomputed on every change; never stored.
+     * The registration form's live totals: each selected person's price and problems, the party's prices
+     * ({@code priceCents}, what the Bills will say), what is due now ({@code creditCents}: the prices, or the
+     * deposits under a deposit policy), the processor fee when the payer pays it and the charge
+     * ({@code totalCents}). Recomputed on every change; never stored. {@code depositCents} and
+     * {@code balanceDueOn} repeat the policy for the page's copy; null without a deposit.
      */
-    public record Quote(List<PersonQuote> persons, List<CheckoutProblem> problems, long creditCents, long feeCents,
-            long totalCents, boolean payable) implements Serializable {
+    public record Quote(List<PersonQuote> persons, List<CheckoutProblem> problems, long priceCents, long creditCents,
+            long feeCents, long totalCents, boolean payable, Long depositCents, LocalDate balanceDueOn)
+            implements Serializable {
         @Serial
         private static final long serialVersionUID = 1L;
 
         public boolean isFree() {
             return creditCents == 0;
+        }
+
+        /** Whether a deposit policy leaves a balance to pay later. */
+        public boolean isDeposit() {
+            return depositCents != null;
+        }
+
+        /** What stays on the travelers' balances after this payment. */
+        public long balanceCents() {
+            return priceCents - creditCents;
+        }
+
+        public String getPrice() {
+            return MoneyMath.formatCents(priceCents);
+        }
+
+        public String getDueNow() {
+            return MoneyMath.formatCents(creditCents);
+        }
+
+        public String getBalance() {
+            return MoneyMath.formatCents(balanceCents());
+        }
+
+        public String getDeposit() {
+            return depositCents == null ? "" : MoneyMath.formatCents(depositCents);
+        }
+
+        /** "March 1, 2027", or "" without a date. */
+        public String getBalanceDue() {
+            return balanceDueOn == null ? "" : LONG_DATE.format(balanceDueOn);
         }
 
         public boolean isReady() {
@@ -167,7 +206,8 @@ public class CheckoutCommands {
     /** The quote for the people selected in {@code draft}; {@code party} is everyone the form shows. */
     public Quote quote(final Trip trip, final RegistrationDraft draft, final List<Person> party) {
         final Prepared prepared = prepare(trip, draft, party, false);
-        final long credits = prepared.totalCents();
+        final long credits = prepared.dueNowCents();
+        final CheckoutConfig policy = trip == null ? new CheckoutConfig() : trip.getCheckout();
         final PaymentCommands payments = paymentSource.get();
         final PaymentProcessorConfig config = trip == null ? null : payments.processorConfigFor(trip);
         final TripPaymentConfig effective = trip == null ? null : new OrgCommands(callerSource)
@@ -175,8 +215,10 @@ public class CheckoutCommands {
         final boolean payerPays = effective != null && effective.getFeesPaidBy() == FeesPaidBy.PAYER;
         final long fee = (config == null || credits == 0) ? 0L
                 : MoneyMath.creditFeeCents(credits, config.getEffectiveFeeBps(), config.getEffectiveFeeFixedCents());
-        return new Quote(prepared.persons(), prepared.problems(), credits, payerPays ? fee : 0L,
-                payerPays ? credits + fee : credits, config != null);
+        return new Quote(prepared.persons(), prepared.problems(), prepared.totalCents(), credits,
+                payerPays ? fee : 0L, payerPays ? credits + fee : credits, config != null,
+                policy.isDeposit() ? policy.getDepositCents() : null,
+                policy.isDeposit() ? policy.getBalanceDueOn() : null);
     }
 
     /**
@@ -270,7 +312,7 @@ public class CheckoutCommands {
             return refuse("Sandbox mode requires the paymentsAdmin privilege for this event's organization.");
         }
         final TripPaymentConfig effective = new OrgCommands(callerSource).effectivePaymentConfig(trip);
-        final Payment payment = payments.newPayment(trip, payer, config, effective, prepared.allocations(), 0L,
+        final Payment payment = payments.newPayment(trip, payer, config, effective, prepared.dueAllocations(), 0L,
                 sandbox);
         payment.setCheckout(prepared.party(payment.getPaymentId()));
         final PaymentCommands.Start start = payments.startPrepared(trip, payment, config, payer, pageUrl,
@@ -280,8 +322,9 @@ public class CheckoutCommands {
 
     /**
      * Records the selected party as paid OUTSIDE any processor (docs/checkout.md): a check, cash, a comp or other.
-     * Registration admins only. The amount must equal the party's total unless {@code partial} (then the Bills
-     * still bill the full prices and each balance shows what is left); a COMP is always the full total, credited
+     * Registration admins only. The amount must equal what is due at registration (the prices, or the deposits
+     * under a deposit policy) unless {@code partial}, which admits any amount up to the full prices; the Bills
+     * always bill the full prices and each balance shows what is left. A COMP is always the full total, credited
      * as complimentary. Answers the completion, or null with growls.
      */
     public PaymentCommands.Completion recordOffline(final Trip trip, final RegistrationDraft draft,
@@ -303,12 +346,16 @@ public class CheckoutCommands {
         if (prepared.rows().isEmpty()) {
             return refuse("Nothing to register: select at least one person.");
         }
-        final long total = prepared.totalCents();
-        final long received = "COMP".equals(kind) ? total
+        final long price = prepared.totalCents();
+        final long dueNow = prepared.dueNowCents();
+        final long received = "COMP".equals(kind) ? price
                 : amountDollars == null ? -1L : Math.round(amountDollars * 100);
-        if (received < 0 || received > total || (!partial && received != total)) {
-            return refuse("The amount received must be " + MoneyMath.formatCents(total)
-                    + (partial ? " or less" : "") + ".");
+        if (received < 0 || received > price || (!partial && received != dueNow)) {
+            return refuse(partial
+                    ? "A partial payment must be between $0.00 and " + MoneyMath.formatCents(price) + "."
+                    : "The amount received must be " + MoneyMath.formatCents(dueNow) + (dueNow == price ? ""
+                            : " (the deposits; tick Partial payment for another amount up to "
+                            + MoneyMath.formatCents(price) + ")") + ".");
         }
         final String label = kind + (reference == null || reference.isBlank() ? "" : " " + reference.trim());
         final LocalDateTime when = receivedOn == null ? LocalDateTime.now() : receivedOn.atStartOfDay();
@@ -435,9 +482,18 @@ public class CheckoutCommands {
 
     // ------------------------------------------------------------------ preparing a party
 
-    /** The selected people, priced and checked, and the rows a payment for them would write. */
+    /**
+     * The selected people, priced and checked, and the rows a payment for them would write. {@code allocations}
+     * and {@code totalCents} are the full PRICES (what the Bills say, and the most an offline payment may record);
+     * {@code dueAllocations} is what a processor charges now, each person's price capped at the policy's deposit.
+     */
     record Prepared(List<PersonQuote> persons, List<CheckoutProblem> problems, List<Registration> rows,
-            List<Payment.Allocation> allocations, long totalCents, Person.Id registeredBy, String partyId) {
+            List<Payment.Allocation> allocations, List<Payment.Allocation> dueAllocations, long totalCents,
+            Person.Id registeredBy, String partyId) {
+
+        long dueNowCents() {
+            return dueAllocations.stream().mapToLong(Payment.Allocation::getAmountCents).sum();
+        }
 
         PendingParty party(final String paymentId) {
             final List<Registration> withPayment = rows.stream().map(row -> row.withPaymentId(paymentId)).toList();
@@ -455,9 +511,10 @@ public class CheckoutCommands {
         final List<CheckoutProblem> problems = new ArrayList<>();
         final List<Registration> rows = new ArrayList<>();
         final List<Payment.Allocation> allocations = new ArrayList<>();
+        final List<Payment.Allocation> dueAllocations = new ArrayList<>();
         final Caller caller = callerSource.get();
         if (trip == null || draft == null || party == null) {
-            return new Prepared(persons, problems, rows, allocations, 0L, caller.personId(), null);
+            return new Prepared(persons, problems, rows, allocations, dueAllocations, 0L, caller.personId(), null);
         }
         final LocalDateTime now = clock.get();
         final List<Registration> existing = DAO.getInstance().getRegistrations(trip.getId(), Cached.NO);
@@ -488,12 +545,14 @@ public class CheckoutCommands {
             }
             total += breakdown.getTotalCents();
             allocations.add(new Payment.Allocation(person.getId(), breakdown.getTotalCents()));
+            dueAllocations.add(new Payment.Allocation(person.getId(),
+                    trip.getCheckout().dueNowCents(breakdown.getTotalCents())));
             rows.add(rowFor(trip, person, answers, attested, breakdown, partyId, draft, caller));
         }
         if (forStart) {
             problems.addAll(CheckoutCapacity.problems(trip, existing, partyAnswers));
         }
-        return new Prepared(persons, problems, rows, allocations, total, caller.personId(), partyId);
+        return new Prepared(persons, problems, rows, allocations, dueAllocations, total, caller.personId(), partyId);
     }
 
     private List<CheckoutProblem> startProblems(final Trip trip, final Person person,
@@ -670,6 +729,11 @@ public class CheckoutCommands {
         return MoneyMath.formatCents(cents);
     }
 
+    /** "March 1, 2027" (the balance due date on the pages), or "" for null. */
+    public String formatLongDate(final LocalDate date) {
+        return date == null ? "" : LONG_DATE.format(date);
+    }
+
     /** One breakdown line as a page shows it: the price of a base or add-on, a signed change otherwise. */
     public record LineView(String label, String amount, String kind) implements Serializable {
         @Serial
@@ -780,7 +844,38 @@ public class CheckoutCommands {
         return text == null ? "" : text;
     }
 
-    // ------------------------------------------------------------------ the trip editor's Pricing fieldset
+    // ------------------------------------------------------------------ the trip editor's Registration Pricing dialog
+
+    /**
+     * The property-sheet summary beside the editor's "edit" link: "off", or "on: deposit $200.00 per person,
+     * approval required, 2 age bands, 1 discount code".
+     */
+    public String policySummary(final Trip trip) {
+        if (trip == null || !trip.getCheckout().isOn()) {
+            return "off";
+        }
+        final CheckoutConfig policy = trip.getCheckout();
+        final List<String> parts = new ArrayList<>();
+        parts.add(policy.isDeposit() ? "deposit " + MoneyMath.formatCents(policy.getDepositCents()) + " per person"
+                : "full payment");
+        parts.add(policy.isConfirmPaid() ? "auto-confirmed" : "approval required");
+        if (!policy.getAgeBands().isEmpty()) {
+            parts.add(counted(policy.getAgeBands().size(), "age band"));
+        }
+        if (!policy.getCodes().isEmpty()) {
+            parts.add(counted(policy.getCodes().size(), "discount code"));
+        }
+        return "on: " + String.join(", ", parts);
+    }
+
+    private static String counted(final int n, final String noun) {
+        return n + " " + noun + (n == 1 ? "" : "s");
+    }
+
+    /** Whether the trip resolves to a payment processor: the dialog warns when a priced trip has none. */
+    public boolean isPayable(final Trip trip) {
+        return trip != null && paymentSource.get().processorConfigFor(trip) != null;
+    }
 
     /** What is wrong with the trip's checkout policy as the editor left it; empty when it may be saved. */
     public List<String> configProblems(final Trip trip) {
@@ -788,8 +883,8 @@ public class CheckoutCommands {
     }
 
     /**
-     * The Pricing fieldset's Done: growls every problem and publishes {@code pricingOk} so the dialog stays open
-     * on a refusal (closing on a growl reads as "saved anyway"). Answers whether the policy is acceptable.
+     * The Registration Pricing dialog's Done: growls every problem and publishes {@code pricingOk} so the dialog
+     * stays open on a refusal (closing on a growl reads as "saved anyway"). Answers whether the policy is acceptable.
      */
     public boolean acceptConfig(final Trip trip) {
         final List<String> problems = configProblems(trip);
@@ -922,7 +1017,11 @@ public class CheckoutCommands {
         return reg == null ? "" : blank(reg.getRegistrationType());
     }
 
-    /** What a row's checkout charged (its stored price) when a payment registered it, or "". */
+    /**
+     * A row's stored PRICE when a payment registered it, or "": what the person's Bill says, not what the payment
+     * charged (a deposit policy charges less; the person's trip balance, on check-in and their transactions, shows
+     * what is left).
+     */
     public String paidText(final List<Registration> regs, final String userId) {
         final Registration reg = new RegistrationCommands(callerSource).rowRegistration(regs, userId);
         if (reg == null || reg.getPaymentId() == null) {

@@ -2,6 +2,7 @@ package org.paulsens.trip.model;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.io.Serial;
 import java.io.Serializable;
@@ -18,6 +19,9 @@ import lombok.Data;
  * {@code Yes}/{@code No}.
  */
 @Data
+// ageBandsApply (a per-question opt-out of the trip's age bands, 2026-11) was retired on 2026-11-02: bands adjust
+// the ADMISSION price only now (docs/checkout.md), so a stored flag is read and dropped.
+@JsonIgnoreProperties({"ageBandsApply"})
 public final class RegistrationOption implements Serializable {
     @Serial
     private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
@@ -36,8 +40,6 @@ public final class RegistrationOption implements Serializable {
     private Boolean required;
     /** The answers a CHOICE or MULTI_CHOICE question offers; ignored for the other types. */
     private List<OptionChoice> choices;
-    /** Whether the trip's age bands adjust this question's prices (a T-shirt costs the same at any age). */
-    private Boolean ageBandsApply;
 
     /**
      * The {@code Registration.options} map key for this option. The map is String-keyed while the id is an
@@ -58,8 +60,7 @@ public final class RegistrationOption implements Serializable {
             @JsonProperty("show") final Boolean show,
             @JsonProperty("type") final QuestionType type,
             @JsonProperty("required") final Boolean required,
-            @JsonProperty("choices") final List<OptionChoice> choices,
-            @JsonProperty("ageBandsApply") final Boolean ageBandsApply) {
+            @JsonProperty("choices") final List<OptionChoice> choices) {
         this.id = id;
         this.shortDesc = shortDesc;
         this.longDesc = longDesc;
@@ -67,12 +68,11 @@ public final class RegistrationOption implements Serializable {
         this.type = (type == null) ? QuestionType.TEXT : type;
         this.required = required;
         this.choices = (choices == null) ? new ArrayList<>() : new ArrayList<>(choices);
-        this.ageBandsApply = ageBandsApply;
     }
 
     /** A free-text question: every question that predates typed questions. */
     public RegistrationOption(final int id, final String shortDesc, final String longDesc, final Boolean show) {
-        this(id, shortDesc, longDesc, show, null, null, null, null);
+        this(id, shortDesc, longDesc, show, null, null, null);
     }
 
     /** Null (a forged or cleared menu) is free text, the type every question had before types existed. */
@@ -88,16 +88,6 @@ public final class RegistrationOption implements Serializable {
 
     public void setRequiredFlag(final boolean flag) {
         this.required = flag ? Boolean.TRUE : null;
-    }
-
-    /** Plain boolean for EL and the editor checkbox: null reads as "age bands apply". */
-    @JsonIgnore
-    public boolean isAgeBandsApplyFlag() {
-        return ageBandsApply == null || ageBandsApply;
-    }
-
-    public void setAgeBandsApplyFlag(final boolean flag) {
-        this.ageBandsApply = flag ? null : Boolean.FALSE;
     }
 
     public List<OptionChoice> getChoices() {

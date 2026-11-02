@@ -204,8 +204,9 @@ per-conference settings: it follows the org's Appearance page (Full width includ
 with a passed "Show until" (`ContentInstance.eventDate`) so visitors never see them, and takes custom CSS from an
 org-scoped template holding a `<link rel="stylesheet">` (`docs/conference.md`, "Look and feel"). **Priced checkout** (`docs/checkout.md`, required reading
 before touching pricing or a checkout payment): the pure engine in `checkout/` (`CheckoutPricing`, `CheckoutValidator`,
-`CheckoutCapacity`), the policy `Trip.checkout` (`CheckoutConfig`: window, `AgeBand`s, `DiscountCode`s; prices stay on
-the typed questions), bean `checkout` (`CheckoutCommands`), PAY-FIRST: the party rides the `Payment` as a
+`CheckoutCapacity`), the policy `Trip.checkout` (`CheckoutConfig`: the payment switch, an optional per-person
+`depositCents` + `balanceDueOn`, auto-confirm (null = OFF), window, `AgeBand`s (admission price only), `DiscountCode`s;
+prices stay on the typed questions), bean `checkout` (`CheckoutCommands`), PAY-FIRST: the party rides the `Payment` as a
 `PendingParty` and `PaymentCommands.recordNow` writes it via `finalizeParty`; `ProcessorType.OFFLINE` for checks,
 cash, comps and $0 parties; `pay/Bills` is the one deterministic Bill writer (lodging and checkout).
 `Payment.hasCheckout()` must never become a bean getter (`docs/checkout.md`, "Idempotency"). Tickets and check-in

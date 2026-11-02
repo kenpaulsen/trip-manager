@@ -93,7 +93,8 @@ public class RegistrationsResource extends BaseResource {
             return ok(policy);
         }
         return ok(new org.paulsens.trip.model.CheckoutConfig(policy.getEnabled(), policy.getAutoConfirmPaid(),
-                policy.getOpensAt(), policy.getClosesAt(), policy.getAgeBands(), List.of()));
+                policy.getOpensAt(), policy.getClosesAt(), policy.getAgeBands(), List.of(), policy.getDepositCents(),
+                policy.getBalanceDueOn()));
     }
 
     /**
@@ -442,8 +443,9 @@ public class RegistrationsResource extends BaseResource {
     // ------------------------------------------------------------------ priced checkout (docs/checkout.md)
 
     /**
-     * The live price of a checkout party: each traveler's breakdown and problems, the party's credits, the fee when
-     * the payer pays it, and the total. Writes nothing. The page's totals panel, through the same bean.
+     * The live price of a checkout party: each traveler's breakdown and problems, the party's prices, what is due
+     * now (the prices, or the deposits under a deposit policy) and the balance that leaves, the fee when the payer
+     * pays it, and the charge. Writes nothing. The page's totals panel, through the same bean.
      */
     @POST
     @Path("party/quote")
@@ -457,7 +459,11 @@ public class RegistrationsResource extends BaseResource {
         final Map<String, Object> result = new LinkedHashMap<>();
         result.put("persons", quote.persons());
         result.put("problems", quote.problems());
+        result.put("priceCents", quote.priceCents());
         result.put("creditCents", quote.creditCents());
+        result.put("balanceCents", quote.balanceCents());
+        result.put("depositCents", quote.depositCents());
+        result.put("balanceDueOn", quote.balanceDueOn());
         result.put("feeCents", quote.feeCents());
         result.put("totalCents", quote.totalCents());
         result.put("payable", quote.payable());

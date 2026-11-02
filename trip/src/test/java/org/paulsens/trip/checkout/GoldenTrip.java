@@ -38,9 +38,9 @@ final class GoldenTrip {
                 QuestionType.CHOICE, true, List.of(
                         choice("full", "Full weekend", 15000L),
                         choice("fri", "Fri only", 6000L),
-                        choice("sat", "Sat only", 6000L)), null);
+                        choice("sat", "Sat only", 6000L)));
         final RegistrationOption extras = new RegistrationOption(2, "Extras", "Anything else?", true,
-                QuestionType.MULTI_CHOICE, false, List.of(choice("shirt", "T-shirt", 2000L)), false);
+                QuestionType.MULTI_CHOICE, false, List.of(choice("shirt", "T-shirt", 2000L)));
         final RegistrationOption notes = new RegistrationOption(3, "Dietary needs", "", true);
         final CheckoutConfig checkout = new CheckoutConfig(true, null, null, null, List.of(
                 new AgeBand("Infant (0-3)", 0, 3, concession(Concession.Kind.COMPLIMENTARY, 0, 0L)),

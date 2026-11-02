@@ -27,8 +27,9 @@ import org.paulsens.trip.util.Ages;
  * same, and a golden test can pin every rule.
  *
  * <p>Only SHOWN, priced choice questions take part. The admission choice comes first (its label is the registration
- * type), then add-ons in question order; each priced line is followed by the age-band line that changed it, so a
- * reader of the summary sees which choice a band applied to. A discount code is priced only when the validator would
+ * type), then add-ons in question order. An age band adjusts the ADMISSION price only, never an add-on (a child's
+ * T-shirt costs what a T-shirt costs; a children's meal plan is its own choice at its own price), and its line
+ * follows the admission line it changed. A discount code is priced only when the validator would
  * accept it (apart from its use count, which only the caller can know): an invalid code is a problem to show, never
  * a silent zero discount.
  */
@@ -84,6 +85,11 @@ public final class CheckoutPricing {
         return trip.getRegOptions().stream().filter(CheckoutPricing::isTypeQuestion).findFirst().orElse(null);
     }
 
+    /** Whether {@code question} is the trip's registration-type question: the one the age bands adjust. */
+    public static boolean isAdmissionQuestion(final Trip trip, final RegistrationOption question) {
+        return trip != null && question != null && question == typeQuestion(trip);
+    }
+
     /**
      * Every picked choice the engine prices, admission first: known, offered choices of shown priced questions,
      * each once. An unknown or withdrawn pick is skipped here because the validator refuses it.
@@ -131,7 +137,7 @@ public final class CheckoutPricing {
                 && question.getType() == QuestionType.CHOICE && question.isPriced();
     }
 
-    /** Adds one pick's price line (and its band line) and answers its price after the band. */
+    /** Adds one pick's price line (and, for the admission pick, its band line); answers the price after the band. */
     private static long priceOne(final Pick pick, final AgeBand band, final List<Line> lines) {
         final OptionChoice choice = pick.choice();
         final long price = choice.getPriceCents();
@@ -140,7 +146,7 @@ public final class CheckoutPricing {
             lines.add(new Line(choice.getLabel(), pick.admission() ? LineKind.BASE : LineKind.ADD_ON, price,
                     CHOICE_REF + choice.getId()));
         }
-        if (band == null || !pick.question().isAgeBandsApplyFlag()) {
+        if (band == null || !pick.admission()) {
             return price;
         }
         final long net = band.getConcession().netCents(price, 0);

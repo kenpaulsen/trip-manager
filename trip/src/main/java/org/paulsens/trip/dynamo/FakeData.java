@@ -1290,17 +1290,14 @@ public final class FakeData {
                                 new OptionChoice(CONF_SATURDAY, "Saturday only", 6000L, null, null,
                                         List.of(allDays.get(1)), null),
                                 new OptionChoice(CONF_HOTEL_WEEKEND, "Full weekend (conference hotel guest)", 12000L,
-                                        null, "I am staying at the conference hotel", allDays, null)),
-                        null),
+                                        null, "I am staying at the conference hotel", allDays, null))),
                 new RegistrationOption(CONF_EXTRAS_OPT, "Extras", "Optional add-ons", true,
                         RegistrationOption.QuestionType.MULTI_CHOICE, false, List.of(
-                                new OptionChoice(CONF_TSHIRT, "Conference T-shirt", 2000L, null, null, null, null)),
-                        Boolean.FALSE),
+                                new OptionChoice(CONF_TSHIRT, "Conference T-shirt", 2000L, null, null, null, null))),
                 new RegistrationOption(CONF_SHIRT_SIZE_OPT, "T-shirt size", "Only if you ordered a shirt", true,
                         RegistrationOption.QuestionType.CHOICE, false, List.of(
                                 sizeChoice("s", "Small"), sizeChoice("m", "Medium"),
-                                sizeChoice("l", "Large"), sizeChoice("xl", "X-Large")),
-                        null),
+                                sizeChoice("l", "Large"), sizeChoice("xl", "X-Large"))),
                 new RegistrationOption(CONF_DIETARY_OPT, "Dietary needs", "Allergies or restrictions", true));
         final List<TripEvent> events = new ArrayList<>();
         events.add(agendaEvent(1, "Opening session", day1.atTime(9, 0), "Fr. Demo Director", "Main Hall", null));
@@ -1351,7 +1348,7 @@ public final class FakeData {
                 new org.paulsens.trip.model.DiscountCode("EARLY10", "Early registration",
                         new org.paulsens.trip.model.Concession(org.paulsens.trip.model.Concession.Kind.PERCENT,
                                 1000, 0L, null, null, null), null, null, null, null));
-        return new org.paulsens.trip.model.CheckoutConfig(Boolean.TRUE, null, null, null, bands, codes);
+        return new org.paulsens.trip.model.CheckoutConfig(Boolean.TRUE, Boolean.TRUE, null, null, bands, codes);
     }
 
     /** One EVENT on the conference agenda, its presenter, room and track stored as the event dialog stores them. */

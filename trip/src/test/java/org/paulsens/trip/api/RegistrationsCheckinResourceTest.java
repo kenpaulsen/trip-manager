@@ -57,7 +57,7 @@ public class RegistrationsCheckinResourceTest extends ResourceTestSupport {
         bind(AuditCommands.class, new AuditCommands());
         final RegistrationOption admission = new RegistrationOption(1, "Admission", "", true,
                 RegistrationOption.QuestionType.CHOICE, true, List.of(
-                        new OptionChoice("full", "Full weekend", 150_00, null, null, List.of(), null)), null);
+                        new OptionChoice("full", "Full weekend", 150_00, null, null, List.of(), null)));
         trip = Trip.builder().id(UUID.randomUUID().toString()).title("API Conference")
                 .startDate(LocalDateTime.now().plusDays(3)).endDate(LocalDateTime.now().plusDays(5))
                 .regOptions(new ArrayList<>(List.of(admission))).people(new ArrayList<>()).build();

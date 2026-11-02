@@ -614,8 +614,8 @@ public class RegistrationsResourceTest extends ResourceTestSupport {
     }
 
     private static org.paulsens.trip.action.CheckoutCommands.Quote quoteOf(final long totalCents) {
-        return new org.paulsens.trip.action.CheckoutCommands.Quote(List.of(), List.of(), totalCents, 0L, totalCents,
-                true);
+        return new org.paulsens.trip.action.CheckoutCommands.Quote(List.of(), List.of(), totalCents, totalCents, 0L,
+                totalCents, true, null, null);
     }
 
     @Test
@@ -656,6 +656,9 @@ public class RegistrationsResourceTest extends ResourceTestSupport {
         @SuppressWarnings("unchecked")
         final Map<String, Object> body = (Map<String, Object>) response.getEntity();
         Assert.assertEquals(body.get("totalCents"), 15000L);
+        Assert.assertEquals(body.get("priceCents"), 15000L);
+        Assert.assertEquals(body.get("balanceCents"), 0L, "no deposit: nothing left to pay");
+        Assert.assertNull(body.get("depositCents"));
         Assert.assertEquals(body.get("ready"), Boolean.TRUE);
 
         final ArgumentCaptor<org.paulsens.trip.model.RegistrationDraft> draft =

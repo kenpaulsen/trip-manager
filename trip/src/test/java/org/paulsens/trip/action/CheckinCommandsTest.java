@@ -52,11 +52,10 @@ public class CheckinCommandsTest {
                 RegistrationOption.QuestionType.CHOICE, true, List.of(
                         new OptionChoice("full", "Full weekend", 150_00, null, null, List.of(), null),
                         new OptionChoice("fri", "Friday only", 60_00, null, null, List.of("2027-03-12"), null),
-                        new OptionChoice("sat", "Saturday only", 60_00, null, null, List.of("2027-03-13"), null)),
-                null);
+                        new OptionChoice("sat", "Saturday only", 60_00, null, null, List.of("2027-03-13"), null)));
         final RegistrationOption shirt = new RegistrationOption(2, "Shirt", "", true,
                 RegistrationOption.QuestionType.CHOICE, false, List.of(new OptionChoice("m", "Medium", 0, null, null,
-                        null, null)), null);
+                        null, null)));
         final RegistrationOption diet = new RegistrationOption(3, "Diet", "", true);
         final RegistrationOption hidden = new RegistrationOption(4, "Staff note", "", false);
         final Trip trip = Trip.builder().id(UUID.randomUUID().toString()).title("Check-in Conference")

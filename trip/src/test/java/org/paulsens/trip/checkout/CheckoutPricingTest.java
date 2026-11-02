@@ -70,8 +70,28 @@ public class CheckoutPricingTest {
         assertEquals(price.getTotalCents(), 2000L);
         assertEquals(price.getLines(), List.of(FULL,
                 new Line("Infant (0-3) complimentary", LineKind.AGE_BAND, -15000L, "band:0-3"), SHIRT),
-                "each band line follows the choice it changed; the shirt's question opts out of bands");
+                "the band line follows the admission it changed; a band never touches an add-on");
         assertEquals(price.getInputs().getChoiceIds(), List.of("full", "shirt"));
+    }
+
+    /** The band rule names the ADMISSION only: a second priced pick-one question (a dinner) is never adjusted. */
+    @Test
+    public void aBandNeverAdjustsASecondPricedQuestion() {
+        final Trip trip = trip();
+        final RegistrationOption dinner = new RegistrationOption(4, "Dinner", "", true, QuestionType.CHOICE, false,
+                List.of(GoldenTrip.choice("gala", "Gala dinner", 3000L)));
+        trip.setRegOptions(List.of(trip.getRegOptions().get(0), trip.getRegOptions().get(1), dinner));
+        final Map<String, String> answers = new java.util.HashMap<>(answers("full", "shirt"));
+        answers.put("4", "gala");
+        final PriceBreakdown price = CheckoutPricing.price(trip, INFANT_2, answers, null, BEFORE);
+        assertEquals(price.getTotalCents(), 5000L, "free admission; the shirt and the dinner cost what they cost");
+        assertEquals(price.getLines(), List.of(FULL,
+                new Line("Infant (0-3) complimentary", LineKind.AGE_BAND, -15000L, "band:0-3"), SHIRT,
+                new Line("Gala dinner", LineKind.ADD_ON, 3000L, "choice:gala")));
+        assertEquals(CheckoutPricing.isAdmissionQuestion(trip, trip.getRegOptions().get(0)), true);
+        assertEquals(CheckoutPricing.isAdmissionQuestion(trip, dinner), false);
+        assertEquals(CheckoutPricing.isAdmissionQuestion(null, dinner), false);
+        assertEquals(CheckoutPricing.isAdmissionQuestion(trip, null), false);
     }
 
     @Test

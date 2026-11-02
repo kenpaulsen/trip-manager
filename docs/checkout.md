@@ -10,9 +10,12 @@ and pays in one step. It is an option of EVERY trip (`Trip.checkout.enabled`), n
 
 Prices live on the trip's TYPED registration questions (`OptionChoice.priceCents`): "Full weekend / Friday only" is a
 required pick-one question, a T-shirt is a pick-any add-on. The trip's `CheckoutConfig` holds only the POLICY that
-applies across them: on/off, auto-confirm, the registration window, age bands and discount codes. Age bands and codes
-reuse lodging's `Concession` for their adjustment (COMPLIMENTARY, FIXED_PRICE "at most $X", PERCENT, TOTAL). Checkout
-is **pay-first**: nothing is registered until the money is recorded. The party's rows ride on the `Payment` as a
+applies across them: whether registration requires payment, what is due at registration (the full price, or a
+per-person DEPOSIT with an optional balance due date), auto-confirm (default OFF since 2026-11-02), the registration
+window, age bands and discount codes. Age bands and codes reuse lodging's `Concession` for their adjustment
+(COMPLIMENTARY, FIXED_PRICE "at most $X", PERCENT, TOTAL); an age band adjusts the ADMISSION price only, never an
+add-on (the per-question `ageBandsApply` opt-out was retired on 2026-11-02 as too fiddly; a stored flag is ignored).
+Checkout is **pay-first**: nothing is registered until the money is recorded. The party's rows ride on the `Payment` as a
 `PendingParty` and are written by the one completion path every payment already has, so the return page, Stripe's
 webhook and an admin's Finish all register a party the same way. One concept each: questions, answers, payments,
 Bills and the confirmation path are the existing ones, extended.
@@ -24,9 +27,10 @@ Bills and the confirmation path are the existing ones, extended.
 1. **BASE**: the pick of the TYPE question, the first shown, required, pick-one question with a priced choice. Its
    label is the person's registration type. A $0 admission pick still gets its line, so it still names the type.
 2. **ADD_ON**: every other picked priced choice, in question order. A $0 add-on gets no line.
-3. **AGE_BAND**: right after the choice it changed, when the person's age on the trip's first day
-   (`util/Ages.ageAt`) falls in a band and the choice's question lets bands apply (`ageBandsApply`, off for a
-   T-shirt). No birthdate: no band, and one NOTE line "No birthdate on file: priced as adult".
+3. **AGE_BAND**: right after the admission line, when the person's age on the trip's first day (`util/Ages.ageAt`)
+   falls in a band. Only the admission pick is ever adjusted (`CheckoutPricing.isAdmissionQuestion`); a child's
+   T-shirt costs what a T-shirt costs, and a children's dinner is its own choice at its own price. No birthdate:
+   no band, and one NOTE line "No birthdate on file: priced as adult".
 4. **DISCOUNT_CODE**: when the code is valid, its concession on the after-age subtotal of the choices it applies to.
 5. **FLOOR**: a backstop to $0 (every concession already clamps, so it does not fire today).
 
@@ -38,6 +42,14 @@ five uses) and EARLY10 (10% off until January 31). An adult's full weekend is $1
 
 `PriceBreakdown.summary()` is written into the person's Bill, which the ledger compares byte-for-byte on every
 re-record: its wording is pinned by tests.
+
+**Deposits** (2026-11-02) change what is CHARGED, never what is priced: `CheckoutConfig.dueNowCents(price)` is the
+person's price capped at `depositCents` (null = the full price). `CheckoutCommands.prepare` carries both the full
+prices (`allocations`, the Bills, the most an offline payment may record) and the due-now amounts
+(`dueAllocations`, what the processor charges, with the payer-pays fee computed on them). The Bill is always the
+full price, so the remainder is simply the person's trip balance, paid later from the trip's Pay page: the same
+shape a partial offline payment always had. `balanceDueOn` is shown to registrants (the totals panel, the result
+panel, the confirmation mail's status note) and never enforced.
 
 `CheckoutValidator.problems` refuses: the window closed (`opensAt`/`closesAt`, or the trip started); a shown required
 question unanswered; a pick naming an unknown or withdrawn choice; a picked choice whose attestation was not ticked;
@@ -52,14 +64,15 @@ problem's message is a whole sentence, because pages put it in a growl summary.
   the payer pays it (the payment page's fee rule, `MoneyMath.creditFeeCents`).
 - `start(trip, draft, party, payerId, sandbox, pageUrl)`: records waiver agreements first (consent stands even if
   the payment is abandoned, as in party registration), re-validates with the start-only checks (who may register whom,
-  already registered, waivers, capacity), builds the pending rows (status CONFIRMED when `autoConfirmPaid`, the
-  default, else PENDING; answers; the party stamp; the parked chat digest answer; attestations with the TEXT ticked;
+  already registered, waivers, capacity), builds the pending rows (status CONFIRMED when `autoConfirmPaid` is
+  TRUE, else PENDING, the default; answers; the party stamp; the parked chat digest answer; attestations with the TEXT ticked;
   breakdown; ticket for a CONFIRMED row) and the payment through `PaymentCommands.newPayment` and `startPrepared`,
   the same code the payment page uses. It answers a redirect (`approvalUrl`) or an inline start (Stripe's Payment
   Element, `clientSecret`); a party that owes nothing is recorded at once as an OFFLINE "FREE" payment.
 - `recordOffline(...)`: registration admins only. CHECK, CASH, COMP or OTHER, with a reference, the amount and the
-  date. The amount must equal the total unless "partial" (the Bills still bill full prices and each balance shows the
-  rest); COMP is always the full total. It records through `PaymentCommands.recordOffline`, the same completion path.
+  date. The amount must equal what is due at registration (the prices, or the deposits) unless "partial", which admits
+  any amount up to the full prices (the Bills still bill full prices and each balance shows the rest); COMP is always
+  the full total. It records through `PaymentCommands.recordOffline`, the same completion path.
 - `finalizeParty(payment, trip)`, called by `PaymentCommands.recordNow` right after the ledger write and before the
   RECORDED transition, inside the same guarded step: writes each pending row not already there, joins the person to
   the trip's org, puts CONFIRMED people on the roster (one trip save) and runs `RegistrationCommands.afterConfirmed`
@@ -89,11 +102,20 @@ problem's message is a whole sentence, because pages put it in a growl summary.
   caller, so a family manager acting for a member pays as themselves.
 - Registration admins get "Record offline payment" (method, reference, amount, date received, partial) and may
   open the Registrations tab's `?id=` links on a priced trip (the page's gate becomes `registrationAdmin` there).
-- The trip editor's Registration Options dialog has a Pricing fieldset: on/off, auto-confirm, the window, and the
-  age-band and code tables, whose rows are removed by identity (`rowKey`). Done refuses an inconsistent policy and
-  stays open, and `TripCommands.saveTrip` refuses it again on every save path (the dialog's X skips Done).
-  Nothing persists until the trip page's Save.
-- `admin/tripRegistrations.xhtml` adds Type and Paid columns and a details dialog with the stored breakdown;
+- The trip editor has TWO dialogs side by side on its property sheet (2026-11-02): Registration Options
+  (`WEB-INF/regOptionsDialog.xhtml`, the questions and their choices' prices) and Registration Pricing
+  (`WEB-INF/tripPricingDialog.xhtml`, the policy: the "Registration requires payment" switch, Full amount or Deposit
+  per person with the balance due date, auto-confirm, the window, and the age-band and code tables in fieldsets
+  collapsed while empty, rows removed by identity (`rowKey`)). Both `fitViewport`, so a short window scrolls the
+  content instead of hiding the footer, and the pricing dialog is one 760px column (two inputs stacked per code
+  cell) so it never scrolls sideways. Beside the pricing link the sheet shows `checkout.policySummary` ("on: deposit
+  $200.00 per person, approval required, 2 age bands"). Done refuses an inconsistent policy and stays open, and
+  `TripCommands.saveTrip` refuses it again on every save path (the dialog's X skips Done). Nothing persists until
+  the trip page's Save. The deposit radio sits above the amount field because JSF decodes in tree order:
+  `setDueMode` runs first and `setDepositDollars` ignores an amount while the radio says Full amount.
+- `admin/tripRegistrations.xhtml` adds Type and Price columns (the stored price, what the Bill says; a deposit
+  charges less, and the balance shows on check-in and the person's transactions) and a details dialog with the
+  stored breakdown;
   `admin/payments.xhtml` adds a Checkout column (`intentSummary`). An abandoned processor checkout is the only
   place an unpaid party is ever visible; an offline payment is RECORDED at once and never appears there.
 - EL reads record COMPONENTS only: on `Quote` call `getTotal()`, `getFee()` and `isFree()` as methods.
@@ -116,9 +138,11 @@ problem's message is a whole sentence, because pages put it in a growl summary.
 
 ## REST
 
-`GET /api/trips/{id}/registrations/pricing` answers the policy to any signed-in caller, with the discount codes only
-for the trip's staff (a code is a secret its holders were given). `PUT` replaces it, trip managers only, refusing a
-policy with problems. Prices are the trip's typed questions on the trips API.
+`GET /api/trips/{id}/registrations/pricing` answers the policy (including `depositCents` and `balanceDueOn`) to any
+signed-in caller, with the discount codes only for the trip's staff (a code is a secret its holders were given).
+`PUT` replaces it, trip managers only, refusing a policy with problems. Prices are the trip's typed questions on the
+trips API. The quote answers `priceCents`, `creditCents` (due now), `balanceCents`, `depositCents` and
+`balanceDueOn` beside the fee and the total.
 
 The checkout itself is `POST .../registrations/party/quote`, `.../party/checkout` and `.../party/offline`
 (`docs/api-contract.md`, "Priced checkout"), one `CheckoutRequest` body for all three. Each turns the request into
@@ -146,4 +170,5 @@ idempotent return; the PENDING policy; free and offline payments; sandbox; every
 RECORDED repair), additions to `PaymentMailerTest`, `RegistrationsResourceTest` (pricing, and the three checkout endpoints through
 mocked beans) and `PaymentProcessorsTest`; the pay-first guards in `ConferenceFoundationsTest`; the page helpers in `CheckoutViewsTest`. Browser tests
 (`../medjugorje/webtest`): `CheckoutPagePwIT`, `CheckoutFreePwIT`, `CheckoutOfflinePwIT`, `CheckoutInlinePwIT`,
-`CheckoutConfigDialogPwIT`, built on `WebFixtures.pricing(tripId, json)`.
+`CheckoutConfigDialogPwIT` (the pricing dialog, incl. the short-window and no-sideways-scroll checks), built on
+`WebFixtures.pricing(tripId, json)`; `CheckoutOfflinePwIT.aDepositPolicyChargesTheDepositNowAndBillsTheRest`.

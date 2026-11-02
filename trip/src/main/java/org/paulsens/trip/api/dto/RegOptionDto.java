@@ -10,15 +10,15 @@ import java.util.List;
  *
  * <p>Typed questions (2026-11): {@code type} is {@code TEXT} (the default, and what every older question reads
  * as), {@code CHOICE}, {@code MULTI_CHOICE} or {@code YES_NO}; {@code choices} lists what a choice question
- * offers; {@code required} null is optional; {@code ageBandsApply} null means the trip's age bands adjust this
- * question's prices. See {@code docs/checkout.md}.
+ * offers; {@code required} null is optional. The trip's age bands adjust the admission question's prices only
+ * (the first shown, required, priced pick-one question). See {@code docs/checkout.md}.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record RegOptionDto(Integer id, String shortDesc, String longDesc, Boolean show, String type,
-        Boolean required, List<RegChoiceDto> choices, Boolean ageBandsApply) {
+        Boolean required, List<RegChoiceDto> choices) {
 
     /** A free-text question: the shape before typed questions existed. */
     public RegOptionDto(final Integer id, final String shortDesc, final String longDesc, final Boolean show) {
-        this(id, shortDesc, longDesc, show, null, null, null, null);
+        this(id, shortDesc, longDesc, show, null, null, null);
     }
 }

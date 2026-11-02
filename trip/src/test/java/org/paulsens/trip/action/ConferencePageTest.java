@@ -216,9 +216,9 @@ public class ConferencePageTest {
                 RegistrationOption.QuestionType.CHOICE, true, List.of(
                         new OptionChoice("full", "Full weekend", 15000L, null, null, null, null),
                         new OptionChoice("kids", "Children", 0L, null, null, null, null),
-                        new OptionChoice("gone", "Withdrawn", 999L, null, null, null, Boolean.FALSE)), null),
+                        new OptionChoice("gone", "Withdrawn", 999L, null, null, null, Boolean.FALSE))),
                 new RegistrationOption(2, "Hidden", "", false, RegistrationOption.QuestionType.CHOICE, false,
-                        List.of(new OptionChoice("x", "Secret", 100L, null, null, null, null)), null)));
+                        List.of(new OptionChoice("x", "Secret", 100L, null, null, null, null)))));
         assertTrue(dao.saveTrip(trip));
         register(trip, Registration.Status.CONFIRMED);
         register(trip, Registration.Status.PENDING);

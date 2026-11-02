@@ -137,6 +137,87 @@ public class CheckoutCommandsTest {
                 .contains(person.getId()), "the roster waits for the approval");
     }
 
+    /**
+     * A deposit policy (docs/checkout.md): the processor charges each person's price capped at the deposit, the
+     * Bills still bill the full prices, so the rest shows on each balance; an offline payment must match the
+     * deposits unless partial, which admits anything up to the prices.
+     */
+    @Test
+    public void aDepositPolicyChargesTheDepositsNowAndBillsTheFullPrices() throws IOException {
+        final Trip trip = pricedTrip(true, 5000L, LocalDate.of(2027, 3, 1));
+        final Person parent = savedPerson(LocalDate.of(1980, 1, 1));
+        final Person infant = savedPerson(trip.getStartDate().toLocalDate().minusYears(2));
+        manage(parent, infant);
+        final RegistrationDraft draft = new RegistrationDraft();
+        pick(draft, parent, "full", "shirt");
+        pick(draft, infant, "full", "shirt");
+        final Flow flow = flowFor(parent, false);
+
+        final CheckoutCommands.Quote quote = flow.checkout.quote(trip, draft, List.of(parent, infant));
+        assertTrue(quote.isReady(), quote.toString());
+        assertEquals(quote.priceCents(), 19000L, "adult 150 + shirt 20; infant free + shirt 20");
+        assertEquals(quote.creditCents(), 7000L, "the adult's $50 deposit; the infant's $20 is below it");
+        assertEquals(quote.balanceCents(), 12000L);
+        assertTrue(quote.isDeposit());
+        assertEquals(quote.getDeposit(), "$50.00");
+        assertEquals(quote.getPrice(), "$190.00");
+        assertEquals(quote.getDueNow(), "$70.00");
+        assertEquals(quote.getBalance(), "$120.00");
+        assertEquals(quote.getBalanceDue(), "March 1, 2027");
+        assertEquals(quote.totalCents(), quote.creditCents() + quote.feeCents(), "the fee is on what is charged");
+
+        final CheckoutCommands.Started started = flow.checkout.start(trip, draft, List.of(parent, infant),
+                parent.getId(), false, "http://localhost/trip/joinTrip.jsf");
+        final String paymentId = started.start().getPaymentId();
+        final Payment open = DAO.getInstance().getPayment(paymentId).orElseThrow();
+        assertEquals(open.getAllocations().stream().mapToLong(Payment.Allocation::getAmountCents).sum(), 7000L);
+        assertEquals(open.getTotalChargedCents(), 7000L + open.getCreditFeeCents());
+        assertEquals(flow.payments.completePayment(paymentId, null).getStatus(), "recorded");
+        assertEquals(registration(trip, parent).getPriceBreakdown().getTotalCents(), 17000L, "the price stays");
+        assertEquals(txCmds.getBalance(parent.getId()), -120.0, "billed $170, paid the $50 deposit");
+        assertEquals(txCmds.getBalance(infant.getId()), 0.0, "billed $20, paid $20");
+        assertTrue(flow.checkout.intentSummary(open).startsWith("2 people, $190.00"), "the summary names the prices");
+
+        // Offline under a deposit policy: the deposits, or any amount up to the prices with Partial.
+        final Person admin = savedPerson(LocalDate.of(1970, 1, 1));
+        final Person attendee = savedPerson(LocalDate.of(1985, 1, 1));
+        final Flow adminFlow = flowFor(admin, true);
+        final RegistrationDraft offline = new RegistrationDraft();
+        pick(offline, attendee, "full", null);
+        assertNull(adminFlow.checkout.recordOffline(trip, offline, List.of(attendee), attendee.getId(), "CHECK",
+                "7", 150.0, null, false), "the full price is not the deposit: needs Partial");
+        assertNull(adminFlow.checkout.recordOffline(trip, offline, List.of(attendee), attendee.getId(), "CHECK",
+                "7", 160.0, null, true), "never more than the price");
+        assertEquals(adminFlow.checkout.recordOffline(trip, offline, List.of(attendee), attendee.getId(), "CHECK",
+                "7", 150.0, null, true).getStatus(), "recorded");
+        assertEquals(txCmds.getBalance(attendee.getId()), 0.0, "a check for the whole price settles it");
+        final Person other = savedPerson(LocalDate.of(1986, 1, 1));
+        final RegistrationDraft deposit = new RegistrationDraft();
+        pick(deposit, other, "full", null);
+        assertEquals(adminFlow.checkout.recordOffline(trip, deposit, List.of(other), other.getId(), "CASH", null,
+                50.0, null, false).getStatus(), "recorded");
+        assertEquals(txCmds.getBalance(other.getId()), -100.0, "the deposit in cash, $100 left");
+    }
+
+    /** The trip editor's property-sheet summary and the "no processor" warning. */
+    @Test
+    public void thePolicySummaryNamesWhatTheEditorChose() throws IOException {
+        final Flow flow = flowFor(savedPerson(LocalDate.of(1980, 1, 1)), false);
+        assertEquals(flow.checkout.policySummary(null), "off");
+        final Trip off = Trip.builder().title("Plain").build();
+        assertEquals(flow.checkout.policySummary(off), "off");
+        assertEquals(flow.checkout.policySummary(pricedTrip(false)),
+                "on: full payment, approval required, 2 age bands, 1 discount code");
+        final Trip deposit = pricedTrip(true, 20000L, null);
+        assertEquals(flow.checkout.policySummary(deposit),
+                "on: deposit $200.00 per person, auto-confirmed, 2 age bands, 1 discount code");
+        deposit.getCheckout().getAgeBands().clear();
+        deposit.getCheckout().getCodes().clear();
+        assertEquals(flow.checkout.policySummary(deposit), "on: deposit $200.00 per person, auto-confirmed");
+        assertTrue(flow.checkout.isPayable(deposit), "CFPW's seeded default processor");
+        assertFalse(flow.checkout.isPayable(null));
+    }
+
     // ------------------------------------------------------------------ free and offline
 
     @Test
@@ -339,20 +420,25 @@ public class CheckoutCommandsTest {
 
     /** A conference: Full weekend $150 / Friday $60 / hotel weekend $120 (attested), a $20 shirt add-on. */
     private static Trip pricedTrip(final boolean autoConfirm) throws IOException {
+        return pricedTrip(autoConfirm, null, null);
+    }
+
+    private static Trip pricedTrip(final boolean autoConfirm, final Long depositCents, final LocalDate balanceDueOn)
+            throws IOException {
         final RegistrationOption admission = new RegistrationOption(Integer.parseInt(ADMISSION), "Admission", "",
                 true, RegistrationOption.QuestionType.CHOICE, true, List.of(
                         new OptionChoice("full", "Full weekend", 15000L, null, null, null, null),
                         new OptionChoice("fri", "Friday only", 6000L, null, null, null, null),
                         new OptionChoice("hotel", "Hotel weekend", 12000L, null, "I am staying at the hotel", null,
-                                null)), null);
+                                null)));
         final RegistrationOption extras = new RegistrationOption(Integer.parseInt(EXTRAS), "Extras", "", true,
                 RegistrationOption.QuestionType.MULTI_CHOICE, false,
-                List.of(new OptionChoice("shirt", "T-shirt", 2000L, null, null, null, null)), Boolean.FALSE);
-        final CheckoutConfig policy = new CheckoutConfig(Boolean.TRUE, autoConfirm ? null : Boolean.FALSE, null, null,
+                List.of(new OptionChoice("shirt", "T-shirt", 2000L, null, null, null, null)));
+        final CheckoutConfig policy = new CheckoutConfig(Boolean.TRUE, autoConfirm ? Boolean.TRUE : null, null, null,
                 List.of(new AgeBand("Infant (0-3)", 0, 3, concession(Concession.Kind.COMPLIMENTARY, 0L)),
                         new AgeBand("Child (4-10)", 4, 10, concession(Concession.Kind.FIXED_PRICE, 5000L))),
                 List.of(new DiscountCode("SPEAKER", null, concession(Concession.Kind.FIXED_PRICE, 0L), null,
-                        List.of("full"), null, 5)));
+                        List.of("full"), null, 5)), depositCents, balanceDueOn);
         final Trip trip = Trip.builder().title("Checkout " + RandomData.genAlpha(6)).kind(TripKind.CONFERENCE)
                 .orgId(FakeData.CFPW_ORG_ID).startDate(LocalDateTime.now().plusDays(40))
                 .endDate(LocalDateTime.now().plusDays(42)).regOptions(List.of(admission, extras)).checkout(policy)

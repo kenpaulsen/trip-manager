@@ -860,7 +860,7 @@ public class TripsResource extends BaseResource {
         for (final RegOptionDto dto : body.regOptions()) {
             final int id = dto.id() != null ? dto.id() : options.size();
             options.add(new RegistrationOption(id, dto.shortDesc(), dto.longDesc(), dto.show(),
-                    parseQuestionType(dto.type()), dto.required(), choicesOf(dto.choices()), dto.ageBandsApply()));
+                    parseQuestionType(dto.type()), dto.required(), choicesOf(dto.choices())));
         }
         trip.setRegOptions(options);
     }

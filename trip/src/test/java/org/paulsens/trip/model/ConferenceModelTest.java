@@ -118,7 +118,6 @@ public class ConferenceModelTest {
                 "{\"id\":3,\"shortDesc\":\"Diet\",\"longDesc\":\"\",\"show\":true}", RegistrationOption.class);
         assertEquals(legacy.getType(), RegistrationOption.QuestionType.TEXT);
         assertFalse(legacy.isRequiredFlag());
-        assertTrue(legacy.isAgeBandsApplyFlag());
         assertTrue(legacy.getChoices().isEmpty());
         assertFalse(legacy.isChoiceType());
         assertFalse(legacy.isPriced());
@@ -154,14 +153,13 @@ public class ConferenceModelTest {
         final RegistrationOption extras = new RegistrationOption(2, "Extras", "", true,
                 RegistrationOption.QuestionType.MULTI_CHOICE, null,
                 List.of(new OptionChoice("shirt", "T-shirt", 2000L, null, null, null, null),
-                        new OptionChoice("meal", "Dinner", 0L, null, null, null, Boolean.FALSE)), Boolean.FALSE);
+                        new OptionChoice("meal", "Dinner", 0L, null, null, null, Boolean.FALSE)));
         assertEquals(extras.choiceIdsOf("shirt, meal"), List.of("shirt", "meal"));
         assertEquals(extras.displayOf("shirt,meal"), "T-shirt, Dinner");
         assertEquals(extras.getOfferedChoices().size(), 1, "a withdrawn choice is never offered");
-        assertFalse(extras.isAgeBandsApplyFlag());
 
         final RegistrationOption yesNo = new RegistrationOption(5, "Photos ok?", "", true,
-                RegistrationOption.QuestionType.YES_NO, true, null, null);
+                RegistrationOption.QuestionType.YES_NO, true, null);
         assertEquals(yesNo.displayOf(RegistrationOption.YES), "Yes");
         assertTrue(yesNo.isAnswered(RegistrationOption.NO));
         assertEquals(yesNo.choiceIdsOf("Yes"), List.of(), "only choice questions name choices");
@@ -178,10 +176,6 @@ public class ConferenceModelTest {
         assertEquals(question.getRequired(), Boolean.TRUE);
         question.setRequiredFlag(false);
         assertNull(question.getRequired());
-        question.setAgeBandsApplyFlag(false);
-        assertEquals(question.getAgeBandsApply(), Boolean.FALSE);
-        question.setAgeBandsApplyFlag(true);
-        assertNull(question.getAgeBandsApply());
         final OptionChoice added = question.addChoice();
         assertEquals(question.getChoices(), List.of(added));
         assertTrue(question.removeChoice(added.getId()));
@@ -295,7 +289,7 @@ public class ConferenceModelTest {
     private static RegistrationOption admission() {
         return new RegistrationOption(1, "Admission", "Which days?", true, RegistrationOption.QuestionType.CHOICE,
                 true, List.of(new OptionChoice("full", "Full weekend", 15000L, 100, null,
-                        List.of("2027-03-05", "2027-03-06"), null)), null);
+                        List.of("2027-03-05", "2027-03-06"), null)));
     }
 
     private static PriceBreakdown breakdown() {

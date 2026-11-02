@@ -33,7 +33,9 @@ public class CheckoutModelsTest {
     public void aTripStoredBeforeCheckoutHasItOff() throws Exception {
         final Trip legacy = MAPPER.readValue("{\"id\":\"t\",\"title\":\"Old\"}", Trip.class);
         assertFalse(legacy.getCheckout().isOn());
-        assertTrue(legacy.getCheckout().isConfirmPaid(), "auto-confirm defaults on");
+        assertFalse(legacy.getCheckout().isConfirmPaid(), "auto-confirm defaults OFF: a paid registration waits");
+        assertFalse(legacy.getCheckout().isDeposit(), "the full price is due");
+        assertEquals(legacy.getCheckout().dueNowCents(15000L), 15000L);
         assertSame(legacy.getCheckout(), legacy.getCheckout(), "lazy, then kept: the editor binds into it");
     }
 
@@ -46,11 +48,45 @@ public class CheckoutModelsTest {
         assertNull(policy.getEnabled());
         policy.setOn(true);
         assertEquals(policy.getEnabled(), Boolean.TRUE);
-        policy.setConfirmPaid(false);
-        assertEquals(policy.getAutoConfirmPaid(), Boolean.FALSE);
         policy.setConfirmPaid(true);
+        assertEquals(policy.getAutoConfirmPaid(), Boolean.TRUE);
+        policy.setConfirmPaid(false);
         assertNull(policy.getAutoConfirmPaid());
         assertTrue(new CheckoutConfig().getAgeBands().isEmpty());
+    }
+
+    /** A deposit policy: what is due now is capped per person, and the editor's radio drives the amount field. */
+    @Test
+    public void aDepositPolicyCapsWhatIsDueAndTheEditorRadioDrivesIt() throws Exception {
+        final CheckoutConfig policy = policy();
+        assertEquals(policy.getDueMode(), CheckoutConfig.DUE_FULL);
+        policy.setDepositDollars(99.0);
+        assertNull(policy.getDepositCents(), "an amount is ignored while the radio says full");
+        policy.setDueMode(CheckoutConfig.DUE_DEPOSIT);
+        assertTrue(policy.isDeposit());
+        assertEquals(policy.getDepositCents(), Long.valueOf(0L), "starts at $0, which problems() refuses");
+        assertTrue(policy.problems().stream().anyMatch(p -> p.contains("deposit must be more than $0.00")));
+        policy.setDepositDollars(50.0);
+        assertEquals(policy.getDepositCents(), Long.valueOf(5000L));
+        assertEquals(policy.getDepositDollars(), 50.0);
+        assertTrue(policy.problems().isEmpty(), policy.problems().toString());
+        assertEquals(policy.dueNowCents(15000L), 5000L, "capped at the deposit");
+        assertEquals(policy.dueNowCents(2000L), 2000L, "a price below the deposit is paid in full");
+        assertEquals(policy.dueNowCents(0L), 0L);
+        policy.setBalanceDueOn(NOW.toLocalDate().minusMonths(2));
+        assertTrue(policy.problems().stream().anyMatch(p -> p.contains("before registration opens")));
+        policy.setBalanceDueOn(NOW.toLocalDate().plusMonths(2));
+        assertTrue(policy.problems().isEmpty());
+        final CheckoutConfig back = MAPPER.readValue(MAPPER.writeValueAsString(policy), CheckoutConfig.class);
+        assertEquals(back, policy);
+        assertEquals(back.getBalanceDueOn(), NOW.toLocalDate().plusMonths(2));
+        policy.setDueMode(CheckoutConfig.DUE_FULL);
+        assertNull(policy.getDepositCents());
+        assertNull(policy.getBalanceDueOn(), "the due date goes with the deposit");
+        assertNull(policy.getDepositDollars());
+        policy.setDueMode(CheckoutConfig.DUE_DEPOSIT);
+        policy.setDepositDollars(-5.0);
+        assertEquals(policy.getDepositCents(), Long.valueOf(0L), "never negative");
     }
 
     @Test

@@ -297,13 +297,13 @@ public class CheckoutViewsTest {
         return new RegistrationOption(1, "Admission", "", true, RegistrationOption.QuestionType.CHOICE, true,
                 List.of(new OptionChoice("full", "Full weekend", 15000L, null, null, null, null),
                         new OptionChoice("hotel", "Hotel weekend", 12000L, null, "I am staying at the hotel", null,
-                                null)), null);
+                                null)));
     }
 
     private static RegistrationOption extras() {
         return new RegistrationOption(2, "Extras", "", true, RegistrationOption.QuestionType.MULTI_CHOICE, false,
                 List.of(new OptionChoice("shirt", "T-shirt", 2000L, null, null, null, null),
-                        new OptionChoice("vow", "Free vow", 0L, null, "I promise", null, null)), Boolean.FALSE);
+                        new OptionChoice("vow", "Free vow", 0L, null, "I promise", null, null)));
     }
 
     private static Trip trip() {

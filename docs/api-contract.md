@@ -110,8 +110,10 @@ ever un-registered by a document.
 A trip whose `GET .../registrations/pricing` answers `enabled: true` registers new people ONLY through checkout:
 the party POST above refuses them `CHECKOUT_REQUIRED` (per traveler, like the others), and a traveler's `PUT` or
 party edit keeps their stored answer to every PRICED question (what they paid for; staff may change it). Prices
-are the trip's typed questions (`regOptions[].choices[].priceCents`); the policy (window, age bands, codes for
-staff only) is `GET .../pricing`, replaced by `PUT .../pricing` (trip managers).
+are the trip's typed questions (`regOptions[].choices[].priceCents`); the policy (`enabled`, `autoConfirmPaid`
+(null = off), `opensAt`/`closesAt`, `depositCents`/`balanceDueOn` (null = the full price), `ageBands`, `codes` for
+staff only) is `GET .../pricing`, replaced by `PUT .../pricing` (trip managers). Age bands adjust the admission
+question only; a `regOptions[].ageBandsApply` sent by an older client is ignored.
 
 All three take one body, `{payerId?, travelers:[{personId, options{"<optId>":"choiceId|text"}, code?,
 attested?:["choiceId"], dailyDigest?, waivers?:[...]}], sandbox?, returnUrl?, offline?, client?}`. Every traveler
@@ -120,9 +122,12 @@ the person's age band); 409 `CONFLICT` when the trip does not use checkout; 400 
 duplicate `personId`.
 
 - `POST .../registrations/party/quote` → `{persons:[{personId, name, breakdown{inputs, lines[{label, kind,
-  deltaCents}], totalCents, registrationType}, problems[]}], problems[], creditCents, feeCents, totalCents,
-  payable, ready}`. Writes nothing; call it on every change. `feeCents` is non-zero only when the payer pays the
-  processor fee. Each problem is `{code, personId, ref, message}`, the message a whole sentence.
+  deltaCents}], totalCents, registrationType}, problems[]}], problems[], priceCents, creditCents, balanceCents,
+  depositCents, balanceDueOn, feeCents, totalCents, payable, ready}`. Writes nothing; call it on every change.
+  `priceCents` is the party's prices (what the Bills will say); `creditCents` is what is charged now (the prices, or
+  under a deposit policy each price capped at `depositCents`, with `balanceCents` left on the travelers' balances
+  and `balanceDueOn` the policy's display-only due date, both null without a deposit); `feeCents` is non-zero only
+  when the payer pays the processor fee, computed on `creditCents`. Each problem is `{code, personId, ref, message}`, the message a whole sentence.
 - `POST .../registrations/party/checkout` (CSRF; `returnUrl` allowlisted exactly like `POST /payments`) records the
   document answers, then refuses with 400 `{error: VALIDATION_FAILED, message, problems[]}` when anything would
   stop it (codes: `CHECKOUT_CLOSED`, `ANSWERS_REQUIRED`, `CHOICE_REQUIRED`, `ATTESTATION_REQUIRED`,

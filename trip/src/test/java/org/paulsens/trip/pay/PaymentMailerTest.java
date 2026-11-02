@@ -231,6 +231,21 @@ public class PaymentMailerTest {
         assertEquals(values.getValue().get("tripDates"), "March 5, 2027 to March 7, 2027");
         assertEquals(values.getValue().get("paymentMethod"), "PayPal");
 
+        // A deposit (or a partial offline payment) credited less than the prices: the status note says what is
+        // left, with the policy's due date, so an installed template needs no new token.
+        payment.setAllocations(List.of(new Payment.Allocation(payer.getId(), 5000L)));
+        trip.getCheckout().setDepositCents(5000L);
+        trip.getCheckout().setBalanceDueOn(java.time.LocalDate.of(2027, 3, 1));
+        assertEquals(PaymentMailer.balanceNote(payment, trip, payment.getCheckout().getRows()),
+                " A balance of $150.00 remains on your trip account, due by March 1, 2027; pay it from the trip's"
+                        + " Pay page.");
+        assertEquals(PaymentMailer.balanceNote(payment, null, payment.getCheckout().getRows()),
+                " A balance of $150.00 remains on your trip account; pay it from the trip's Pay page.");
+        assertTrue(mailer.checkoutValues(payment, trip, "PayPal").get("statusNote").toString()
+                .endsWith("due by March 1, 2027; pay it from the trip's Pay page."));
+        payment.setAllocations(List.of(new Payment.Allocation(payer.getId(), 20000L)));
+        assertEquals(PaymentMailer.balanceNote(payment, trip, payment.getCheckout().getRows()), "", "paid in full");
+
         payment.setTotalChargedCents(0L);
         assertEquals(mailer.checkoutValues(payment, trip, "Offline payment").get("paymentMethod"), "no charge");
         assertEquals(mailer.checkoutValues(payment, null, "x").get("tripDates"), "");

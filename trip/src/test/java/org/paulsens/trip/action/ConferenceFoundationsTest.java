@@ -80,7 +80,7 @@ public class ConferenceFoundationsTest {
         final Trip trip = Trip.builder().id("req-" + RandomData.genAlpha(8)).title("Required Trip")
                 .startDate(LocalDateTime.now().plusDays(30)).endDate(LocalDateTime.now().plusDays(32))
                 .regOptions(List.of(admission(), new RegistrationOption(9, "Hidden but required", "", false,
-                        RegistrationOption.QuestionType.TEXT, true, null, null)))
+                        RegistrationOption.QuestionType.TEXT, true, null)))
                 .build();
         assertTrue(dao.saveTrip(trip));
 
@@ -111,7 +111,7 @@ public class ConferenceFoundationsTest {
         final RegistrationOption paid = new RegistrationOption(1, "Admission", "", true,
                 RegistrationOption.QuestionType.CHOICE, true, List.of(
                         new OptionChoice("fri", "Friday", 6000L, null, null, null, null),
-                        new OptionChoice("full", "Full weekend", 15000L, null, null, null, null)), null);
+                        new OptionChoice("full", "Full weekend", 15000L, null, null, null, null)));
         final Trip trip = Trip.builder().id("co-" + RandomData.genAlpha(8)).title("Checkout Trip")
                 .startDate(LocalDateTime.now().plusDays(30)).endDate(LocalDateTime.now().plusDays(32))
                 .regOptions(List.of(paid, new RegistrationOption(2, "Diet", "", true))).build();
@@ -330,7 +330,7 @@ public class ConferenceFoundationsTest {
 
     private static RegistrationOption admission() {
         return new RegistrationOption(1, "Admission", "", true, RegistrationOption.QuestionType.CHOICE, true,
-                List.of(new OptionChoice("full", "Full weekend", 15000L, null, null, null, null)), null);
+                List.of(new OptionChoice("full", "Full weekend", 15000L, null, null, null, null)));
     }
 
     private Person savedPerson() throws IOException {

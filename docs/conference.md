@@ -62,7 +62,8 @@ Beyond who may make one, the kind changes copy and a few defaults, never permiss
 ## Typed, priceable registration questions
 
 `RegistrationOption` gained a `type` (`TEXT`, the default and what every older question reads as; `CHOICE`;
-`MULTI_CHOICE`; `YES_NO`), `required`, `choices` (`OptionChoice`) and `ageBandsApply`. An `OptionChoice` carries
+`MULTI_CHOICE`; `YES_NO`), `required` and `choices` (`OptionChoice`); the age bands of a priced trip adjust the
+admission question only (`docs/checkout.md`). An `OptionChoice` carries
 `id`, `label`, `priceCents`, `capacity`, `attestationText`, `days` and `enabled`; every money and capacity field is
 optional, so on an unpriced trip choices simply turn a text box into a dropdown.
 

@@ -107,19 +107,40 @@ public class PaymentMailer {
                 joinAddresses(effective.getBcc(), notifyEmail), actor);
     }
 
-    /** The checkout tokens: the registrants block, the status note, the trip's dates and how it was paid. */
+    /**
+     * The checkout tokens: the registrants block, the status note (which also names the balance a deposit leaves,
+     * so an installed template needs no new token to say it), the trip's dates and how it was paid.
+     */
     Map<String, Object> checkoutValues(final Payment payment, final Trip trip, final String processorName) {
         final Map<String, Object> values = new HashMap<>();
         final List<Registration> rows = payment.getCheckout().getRows();
         values.put("registrantsBlock", registrantsBlock(trip, rows));
         final boolean allConfirmed = rows.stream().allMatch(row -> row.getStatus() == Registration.Status.CONFIRMED);
-        values.put("statusNote", allConfirmed ? "Your registration is confirmed. Bring your ticket code to check-in."
-                : "Your registration is received and awaiting confirmation; we will email you when it is approved.");
+        values.put("statusNote", (allConfirmed ? "Your registration is confirmed. Bring your ticket code to check-in."
+                : "Your registration is received and awaiting confirmation; we will email you when it is approved.")
+                + balanceNote(payment, trip, rows));
         values.put("tripDates", trip == null || trip.getStartDate() == null ? ""
                 : DATE.format(trip.getStartDate()) + (trip.getEndDate() == null ? ""
                         : " to " + DATE.format(trip.getEndDate())));
         values.put("paymentMethod", payment.getTotalChargedCents() == 0 ? "no charge" : processorName);
         return values;
+    }
+
+    /**
+     * " A balance of $300.00 remains on your trip account, due by March 1, 2027; pay it from the trip's Pay page."
+     * when the payment credited less than the party's prices (a deposit policy, or a partial offline payment); "".
+     */
+    static String balanceNote(final Payment payment, final Trip trip, final List<Registration> rows) {
+        final long prices = rows.stream()
+                .mapToLong(row -> row.getPriceBreakdown() == null ? 0L : row.getPriceBreakdown().getTotalCents())
+                .sum();
+        final long credited = payment.getAllocations().stream().mapToLong(Payment.Allocation::getAmountCents).sum();
+        if (credited >= prices) {
+            return "";
+        }
+        final java.time.LocalDate due = trip == null ? null : trip.getCheckout().getBalanceDueOn();
+        return " A balance of " + MoneyMath.formatCents(prices - credited) + " remains on your trip account"
+                + (due == null ? "" : ", due by " + DATE.format(due)) + "; pay it from the trip's Pay page.";
     }
 
     private MailTemplates.Raw registrantsBlock(final Trip trip, final List<Registration> rows) {
