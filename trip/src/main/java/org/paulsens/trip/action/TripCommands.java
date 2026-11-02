@@ -1021,6 +1021,78 @@ public class TripCommands {
         }
     }
 
+    /** The trip editor's "Registrations managed" choice: on this site. */
+    public static final String REG_HERE = "SITE";
+    /** The trip editor's "Registrations managed" choice: on another website ({@link Trip#isExternal()}). */
+    public static final String REG_EXTERNAL = "EXTERNAL";
+
+    /**
+     * The editor's radio value for this trip: {@link #REG_EXTERNAL} when {@link Trip#isExternal()}, else
+     * {@link #REG_HERE}. Derived from the URL and never stored: "external" IS "has an external URL".
+     */
+    public String regHostingOf(final Trip trip) {
+        return trip != null && trip.isExternal() ? REG_EXTERNAL : REG_HERE;
+    }
+
+    /**
+     * Applies the editor's radio to the working copy: {@link #REG_HERE} clears the external URL and the external
+     * registration count (a count only means something with a URL, and keeping it around was what let a stale
+     * number linger on a trip brought back in-house); {@link #REG_EXTERNAL} leaves both for the person to fill in.
+     */
+    public void applyRegHosting(final Trip trip, final String choice) {
+        if (trip == null || !REG_HERE.equals(choice)) {
+            return;
+        }
+        trip.setNonHostedTripUrl(null);
+        trip.setNonHostedRegNumber(null);
+    }
+
+    /**
+     * Whether the editor may save: false, with a warning growl, when the radio says {@link #REG_EXTERNAL} but no
+     * URL was entered. Saving that silently as a hosted trip would publish a Register button pointing here against
+     * the stated choice, so the save waits for the URL or for the radio to change.
+     */
+    public boolean regHostingReady(final Trip trip, final String choice) {
+        if (trip == null || !REG_EXTERNAL.equals(choice) || trip.isExternal()) {
+            return true;
+        }
+        PageFeedback.warn("Not saved: enter the website where people register, or choose On this site.");
+        return false;
+    }
+
+    /** The staff dialog's role key for the trip's spiritual director(s) ({@link Trip#getDirectorIds()}). */
+    public static final String STAFF_DIRECTOR = "director";
+    /** The staff dialog's role key for the trip's coordinators ({@link Trip#getFacilitatorIds()}). */
+    public static final String STAFF_COORDINATOR = "coordinator";
+
+    /**
+     * Adds a person to the working copy's staff list named by {@code role}: {@link #STAFF_DIRECTOR} or
+     * {@link #STAFF_COORDINATOR}. One shared dialog serves both roles, and a jsft command script cannot read a
+     * Facelets parameter, so the role rides an {@code f:param} and is dispatched here. Anything else is ignored.
+     */
+    public void addStaff(final Trip trip, final String role, final Person.Id personId) {
+        if (trip == null || personId == null) {
+            return;
+        }
+        if (STAFF_DIRECTOR.equals(role)) {
+            trip.addDirectorId(personId);
+        } else if (STAFF_COORDINATOR.equals(role)) {
+            trip.addFacilitatorId(personId);
+        }
+    }
+
+    /** The inverse of {@link #addStaff}. */
+    public void removeStaff(final Trip trip, final String role, final Person.Id personId) {
+        if (trip == null || personId == null) {
+            return;
+        }
+        if (STAFF_DIRECTOR.equals(role)) {
+            trip.removeDirectorId(personId);
+        } else if (STAFF_COORDINATOR.equals(role)) {
+            trip.removeFacilitatorId(personId);
+        }
+    }
+
     /** The kinds a trip can be, for the trip editors' Kind menu (pilgrimage first, the default). */
     public List<TripKind> getTripKinds() {
         return List.of(TripKind.values());

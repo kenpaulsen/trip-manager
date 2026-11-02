@@ -9,7 +9,7 @@ code of conduct, a photo release. "Waiver" is used loosely for all of them. Read
 | Decision | Answer |
 |---|---|
 | Format | Rich text (the site's Quill editor, stored HTML). The traveler can download the SIGNED copy as a PDF. |
-| Ownership | Documents belong to an ORGANIZATION (its dashboard's Documents card); a trip may only use its own org's documents. |
+| Ownership | Documents belong to an ORGANIZATION (its dashboard's Trip Documents card); a trip may only use its own org's documents. |
 | Versioning | Every save publishes the next version; no published text is ever rewritten or pruned. A trip PINS a version (default: the newest when added). Publishing a new version moves no trip. |
 | Moving a pin | The trip admin decides at that moment whether signatures of the earlier version still count (`acceptOlder`, **default yes**) or everyone must sign again. |
 | Enforcement | A traveler cannot be REGISTERED until every required document is agreed. A document added or re-versioned later never un-registers anyone: it is flagged to them and to the admins. |
@@ -60,7 +60,7 @@ site admin; or a login with no person row), `NOT_PINNED` (the version is not the
 
 ## Pages (private repo)
 
-- `admin/orgWaivers.xhtml` (org dashboard card "Documents", `canManageOrg`): the library, an editor whose Save
+- `admin/orgWaivers.xhtml` (org dashboard card "Trip Documents", `canManageOrg`): the library, an editor whose Save
   creates v1 or publishes the next version, Retire/Restore, a version history with a read-only preview.
 - `trip/edit.xhtml` "Required Documents" row + `WEB-INF/tripWaiversDialog.xhtml` (`waiver.canConfigure`: registration
   admin or trip manager): add, remove, and "Move to vN" with the re-sign radio. **Saved immediately** onto the stored

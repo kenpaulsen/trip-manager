@@ -21,7 +21,7 @@ has no role or privilege row, so these pages gate themselves in `initPage`, NOT 
 | `orgProcessors.jsf` | `canManageOrg` | `canManageOrg` |
 | `orgWaivers.jsf` | `canManageOrg` | the org's trip documents ("waivers"): create, publish the next version, retire (`docs/waivers.md`) |
 
-**The hub is two labeled groups (2026-10-29).** "Run this organization": Trips, People, Documents, Lodging,
+**The hub is two labeled groups (2026-10-29).** "Run this organization": Trips, People, Trip Documents, Lodging,
 Media (`canViewOrgMedia`: site admins, global or org-scoped `mediaAdmin` -- NOT org admins as such; links to
 `{site.hostFor(org)}/admin/media.jsf`, the library being host-scoped) and Audit Trail
 (`auditView.canView(org)`; `audit.jsf?orgId=`, org-keyed so it reads from any host). "Set up this
@@ -187,8 +187,11 @@ supersede the deprecated free-form `facilitators`/`director` strings. The hand-w
 `getFacilitators()`/`getDirector()` resolve ids to comma-joined names (legacy string only when no ids),
 and are `@JsonIgnore` so the stored legacy string never gets overwritten by resolved names on save. The
 registration popup (`joinTrip.xhtml`) renders the facilitators' name/phone/email as its contact block --
-no hardcoded tenant contact -- and its OK returns to the trip. No editor UI for the id lists yet
-(provisioned via data/JSON by decision).
+no hardcoded tenant contact -- and its OK returns to the trip. The trip editor edits both lists through ONE
+dialog per role (`WEB-INF/tripStaffDialog.xhtml`, 2026-11-02): pick members of the trip's org first, or type
+names for people without an account (the legacy string, shown only while nobody is picked); the row beside
+"edit" previews the home page's own line. The home page calls facilitators "Coordinators", and so does the
+editor.
 
 **Adding members** (org People page): site admins keep the whole-directory autocomplete; org admins add
 by EXACT email address instead (`OrgCommands.addMemberByEmail`) — a name typeahead across every account
@@ -396,7 +399,7 @@ script, no DNS step, no deploy (wildcard DNS and the wildcard certificate alread
   opens it from the Organizations page there), but its trip links and New Trip go to the host that serves
   them (`SiteCommands.hostFor(orgId)`: empty when this host reaches the org, else
   `https://{slug}.{base}`), with a note saying the trips are managed on the org's own site, and
-  `admin/editTrip.jsf`'s post-save redirects (to the trip editor / itinerary) carry the same prefix, so a
+  the trip editor's create-mode Save (`trip/edit.jsf?orgId=`) redirects with the same prefix, so a
   trip created for a hosted org from the shared host continues on the org's site (`TripCreatorRolesPwIT`
   drives the create round trip on acme's own host for that reason). The rule is
   deliberately not punched for site admins: a hosted org's trips are edited, mailed, reconciled and paid on

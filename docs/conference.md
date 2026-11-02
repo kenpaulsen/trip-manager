@@ -35,7 +35,7 @@ Conferences are a separately granted feature (owner decision 2026-11-02, an upse
 - **The privilege** is granted by the org's admins to members (`admin/orgPeople.jsf`, "Create Conferences"). Org
   admins are NOT implied: they grant it to themselves. Site admins always pass.
 - **Create only.** It lets a person create a conference (the org Trips page's "New Conference",
-  `admin/editTrip.jsf?orgId=&kind=CONFERENCE`, or `POST /api/trips` with `"kind":"CONFERENCE"`); the creator gets the
+  `trip/edit.jsf?orgId=&kind=CONFERENCE`, or `POST /api/trips` with `"kind":"CONFERENCE"`); the creator gets the
   usual creator trip roles, and running a conference is the trip roles' job as before. It is not a trip grant
   either: `addTrip` alone may not create a conference, `addConference` alone may not create a pilgrimage.
 - **Making or unmaking a conference** (changing an existing trip's kind to or from CONFERENCE) takes the same

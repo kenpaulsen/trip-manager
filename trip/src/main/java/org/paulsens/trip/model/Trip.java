@@ -659,9 +659,10 @@ public final class Trip implements Serializable {
 
     /**
      * The registration count to display: the externally-reported number on an external pilgrimage, else our
-     * roster size. The {@link #isExternal()} guard matters: a reg count left over from a removed External
-     * Trip URL is deliberately KEPT on the row (user decision 2026-08-24) but must not override the real
-     * roster count on the public listing.
+     * roster size. The {@link #isExternal()} guard matters for rows written before 2026-11-02: a reg count left
+     * over from a removed External Trip URL was kept on the row then, and must not override the real roster
+     * count on the public listing. The editor's "On this site" choice now clears both fields together
+     * ({@code TripCommands.applyRegHosting}).
      */
     @JsonIgnore
     public int getShownRegCount() {
