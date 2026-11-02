@@ -973,4 +973,111 @@ public class TripsResourceTest extends ResourceTestSupport {
         assertOk(response);
         Assert.assertEquals(((org.paulsens.trip.api.dto.TripRosterDto) response.getEntity()).people().size(), 1);
     }
+
+    /** ME and OTHER on one trip; OTHER shares an email and is on {@link #othersEvent}. */
+    private Trip sharingTrip(final boolean sharing, final Person other) {
+        final Trip existing = trip(TRIP_ID, ME, OTHER);
+        existing.getTripEvents().add(othersEvent("evt-2"));
+        existing.setItinerarySharing(sharing);
+        tripExists(existing);
+        final Person me = new Person();
+        me.setId(ME);
+        other.setId(OTHER);
+        other.setEmail("other@example.com");
+        Mockito.when(people.getPerson(ME)).thenReturn(me);
+        Mockito.when(people.getPerson(OTHER)).thenReturn(other);
+        bindMock(org.paulsens.trip.action.ProfilePhotos.class);
+        return existing;
+    }
+
+    private static org.paulsens.trip.api.dto.TripRosterDto.RosterEntryDto entry(final Response response,
+            final Person.Id id) {
+        return ((org.paulsens.trip.api.dto.TripRosterDto) response.getEntity()).people().stream()
+                .filter(e -> e.id().equals(id.getValue()))
+                .findFirst()
+                .orElseThrow();
+    }
+
+    @Test
+    public void rosterTellsAFellowTravelerWhatTheyMaySeeOfEachPerson() {
+        signedInAs(ME);
+        sharingTrip(true, new Person());
+        final Response response = resource.roster(TRIP_ID);
+        assertOk(response);
+        Assert.assertEquals(entry(response, ME).itinerary(), "FULL", "your own itinerary is always the full one");
+        final var other = entry(response, OTHER);
+        Assert.assertEquals(other.itinerary(), "SHARED");
+        Assert.assertEquals(other.contact().email(), "other@example.com", "a shared email reaches a co-traveler");
+        Assert.assertNull(other.contact().cell(), "a field with no value is absent, not blank");
+        Assert.assertNull(other.contact().masked(), "nothing is masked for a fellow traveler");
+    }
+
+    @Test
+    public void rosterOffersNothingForAPersonWhoSharesNothing() {
+        signedInAs(ME);
+        final Person other = new Person();
+        other.getPrivacy().setEmail(org.paulsens.trip.model.PrivacySettings.Visibility.PRIVATE);
+        other.getPrivacy().setItineraryShared(false);
+        sharingTrip(true, other);
+        final var entry = entry(resource.roster(TRIP_ID), OTHER);
+        Assert.assertNull(entry.itinerary(), "an opted-out person offers no itinerary");
+        Assert.assertNull(entry.contact(), "no shared contact field means no contact block at all");
+    }
+
+    @Test
+    public void rosterOffersNoItineraryOnATripThatDoesNotShareThem() {
+        signedInAs(ME);
+        sharingTrip(false, new Person());
+        Assert.assertNull(entry(resource.roster(TRIP_ID), OTHER).itinerary());
+    }
+
+    @Test
+    public void anAdminSeesAPrivateFieldMaskedAndTheFullItinerary() {
+        signedInAsSiteAdmin(ME);
+        final Person other = new Person();
+        other.getPrivacy().setEmail(org.paulsens.trip.model.PrivacySettings.Visibility.PRIVATE);
+        other.getPrivacy().setItineraryShared(false);
+        sharingTrip(false, other);
+        final var entry = entry(resource.roster(TRIP_ID), OTHER);
+        Assert.assertEquals(entry.itinerary(), "FULL", "a site admin's view ignores both switches");
+        Assert.assertEquals(entry.contact().email(), "other@example.com");
+        Assert.assertEquals(entry.contact().masked(), List.of("email"), "the client hides it behind a tap");
+    }
+
+    @Test
+    public void aSharedItineraryCarriesTheTripsEventsAndNoPersonalField() {
+        signedInAs(ME);
+        sharingTrip(true, new Person());
+        final Response response = resource.sharedItinerary(TRIP_ID, OTHER.getValue());
+        assertOk(response);
+        final var dto = (org.paulsens.trip.api.dto.SharedItineraryDto) response.getEntity();
+        Assert.assertEquals(dto.personId(), OTHER.getValue());
+        Assert.assertEquals(dto.events().stream().map(TripEventDto::id).toList(), List.of("evt-2"),
+                "only the events the person is on");
+        Assert.assertNull(dto.events().get(0).privNote(), "OTHER's private note never leaves");
+        Assert.assertNull(dto.events().get(0).participating(), "no viewer-relative flag");
+    }
+
+    @Test
+    public void aSharedItineraryIsRefusedWhenNotShared() {
+        signedInAs(ME);
+        final Person other = new Person();
+        other.getPrivacy().setItineraryShared(false);
+        sharingTrip(true, other);
+        assertError(resource.sharedItinerary(TRIP_ID, OTHER.getValue()), 403, ApiErrors.ITINERARY_NOT_SHARED);
+        assertError(resource.sharedItinerary("no-such-trip", OTHER.getValue()), 404, ApiErrors.NOT_FOUND);
+        Mockito.when(people.getPerson(Person.Id.from("nobody"))).thenReturn(new Person());
+        assertError(resource.sharedItinerary(TRIP_ID, "nobody"), 404, ApiErrors.NOT_FOUND);
+    }
+
+    @Test
+    public void aTripCreatedOverRestDefaultsItsSharingFromItsKind() {
+        final Trip trip = Trip.builder().build();
+        TripCommands.stampCreationDefaults(trip);
+        Assert.assertTrue(trip.getItinerarySharing(), "a new trip shares itineraries");
+        final Trip conference = Trip.builder().kind(org.paulsens.trip.model.TripKind.CONFERENCE).build();
+        TripCommands.stampCreationDefaults(conference);
+        Assert.assertFalse(conference.getItinerarySharing(), "a new conference does not");
+        Assert.assertFalse(Trip.builder().build().getItinerarySharing(), "an existing (unset) trip reads as off");
+    }
 }

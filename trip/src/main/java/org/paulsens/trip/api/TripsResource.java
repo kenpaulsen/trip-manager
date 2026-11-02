@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.action.ItineraryAccess;
 import org.paulsens.trip.action.OrgCommands;
 import org.paulsens.trip.action.ProfilePhotos;
 import org.paulsens.trip.action.LodgingCommands;
@@ -27,6 +28,7 @@ import org.paulsens.trip.action.LodgingViews;
 import org.paulsens.trip.action.TripCommands;
 import org.paulsens.trip.api.dto.RegChoiceDto;
 import org.paulsens.trip.api.dto.RegOptionDto;
+import org.paulsens.trip.api.dto.SharedItineraryDto;
 import org.paulsens.trip.api.dto.TripDto;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.cache.Cached;
@@ -285,20 +287,35 @@ public class TripsResource extends BaseResource {
         everyone.addAll(directors);
         everyone.addAll(facilitators);
         final ProfilePhotos photos = Beans.get(ProfilePhotos.class);
+        final RosterViewer viewer = rosterViewer(trip);
         final List<TripRosterDto.RosterEntryDto> entries = new ArrayList<>();
         for (final Person.Id id : everyone) {
             final Person person = findPerson(id);
             if (person == null) {
                 continue;   // a stale roster id (soft-deleted, or the row is gone) is not this caller's problem
             }
-            entries.add(rosterEntry(person, trip, directors, facilitators, photos));
+            entries.add(rosterEntry(person, trip, directors, facilitators, photos, viewer));
         }
         return ok(new TripRosterDto(trip.getId(), entries, directors.stream().map(Person.Id::getValue).toList(),
                 facilitators.stream().map(Person.Id::getValue).toList(), trip.getLocalGuide()));
     }
 
+    /**
+     * Who is looking at a roster, resolved once per call: their record, and whether they get the admin (masked)
+     * contact view -- the web contacts page's {@code tripAdmin || showAll}: Trip Manager, org admin, site admin.
+     */
+    private record RosterViewer(Person person, boolean adminView, boolean orgAdmin) {
+    }
+
+    private RosterViewer rosterViewer(final Trip trip) {
+        final boolean orgAdmin = new OrgCommands(this::caller).canManageOrg(trip.getOrgId());
+        return new RosterViewer(findPerson(personId()),
+                orgAdmin || privileges().has(ApiPrivileges.TRIP_MGR, trip.getId()), orgAdmin);
+    }
+
     private TripRosterDto.RosterEntryDto rosterEntry(final Person person, final Trip trip,
-            final List<Person.Id> directors, final List<Person.Id> facilitators, final ProfilePhotos photos) {
+            final List<Person.Id> directors, final List<Person.Id> facilitators, final ProfilePhotos photos,
+            final RosterViewer viewer) {
         final List<String> roles = new ArrayList<>();
         if (trip.getPeople().contains(person.getId())) {
             roles.add(TripRosterDto.ROLE_MEMBER);
@@ -311,8 +328,50 @@ public class TripsResource extends BaseResource {
         }
         final String personId = person.getId().getValue();
         final String photoUrl = photos.hasPhoto(personId) ? absoluteUrl(photos.getUrl(personId)) : null;
+        final ItineraryAccess.Level itinerary = ItineraryAccess.of(caller(), viewer.person(), trip, person,
+                viewer::orgAdmin);
         return new TripRosterDto.RosterEntryDto(personId, person.getFirst(), person.getLast(), person.getNickname(),
-                person.getPreferredName(), photoUrl, roles);
+                person.getPreferredName(), photoUrl, roles,
+                itinerary == ItineraryAccess.Level.NONE ? null : itinerary.name(),
+                RosterContact.of(viewer.person(), person, viewer.adminView()));
+    }
+
+    /**
+     * Another person's itinerary as the trip's SHARED event data: the events they are on, with no private note,
+     * no participation flag of the caller's and no lodging overlay (docs/shared-itineraries.md). The one gate is
+     * {@code ItineraryAccess}, so a caller who may not see it gets 403 whatever the reason -- the trip does not
+     * share itineraries, the person opted out, or they are not on the roster. A FULL viewer gets the same shape
+     * here; the person-specific view is the {@code ?personId=} reads above.
+     */
+    @GET
+    @Path("{tripId}/people/{personId}/itinerary")
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response sharedItinerary(@PathParam("tripId") final String tripId,
+            @PathParam("personId") final String personIdParam) {
+        final Trip trip = findTrip(tripId);
+        if (trip == null) {
+            return error(404, ApiErrors.NOT_FOUND, "No such trip.");
+        }
+        final Person subject = findPerson(Person.Id.from(personIdParam));
+        if (subject == null) {
+            return error(404, ApiErrors.NOT_FOUND, "No such person.");
+        }
+        final ItineraryAccess.Level level = ItineraryAccess.of(caller(), findPerson(personId()), trip, subject,
+                () -> new OrgCommands(this::caller).canManageOrg(trip.getOrgId()));
+        if (level == ItineraryAccess.Level.NONE) {
+            return error(403, ApiErrors.ITINERARY_NOT_SHARED, "This person's itinerary is not shared with you.");
+        }
+        final List<TripEventDto> events = trip.getTripEventsForUser(subject.getId()).stream()
+                .map(TripsResource::sharedEventDto)
+                .toList();
+        return ok(new SharedItineraryDto(subject.getId().getValue(), events));
+    }
+
+    /** {@link #eventDto} without either viewer-relative field: nothing on it belongs to any one person. */
+    private static TripEventDto sharedEventDto(final TripEvent event) {
+        final TripEventDto dto = TripMapper.INSTANCE.toDto(event);
+        return new TripEventDto(dto.id(), dto.type(), dto.title(), dto.notes(), dto.start(), dto.end(),
+                dto.participants(), null, null, hasAnyDetail(event) ? new LinkedHashMap<>(event.getDetails()) : null);
     }
 
     /** The itinerary item types, for a client building a picker. */
@@ -369,6 +428,7 @@ public class TripsResource extends BaseResource {
             // Same default the page's create path stamps: never public until someone chooses it.
             trip.setOpenToPublic(false);
         }
+        TripCommands.stampCreationDefaults(trip);
         if (!trips.saveTrip(trip, orgs)) {
             return error(500, ApiErrors.STORE_FAILED, "Could not save the trip.");
         }

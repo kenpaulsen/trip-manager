@@ -48,6 +48,10 @@ Tests: `ConferenceAccessTest`, `TripsResourceTest` (`aConferenceTakesCreateConfe
 
 Beyond who may make one, the kind changes copy and a few defaults, never permissions:
 
+- A NEW conference starts with itinerary sharing OFF (attendees are mostly strangers); a new pilgrimage starts
+  with it on. `TripCommands.stampCreationDefaults`, once at creation: changing the kind later leaves the
+  choice alone (`docs/shared-itineraries.md`).
+
 - `TripKind.registerLabel` / `peopleNoun` word the public trip page's call to action and the registration button
   ("Join Pilgrimage" / "Register Selected Travelers" for a pilgrimage, byte-for-byte what it was).
 - `FamilyCommands.missingProfileFields(person, trip)`: a conference never asks for a passport.

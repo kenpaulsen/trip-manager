@@ -49,6 +49,8 @@ public final class ApiErrors {
     public static final String ALREADY_CHECKED_IN = "ALREADY_CHECKED_IN";
     /** 409 from a check-in: the registration is not CONFIRMED (pending approval, or cancelled). */
     public static final String NOT_CONFIRMED = "NOT_CONFIRMED";
+    /** 403 from a shared itinerary: the trip, or the person, does not share it ({@code docs/shared-itineraries.md}). */
+    public static final String ITINERARY_NOT_SHARED = "ITINERARY_NOT_SHARED";
 
     private ApiErrors() {
     }

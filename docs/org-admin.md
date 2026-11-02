@@ -127,6 +127,12 @@ only when `setTripRole` would accept the revoke — `OrgCommands.heldTripRoles`'
 per-row "+ Add role" chip opening a shared role-picker overlay (`addableTripRoles`/`addableRolesFor`),
 and an Add Manager dialog (person autocomplete + role).
 
+**Viewer (`tripView`) no longer opens anyone's FULL itinerary** (2026-11-01, owner decision). The full page
+(`trip/itinerary.xhtml` and its print page: private notes, room, stay dates, registration) is for the person,
+their family manager, an Editor Admin (`tripMgr`) and a site admin. A Viewer, like an org admin, sees another
+traveler's itinerary as a fellow traveler does: the shared event data on `trip/sharedItinerary.xhtml`, and only
+when the trip shares itineraries and the person has not opted out (`docs/shared-itineraries.md`).
+
 **Tenancy on the manager surfaces** (2026-08-24): the Add Manager autocomplete is
 `OrgCommands.completeTripManagerCandidates` — the trip's org MEMBERS only, resolved from the page's
 pinned `viewScope.theTripId`, and empty for callers who may not manage the trip's roles (the completion

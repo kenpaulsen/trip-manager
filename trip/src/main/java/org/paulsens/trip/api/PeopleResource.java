@@ -565,6 +565,9 @@ public class PeopleResource extends BaseResource {
         setVisibility(dto.cell(), settings::setCell);
         setVisibility(dto.city(), settings::setCity);
         setVisibility(dto.street(), settings::setStreet);
+        if (dto.shareItinerary() != null) {
+            settings.setItineraryShared(dto.shareItinerary());
+        }
     }
 
     private static void setVisibility(final String value, final Consumer<PrivacySettings.Visibility> setter) {

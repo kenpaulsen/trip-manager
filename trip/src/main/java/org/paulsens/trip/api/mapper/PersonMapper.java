@@ -45,6 +45,6 @@ public interface PersonMapper {
             return null;
         }
         return new PrivacyDto(settings.getEmail().name(), settings.getCell().name(),
-                settings.getCity().name(), settings.getStreet().name());
+                settings.getCity().name(), settings.getStreet().name(), settings.isItineraryShared());
     }
 }

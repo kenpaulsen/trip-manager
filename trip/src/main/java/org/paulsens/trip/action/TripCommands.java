@@ -101,7 +101,17 @@ public class TripCommands {
         // "Show on homepage?" starts OFF: a half-written trip must never appear on the public landing
         // page because its creator missed a toggle (user decision 2026-08-24).
         trip.setOpenToPublic(false);
+        stampCreationDefaults(trip);
         return trip;
+    }
+
+    /**
+     * Defaults a NEW trip gets from its kind, on every create path (this page path and {@code POST /api/trips}).
+     * Itinerary sharing starts on for a trip and off for a conference, whose attendees are mostly strangers
+     * (docs/shared-itineraries.md). Stamped once at creation: a later kind change leaves the choice alone.
+     */
+    public static void stampCreationDefaults(final Trip trip) {
+        trip.setItinerarySharing(!trip.isConference());
     }
 
     /**

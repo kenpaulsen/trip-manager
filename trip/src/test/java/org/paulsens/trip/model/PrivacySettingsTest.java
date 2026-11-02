@@ -52,4 +52,27 @@ public class PrivacySettingsTest {
         final PrivacySettings after = mapper.readValue(mapper.writeValueAsString(before), PrivacySettings.class);
         Assert.assertEquals(after, before, "To/from json failed!");
     }
+
+    /** Shared by default, so turning the feature on for a trip shows everyone who never chose otherwise. */
+    @Test
+    public void itineraryIsSharedUnlessTurnedOff() throws Exception {
+        final PrivacySettings settings = new PrivacySettings();
+        Assert.assertTrue(settings.isItineraryShared());
+        Assert.assertTrue(mapper.readValue("{}", PrivacySettings.class).isItineraryShared(),
+                "A row stored before the choice existed reads as shared");
+        settings.setItineraryShared(false);
+        final PrivacySettings after = mapper.readValue(mapper.writeValueAsString(settings), PrivacySettings.class);
+        Assert.assertFalse(after.isItineraryShared(), "The choice survives the JSON row");
+        Assert.assertFalse(after.getShareItinerary());
+    }
+
+    /** Kryo runs no constructor: session state from before the field existed carries its zero value, "shared". */
+    @Test
+    public void theFieldsZeroValueReadsAsShared() throws Exception {
+        final PrivacySettings settings = new PrivacySettings();
+        final java.lang.reflect.Field field = PrivacySettings.class.getDeclaredField("itineraryHidden");
+        field.setAccessible(true);
+        field.setBoolean(settings, false);
+        Assert.assertTrue(settings.isItineraryShared());
+    }
 }

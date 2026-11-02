@@ -1107,9 +1107,13 @@ public final class FakeData {
         people.add(new Person(null, "Trinity", "Trinity", "Anne", "Paulsen", Sex.Female,
                 LocalDate.of(1979, 12, 11), null, localEmail("user4"), null, null, null, null, null, null,
                 null, null));
-        people.add(new Person(null, "Dave", "David", "A", "Robinson", Sex.Male,
+        final Person dave = new Person(null, "Dave", "David", "A", "Robinson", Sex.Male,
                 LocalDate.of(1999, 1, 30), null, localEmail("user5"), null, null, null, null, null, null,
-                null, null));
+                null, null);
+        // Dave keeps his itinerary to himself: the opted-out branch of shared itineraries, on a trip that shares
+        // them (docs/shared-itineraries.md).
+        dave.getPrivacy().setItineraryShared(false);
+        people.add(dave);
         people.add(new Person(null, "Matt", "Matthew", null, "Smith", Sex.Male,
                 LocalDate.of(2010, 6, 1), null, localEmail("user6"), null, null, null, null, null, null,
                 null, null));
@@ -1210,6 +1214,9 @@ public final class FakeData {
                 .facilitatorIds(tripStaff)
                 .directorIds(List.of(tripStaff.get(0)))
                 .build());
+        // The demo trip shares itineraries, so both of the feature's branches run locally; every other seeded
+        // trip keeps the pre-existing default (off).
+        trips.get(trips.size() - 1).setItinerarySharing(true);
 
         // Trip 2
         final List<Person.Id> somePeople = getFakePeople().stream()

@@ -195,6 +195,23 @@ public class PeopleResourceTest extends ResourceTestSupport {
         Assert.assertEquals(me.getPrivacy().getStreet(), PrivacySettings.Visibility.PRIVATE, "Garbage is ignored");
     }
 
+    /** The itinerary choice merges like the knobs: provided applies, absent leaves it alone. */
+    @Test
+    public void updateMergesTheItineraryChoice() {
+        signedInAs(ME);
+        final Person me = person(ME, "Ken");
+        exists(me);
+        Mockito.when(people.savePerson(me)).thenReturn(Boolean.TRUE);
+        final PersonDto off = new PersonDto(null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, false, new PrivacyDto(null, null, null, null, false));
+        assertOk(resource.update(ME.getValue(), CSRF_OK, off));
+        Assert.assertFalse(me.getPrivacy().isItineraryShared(), "Provided choice applies");
+        final PersonDto absent = new PersonDto(null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, false, new PrivacyDto("PRIVATE", null, null, null));
+        assertOk(resource.update(ME.getValue(), CSRF_OK, absent));
+        Assert.assertFalse(me.getPrivacy().isItineraryShared(), "Absent choice untouched");
+    }
+
     @Test
     public void searchIsRefusedWithoutPeopleAdmin() {
         signedInAs(ME);

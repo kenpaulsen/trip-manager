@@ -68,6 +68,17 @@ public final class Trip implements Serializable {
     @Getter(AccessLevel.NONE)
     @Setter(AccessLevel.NONE)
     private Boolean roomNumbersShown;
+    /**
+     * Whether the people on this trip may see one another's itineraries (the shared event data only -- never a
+     * private note, a room or a registration; see docs/shared-itineraries.md). Null means OFF, the reverse of
+     * {@link #chatEnabled}: every trip that existed before this flag was planned by people who never agreed to
+     * it, so they keep their schedules to themselves until an organizer turns it on. A new trip gets an explicit
+     * value at creation ({@code TripCommands.createTripFor}): on, except for a conference.
+     */
+    @JsonProperty("itinerarySharing")
+    @Getter(AccessLevel.NONE)
+    @Setter(AccessLevel.NONE)
+    private Boolean itinerarySharing;
     @JsonProperty("description")
     private String description;                         // Describes the trip
     @JsonProperty("startDate")
@@ -226,6 +237,15 @@ public final class Trip implements Serializable {
 
     public void setRoomNumbersShown(final boolean shown) {
         this.roomNumbersShown = shown;
+    }
+
+    /** Plain boolean both ways, as {@link #getChatEnabled()}, except that null reads as OFF. */
+    public boolean getItinerarySharing() {
+        return itinerarySharing != null && itinerarySharing;
+    }
+
+    public void setItinerarySharing(final boolean sharing) {
+        this.itinerarySharing = sharing;
     }
 
     /**

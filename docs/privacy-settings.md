@@ -16,6 +16,11 @@ the 17-arg builder, never null — old rows deserialize to the defaults). Exactl
 | `city` | city AND state | `LOGGED_IN` |
 | `street` | street AND zip | `PRIVATE` |
 
+A fifth choice, `shareItinerary` (2026-11-01), is NOT a `Visibility`: it is a boolean about the people on the
+person's TRIPS (not every signed-in user), it defaults to shared, and it applies to every trip at once. It is
+stored inverted as a primitive (`itineraryHidden`) so its zero value is the default under Kryo. See
+`docs/shared-itineraries.md`.
+
 `isStreetVisible()` is false whenever city is private, regardless of the stored street knob — the rule is
 enforced in the model, not just the UI (the profile page additionally disables the street selector).
 

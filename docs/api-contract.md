@@ -46,6 +46,12 @@ LocalDateTime `2026-09-12T17:31:30.025` (no zone), LocalDate `2026-09-12`.
   fields are left alone, participants and private notes are never touched (2026-10-16; the review seed re-dates the
   demo itinerary with it).
 - `PUT /api/trips/{id}/events/{eid}/note?personId=` `{note}` → `TripEventDto`.
+- `GET /api/trips/{id}/people/{pid}/itinerary` (2026-11-01, `docs/shared-itineraries.md`) →
+  `{personId, events:[TripEventDto]}`: the events that person is on, as the TRIP describes them (`participating`
+  and `privNote` absent, no lodging row). For anyone the roster marks `itinerary` `SHARED` or `FULL`; else 403
+  `ITINERARY_NOT_SHARED` (the trip does not share itineraries, the person opted out, or either side is off the
+  roster: one code for all three). A `FULL` viewer reads the person-specific itinerary through the `?personId=`
+  reads above instead.
 
 **Acting as a family member (2026-10-10).** `personId` on the reads above names the SUBJECT: yourself (omit it),
 or someone you manage (`Person.managedUsers`, the family switcher's reach; trip staff on the per-trip reads; a
@@ -188,7 +194,9 @@ registration that was queued offline still passes the gate when it runs.
 `GET /api/people/{id}[?trip=]` → `PersonDto` (id, nickname, first, middle, last, preferredName, sex,
 birthdate, cell, email, tsa, address{street,street2,city,state,zip,country}, passport{number,country,
 expires,issued,placeOfBirth}, notes, managedUsers[], emergencyContactName, emergencyContactPhone,
-deleted, privacy{email,cell,city,street: PRIVATE|LOGGED_IN}). `PUT` absent = unchanged, `""` = clear.
+deleted, privacy{email,cell,city,street: PRIVATE|LOGGED_IN, shareItinerary: boolean}). `shareItinerary`
+(2026-11-01) is the person's one switch for every trip: true (the default) lets the people on their trips see
+their shared itinerary; absent on a PUT = unchanged. `PUT` absent = unchanged, `""` = clear.
 `PUT` also writes `address` (contact-gated), `passport` (travel-gated) and `sex` (`Male|Female`; anything
 else is 400 `VALIDATION_FAILED`). `GET /api/people?q=` needs `peopleAdmin`.
 
@@ -206,8 +214,16 @@ rotated, 422 `VALIDATION_FAILED` when the stored bytes cannot be decoded, 500 `S
 it (each call turns again). Yourself, someone you manage, or a site admin.
 
 Roster: `GET /api/trips/{id}/roster` → `{tripId, people:[{id, first, last, nickname, preferredName,
-photoUrl, roles:[MEMBER|DIRECTOR|FACILITATOR]}], directorIds, facilitatorIds, localGuide}` for anyone who
-can read the trip (403 else). Directors and facilitators are listed even when not on `people`.
+photoUrl, roles:[MEMBER|DIRECTOR|FACILITATOR], itinerary, contact}], directorIds, facilitatorIds, localGuide}` for
+anyone who can read the trip (403 else). Directors and facilitators are listed even when not on `people`.
+Both of the last two fields are FOR THIS VIEWER (2026-11-01, `docs/shared-itineraries.md`):
+
+- `itinerary`: `FULL` (yourself, someone you manage, the caller is a Trip Manager or site admin: open the
+  `?personId=` itinerary), `SHARED` (open `GET .../people/{pid}/itinerary`), or absent (no itinerary link).
+- `contact`: `{email, cell, street, city, state, zip, masked:[field names]}`, each field present only when the
+  viewer may see it (the web contacts page's rule: city carries state, street carries zip). `masked` names the
+  fields the person keeps private that an admin (Trip Manager, org admin, site admin) still receives: show them
+  behind a tap. The whole object is absent when there is nothing to show, so the app offers no contact details.
 
 ## Family (`/api/family`, Accept `application/vnd.trip.family.v1+json`)
 
@@ -458,7 +474,7 @@ versioned put, so two simultaneous writes can refuse one as "Saved by someone el
 ## Errors
 
 `NOT_AUTHENTICATED`(401) `FORBIDDEN`(403) `NOT_FOUND`(404) `BAD_REQUEST`/`VALIDATION_FAILED`(400/422)
-`CONFLICT`(409) `ALREADY_CHECKED_IN`/`NOT_CONFIRMED`(409, check-in) `MISSING_ATTESTATION`(422) `NOT_PINNED`(409) `RATE_LIMITED`(429 + Retry-After) `STORE_FAILED`/`INTERNAL`(500). Chat adds
+`CONFLICT`(409) `ITINERARY_NOT_SHARED`(403, shared itinerary) `ALREADY_CHECKED_IN`/`NOT_CONFIRMED`(409, check-in) `MISSING_ATTESTATION`(422) `NOT_PINNED`(409) `RATE_LIMITED`(429 + Retry-After) `STORE_FAILED`/`INTERNAL`(500). Chat adds
 `NOT_A_TRIP_MEMBER, LEFT_CHANNEL, REMOVED_FROM_CHANNEL, CHANNEL_ARCHIVED, CHAT_DISABLED, MUTED, SLOW_MODE,
 BAD_CHANNEL, MESSAGE_EMPTY, MESSAGE_TOO_LONG, BAD_ATTACHMENT, EDIT_WINDOW_CLOSED, EDIT_DISABLED,
 ON_BEHALF_NOT_ALLOWED`.
