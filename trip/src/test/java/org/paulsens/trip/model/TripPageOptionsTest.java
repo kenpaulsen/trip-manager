@@ -64,11 +64,21 @@ public class TripPageOptionsTest {
 
         assertEquals(options.getBackgroundMode(), TripPageOptions.MODE_ORG);
         options.setBackgroundMode(TripPageOptions.BG_COLOR);
+        // The choice holds while its value is blank: the ajax re-render that shows the color field reads it back.
+        assertEquals(options.getBackgroundMode(), TripPageOptions.BG_COLOR, "chosen, not yet filled in");
+        assertEquals(options.problems(), List.of("Choose a background color."),
+                "Done may not pass it off as the org's");
         options.setBackgroundColor("#336699");
         assertEquals(options.getBackgroundMode(), TripPageOptions.BG_COLOR);
+        assertTrue(options.problems().isEmpty());
         options.setBackgroundMode(TripPageOptions.BG_IMAGE);
         assertNull(options.getBackgroundColor(), "choosing a mode clears what it does not use");
+        assertEquals(options.getBackgroundMode(), TripPageOptions.BG_IMAGE, "the Image radio stays chosen");
+        assertEquals(options.problems().size(), 1, "an image mode with no image");
+        assertTrue(options.problems().get(0).contains("background image"), options.problems().get(0));
+        assertTrue(options.isEmpty(), "a blank choice is still no data of the trip's own");
         options.setBackgroundUrl("https://cdn.example/bg.jpg");
+        assertTrue(options.problems().isEmpty());
         assertEquals(options.getBackgroundMode(), TripPageOptions.BG_IMAGE);
         options.setBackgroundMode(TripPageOptions.MODE_ORG);
         assertNull(options.getBackgroundUrl());

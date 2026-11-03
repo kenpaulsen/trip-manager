@@ -7,7 +7,10 @@ import java.io.Serial;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
+import lombok.AccessLevel;
 import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.content.ContentRenderer;
 
@@ -41,6 +44,15 @@ public final class TripPageOptions implements Serializable {
     private Boolean showNav;
     /** A stylesheet for this page alone: a CSS file in the trip's organization's media library. */
     private String stylesheetUrl;
+    /**
+     * The background radio's choice while its value is still blank. The mode is otherwise derived from the data,
+     * and that alone made the dialog's Image and Color choices snap back to "the organization's" on the re-render
+     * that was meant to show their fields (2026-11-02). Dialog state only: never stored, never compared.
+     */
+    @JsonIgnore
+    @Getter(AccessLevel.NONE)
+    @Setter(AccessLevel.NONE)
+    private transient String backgroundChoice;
 
     @JsonCreator
     public TripPageOptions(
@@ -99,17 +111,24 @@ public final class TripPageOptions implements Serializable {
         layout = (mode == null || MODE_ORG.equals(mode)) ? null : trim(mode);
     }
 
-    /** The background radio: image when a URL is set, color when a color is, else {@value #MODE_ORG}. */
+    /**
+     * The background radio: image when a URL is set, color when a color is, else the choice the editor made and
+     * has yet to fill in, else {@value #MODE_ORG}.
+     */
     @JsonIgnore
     public String getBackgroundMode() {
         if (backgroundUrl != null) {
             return BG_IMAGE;
         }
-        return backgroundColor != null ? BG_COLOR : MODE_ORG;
+        if (backgroundColor != null) {
+            return BG_COLOR;
+        }
+        return backgroundChoice == null ? MODE_ORG : backgroundChoice;
     }
 
     /** Choosing a mode clears what it does not use, as the Appearance page's Save does. */
     public void setBackgroundMode(final String mode) {
+        backgroundChoice = (BG_IMAGE.equals(mode) || BG_COLOR.equals(mode)) ? mode : null;
         if (!BG_IMAGE.equals(mode)) {
             backgroundUrl = null;
         }
@@ -152,6 +171,13 @@ public final class TripPageOptions implements Serializable {
         }
         if (backgroundColor != null && SettingDef.hexColor(backgroundColor) == null) {
             problems.add("The background color must be a hex color such as #336699.");
+        }
+        // The dialog's Done, not a stored row: a mode picked and left blank would silently save as the org's.
+        if (BG_IMAGE.equals(backgroundChoice) && backgroundUrl == null) {
+            problems.add("Choose a background image from the library, or paste its URL.");
+        }
+        if (BG_COLOR.equals(backgroundChoice) && backgroundColor == null) {
+            problems.add("Choose a background color.");
         }
         if (stylesheetUrl != null && ContentRenderer.requireLinkUrl(stylesheetUrl).isEmpty()) {
             problems.add("The stylesheet must be an http(s) URL.");
