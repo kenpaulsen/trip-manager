@@ -6,6 +6,8 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.paulsens.trip.model.Config;
 import org.paulsens.trip.model.SettingDef;
 import org.paulsens.trip.model.SettingSection;
@@ -20,6 +22,12 @@ import org.testng.annotations.Test;
  * first, long after the mistake was made. Catching it here turns a production 500 into a red build.
  */
 public class KnownSettingsTest {
+
+    private static final Pattern DASH = Pattern.compile("--|\u2014|\u2013");
+    private static final Pattern BANNED = Pattern.compile("(?i)\\b(enables?|enabled|disables?|disabled|configures?"
+            + "|configured|select|displayed|users|pilgrims?|pilgrimage)\\b|\\be\\.g\\.|\\bi\\.e\\.|\\betc\\.");
+    private static final Pattern SENTENCE_END = Pattern.compile("[.?!](\\s|$)");
+    private static final Pattern PARENS = Pattern.compile("\\(([^)]*)\\)");
 
     @Test
     public void everyDeclaredDefaultParsesAsItsDeclaredType() {
@@ -146,5 +154,66 @@ public class KnownSettingsTest {
         // Flipping either default is a decision, not a tidy-up, so it should break this test.
         Assert.assertFalse(KnownSettings.CHAT_MAIL_ENABLED.booleanDefault());
         Assert.assertFalse(KnownSettings.CHAT_DIGEST_ENABLED.booleanDefault());
+    }
+
+    /**
+     * Every description is the body of an "i" help card ({@code WEB-INF/fieldHelp.xhtml}) on the site or org
+     * settings pages, so it follows the card wording rules (owner, 2026-11-03; the page copy is held to the same
+     * rules by the webtests' {@code FieldHelpPolicyIT}). An org-overridable setting is read by organization admins
+     * and follows all of them. A site-only one is read by site administrators, so it may run long and keep
+     * developer terms (owner's call), but it still ends with a period and carries no dash.
+     */
+    @Test
+    public void everyDescriptionReadsAsAHelpCard() {
+        final List<String> problems = new ArrayList<>();
+        for (final SettingDef def : KnownSettings.all()) {
+            final String text = def.getDescription();
+            final List<String> why = def.isOrgOverridable() ? strictCardProblems(text) : looseCardProblems(text);
+            if (!why.isEmpty()) {
+                problems.add(def.getName() + " " + why);
+            }
+        }
+        Assert.assertTrue(problems.isEmpty(), "Descriptions that break the help-card rules:\n"
+                + String.join("\n", problems));
+    }
+
+    private static List<String> looseCardProblems(final String text) {
+        final List<String> why = new ArrayList<>();
+        if (!text.endsWith(".")) {
+            why.add("must end with a period");
+        }
+        if (DASH.matcher(text).find()) {
+            why.add("no dashes: use a comma, colon or new sentence");
+        }
+        return why;
+    }
+
+    private static List<String> strictCardProblems(final String text) {
+        final List<String> why = looseCardProblems(text);
+        final int words = text.trim().split("\\s+").length;
+        if (words < 15 || words > 60) {
+            why.add(words + " words, want 15 to 60");
+        }
+        final long sentences = SENTENCE_END.matcher(text).results().count();
+        if (sentences < 1 || sentences > 3) {
+            why.add(sentences + " sentences, want 1 to 3");
+        }
+        if (text.contains("!")) {
+            why.add("no exclamation marks");
+        }
+        final Matcher banned = BANNED.matcher(text);
+        if (banned.find()) {
+            why.add("plain words only, not '" + banned.group() + "'");
+        }
+        if (text.startsWith("This ") || text.startsWith("Whether ")) {
+            why.add("must not open with This or Whether");
+        }
+        final Matcher parens = PARENS.matcher(text);
+        while (parens.find()) {
+            if (!parens.group(1).startsWith("for example")) {
+                why.add("parentheses only around one example: (" + parens.group(1) + ")");
+            }
+        }
+        return why;
     }
 }

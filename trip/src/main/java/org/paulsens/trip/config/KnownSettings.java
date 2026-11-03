@@ -48,8 +48,8 @@ public final class KnownSettings {
      */
     public static final SettingDef SITE_ANALYTICS_ID = new SettingDef(
             "site.analytics.id", Config.Type.STRING, "", "Analytics property id",
-            "The web-analytics property (e.g. a Google Analytics measurement id) this site reports to. Blank "
-                    + "means no analytics tag at all. An organization's site never inherits this value: it "
+            "The web analytics property this site reports visits to, for example a Google Analytics measurement id. "
+                    + "Blank means no analytics tag. An organization's site never inherits the shared site's id: it "
                     + "reports only to an id the organization set for itself.").withOrgOnly();
 
     // --- branding (org sites only; every def is org-ONLY, see the section note) ---
@@ -65,8 +65,8 @@ public final class KnownSettings {
 
     public static final SettingDef SITE_THEME_PALETTE = new SettingDef(
             "site.theme.palette", Config.Type.STRING, "", "Color palette",
-            "The accent color of the organization's site (menus, buttons, links) in both light and dark "
-                    + "mode. Blank means the platform's default look.")
+            "The accent color of the organization's site, used for its menus, buttons and links in both light and "
+                    + "dark mode. Blank means the platform's default look.")
             .withOrgOnly().withChoices(THEME_PALETTES.toArray(String[]::new));
 
     /**
@@ -77,8 +77,8 @@ public final class KnownSettings {
      */
     public static final SettingDef SITE_THEME_DARK = new SettingDef(
             "site.theme.dark", Config.Type.BOOLEAN, "false", "Dark mode",
-            "Whether the organization's site is drawn in its palette's DARK theme: dark page background, "
-                    + "dark top bar and menu. A visitor who has chosen light or dark for themselves keeps "
+            "On: the organization's site is drawn in its palette's dark theme, with a dark page background, top bar "
+                    + "and menu. Off: the light theme. A visitor who picked light or dark for themselves keeps "
                     + "their own choice.").withOrgOnly();
 
     /** The stored value of {@link #SITE_LAYOUT} that keeps the content card and the sidebar. */
@@ -93,31 +93,31 @@ public final class KnownSettings {
      */
     public static final SettingDef SITE_LAYOUT = new SettingDef(
             "site.layout", Config.Type.STRING, "", "Page layout",
-            "How the site's home page is laid out. \"classic\" keeps the content card beside the sidebar; "
-                    + "\"full-width\" drops both so band sections (hero, features, calls to action) span "
-                    + "the whole window. Blank means classic. Other pages keep the classic layout either way.")
+            "How the site's home page is laid out: classic keeps the content card beside the sidebar, and full-width "
+                    + "lets band sections such as a hero span the whole window. Blank means classic. Other pages "
+                    + "keep the classic layout either way.")
             .withOrgOnly().withChoices(LAYOUT_CLASSIC, LAYOUT_FULL_WIDTH);
 
     public static final SettingDef SITE_LOGO_URL = new SettingDef(
             "site.logo.url", Config.Type.STRING, "", "Logo image URL",
-            "An http(s) URL of the logo shown in the site's top bar. Blank shows the organization's name as "
+            "The logo shown in the site's top bar, as an http or https URL. Blank shows the organization's name as "
                     + "text instead.").withOrgOnly().withHttpUrl();
 
     public static final SettingDef SITE_FAVICON_URL = new SettingDef(
             "site.favicon.url", Config.Type.STRING, "", "Favicon URL",
-            "An http(s) URL of the browser-tab icon. Blank means no icon at all (the browser shows its "
-                    + "generic one).").withOrgOnly().withHttpUrl();
+            "The icon browsers show on the site's tabs, as an http or https URL. Blank means no icon, so the browser "
+                    + "shows its generic one.").withOrgOnly().withHttpUrl();
 
     public static final SettingDef SITE_OG_IMAGE_URL = new SettingDef(
             "site.ogImage.url", Config.Type.STRING, "", "Link preview image URL",
-            "An http(s) URL of the image chat apps and social sites show when someone shares a link to the "
-                    + "site. Blank uses the logo; with no logo either, links preview without a picture.")
+            "The picture chat apps and social sites show when someone shares a link to the site, as an http or https "
+                    + "URL. Blank uses the logo; with no logo either, links preview without a picture.")
             .withOrgOnly().withHttpUrl();
 
     public static final SettingDef SITE_BACKGROUND_URL = new SettingDef(
             "site.background.url", Config.Type.STRING, "", "Page background image URL",
-            "An http(s) URL of an image shown behind the site's pages. Blank means no background image, so "
-                    + "the background color below shows instead.")
+            "An image shown behind the site's pages, as an http or https URL. Blank means no background image, so "
+                    + "the page background color shows instead.")
             .withOrgOnly().withHttpUrl();
 
     /**
@@ -130,18 +130,19 @@ public final class KnownSettings {
      */
     public static final SettingDef SITE_BACKGROUND_COLOR = new SettingDef(
             "site.background.color", Config.Type.STRING, "", "Page background color",
-            "The color shown behind the site's pages when no background image is set, as a hex value such "
-                    + "as #333333. Blank means the color palette's own background: a tint of the palette's "
-                    + "own color, which follows both the palette and the dark-mode choice on its own.")
+            "The color shown behind the site's pages when no background image is set, as a hex value, for example "
+                    + "#333333. Blank means the palette's own background, a tint of its color that follows the dark "
+                    + "mode choice.")
             .withOrgOnly().withHexColor();
 
     public static final SettingDef SITE_FOOTER_TITLE = new SettingDef(
             "site.footer.title", Config.Type.STRING, "", "Footer title",
-            "The heading of the page footer. Blank shows the organization's name.").withOrgOnly();
+            "The heading of the page footer on the organization's site. Blank shows the organization's name.")
+            .withOrgOnly();
 
     public static final SettingDef SITE_FOOTER_TEXT = new SettingDef(
             "site.footer.text", Config.Type.STRING, "", "Footer text",
-            "A line of plain text under the footer title -- a tagline, a mailing address, a registration "
+            "A line of plain text under the footer title, such as a tagline, a mailing address or a registration "
                     + "number. Blank shows nothing there.").withOrgOnly();
 
     /**
@@ -151,52 +152,55 @@ public final class KnownSettings {
      */
     public static final SettingDef SITE_FOOTER_TITLE_COLOR = new SettingDef(
             "site.footer.title.color", Config.Type.STRING, "", "Footer title color",
-            "The color of the footer title, as a hex value such as #ffffff. Blank uses the theme's own "
-                    + "footer color.").withOrgOnly().withHexColor();
+            "The color of the footer title, as a hex value, for example #ffffff. Blank uses the theme's own footer "
+                    + "color, which suits both layouts.").withOrgOnly().withHexColor();
 
     public static final SettingDef SITE_FOOTER_TEXT_COLOR = new SettingDef(
             "site.footer.text.color", Config.Type.STRING, "", "Footer text color",
-            "The color of the footer text line, as a hex value such as #ffffff. Blank uses the theme's own "
-                    + "footer color.").withOrgOnly().withHexColor();
+            "The color of the line of text under the footer title, as a hex value, for example #ffffff. Blank uses "
+                    + "the theme's own footer color.").withOrgOnly().withHexColor();
 
     /** ONE color for the footer's Privacy, Terms and Support links and the dots between them. */
     public static final SettingDef SITE_FOOTER_LINKS_COLOR = new SettingDef(
             "site.footer.links.color", Config.Type.STRING, "", "Footer links color",
-            "The color of the footer's Privacy, Terms and Support links, as a hex value such as #ffffff. Blank "
-                    + "uses the theme's own footer link color.").withOrgOnly().withHexColor();
+            "The color of the footer's Privacy, Terms and Support links and the dots between them, as a hex value, "
+                    + "for example #ffffff. Blank uses the theme's own footer link color.")
+            .withOrgOnly().withHexColor();
 
     public static final SettingDef SITE_CONTACT_NAME = new SettingDef(
             "site.contact.name", Config.Type.STRING, "", "Contact name",
-            "Who the \"Questions?\" card in the sidebar names. The card's email is the organization "
-                    + "profile's contact email; the card is hidden when the name, phone and email are all "
-                    + "blank.").withOrgOnly();
+            "The name on the contact card in the sidebar of the organization's site, beside the contact email from "
+                    + "its profile. Never inherited from the shared site: blank leaves the name off. The card is "
+                    + "hidden when the name, phone and email are all blank.").withOrgOnly();
 
     public static final SettingDef SITE_CONTACT_PHONE = new SettingDef(
             "site.contact.phone", Config.Type.STRING, "", "Contact phone",
-            "The phone number on the \"Questions?\" card, shown as typed. Blank leaves it off the card.")
+            "The phone number on the contact card in the sidebar of the organization's site, shown exactly as typed. "
+                    + "Never inherited from the shared site: blank leaves the phone off the card.")
             .withOrgOnly();
 
     public static final SettingDef SITE_DONATE_URL = new SettingDef(
             "site.donate.url", Config.Type.STRING, "", "Donate link URL",
-            "An http(s) URL people are sent to by the Donate card and menu entry. Blank means neither is "
-                    + "shown.").withOrgOnly().withHttpUrl();
+            "The http or https page the Donate card and the Donate menu entry send people to. Never inherited from "
+                    + "the shared site: blank means neither is shown.").withOrgOnly().withHttpUrl();
 
     // --- home page ---
 
     public static final SettingDef HOME_PHOTOS_WINDOW_DAYS = new SettingDef(
             "home.photos.windowDays", Config.Type.INT, "365", "Pictures from the last (days)",
-            "A pilgrimage's photos appear on the home page until this long after the trip ends.")
+            "How many days after a trip ends its photos stay on the home page. Older trips' albums drop off the "
+                    + "photo strip on their own.")
             .withOrgOverride();
 
     public static final SettingDef HOME_PHOTOS_MIN_COUNT = new SettingDef(
-            "home.photos.minCount", Config.Type.INT, "10", "Minimum pictures per pilgrimage",
-            "A pilgrimage needs at least this many publicly-visible photos before its album shows on the "
-                    + "home page.").withOrgOverride();
+            "home.photos.minCount", Config.Type.INT, "10", "Minimum pictures per trip",
+            "The fewest publicly shown photos a trip needs before its album appears on the home page. A trip with "
+                    + "fewer stays off the photo strip.").withOrgOverride();
 
     public static final SettingDef HOME_COUNTDOWN_SOON_DAYS = new SettingDef(
             "home.countdown.soonDays", Config.Type.INT, "60", "Extra countdowns within (days)",
-            "The sidebar always counts down to the next pilgrimage of each language; a pilgrimage starting "
-                    + "within this many days gets a countdown too, even behind one of the same language.")
+            "The sidebar always counts down to the next trip in each language; a trip starting within this many days "
+                    + "gets a countdown too, even behind another trip in the same language.")
             .withOrgOverride();
 
     // --- content templates ---
@@ -208,11 +212,11 @@ public final class KnownSettings {
 
     public static final SettingDef HOME_BANNER_ENABLED = new SettingDef(
             "home.banner.enabled", Config.Type.BOOLEAN, "false", "Show the banner",
-            "Shows a notice at the top of the public home page. The banner also needs text below.");
+            "Shows a notice at the top of the public home page. The banner also needs its text, below.");
 
     public static final SettingDef HOME_BANNER_TEXT = new SettingDef(
             "home.banner.text", Config.Type.STRING, "", "Banner text",
-            "The notice itself. Blank hides the banner even when it is enabled.");
+            "The notice itself. Blank hides the banner even when Show the banner is on.");
 
     // --- chat email ---
 
@@ -256,11 +260,12 @@ public final class KnownSettings {
 
     public static final SettingDef CHAT_DIGEST_HOUR = new SettingDef(
             "chat.digest.hour", Config.Type.INT, "8", "Hour of day to send",
-            "0-23, in the timezone below. Values outside that range are clamped rather than refused.");
+            "The hour of the day, 0 to 23, in the time zone below. Values outside that range are clamped rather than "
+                    + "refused.");
 
     public static final SettingDef CHAT_DIGEST_ZONE = new SettingDef(
             "chat.digest.zone", Config.Type.STRING, "America/Los_Angeles", "Timezone",
-            "An IANA zone id, such as America/Los_Angeles. An unrecognised zone falls back to the default.");
+            "An IANA zone id, such as America/Los_Angeles. An unrecognized zone falls back to the default.");
 
     // --- chat limits ---
 
@@ -291,12 +296,12 @@ public final class KnownSettings {
 
     public static final SettingDef CHAT_AUTO_MUTE_LADDER_MINUTES = new SettingDef(
             "chat.autoMute.ladderMinutes", Config.Type.STRING, "5,30,1440", "Mute lengths, in minutes",
-            "Comma-separated, escalating: the first automatic mute uses the first value, the next the second, "
-                    + "and so on, with the last repeating. Malformed lists fall back to the default.");
+            "Comma-separated and escalating: the first automatic mute uses the first value, the next the second, and "
+                    + "so on, with the last repeating. A malformed list falls back to the default.");
 
     public static final SettingDef CHAT_AUTO_MUTE_TIER_DECAY_HOURS = new SettingDef(
             "chat.autoMute.tierDecayHours", Config.Type.INT, "24", "Escalation forgotten after (hours)",
-            "How long good behaviour takes to drop someone back down the ladder above.");
+            "How long good behavior takes to drop someone back down the ladder above.");
 
     public static final SettingDef CHAT_ALARM_DEDUPE_WINDOW_SECONDS = new SettingDef(
             "chat.alarm.dedupeWindowSeconds", Config.Type.INT, "300", "Alarm records at most one per (seconds)",
@@ -315,9 +320,9 @@ public final class KnownSettings {
             "fuck,fucking,fucker,motherfucker,shit,bullshit,cunt,cock,dick,pussy,asshole,bitch,bastard,"
                     + "whore,slut,nigger,nigga,faggot,fag,dyke,tranny,retard,spic,chink,kike,wetback,raghead",
             "Blocked words",
-            "Comma-separated. A chat message or photo comment containing one of these as a whole word is "
-                    + "refused with an explanation. Case-insensitive. Empty turns the filter off; moderation "
-                    + "(reports, mutes, removals) keeps working either way.");
+            "Comma-separated. A chat message or photo comment containing one of these as a whole word is refused "
+                    + "with an explanation. Case-insensitive. Blank turns the filter off; moderation (reports, "
+                    + "mutes, removals) keeps working either way.");
 
     public static final SettingDef MODERATION_REPORT_EMAIL = new SettingDef(
             "moderation.report.email", Config.Type.STRING, "facilitators", "Content report recipient",
@@ -339,26 +344,26 @@ public final class KnownSettings {
             "chat.background.colors", Config.Type.STRING,
             "#eef2f7,#f5efe6,#eaf3ec,#f3eaf3,#fdf4e3,#e8eef5,#ffffff",
             "Background colors offered",
-            "Comma-separated, in the order they are offered. People pick from this list rather than typing a "
-                    + "color, so an entry that is not a plain #rrggbb or a CSS color keyword is dropped -- the "
-                    + "value ends up inside a style attribute, where anything else is CSS injection.")
+            "The colors people may pick for a chat's background, separated by commas and offered in this order. An "
+                    + "entry that is not a plain #rrggbb value or a CSS color name is dropped, since the value is "
+                    + "written into the page's styles.")
             .withOrgOverride();
 
     public static final SettingDef CHAT_BACKGROUND_IMAGE = new SettingDef(
             "chat.background.image", Config.Type.STRING,
             "https://files.visitqueenofpeace.com/images/mary-link.jpg",
             "Default background image",
-            "Shown faded behind the messages when neither the trip nor the person has chosen one. Blank means "
-                    + "no image at all. Must be an http(s) URL.").withOrgOverride();
+            "The picture shown faded behind the messages when neither the trip nor the person has chosen one, as an "
+                    + "http or https URL. Blank means no image at all.").withOrgOverride();
 
 
     public static final SettingDef CHAT_REACTIONS_PALETTE = new SettingDef(
             "chat.reactions.palette", Config.Type.STRING, "👍,❤️,😂,🙏,"
                     + "📿,🎉,😮,😢,😊,✅",
             "Reaction emoji",
-            "Comma-separated, in display order. Matched exactly, so an emoji written with a different "
-                    + "variation selector is a different entry. Reactions already stored with a removed emoji "
-                    + "stay in the data but stop being offered.").withOrgOverride();
+            "The emoji people may react with, separated by commas, in the order they are offered. Each is matched "
+                    + "exactly, and reactions already given with a removed emoji are kept but no longer offered.")
+            .withOrgOverride();
 
     public static final SettingDef CHAT_PHOTO_COMMENTS_ENABLED = new SettingDef(
             "chat.photoComments.enabled", Config.Type.BOOLEAN, "true", "Photo comments and reactions",
@@ -368,16 +373,16 @@ public final class KnownSettings {
 
     public static final SettingDef CHAT_PHOTO_COMMENT_MAX_CHARS = new SettingDef(
             "chat.photoComments.maxChars", Config.Type.INT, "1000", "Photo comment length",
-            "Longest allowed photo comment, in characters. Shorter than a chat message on purpose -- the "
-                    + "panel beside a photo is a caption-sized space, not a second chat.");
+            "Longest allowed photo comment, in characters. Shorter than a chat message on purpose: the panel beside "
+                    + "a photo is a caption-sized space, not a second chat.");
 
     // --- chat invites ---
 
     public static final SettingDef CHAT_INVITES_ENABLED = new SettingDef(
             "chat.invites.enabled", Config.Type.BOOLEAN, "true", "Allow invite links",
-            "Lets chat participants invite people who are not on the trip -- family and friends -- by link or "
-                    + "QR code. Turning this off refuses new links AND stops existing ones from being redeemed; "
-                    + "guests already in a chat stay.");
+            "Lets chat participants invite people who are not on the trip, such as family and friends, by link or QR "
+                    + "code. Off refuses new links AND stops existing ones from being redeemed; guests already in a "
+                    + "chat stay.");
 
     public static final SettingDef CHAT_INVITE_EXPIRY_DAYS = new SettingDef(
             "chat.invites.expiryDays", Config.Type.INT, "30", "Invite link lifetime (days)",
@@ -428,8 +433,8 @@ public final class KnownSettings {
 
     public static final SettingDef LOGIN_MAIL_REPLY_TO = new SettingDef(
             "login.mail.replyTo", Config.Type.STRING, "ken@visitqueenofpeace.com", "Reply-to address",
-            "Where a reply to a login-code email goes -- someone stuck at the login page tends to reply to "
-                    + "the mail in front of them, so this should be an address a human reads." + MODE_NOTE);
+            "Where a reply to a login-code email goes. Someone stuck at the login page tends to reply to the mail in "
+                    + "front of them, so this should be an address a human reads.");
 
     public static final SettingDef LOGIN_PASSKEY_ENABLED = new SettingDef(
             "login.passkey.enabled", Config.Type.BOOLEAN, "false", "Offer passkeys",
@@ -440,9 +445,9 @@ public final class KnownSettings {
 
     public static final SettingDef LOGIN_REMEMBER_ENABLED = new SettingDef(
             "login.remember.enabled", Config.Type.BOOLEAN, "true", "Keep people signed in",
-            "Gives each (non-admin) sign-in a long-lived browser cookie that quietly signs them back in when "
-                    + "their session ends. Turning this off also stops honoring every cookie already out "
-                    + "there -- it is the kill switch.");
+            "Gives each sign-in that is not an admin's a long-lived browser cookie that quietly signs them back in "
+                    + "when their session ends. Off also stops honoring every cookie already out there: it is the "
+                    + "kill switch.");
 
     public static final SettingDef LOGIN_REMEMBER_DAYS = new SettingDef(
             "login.remember.days", Config.Type.INT, "60", "...for this many days",
@@ -451,9 +456,9 @@ public final class KnownSettings {
 
     public static final SettingDef API_TOKEN_ENABLED = new SettingDef(
             "api.token.enabled", Config.Type.BOOLEAN, "false", "API bearer tokens",
-            "Lets native/mobile clients sign in over the REST API with bearer tokens (docs/api-tokens.md). "
-                    + "Off means no issuance, no refresh, AND no acceptance of tokens already out there -- it "
-                    + "is the kill switch. Leave OFF until a client ships.");
+            "Lets native and mobile clients sign in over the REST API with bearer tokens (docs/api-tokens.md). Off "
+                    + "means no issuance, no refresh, AND no acceptance of tokens already out there: it is the kill "
+                    + "switch. Leave it OFF until a client ships.");
 
     public static final SettingDef API_TOKEN_ACCESS_MINUTES = new SettingDef(
             "api.token.access.minutes", Config.Type.INT, "30", "...access token minutes",
@@ -492,8 +497,8 @@ public final class KnownSettings {
 
     public static final SettingDef LOGIN_PASSWORD_MAX_FAILS = new SettingDef(
             "login.password.maxFails", Config.Type.INT, "10", "Wrong passwords per person",
-            "After this many wrong passwords for one email address within the window below, sign-in for that "
-                    + "address is refused until the window rolls over. 0 disables the throttle.");
+            "After this many wrong passwords for one email address within the window below, sign-in for that address "
+                    + "is refused until the window rolls over. 0 turns the throttle off.");
 
     public static final SettingDef LOGIN_PASSWORD_FAIL_WINDOW_SECONDS = new SettingDef(
             "login.password.failWindowSeconds", Config.Type.INT, "900", "...within this many seconds",
@@ -503,9 +508,9 @@ public final class KnownSettings {
 
     public static final SettingDef REG_ALLOW_EDITS = new SettingDef(
             "reg.allowEdits", Config.Type.BOOLEAN, "true", "Registrants may edit their responses",
-            "Whether a traveler who has already registered (pending or confirmed) can still change their "
-                    + "registration-option answers from the registration page. Off makes the expanded view "
-                    + "read-only; registering itself is unaffected.").withOrgOverride();
+            "On: a traveler who has already registered, pending or confirmed, can still change their answers on the "
+                    + "registration page. Off: their answers become read-only; registering itself is unaffected.")
+            .withOrgOverride();
 
     // --- lodging ---
 
@@ -516,9 +521,9 @@ public final class KnownSettings {
      */
     public static final SettingDef LODGING_AUTO_RECOMPUTE = new SettingDef(
             "lodging.bills.autoRecompute", Config.Type.BOOLEAN, "true", "Recompute lodging bills automatically",
-            "Whether every reservation change (create, dates, room, cancel) re-derives the affected room's "
-                    + "lodging bills at once. Off leaves the ledger untouched until an admin presses Recompute "
-                    + "on the trip's Lodging page.").withOrgOverride();
+            "On: every reservation change, from dates and rooms to a cancellation, recomputes the affected room's "
+                    + "lodging bills at once. Off: the ledger stays as it is until someone presses Recompute on the "
+                    + "trip's Lodging page.").withOrgOverride();
 
     // --- registration email ---
 
@@ -549,8 +554,8 @@ public final class KnownSettings {
     public static final SettingDef REG_NOTIFY_EMAIL = new SettingDef(
             "reg.notify.email", Config.Type.STRING, "facilitators",
             "Registration notice recipient",
-            "Who receives the internal registration notices (new/moved/canceled). Defaults to the trip's "
-                    + "facilitators -- the same contacts the registrant is shown." + MODE_NOTE);
+            "Who receives the internal registration notices (new, moved, canceled). Defaults to the trip's "
+                    + "coordinators, the same contacts the registrant is shown.");
 
     public static final SettingDef REG_NOTIFY_FROM = new SettingDef(
             "reg.notify.from", Config.Type.STRING, "site",
@@ -617,10 +622,10 @@ public final class KnownSettings {
             "https://my.centermirmedjugorje.com,https://www.visitqueenofpeace.com,https://visitqueenofpeace.com",
             "Allowed payment return addresses",
             "Comma-separated. A mobile app supplies its own return and cancel address for a PayPal payment, and "
-                    + "anything not starting with one of these is refused. Without the check the payment "
-                    + "endpoint is an open redirect: an attacker borrows our PayPal flow to make their own page "
-                    + "look like part of this site. Add an app's custom scheme (e.g. trip://) here before "
-                    + "shipping it, not after.");
+                    + "anything not starting with one of these is refused. Without the check the payment endpoint "
+                    + "is an open redirect: an attacker borrows our PayPal flow to make their own page look like "
+                    + "part of this site. Add an app's custom scheme, for example trip://, here before shipping it, "
+                    + "not after.");
 
     public static final SettingDef PAYMENT_NOTIFY_EMAIL = new SettingDef(
             "payment.notify.email", Config.Type.STRING, "",
@@ -636,15 +641,15 @@ public final class KnownSettings {
     public static final SettingDef FINANCE_TREASURER_EMAIL = new SettingDef(
             "finance.treasurer.email", Config.Type.STRING, "",
             "Treasurer email",
-            "Where a submitted trip expense report is emailed, as a PDF with its receipts, when the person "
-                    + "submitting it chooses to. Blank: no treasurer is known, and the Submit dialog says so.")
+            "The address a submitted trip expense report is emailed to, as a PDF with its receipts, when the person "
+                    + "submitting it chooses to. Blank means no treasurer is known, and the Submit dialog says so.")
             .withOrgOverride().withEmail();
 
     public static final SettingDef PAYMENT_MAIL_FROM = new SettingDef(
             "payment.mail.from", Config.Type.STRING, "",
             "Payment confirmation From address",
-            "Site-wide fallback From for payment confirmation email, e.g. 'Site Name <no-reply@site.org>'. "
-                    + "The trip's payment settings, then the organization's defaults, win when set.");
+            "Site-wide fallback From for payment confirmation email, for example Site Name <no-reply@site.org>. The "
+                    + "trip's payment settings, then the organization's defaults, win when set.");
 
     public static final SettingDef PAYMENT_CONFIRM_TEMPLATE = new SettingDef(
             "payment.confirm.templateId", Config.Type.STRING, "payment-confirmation",
@@ -676,9 +681,9 @@ public final class KnownSettings {
 
     public static final SettingDef PUSH_SILENT_INTERVAL_MINUTES = new SettingDef(
             "push.silent.intervalMinutes", Config.Type.INT, "15", "Silent refresh interval (minutes)",
-            "After chat activity, phones that were NOT alerted get at most one background refresh push per "
-                    + "this many minutes (badge and unread counts stay fresh without opening the app). 0 turns "
-                    + "silent refreshes off; the range is 0-240.");
+            "After chat activity, phones that were NOT alerted get at most one background refresh push per this many "
+                    + "minutes, so badge and unread counts stay fresh without opening the app. 0 turns silent "
+                    + "refreshes off; the range is 0 to 240.");
 
     public static final SettingDef PUSH_WEB_ENABLED = new SettingDef(
             "push.web.enabled", Config.Type.BOOLEAN, "true", "Push to browsers (Web Push)",
@@ -721,14 +726,15 @@ public final class KnownSettings {
 
     public static final SettingDef APPS_APP_STORE_URL = new SettingDef(
             "apps.appStore.url", Config.Type.STRING, "", "App Store listing URL",
-            "The UniteTrip iOS app's page on the App Store (https://apps.apple.com/...). The support page shows "
-                    + "a \"Download on the App Store\" badge linking here; blank leaves the badge off.").withHttpUrl();
+            "The UniteTrip iOS app's page on the App Store, starting https://apps.apple.com/. The support page shows "
+                    + "a Download on the App Store badge linking here; blank leaves the badge off.").withHttpUrl();
 
     public static final SettingDef APPS_PLAY_STORE_URL = new SettingDef(
             "apps.playStore.url", Config.Type.STRING, "", "Google Play listing URL",
-            "The UniteTrip Android app's page on Google Play (https://play.google.com/store/apps/details?id=...). "
-                    + "The support page shows a \"Get it on Google Play\" badge linking here; blank leaves the badge "
-                    + "off, which is how it stays until the Play listing is live.").withHttpUrl();
+            "The UniteTrip Android app's page on Google Play, starting "
+                    + "https://play.google.com/store/apps/details?id=. The support page shows a Get it on Google "
+                    + "Play badge linking here; blank leaves the badge off, which is how it stays until the Play "
+                    + "listing is live.").withHttpUrl();
 
     public static final String EMAIL_ADDRESSES_SECTION = "Email addresses";
 
