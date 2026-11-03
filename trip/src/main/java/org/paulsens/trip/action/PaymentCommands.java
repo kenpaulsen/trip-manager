@@ -114,12 +114,20 @@ public class PaymentCommands {
     // ------------------------------------------------------------------ page-facing views
 
     /**
-     * Whether the signed-in user may flip the page into sandbox mode for THIS trip: site admin, or a holder
-     * of {@code paymentsAdmin} scoped to the trip's org (sandbox mode exercises that org's sandbox
-     * credentials, so the grant follows the org -- the global variant is retired, org migration 2026-08).
-     * An org-less legacy trip has no org to hold the grant, so only site admins get sandbox there.
+     * Whether the signed-in user may flip the page into sandbox mode for THIS trip: exactly the trip's
+     * {@link #isPaymentsAdmin payments admins}, since sandbox mode exercises the org's sandbox credentials.
      */
     public boolean isSandboxAllowed(final Trip trip) {
+        return isPaymentsAdmin(trip);
+    }
+
+    /**
+     * Whether the signed-in user is a payments admin for THIS trip: site admin, or a holder of {@code
+     * paymentsAdmin} scoped to the trip's org (the grant follows the org -- the global variant is retired, org
+     * migration 2026-08). It opens the trip editor's Payment Settings and the payment page's sandbox mode. An
+     * org-less legacy trip has no org to hold the grant, so only site admins pass there.
+     */
+    public boolean isPaymentsAdmin(final Trip trip) {
         final Caller current = caller();
         if (current.isSiteAdmin()) {
             return true;

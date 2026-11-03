@@ -83,6 +83,9 @@ public class ConferenceAccessTest {
         assertTrue(DAO.getInstance().saveTrip(trip));
         assertEquals(trips(admin).tripKindsFor(trip), List.of(TripKind.PILGRIMAGE), "the editor sees its kind only");
         assertEquals(trips(holder).tripKindsFor(trip), List.of(TripKind.values()));
+        assertFalse(trips(admin).canChooseKind(trip), "no grant: the editor leaves the Kind row out");
+        assertTrue(trips(holder).canChooseKind(trip));
+        assertFalse(trips(holder).canChooseKind(null));
 
         trip.setKind(TripKind.CONFERENCE);
         assertFalse(trips(admin).saveTrip(trip, orgs(admin)), "an org admin may not make one");

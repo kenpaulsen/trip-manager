@@ -122,7 +122,12 @@ problem's message is a whole sentence, because pages put it in a growl summary.
   cell) so it never scrolls sideways. Beside the pricing link the sheet shows `checkout.policySummary` ("on: deposit
   $200.00 per person, approval required, 2 age bands"). Done refuses an inconsistent policy and stays open, and
   `TripCommands.saveTrip` refuses it again on every save path (the dialog's X skips Done). Nothing persists until
-  the trip page's Save. The deposit radio sits above the amount field because JSF decodes in tree order:
+  the trip page's Save. The pricing link renders only when the trip resolves to a processor (`isPayable`) or
+  already requires payment (so it can be turned off); otherwise the cell explains, and a payments admin gets a
+  link that opens Payment Settings, which sits directly above it and whose Done re-renders the cell (2026-11-02).
+  The options table is four columns since 2026-11-02: each question's text above its help text, its Type above its
+  choices (chips with prices, and the "Edit choices" link). New options start blank and shown to users, and
+  `saveTrip` refuses a shown option with no name (`TripCommands.UNNAMED_OPTION`). The deposit radio sits above the amount field because JSF decodes in tree order:
   `setDueMode` runs first and `setDepositDollars` ignores an amount while the radio says Full amount.
 - `admin/tripRegistrations.xhtml` adds Type and Price columns (the stored price, what the Bill says; a deposit
   charges less, and the balance shows on check-in and the person's transactions) and a details dialog with the

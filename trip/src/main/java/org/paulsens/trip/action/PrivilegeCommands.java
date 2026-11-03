@@ -84,8 +84,9 @@ public class PrivilegeCommands {
      * NOT implied -- they grant it to members, themselves included. Running a conference is the trip roles' job.
      */
     public static final String ADD_CONFERENCE = "addConference";
-    /** May flip the payment page into SANDBOX mode (sandbox APIs, no real ledger writes). Org-scoped:
-     *  sandbox mode exercises the trip's org's sandbox credentials, so the grant follows the org. */
+    /** Chooses a trip's Payment Settings in the trip editor, and may flip the payment page into SANDBOX mode
+     *  (sandbox APIs, no real ledger writes). Org-scoped: both act on the trip's org's processors, so the grant
+     *  follows the org. */
     public static final String PAYMENTS_ADMIN = "paymentsAdmin";
     /**
      * Lodging. ORG-scoped: manages offers and reservations on that org's trips and may create accommodations.
@@ -159,7 +160,8 @@ public class PrivilegeCommands {
             java.util.Map.entry(ADD_TRIP, "Create new trips for the organization"),
             java.util.Map.entry(ADD_CONFERENCE, "Create conferences for the organization (offered by a site admin)"),
             java.util.Map.entry(EMAIL_ADMIN, "Send email to the organization's members"),
-            java.util.Map.entry(PAYMENTS_ADMIN, "Use payment sandbox mode on the organization's trips"),
+            java.util.Map.entry(PAYMENTS_ADMIN,
+                    "Choose payment settings and use payment sandbox mode on the organization's trips"),
             java.util.Map.entry(PRIVILEGE_ADMIN, "See and edit privileges"),
             java.util.Map.entry(CONFIG_ADMIN, "See and manage site settings"),
             java.util.Map.entry(AUDIT_ADMIN, "See the audit trail (an organization's own, when scoped to one)"),

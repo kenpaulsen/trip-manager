@@ -40,8 +40,9 @@ Conferences are a separately granted feature (owner decision 2026-11-02, an upse
   either: `addTrip` alone may not create a conference, `addConference` alone may not create a pilgrimage.
 - **Making or unmaking a conference** (changing an existing trip's kind to or from CONFERENCE) takes the same
   privilege: `TripCommands.saveTrip` refuses it otherwise on every path (the REST edge passes its own caller's
-  `OrgCommands`, because the bean's resolves from the JSF session), and both Kind menus offer only the trip's own
-  kind to anyone else (`TripCommands.tripKindsFor`). A `PUT /api/trips/{id}` that would flip it answers 403.
+  `OrgCommands`, because the bean's resolves from the JSF session), and the trip editor shows its Kind row only to
+  a holder (`TripCommands.canChooseKind`, 2026-11-02; `tripKindsFor` still offers anyone else only the trip's own
+  kind). A `PUT /api/trips/{id}` that would flip it answers 403.
 
 Tests: `ConferenceAccessTest`, `TripsResourceTest` (`aConferenceTakesCreateConferences`,
 `aTripManagerMayNotMakeAConference`), `ConferenceAccessPwIT`.

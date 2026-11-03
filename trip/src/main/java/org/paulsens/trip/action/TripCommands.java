@@ -154,6 +154,21 @@ public class TripCommands {
         return saveTrip(trip, null);   // this bean's own caller, resolved only if the kind gate needs one
     }
 
+    /** The refusal when a registration option shown to users has no name. */
+    static final String UNNAMED_OPTION = "Not saved: a registration option shown to users has no name. Open "
+            + "Registration Options and name it, or untick its Show to Users? box.";
+
+    /** Whether any option travelers would see is missing its name (the question text). */
+    static boolean hasUnnamedShownOption(final Trip trip) {
+        for (final RegistrationOption option : trip.getRegOptions()) {
+            if (Boolean.TRUE.equals(option.getShow())
+                    && (option.getShortDesc() == null || option.getShortDesc().isBlank())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /**
      * {@link #saveTrip(Trip)} judged by {@code org}'s caller: the REST edge passes one bound to ITS caller, since
      * this bean's own resolves from the JSF session a bearer request does not have. Null: this bean's own.
@@ -162,6 +177,12 @@ public class TripCommands {
         if (!mayChangeKind(trip, org)) {
             PageFeedback.warn("Not saved: only someone holding Create Conferences for this organization may make "
                     + "a trip a conference or change a conference's kind.");
+            return false;
+        }
+        if (hasUnnamedShownOption(trip)) {
+            // New options start blank and shown (the editor's hints stand in for the name), so a forgotten one
+            // would otherwise reach the registration form as a question with no label.
+            PageFeedback.warn(UNNAMED_OPTION);
             return false;
         }
         final List<String> pricing = trip.checkoutProblems();
@@ -1115,10 +1136,18 @@ public class TripCommands {
      * the kind it has -- a trip editor neither makes nor unmakes a conference (docs/conference.md, "Access").
      */
     public List<TripKind> tripKindsFor(final Trip trip) {
-        if (trip == null || orgSource.get().canCreateConferenceFor(trip.getOrgId())) {
+        if (trip == null || canChooseKind(trip)) {
             return getTripKinds();
         }
         return List.of(trip.getKind());
+    }
+
+    /**
+     * Whether the trip editor shows its Kind row at all: only to whoever may create a conference for the trip's org,
+     * the one person the menu offers a choice. To anyone else it would be a one-item menu, so it is left out.
+     */
+    public boolean canChooseKind(final Trip trip) {
+        return trip != null && orgSource.get().canCreateConferenceFor(trip.getOrgId());
     }
 
     /**

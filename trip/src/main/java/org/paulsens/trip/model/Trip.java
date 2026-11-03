@@ -747,9 +747,12 @@ public final class Trip implements Serializable {
         syncEventIds();
     }
 
+    /**
+     * Appends a blank option, shown to users: the editor's greyed hints stand in for the empty name and help text
+     * (user request 2026-11-02), and saveTrip refuses a shown option left without a name.
+     */
     public void addTripOption() {
-        getRegOptions().add(
-                new RegistrationOption(getRegOptions().size(), "New Option", "New Option Description", false));
+        getRegOptions().add(new RegistrationOption(getRegOptions().size(), "", "", true));
     }
 
     private boolean matchingTE(final TripEvent te, final String title, final LocalDateTime date) {

@@ -1,6 +1,7 @@
 package org.paulsens.trip.action;
 
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.model.RegistrationOption;
 import org.paulsens.trip.model.Trip;
 import org.testng.annotations.Test;
 
@@ -9,7 +10,7 @@ import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
 
-/** The trip editor's "Registrations managed" radio and its shared staff dialog, as the bean sees them. */
+/** The trip editor's "Registrations managed" radio, staff dialog and option-name guard, as the bean sees them. */
 public class TripEditorHelpersTest {
     private final TripCommands trips = new TripCommands();
 
@@ -76,5 +77,22 @@ public class TripEditorHelpersTest {
         trip.setNonHostedTripUrl("https://elsewhere.example/register");
         trip.setNonHostedRegNumber(42);
         return trip;
+    }
+
+    @Test
+    public void aShownOptionNeedsAName() {
+        final Trip trip = Trip.builder().title("Unnamed").build();
+        assertFalse(TripCommands.hasUnnamedShownOption(trip), "no options at all");
+        trip.addTripOption();
+        assertTrue(TripCommands.hasUnnamedShownOption(trip), "a new option starts blank and shown");
+        assertFalse(trips.saveTrip(trip), "so the trip is not saved with it");
+        trip.getRegOptions().get(0).setShortDesc("   ");
+        assertTrue(TripCommands.hasUnnamedShownOption(trip), "blank is no name");
+        trip.getRegOptions().get(0).setShortDesc(null);
+        assertTrue(TripCommands.hasUnnamedShownOption(trip), "null is no name");
+        trip.getRegOptions().get(0).setShow(false);
+        assertFalse(TripCommands.hasUnnamedShownOption(trip), "hidden from users, so no question appears");
+        trip.getRegOptions().add(new RegistrationOption(1, "Roommate", "", true));
+        assertFalse(TripCommands.hasUnnamedShownOption(trip), "named and shown is fine");
     }
 }

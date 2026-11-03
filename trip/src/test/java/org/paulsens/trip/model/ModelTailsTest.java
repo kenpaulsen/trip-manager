@@ -89,7 +89,7 @@ public class ModelTailsTest {
     }
 
     @Test
-    public void addTripOptionAppendsANumberedPlaceholder() {
+    public void addTripOptionAppendsABlankShownOption() {
         final Trip trip = Trip.builder().id("opt-trip").title("T")
                 .startDate(LocalDateTime.now()).endDate(LocalDateTime.now().plusDays(3)).build();
         final int before = trip.getRegOptions().size();
@@ -99,6 +99,9 @@ public class ModelTailsTest {
         Assert.assertEquals(trip.getRegOptions().size(), before + 1);
         Assert.assertEquals(trip.getRegOptions().get(before).getId(), before,
                 "the new option's id is its position, so ids stay dense");
+        Assert.assertEquals(trip.getRegOptions().get(before).getShortDesc(), "", "blank: the editor shows a hint");
+        Assert.assertEquals(trip.getRegOptions().get(before).getLongDesc(), "");
+        Assert.assertEquals(trip.getRegOptions().get(before).getShow(), Boolean.TRUE, "shown to users by default");
     }
 
     // --- TripEvent: joining and leaving ---

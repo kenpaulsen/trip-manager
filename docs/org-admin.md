@@ -102,7 +102,7 @@ Privileges page once verified:
 | `addTrip` | Creating trips belonging to that org (page and `POST /api/trips` use the same rule) |
 | `addConference` | Creating CONFERENCES for that org, and making or unmaking one; org admins are NOT implied, and the org's allow-list must offer it at use (`docs/conference.md`, "Access"); chip name "Create Conferences" |
 | `emailAdmin` | Mail-merge bounded to that org's members + its trips' rosters (`OrgCommands.sendMerge`) |
-| `paymentsAdmin` | The payment page's sandbox toggle for that org's trips |
+| `paymentsAdmin` | The trip editor's Payment Settings row for that org's trips, and the payment page's sandbox toggle (`PaymentCommands.isPaymentsAdmin`) |
 | `contentAdmin`, `mediaAdmin` | That org's own site: its page, templates, media library (also global; see "Org-site editors") |
 | `auditAdmin` | That org's own audit trail — its site's view and its Dashboard card (also global: every trail); chip name "Audit Viewer" |
 
@@ -178,9 +178,15 @@ so a site admin can grant them or adjust the allow-list. A create-save then cont
 `/trip/edit.jsf?id=` (or the itinerary when Editor Admin itself was withheld). On that editor, the
 settings rows answer to per-trip roles rather than `showAll`: the trip TITLE (`tripMgr`, so a creator can
 name the trip they just made), "Show on homepage?" (`tripMgr`), Edit Registration Options
-(`registrationAdmin`), Payment Settings (`tripFinAdmin`), "Enable Trip Chat?" (`chatMgr`) -- the dialogs
-themselves render only for their gate's holders, which is also the decode-time refusal for forged
-submits.
+(`registrationAdmin`), Payment Settings (the org's `paymentsAdmin`, since 2026-11-02; it was `tripFinAdmin`),
+"Enable Trip Chat?" (`chatMgr`) -- the dialogs themselves render only for their gate's holders, which is also the
+decode-time refusal for forged submits. Three rows render only when they offer a choice (2026-11-02): Kind for a
+holder of Create Conferences (`TripCommands.canChooseKind`), Organization when the viewer manages more than one org
+(`OrgCommands.canChooseOrg`; never while creating), and Registration Pricing's dialog link once the trip resolves to
+a payment processor (`CheckoutCommands.isPayable`) or already requires payment. Without a processor the pricing
+cell says why and offers a payments admin the Payment Settings dialog; an org with no enabled processor gets a
+note on Payment Settings whose link, for an org admin, leads to `admin/orgProcessors.jsf` behind a leave prompt
+(`payProcGoDlg`), since leaving the editor discards the draft.
 
 **Trip staff are people** (2026-08-24): `Trip.facilitatorIds`/`directorIds` (lists of `Person.Id`)
 supersede the deprecated free-form `facilitators`/`director` strings. The hand-written

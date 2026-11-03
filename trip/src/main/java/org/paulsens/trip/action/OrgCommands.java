@@ -162,6 +162,14 @@ public class OrgCommands {
         return matching(getManageableOrgs(), query);
     }
 
+    /**
+     * Whether {@link #completeOrgs} can offer the signed-in user a CHOICE: more than one manageable org. Most people
+     * manage one org or none, so the trip editor hides its Organization row unless there is something to pick.
+     */
+    public boolean canChooseOrg() {
+        return getManageableOrgs().size() > 1;
+    }
+
     /** Autocomplete over EVERY org, for site-admin-only pickers (the org switcher). */
     public List<Organization> completeAllOrgs(final String query) {
         return caller().isSiteAdmin() ? matching(getOrganizations(), query) : List.of();

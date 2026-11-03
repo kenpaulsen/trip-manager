@@ -99,6 +99,19 @@ public class OrgCommandsTest {
         return ScopedValue.where(RequestContext.SCOPE, RequestContext.of(null, null, site)).call(body);
     }
 
+    /** The trip editor's Organization row: shown only when there is more than one org to pick from. */
+    @Test
+    public void anOrgChoiceNeedsTwoManageableOrgs() throws IOException {
+        final Person acmeAdmin = savedPerson();
+        orgWithAdmin(acmeAdmin);
+        assertFalse(commandsFor(acmeAdmin).canChooseOrg(), "one org: nothing to choose");
+        assertFalse(commandsFor(savedPerson()).canChooseOrg(), "no org at all");
+        final Organization second = orgWithAdmin(savedPerson());
+        assertTrue(admin().setOrgAdmin(second.getId().getValue(), acmeAdmin.getId(), true));
+        assertTrue(commandsFor(acmeAdmin).canChooseOrg(), "two orgs: a choice");
+        assertTrue(admin().canChooseOrg(), "a site admin manages every org");
+    }
+
     @Test
     public void siteAdminManagesEveryOrg() throws IOException {
         final Organization acme = orgWithAdmin(savedPerson());

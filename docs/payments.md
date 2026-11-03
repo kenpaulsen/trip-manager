@@ -242,9 +242,9 @@ tasks and the webhook, the return page and an admin's Finish can hit different o
 
 The ORG-scoped `paymentsAdmin` privilege — `paymentsAdmin@the-trip's-org`, granted on the org People page;
 site admins implicitly qualify, and the retired global variant grants nothing — shows a toggle on the
-payment page (`PaymentCommands.isSandboxAllowed(trip)`; an org-less legacy trip offers sandbox to site
-admins only):
-sandbox runs the SAME pipeline against the config's sandbox credential set, but the recorder **dry-runs** —
+payment page (`PaymentCommands.isSandboxAllowed(trip)`, which is `isPaymentsAdmin(trip)`; an org-less legacy
+trip offers sandbox to site admins only). The same grant opens the trip editor's Payment Settings row (2026-11-02).
+Sandbox runs the SAME pipeline against the config's sandbox credential set, but the recorder **dry-runs** —
 no ledger rows, no mail, and the would-have-written rows render in the result panel. Sandbox payments are
 excluded from balances and the reconciliation list.
 
