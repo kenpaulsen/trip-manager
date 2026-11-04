@@ -5,7 +5,7 @@ For deployments of this codebase that are still on the pre-2026-08 cache design 
 `TRIP_CACHE_MODE=memory` with no Valkey). The actively developed us-west-2 deployment adopted these
 changes as they shipped and needs nothing from this document.
 
-## What changed (three deploys on master)
+## What changed (three deploys on main, called master at the time)
 
 1. **Envelope freshness** — `PointCache` values became `"<epochMillis>|<json>"`; the sibling `:at` keys
    are gone. All six typed caches share one `Revalidator` for staleness + background-refresh gating.
@@ -17,7 +17,7 @@ changes as they shipped and needs nothing from this document.
 
 ## When to run
 
-When merging master into `mir2026` (or any deployment on the old design). There is nothing to run
+When merging main into `mir2026` (or any deployment on the old design). There is nothing to run
 *before* the merge — this migration is about knowing what does and does not need doing.
 
 ## Steps
