@@ -47,8 +47,8 @@ public final class OrgPageBootstrap {
     private static final String SHARED_PAGE_PREFIX = "page:shared:";
     private static final String MARKETING_PAGE_PREFIX = "page:unitetrip:";
     /**
-     * A TRIP's pages (a conference's public page, docs/conference.md): {@code page:trip:{tripUuid}:{pageName}}.
-     * Keyed by the trip, never by the host, so the same conference page renders whichever site reaches the trip,
+     * A TRIP's pages (its public details page, docs/conference.md): {@code page:trip:{tripUuid}:{pageName}}.
+     * Keyed by the trip, never by the host, so the same trip page renders whichever site reaches the trip,
      * and its editors are derived from the trip (its org's content admins and its own trip managers).
      */
     private static final String TRIP_PAGE_PREFIX = "page:trip:";
@@ -126,6 +126,11 @@ public final class OrgPageBootstrap {
         return HOME_PAGE.equals(name) ? V2PageBootstrap.PAGE_KEY : SHARED_PAGE_PREFIX + name;
     }
 
+    /** Whether {@code tripId} can carry a page key at all: a canonical UUID (every real trip's id). */
+    public static boolean isTripId(final String tripId) {
+        return tripId != null && TRIP_ID.matcher(tripId).matches();
+    }
+
     /** The section key of a trip's main public page: {@code page:trip:{uuid}:home}. */
     public static String tripPageKey(final String tripId) {
         return tripPageKey(tripId, HOME_PAGE);
@@ -194,11 +199,68 @@ public final class OrgPageBootstrap {
     }
 
     /**
-     * The starter rows for a CONFERENCE's page ({@link #tripPageKey}), unsaved and pinned like {@link #rows}: a hero
-     * with the Register button, About, Speakers (a people list with one placeholder speaker), the schedule and the
-     * registration block, the venue, questions, and a closing call to action. Ids are DETERMINISTIC per trip, so a
-     * retried seed rewrites the same rows instead of doubling them, and the hero's Schedule button can anchor to
-     * the schedule section. Every text is plainly a placeholder its editors replace.
+     * The starter rows for a trip's page ({@link #tripPageKey}), by kind: {@link #conferenceRows} for a conference,
+     * {@link #pilgrimageRows} for any other trip. Unsaved and pinned like {@link #rows}; ids are DETERMINISTIC per
+     * trip ({@link #tripRowId}), so a retried seed rewrites the same rows instead of doubling them.
+     */
+    public static List<ContentInstance> tripRows(final Trip trip, final String orgName,
+            final ToIntFunction<String> templateVersion, final LocalDateTime seededAt) {
+        return trip.isConference() ? conferenceRows(trip, orgName, templateVersion, seededAt)
+                : pilgrimageRows(trip, orgName, templateVersion, seededAt);
+    }
+
+    /**
+     * A trip's starter page (every kind but a conference): a hero with the Join button, About, and a video section.
+     * About carries the trip's description when it has one; otherwise it and the video are seeded as hidden
+     * placeholders ("Show until" = {@code seededAt}, the rule {@link #conferenceRows} explains), so visitors see a
+     * hero alone until an editor fills them in. The video's URL is a required prompt that
+     * {@code ContentCommands.saveContent} enforces when the editor publishes it; the seed stores it blank.
+     */
+    public static List<ContentInstance> pilgrimageRows(final Trip trip, final String orgName,
+            final ToIntFunction<String> templateVersion, final LocalDateTime seededAt) {
+        final String key = tripPageKey(trip.getId());
+        final String register = "/trip/joinTrip.jsf?trip=" + trip.getId();
+        final Map<String, String> hero = new HashMap<>();
+        hero.put("eyebrow", orgName == null ? "" : orgName);
+        hero.put("headline", trip.getShortTitle());
+        hero.put("subheadline", dateRange(trip));
+        hero.put("primaryText", trip.getKind().getRegisterLabel());
+        hero.put("primaryUrl", register);
+        hero.put("secondaryText", "About");
+        hero.put("secondaryUrl", "#" + tripRowId(trip, "about"));
+        final boolean described = hasDescription(trip);
+        final String about = described ? trip.getDescription() : ABOUT_PLACEHOLDER;
+        return List.of(
+                tripRow(trip, "hero", key, "", StarterTemplates.BAND_HERO_ID, templateVersion, 0, hero, null),
+                tripRow(trip, "about", key, "About", StarterTemplates.BAND_TEXT_ID, templateVersion, 1,
+                        Map.of("heading", "About", "body", about), described ? null : seededAt),
+                tripRow(trip, "video", key, "Video", StarterTemplates.YOUTUBE_VIDEO_ID, templateVersion, 2,
+                        Map.of("videoUrl", "", "caption", ""), seededAt));
+    }
+
+    /**
+     * The ONE row a legacy trip's page starts from (docs/conference.md, "Legacy trips"): the stored description,
+     * verbatim, as a text-only section with no title, so the page reads as the old description page did. Never a
+     * placeholder (no "Show until"), so it is neither dimmed nor rewritten on its first save.
+     */
+    public static List<ContentInstance> legacyRows(final Trip trip, final ToIntFunction<String> templateVersion) {
+        return List.of(tripRow(trip, "legacy-description", tripPageKey(trip.getId()), "",
+                StarterTemplates.TEXT_ONLY_ID, templateVersion, 0,
+                Map.of("body", trip.getDescription() == null ? "" : trip.getDescription()), null));
+    }
+
+    private static final String ABOUT_PLACEHOLDER =
+            "<p>Tell visitors what this event is about: who it is for, what happens and why it matters.</p>";
+
+    private static boolean hasDescription(final Trip trip) {
+        return trip.getDescription() != null && !trip.getDescription().isBlank();
+    }
+
+    /**
+     * A CONFERENCE's starter rows: a hero with the Register button, About, Speakers (a people list with one
+     * placeholder speaker), the schedule and the registration block, the venue, questions, and a closing call to
+     * action. The hero's Schedule button anchors to the schedule section. Every text is plainly a placeholder its
+     * editors replace.
      *
      * <p>The rows that are ONLY placeholders (the sample speaker, the venue, the sample question and their two
      * containers, and About when the trip has no description) are seeded with "Show until" set to {@code seededAt},
@@ -207,7 +269,7 @@ public final class OrgPageBootstrap {
      * hero, the schedule, the registration block and the closing call to action carry the trip's own data and show
      * at once.
      */
-    public static List<ContentInstance> tripRows(final Trip trip, final String orgName,
+    public static List<ContentInstance> conferenceRows(final Trip trip, final String orgName,
             final ToIntFunction<String> templateVersion, final LocalDateTime seededAt) {
         final String key = tripPageKey(trip.getId());
         final String register = "/trip/joinTrip.jsf?trip=" + trip.getId();
@@ -223,9 +285,8 @@ public final class OrgPageBootstrap {
         hero.put("primaryUrl", register);
         hero.put("secondaryText", "Schedule");
         hero.put("secondaryUrl", "#" + schedule);
-        final boolean described = trip.getDescription() != null && !trip.getDescription().isBlank();
-        final String about = described ? trip.getDescription()
-                : "<p>Tell visitors what this event is about: who it is for, what happens and why it matters.</p>";
+        final boolean described = hasDescription(trip);
+        final String about = described ? trip.getDescription() : ABOUT_PLACEHOLDER;
         return List.of(
                 tripRow(trip, "hero", key, "", StarterTemplates.BAND_HERO_ID, templateVersion, 0, hero, null),
                 tripRow(trip, "about", key, "About", StarterTemplates.BAND_TEXT_ID, templateVersion, 1,
@@ -255,15 +316,23 @@ public final class OrgPageBootstrap {
                                 "buttonUrl", register), null));
     }
 
-    /** The template ids {@link #tripRows} pins: every one must be installed before a conference page can seed. */
+    /**
+     * The template ids {@link #tripRows} may pin, both kinds together: every one must be installed before a trip
+     * page can seed (one check, whatever the kind).
+     */
     public static List<String> tripRowTemplateIds() {
         return List.of(StarterTemplates.BAND_HERO_ID, StarterTemplates.BAND_TEXT_ID, StarterTemplates.PEOPLE_LIST_ID,
                 StarterTemplates.PERSON_ID, StarterTemplates.TRIP_SCHEDULE_ID, StarterTemplates.TRIP_REGISTRATION_ID,
                 StarterTemplates.BAND_SPLIT_ID, StarterTemplates.BAND_FAQ_ID, StarterTemplates.TEXT_ONLY_ID,
-                StarterTemplates.BAND_CTA_ID);
+                StarterTemplates.BAND_CTA_ID, StarterTemplates.YOUTUBE_VIDEO_ID);
     }
 
-    /** A conference page row's fixed id: the same trip and slot always name the same row. */
+    /** The template ids {@link #legacyRows} pins. */
+    public static List<String> legacyRowTemplateIds() {
+        return List.of(StarterTemplates.TEXT_ONLY_ID);
+    }
+
+    /** A trip page row's fixed id: the same trip and slot always name the same row. */
     static String tripRowId(final Trip trip, final String slot) {
         return UUID.nameUUIDFromBytes(("trip-page:" + trip.getId() + ":" + slot)
                 .getBytes(StandardCharsets.UTF_8)).toString();

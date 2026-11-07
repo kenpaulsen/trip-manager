@@ -1,6 +1,7 @@
 package org.paulsens.trip.model;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.io.Serial;
 import java.io.Serializable;
@@ -55,8 +56,21 @@ public final class Placeholder implements Serializable {
     /** Optional help/placeholder text for the editor field. */
     private String hint;
     private boolean required;
+    /**
+     * The value the template picker's thumbnail shows for this prompt (2026-11), so a card renders the template
+     * as a filled-in section rather than an empty skeleton; null falls back to the label. Never a URL: the
+     * renderer's URL rules would refuse a placeholder and an {@code https} sample would fetch something real.
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private String sample;
 
     private Placeholder() {
+    }
+
+    /** The shape before {@link #sample} existed: every stored row, and every provider-backed property. */
+    public Placeholder(final String name, final Type type, final String label, final String hint,
+            final boolean required) {
+        this(name, type, label, hint, required, null);
     }
 
     @JsonCreator
@@ -65,16 +79,18 @@ public final class Placeholder implements Serializable {
             @JsonProperty("type") final Type type,
             @JsonProperty("label") final String label,
             @JsonProperty("hint") final String hint,
-            @JsonProperty("required") final boolean required) {
+            @JsonProperty("required") final boolean required,
+            @JsonProperty("sample") final String sample) {
         this.name = name == null ? "" : name.trim();
         this.type = type == null ? Type.TEXT : type;
         this.label = (label == null || label.isBlank()) ? this.name : label;
         this.hint = hint;
         this.required = required;
+        this.sample = (sample == null || sample.isBlank()) ? null : sample;
     }
 
     /** @return an independent copy, so editing a template copy cannot mutate the cached original's rows. */
     public Placeholder copy() {
-        return new Placeholder(name, type, label, hint, required);
+        return new Placeholder(name, type, label, hint, required, sample);
     }
 }

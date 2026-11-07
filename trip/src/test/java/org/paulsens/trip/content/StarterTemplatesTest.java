@@ -214,4 +214,36 @@ public class StarterTemplatesTest {
         Assert.assertTrue(out.contains("A &lt;caption&gt;"), out);
         Assert.assertFalse(out.contains("{{"), "No tokens may leak: " + out);
     }
+
+    /**
+     * The template picker's thumbnails (2026-11): every STANDARD starter's text prompt carries a sample, so a card
+     * renders as a filled-in section, and no URL prompt does (the renderer refuses a placeholder URL and a real one
+     * would fetch). The rich-text prompt reads "Content".
+     */
+    @Test
+    public void standardStartersCarrySamplesForTheirTextPrompts() {
+        for (final ContentTemplate template : StarterTemplates.all()) {
+            if (template.getKind() != null && template.getKind() != TemplateKind.STANDARD) {
+                continue;
+            }
+            for (final Placeholder ph : template.getPlaceholders()) {
+                final boolean textual = ph.getType() == Placeholder.Type.TEXT
+                        || ph.getType() == Placeholder.Type.RICH_TEXT;
+                if (textual && !"imageAlt".equals(ph.getName()) && !"side".equals(ph.getName())
+                        && !"icon".equals(ph.getName()) && !"width".equals(ph.getName())
+                        && !"altText".equals(ph.getName()) && !"caption".equals(ph.getName())
+                        && !"linkText".equals(ph.getName()) && !"note".equals(ph.getName())) {
+                    org.testng.Assert.assertNotNull(ph.getSample(),
+                            template.getId() + "." + ph.getName() + " has no sample");
+                }
+                if (!textual) {
+                    org.testng.Assert.assertNull(ph.getSample(), template.getId() + "." + ph.getName());
+                }
+                if (ph.getType() == Placeholder.Type.RICH_TEXT && !"quote".equals(ph.getName())
+                        && !"caption".equals(ph.getName())) {
+                    org.testng.Assert.assertEquals(ph.getLabel(), "Content", template.getId() + "." + ph.getName());
+                }
+            }
+        }
+    }
 }

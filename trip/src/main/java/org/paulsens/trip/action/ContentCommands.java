@@ -5,6 +5,8 @@ import jakarta.faces.context.FacesContext;
 import jakarta.inject.Named;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
+import java.io.Serial;
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -301,6 +303,10 @@ public class ContentCommands {
         if (instance.getId() != null && instance.getId().equals(instance.getSection())) {
             return "An item cannot be placed inside itself.";
         }
+        final String requiredProblem = validateRequired(instance);
+        if (requiredProblem != null) {
+            return requiredProblem;
+        }
         final String htmlProblem = validateAuthoredHtml(instance);
         if (htmlProblem != null) {
             return htmlProblem;
@@ -317,6 +323,125 @@ public class ContentCommands {
             return "The containing section could not be checked; try again.";
         }
         return parent == null ? null : validateAsChild(instance, parent);
+    }
+
+    /**
+     * A required prompt must hold something (2026-11): the dialog refuses first through JSF's own required
+     * validation, so this is what the API and any script path see. An empty rich-text editor submits "" or an
+     * empty paragraph, which counts as blank.
+     */
+    private String validateRequired(final ContentInstance instance) {
+        final ContentTemplate template = resolveTemplate(instance);
+        if (template == null) {
+            return null;
+        }
+        for (final Placeholder ph : ProgrammaticTypes.placeholdersOf(template)) {
+            if (ph.isRequired() && showsProperty(instance, ph.getName())
+                    && isBlankValue(ph, instance.getValues().get(ph.getName()))) {
+                return promptLabel(ph) + " is required.";
+            }
+        }
+        return null;
+    }
+
+    private static boolean isBlankValue(final Placeholder ph, final String value) {
+        if (value == null || value.isBlank()) {
+            return true;
+        }
+        if (ph.getType() != Placeholder.Type.RICH_TEXT) {
+            return false;
+        }
+        final String bare = value.replaceAll("<br\\s*/?>", "").replaceAll("</?p>", "").replace("&nbsp;", " ");
+        return bare.isBlank();
+    }
+
+    /**
+     * The prompt the content dialog shows for a placeholder (2026-11): a rich-text prompt a starter once labeled
+     * "Text" or "Body" reads "Content", on every installed version (the installer never rewrites stored rows);
+     * every other label is the template's own.
+     */
+    public String promptLabel(final Placeholder ph) {
+        if (ph == null) {
+            return "";
+        }
+        final String label = ph.getLabel();
+        return ph.getType() == Placeholder.Type.RICH_TEXT
+                && ("Text".equalsIgnoreCase(label) || "Body".equalsIgnoreCase(label)) ? "Content" : label;
+    }
+
+    /** The dialog widget id editing this prompt (the repeat row keeps ids apart), for its label's {@code for}. */
+    public String widgetIdFor(final Placeholder ph) {
+        if (ph == null) {
+            return "phText";
+        }
+        return switch (ph.getType()) {
+            case RICH_TEXT -> "phRich";
+            case PERSON -> "phPerson";
+            case MULTI_CHOICE -> "phMulti";
+            case CHOICE -> "phChoice";
+            default -> "phText";
+        };
+    }
+
+    /** One template as the picker's card shows it: name, description, kind, an icon and a rendered thumbnail. */
+    public record TemplateCard(String id, String name, String description, String kind, String kindLabel,
+            String icon, String html) implements Serializable {
+        @Serial
+        private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
+    }
+
+    /** The templates the Add dialog offers for {@code section} ({@link #getTemplateChoicesFor}), as cards. */
+    public List<TemplateCard> templateCards(final String section) {
+        final List<TemplateCard> cards = new ArrayList<>();
+        for (final ContentTemplate template : getTemplateChoicesFor(section)) {
+            cards.add(cardOf(template));
+        }
+        return cards;
+    }
+
+    private TemplateCard cardOf(final ContentTemplate template) {
+        final TemplateKind kind = template.getKind() == null ? TemplateKind.STANDARD : template.getKind();
+        final String icon = switch (kind) {
+            case CONTAINER -> "pi-th-large";
+            case PROGRAMMATIC -> ProgrammaticTypes.byId(template.getProgrammaticTypeId())
+                    .map(ProgrammaticContentTemplate::getIcon).orElse("pi-cog");
+            default -> "pi-file-edit";
+        };
+        final String kindLabel = switch (kind) {
+            case CONTAINER -> "Container";
+            case PROGRAMMATIC -> "Live";
+            default -> "Section";
+        };
+        return new TemplateCard(template.getId(), template.getName(),
+                template.getDescription() == null ? "" : template.getDescription(), kind.name(), kindLabel, icon,
+                sampleRender(template));
+    }
+
+    /**
+     * The template rendered with its placeholders' SAMPLE values (the label where a prompt has none), for the
+     * picker's thumbnail; "" for anything but a STANDARD template, whose card shows an icon instead. Nothing is
+     * stored: a transient instance that never reaches a scope.
+     */
+    public String sampleRender(final ContentTemplate template) {
+        if (template == null || template.getKind() != TemplateKind.STANDARD) {
+            return "";
+        }
+        final ContentInstance sample = blank();
+        sample.setTemplateId(template.getId());
+        sample.setTemplateVersion(template.getVersion());
+        sample.setTitle(template.getName());
+        for (final Placeholder ph : template.getPlaceholders()) {
+            final String value = ph.getSample() != null ? ph.getSample()
+                    : (ph.getType() == Placeholder.Type.TEXT || ph.getType() == Placeholder.Type.RICH_TEXT)
+                            ? ph.getLabel() : "";
+            sample.getValues().put(ph.getName(), value);
+        }
+        try {
+            return ContentRenderer.render(template, sample);
+        } catch (final RuntimeException ex) {
+            log.warn("Unable to render a thumbnail for template " + template.getId(), ex);
+            return "";
+        }
     }
 
     /** The title (when it carries markup) and every RICH_TEXT value must be structurally sound HTML. */

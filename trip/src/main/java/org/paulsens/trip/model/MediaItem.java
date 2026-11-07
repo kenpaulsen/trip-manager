@@ -185,6 +185,21 @@ public class MediaItem implements Serializable {
     }
 
     /**
+     * @return this item after its bytes were rewritten in place (a trip page stylesheet saved by the editor): the
+     *     same key, the new size, {@code rev} bumped so {@link #getCacheBuster()} makes browsers refetch it.
+     */
+    public MediaItem withRewritten(final long newSize) {
+        return new MediaItem(id, s3Key, title, description, contentType, newSize, slot, position, uploaded,
+                uploadedBy, smallKey, hidden, orgId, getRev() + 1);
+    }
+
+    /** @return this item under another title; everything else, the key above all, unchanged. */
+    public MediaItem withTitle(final String newTitle) {
+        return new MediaItem(id, s3Key, newTitle, description, contentType, size, slot, position, uploaded,
+                uploadedBy, smallKey, hidden, orgId, rev);
+    }
+
+    /**
      * @return this item pointing at different objects (a re-keyed rotation, where the URL itself must change
      *     because the object is cached for a year); the row id, and so every reference to it, is kept.
      */

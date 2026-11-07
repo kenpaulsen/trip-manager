@@ -84,7 +84,7 @@ public final class StarterTemplates {
     private static final String TONE_HINT = "plain, tint or dark (blank = plain)";
 
     private static Placeholder tone() {
-        return new Placeholder("tone", Placeholder.Type.TEXT, "Tone", TONE_HINT, false);
+        return new Placeholder("tone", Placeholder.Type.TEXT, "Tone", TONE_HINT, false, "tint");
     }
 
     private static Placeholder text(final String name, final String label, final String hint,
@@ -92,9 +92,21 @@ public final class StarterTemplates {
         return new Placeholder(name, Placeholder.Type.TEXT, label, hint, required);
     }
 
+    /** As {@link #text}, with the value the template picker's thumbnail shows for the prompt. */
+    private static Placeholder text(final String name, final String label, final String hint,
+            final boolean required, final String sample) {
+        return new Placeholder(name, Placeholder.Type.TEXT, label, hint, required, sample);
+    }
+
     private static Placeholder richText(final String name, final String label, final String hint,
             final boolean required) {
         return new Placeholder(name, Placeholder.Type.RICH_TEXT, label, hint, required);
+    }
+
+    /** As {@link #richText}, with the thumbnail's sample markup. */
+    private static Placeholder richText(final String name, final String label, final String hint,
+            final boolean required, final String sample) {
+        return new Placeholder(name, Placeholder.Type.RICH_TEXT, label, hint, required, sample);
     }
 
     private static Placeholder link(final String name, final String label, final String hint,
@@ -144,13 +156,16 @@ public final class StarterTemplates {
                         + "two buttons and an optional picture beside the text.",
                 body, List.of(
                         text("eyebrow", "Eyebrow", "A few words above the headline, e.g. the product or "
-                                + "organization name; blank shows nothing", false),
-                        text("headline", "Headline", "The one sentence the page is about", true),
-                        text("subheadline", "Subheadline", "A line or two under the headline", false),
-                        text("primaryText", "Primary button text", "Blank hides the button", false),
+                                + "organization name; blank shows nothing", false, "Save the date"),
+                        text("headline", "Headline", "The one sentence the page is about", true,
+                                "A weekend that changes how you see your city"),
+                        text("subheadline", "Subheadline", "A line or two under the headline", false,
+                                "March 5 to 7, 2027. Three days of talks, prayer and music."),
+                        text("primaryText", "Primary button text", "Blank hides the button", false, "Register"),
                         link("primaryUrl", "Primary button link", "A page on this site (/trip/...), "
                                 + "an anchor (#section) or an https:// URL", false),
-                        text("secondaryText", "Secondary button text", "Blank hides the button", false),
+                        text("secondaryText", "Secondary button text", "Blank hides the button", false,
+                                "Schedule"),
                         link("secondaryUrl", "Secondary button link", "As above", false),
                         image("imageUrl", "Picture URL", "Shown beside the text; blank lets the text span "
                                 + "the band"),
@@ -185,8 +200,10 @@ public final class StarterTemplates {
                         text("imageAlt", "Picture description", "For screen readers", false),
                         text("icon", "Icon", "A PrimeIcons class such as pi-users, shown when there is no "
                                 + "picture; blank shows nothing", false),
-                        text("heading", "Heading", "The section's heading", true),
-                        richText("body", "Text", "The section's text", true),
+                        text("heading", "Heading", "The section's heading", true, "Who this is for"),
+                        richText("body", "Content", "The section's text", true,
+                                "<p>Families, students and parish groups travel together; first-timers are"
+                                + " paired with someone who has been before.</p>"),
                         text("linkText", "Link text", "An optional link under the text; blank hides it",
                                 false),
                         link("linkUrl", "Link", "A page on this site, an anchor or an https:// URL", false)));
@@ -208,9 +225,10 @@ public final class StarterTemplates {
                 "A centered heading, a line of text and one button; usually the last section of a page, "
                         + "in the dark tone.",
                 body, List.of(tone(),
-                        text("heading", "Heading", "What you are inviting the reader to do", true),
-                        richText("text", "Text", "A sentence or two under the heading", false),
-                        text("buttonText", "Button text", "The button's label", true),
+                        text("heading", "Heading", "What you are inviting the reader to do", true, "Join us"),
+                        richText("text", "Content", "A sentence or two under the heading", false,
+                                "<p>Places are limited and the early rate ends soon.</p>"),
+                        text("buttonText", "Button text", "The button's label", true, "Register now"),
                         link("buttonUrl", "Button link", "A page on this site (/account/...), an anchor or "
                                 + "an https:// URL", true),
                         text("note", "Small print", "An optional line under the button", false)));
@@ -231,9 +249,11 @@ public final class StarterTemplates {
         return standard(BAND_TESTIMONIAL_ID, "Band: Testimonial",
                 "A centered quotation with the speaker's name, role and optional photo.",
                 body, List.of(tone(),
-                        richText("quote", "Quotation", "What they said", true),
-                        text("name", "Name", "Who said it; blank shows nothing", false),
-                        text("role", "Role", "Their role or organization; blank shows nothing", false),
+                        richText("quote", "Quotation", "What they said", true,
+                                "<p>I came for the talks and left with friends for life.</p>"),
+                        text("name", "Name", "Who said it; blank shows nothing", false, "Maria S."),
+                        text("role", "Role", "Their role or organization; blank shows nothing", false,
+                                "2026 attendee"),
                         image("photoUrl", "Photo URL", "A small round portrait; blank shows none")));
     }
 
@@ -250,8 +270,10 @@ public final class StarterTemplates {
         return standard(BAND_TEXT_ID, "Band: Text",
                 "A full-width section holding a heading and rich text in a readable column.",
                 body, List.of(tone(),
-                        text("heading", "Heading", "Blank shows no heading", false),
-                        richText("body", "Text", "The section's text", true)));
+                        text("heading", "Heading", "Blank shows no heading", false, "About"),
+                        richText("body", "Content", "The section's text", true,
+                                "<p>Tell visitors what this is about: who it is for, what happens and why it"
+                                + " matters.</p>")));
     }
 
     /**
@@ -272,7 +294,8 @@ public final class StarterTemplates {
                 body, List.of(
                         text("icon", "Icon", "A PrimeIcons class such as pi-globe; blank shows no icon",
                                 false),
-                        richText("text", "Text", "A sentence or two", true)));
+                        richText("text", "Content", "A sentence or two", true,
+                                "<p>A sentence or two about this feature.</p>")));
     }
 
     /** One figure of a Stats band: a big value over a small label. */
@@ -283,8 +306,8 @@ public final class StarterTemplates {
         return standard(STAT_ITEM_ID, "Stat item",
                 "One figure in a Stats band: a large value with a short label under it.",
                 body, List.of(
-                        text("value", "Value", "The big figure or phrase", true),
-                        text("label", "Label", "What the value is", true)));
+                        text("value", "Value", "The big figure or phrase", true, "1,200"),
+                        text("label", "Label", "What the value is", true, "attendees last year")));
     }
 
     private static ContentTemplate bandFeatures() {
@@ -624,8 +647,8 @@ public final class StarterTemplates {
                 """;
         return new ContentTemplate(TEXT_ONLY_ID, 0, "Text Only",
                 "A free-form rich-text block.", body,
-                List.of(new Placeholder("body", Placeholder.Type.RICH_TEXT, "Body",
-                        "The text to show", true)),
+                List.of(new Placeholder("body", Placeholder.Type.RICH_TEXT, "Content",
+                        "The text to show", true, "<p>A free-form block of text, formatted as you like.</p>")),
                 null, null);
     }
 }

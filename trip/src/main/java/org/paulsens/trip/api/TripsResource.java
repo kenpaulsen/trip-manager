@@ -120,8 +120,20 @@ public class TripsResource extends BaseResource {
         return ok(found.stream()
                 .filter(trip -> site.admits(trip.getOrgId()))
                 .filter(trip -> listing || canRead(trip, me))
-                .map(trip -> TripMapper.INSTANCE.toDto(trip).withoutEvents())
+                .map(this::listingDto)
                 .toList());
+    }
+
+    private TripDto listingDto(final Trip trip) {
+        return TripMapper.INSTANCE.toDto(trip).withoutEvents().withDetailsUrl(detailsUrl(trip));
+    }
+
+    /**
+     * The absolute address of the trip's embedded page ({@code trip/tripPage.jsf}, docs/conference.md "The embed"),
+     * built from THIS request's host: the site the app is talking to is the site that renders the page.
+     */
+    private String detailsUrl(final Trip trip) {
+        return absoluteUrl("/trip/tripPage.jsf?trip=" + trip.getId());
     }
 
     /**
@@ -441,7 +453,7 @@ public class TripsResource extends BaseResource {
         }
         // Creator roles, allow-list-bounded; withheld roles were already reported to the support channel.
         new OrgCommands(this::caller).grantCreatorTripRoles(trip);
-        return ok(TripMapper.INSTANCE.toDto(trip).withoutEvents());
+        return ok(listingDto(trip));
     }
 
     @PUT
@@ -491,7 +503,7 @@ public class TripsResource extends BaseResource {
         if (!Beans.get(TripCommands.class).saveTrip(trip, orgs)) {
             return error(500, ApiErrors.STORE_FAILED, "Could not save the trip.");
         }
-        return ok(TripMapper.INSTANCE.toDto(trip).withoutEvents());
+        return ok(listingDto(trip));
     }
 
     private static boolean isConference(final String kind) {
@@ -673,7 +685,7 @@ public class TripsResource extends BaseResource {
                 dto.startDate(), dto.endDate(), dto.regLimit(), dto.provider(), dto.orgId(), dto.language(),
                 dto.estimatedPrice(), dto.director(), dto.localGuide(), dto.facilitators(), dto.flyerUrl(),
                 dto.nonHostedTripUrl(), dto.nonHostedRegNumber(), dto.regOptions(), dto.people(),
-                eventDtos(trip, me), dto.kind(), dto.paymentConfig(), dto.page());
+                eventDtos(trip, me), dto.kind(), dto.paymentConfig(), dto.page(), detailsUrl(trip));
     }
 
     private static List<TripEventDto> eventDtos(final Trip trip, final Person.Id viewer) {

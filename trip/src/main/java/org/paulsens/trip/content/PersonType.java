@@ -48,6 +48,11 @@ public final class PersonType implements ProgrammaticContentTemplate {
     }
 
     @Override
+    public String getIcon() {
+        return "pi-user";
+    }
+
+    @Override
     public String getDescription() {
         return "One person's card: photo, name, role and contact details, read live from their account; "
                 + "their privacy choices are honored. Someone without an account (a speaker) is typed in.";

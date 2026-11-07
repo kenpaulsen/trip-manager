@@ -30,6 +30,11 @@ final class PilgrimagesType implements ProgrammaticContentTemplate {
     }
 
     @Override
+    public String getIcon() {
+        return "pi-map";
+    }
+
+    @Override
     public String getDescription() {
         return "The public trip accordions for one language, straight from the trip data.";
     }

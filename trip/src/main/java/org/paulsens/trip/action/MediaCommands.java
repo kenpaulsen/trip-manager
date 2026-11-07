@@ -512,7 +512,7 @@ public class MediaCommands {
 
     /** @return the public URL a visitor uses for this item. */
     public String getUrl(final MediaItem item) {
-        return (item == null) ? null : baseUrl() + "/" + item.getS3Key();
+        return (item == null) ? null : publicUrl(item.getS3Key());
     }
 
     /**
@@ -561,18 +561,60 @@ public class MediaCommands {
      * host (or no host, locally) and then the object key, read fresh ({@link #getByKey}).
      */
     public MediaItem libraryItemFor(final String orgId, final String url) {
-        if (url == null) {
+        final String key = keyOfUrl(url);
+        if (key == null) {
             return null;
         }
-        final String prefix = baseUrl() + "/";
-        if (!url.trim().startsWith(prefix)) {
-            return null;
-        }
-        final MediaItem item = getByKey(url.trim().substring(prefix.length()));
+        final MediaItem item = getByKey(key);
         return item != null && Objects.equals(item.getOrgId(), normalizeOrg(orgId)) ? item : null;
     }
 
-    /** Whether an item is a stylesheet: what a conference page may link as its own CSS. */
+    /**
+     * The object key a public URL names (the inverse of {@link #getUrl}), or null for any other URL: the media
+     * host's prefix, or locally the stylesheet servlet's. A trailing query or fragment (a cache buster) is dropped.
+     */
+    String keyOfUrl(final String url) {
+        if (url == null) {
+            return null;
+        }
+        final String bare = stripQuery(url.trim());
+        if (baseUrl().isEmpty() && bare.startsWith(LOCAL_STYLESHEET_PATH)) {
+            // Checked first: with no media host the library prefix is a bare "/", which this path starts with too.
+            final String key = bare.substring(LOCAL_STYLESHEET_PATH.length());
+            return TripStylesheets.isStylesheetKey(key) ? key : null;
+        }
+        final String prefix = baseUrl() + "/";
+        return bare.startsWith(prefix) && bare.length() > prefix.length() ? bare.substring(prefix.length()) : null;
+    }
+
+    /**
+     * {@link #libraryItemFor} over the CACHED media listing, for render paths (the trip page's look and the embed's
+     * inlined stylesheet): no live read per page view. A trailing query or fragment on the URL (a cache buster) is
+     * ignored.
+     */
+    public MediaItem cachedLibraryItemFor(final String orgId, final String url) {
+        final String key = keyOfUrl(url);
+        if (key == null) {
+            return null;
+        }
+        final String owner = normalizeOrg(orgId);
+        try {
+            return DAO.getInstance().getAllMedia(Cached.YES).stream()
+                    .filter(item -> key.equals(item.getS3Key()))
+                    .filter(item -> Objects.equals(item.getOrgId(), owner))
+                    .findFirst().orElse(null);
+        } catch (final RuntimeException ex) {
+            log.error("Unable to look up the library item " + key, ex);
+            return null;
+        }
+    }
+
+    private static String stripQuery(final String url) {
+        final int cut = url.indexOf('?') >= 0 ? url.indexOf('?') : url.indexOf('#');
+        return cut < 0 ? url : url.substring(0, cut);
+    }
+
+    /** Whether an item is a stylesheet: what a trip page may link as its own CSS. */
     public static boolean isStylesheet(final MediaItem item) {
         return item != null && item.getContentType() != null
                 && item.getContentType().toLowerCase(Locale.ROOT).startsWith("text/css");
@@ -984,8 +1026,17 @@ public class MediaCommands {
 
     /** @return the public URL for an arbitrary media key. */
     public String publicUrl(final String key) {
-        return baseUrl() + "/" + key;
+        final String local = localServedPath(key);
+        return baseUrl().isEmpty() && local != null ? local : baseUrl() + "/" + key;
     }
+
+    /** The local-mode serving path of a key the webapp serves itself when no media host exists, else null. */
+    static String localServedPath(final String key) {
+        return TripStylesheets.isStylesheetKey(key) ? LOCAL_STYLESHEET_PATH + key : null;
+    }
+
+    /** Where {@code web/StylesheetServlet} serves a trip page stylesheet in local mode. */
+    static final String LOCAL_STYLESHEET_PATH = "/trip-stylesheets/";
 
     /**
      * Stores raw bytes at a key with an explicit cache policy — the primitive under chat photos, which need a

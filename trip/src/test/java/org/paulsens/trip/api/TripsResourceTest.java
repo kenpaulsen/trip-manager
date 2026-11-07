@@ -91,6 +91,28 @@ public class TripsResourceTest extends ResourceTestSupport {
         assertError(resource.list("everything", 50, null), 400, ApiErrors.BAD_REQUEST);
     }
 
+    /** Every trip carries the absolute address of its embedded page (docs/api-contract.md "Trips", 2026-11). */
+    @Test
+    public void everyTripCarriesItsDetailsUrl() {
+        signedInAs(ME);
+        Mockito.when(request.getScheme()).thenReturn("https");
+        Mockito.when(request.getServerName()).thenReturn("unitetrip.com");
+        Mockito.when(request.getServerPort()).thenReturn(443);
+        Mockito.when(request.getContextPath()).thenReturn("");
+        Mockito.when(trips.getTripsForUser(ME)).thenReturn(List.of(trip(TRIP_ID, ME)));
+        tripExists(trip(TRIP_ID, ME));
+
+        final List<?> listed = (List<?>) resource.list("mine", 50, null).getEntity();
+        final TripDto row = (TripDto) listed.get(0);
+        Assert.assertEquals(row.detailsUrl(), "https://unitetrip.com/trip/tripPage.jsf?trip=" + TRIP_ID);
+        Assert.assertNull(row.tripEvents(), "a listing still carries no itinerary");
+
+        final TripDto one = (TripDto) resource.get(TRIP_ID, null).getEntity();
+        Assert.assertEquals(one.detailsUrl(), "https://unitetrip.com/trip/tripPage.jsf?trip=" + TRIP_ID);
+        Assert.assertEquals(one.withoutPaymentConfig().detailsUrl(), one.detailsUrl(), "kept for a plain member");
+        Assert.assertEquals(one.withoutEvents().detailsUrl(), one.detailsUrl());
+    }
+
     @Test
     public void mineListsTheCallersTrips() {
         signedInAs(ME);

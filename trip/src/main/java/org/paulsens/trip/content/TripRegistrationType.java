@@ -24,6 +24,11 @@ final class TripRegistrationType implements ProgrammaticContentTemplate {
     }
 
     @Override
+    public String getIcon() {
+        return "pi-ticket";
+    }
+
+    @Override
     public String getDescription() {
         return "Registration status, places left, prices, a countdown and the Register button, from the event itself.";
     }

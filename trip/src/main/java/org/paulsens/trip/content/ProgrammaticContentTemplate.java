@@ -37,6 +37,14 @@ public interface ProgrammaticContentTemplate {
     /** The Facelets fragment that renders an instance, e.g. {@code /WEB-INF/ptypes/pilgrimages.xhtml}. */
     String getFragmentPath();
 
+    /**
+     * The PrimeIcons class the template picker's card shows for this type (a live type renders no thumbnail:
+     * its fragment needs the page). Types override it with something that says what they list.
+     */
+    default String getIcon() {
+        return "pi-cog";
+    }
+
     /** Dropdown options for a {@link Placeholder.Type#CHOICE} property; empty for non-choice names. */
     default List<Choice> choicesFor(final String propertyName) {
         return List.of();

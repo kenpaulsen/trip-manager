@@ -85,16 +85,16 @@ public class SiteCommands {
     }
 
     /**
-     * The content section key of a CONFERENCE's public page ({@code page:trip:{id}:home}, docs/conference.md), or
-     * null when there is no such page to show here: no such trip, not a conference, or a trip this site does not
-     * reach ({@link ListingScope#reachable}). Same per-request rule as {@link #getPageKey()}: never stored.
+     * The content section key of ANY trip's public page ({@code page:trip:{id}:home}, docs/conference.md), or
+     * null when there is no such page to show here: no such trip, or a trip this site does not reach
+     * ({@link ListingScope#reachable}). Same per-request rule as {@link #getPageKey()}: never stored.
      */
     public String tripPageKey(final String tripId) {
         if (tripId == null || tripId.isBlank()) {
             return null;
         }
         final Trip trip = DAO.getInstance().getTrip(tripId.trim(), Cached.YES).orElse(null);
-        if (trip == null || !trip.isConference() || !ListingScope.reachable(trip.getOrgId())) {
+        if (trip == null || !ListingScope.reachable(trip.getOrgId())) {
             return null;
         }
         try {

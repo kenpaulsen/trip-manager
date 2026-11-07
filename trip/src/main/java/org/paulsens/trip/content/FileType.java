@@ -32,6 +32,11 @@ final class FileType implements ProgrammaticContentTemplate {
     }
 
     @Override
+    public String getIcon() {
+        return "pi-file";
+    }
+
+    @Override
     public String getDescription() {
         return "A link to one media-library document; its name and size stay in sync with the library.";
     }

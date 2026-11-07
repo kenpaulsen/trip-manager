@@ -85,11 +85,12 @@ public class ConferencePageTest {
     }
 
     @Test
-    public void onlyAReachableConferenceHasAPageHere() throws Exception {
+    public void everyReachableTripHasAPageKeyHere() throws Exception {
         final SiteCommands site = new SiteCommands();
         assertEquals(site.tripPageKey(conference.getId()), OrgPageBootstrap.tripPageKey(conference.getId()),
                 "a CFPW conference on the shared site");
-        assertNull(site.tripPageKey(FakeData.FAKE_TRIP_ID), "a pilgrimage has no conference page");
+        assertEquals(site.tripPageKey(FakeData.FAKE_TRIP_ID), OrgPageBootstrap.tripPageKey(FakeData.FAKE_TRIP_ID),
+                "every trip has a page, whatever its kind (2026-11)");
         assertNull(site.tripPageKey(UUID.randomUUID().toString()), "no such trip");
         assertNull(site.tripPageKey(" "));
         assertNull(site.tripPageKey(null));
@@ -288,7 +289,7 @@ public class ConferencePageTest {
     }
 
     @Test
-    public void aPageAuthoredFirstIsLeftAloneAndAPilgrimageIsNeverSeeded() throws IOException {
+    public void aPageAuthoredFirstIsLeftAloneAndEveryKindSeeds() throws IOException {
         final Trip trip = conferenceTrip("Authored Conference");
         final String page = OrgPageBootstrap.tripPageKey(trip.getId());
         final ContentInstance own = section(page);
@@ -298,8 +299,175 @@ public class ConferencePageTest {
         assertEquals(dao.getContentForSection(page, Cached.NO).stream().map(ContentInstance::getId).toList(),
                 List.of(own.getId()), "only the authored section");
 
-        assertFalse(new ConferenceCommands().ensurePage(Trip.builder().title("Pilgrimage").build()));
+        // Any other kind seeds too (2026-11): a hero, About and a video, the trip's own starters.
+        final Trip plain = pilgrimageTrip("Seeded Trip", null);
+        assertTrue(new ConferenceCommands(() -> null, () -> NOW).ensurePage(plain));
+        assertEquals(plain.getPageSeededAt(), NOW);
+        final List<ContentInstance> rows = dao.getContentForSection(OrgPageBootstrap.tripPageKey(plain.getId()),
+                Cached.NO);
+        assertEquals(rows.stream().map(ContentInstance::getTemplateId).toList(),
+                List.of(StarterTemplates.BAND_HERO_ID, StarterTemplates.BAND_TEXT_ID,
+                        StarterTemplates.YOUTUBE_VIDEO_ID));
         assertFalse(new ConferenceCommands().ensurePage(null));
+    }
+
+    // ------------------------------------------------------------------ legacy description pages
+
+    @Test
+    public void savingATripSeedsItsPageUnlessItStillCarriesADescription() throws IOException {
+        final OrgCommands siteAdmin = new OrgCommands(() -> new Caller(Person.Id.newInstance(), true,
+                org.paulsens.trip.audit.AuditActor.system(), new PrivilegeCommands()));
+        final Trip fresh = Trip.builder().title("2027 Sep: Fresh Trip").orgId(FakeData.CFPW_ORG_ID)
+                .startDate(LocalDateTime.now().plusDays(60)).endDate(LocalDateTime.now().plusDays(70)).build();
+        assertTrue(new TripCommands().saveTrip(fresh, siteAdmin));
+        assertNotNull(fresh.getPageSeededAt(), "a new trip gets its page at creation");
+        assertEquals(dao.getContentForSection(OrgPageBootstrap.tripPageKey(fresh.getId()), Cached.NO).size(), 3);
+
+        // A NEW trip created with a description seeds too: the description becomes its About section.
+        final Trip described = Trip.builder().title("2027 Sep: Described Trip").orgId(FakeData.CFPW_ORG_ID)
+                .startDate(LocalDateTime.now().plusDays(60)).endDate(LocalDateTime.now().plusDays(70)).build();
+        described.setDescription("<p>Nine days in Rome.</p>");
+        assertTrue(new TripCommands().saveTrip(described, siteAdmin));
+        assertNotNull(described.getPageSeededAt());
+        final ContentInstance about = dao.getContentForSection(OrgPageBootstrap.tripPageKey(described.getId()),
+                Cached.NO).get(1);
+        assertEquals(about.getValues().get("body"), "<p>Nine days in Rome.</p>");
+        assertNull(about.getEventDate(), "shown at once");
+
+        // A trip that EXISTED before every trip had a page, still carrying its description: legacy, not seeded.
+        final Trip legacy = pilgrimageTrip("2027 Sep: Legacy Trip", "<p>The old way.</p>");
+        legacy.setTitle("2027 Sep: Legacy Trip (edited)");
+        assertTrue(new TripCommands().saveTrip(legacy, siteAdmin));
+        assertNull(legacy.getPageSeededAt(), "an existing trip with a description stays a legacy page");
+        assertTrue(dao.getContentForSection(OrgPageBootstrap.tripPageKey(legacy.getId()), Cached.NO).isEmpty());
+    }
+
+    @Test
+    public void aLegacyPageRendersTheDescriptionUntilAnEditorConvertsIt() throws IOException {
+        final ConferenceCommands views = new ConferenceCommands(() -> null, () -> NOW);
+        final Trip legacy = pilgrimageTrip("Legacy Page", "<p>Come <b>along</b>.</p>");
+        priv.savePrivilege(priv.createPrivilege(PrivilegeCommands.TRIP_MGR, "legacy mgr", legacy.getId(),
+                List.of(MANAGER)));
+        assertTrue(views.hasLegacyDescription(legacy));
+        assertTrue(views.isLegacyPage(legacy.getId()));
+        assertFalse(views.hasLegacyDescription(conference), "no description, nothing legacy about it");
+        assertFalse(views.isLegacyPage(FakeData.CONF_TRIP_ID), "a trip with its page seeded is never legacy");
+        assertFalse(views.isLegacyPage(UUID.randomUUID().toString()));
+        assertFalse(views.isLegacyPage(" "));
+        assertFalse(views.hasLegacyDescription(null));
+        assertTrue(views.isLegacyPage(FakeData.PUB_EN_1_TRIP_ID),
+                "a seeded trip with no description and no page still renders the old page");
+        assertFalse(views.hasLegacyDescription(dao.getTrip(FakeData.PUB_EN_1_TRIP_ID, Cached.NO).orElseThrow()));
+
+        // A stranger may not convert it; the trip is untouched.
+        assertFalse(views.convertLegacyPage(legacy.getId(), NOBODY));
+        assertNull(dao.getTrip(legacy.getId(), Cached.NO).orElseThrow().getPageSeededAt());
+        assertFalse(views.convertLegacyPage(null, MANAGER));
+        assertFalse(views.convertLegacyPage(legacy.getId(), null));
+        assertFalse(views.convertLegacyPage(UUID.randomUUID().toString(), MANAGER), "no such trip");
+
+        // The trip's manager converts: ONE text-only section, the description verbatim, no title, not a placeholder.
+        assertTrue(views.convertLegacyPage(legacy.getId(), MANAGER));
+        final Trip stamped = dao.getTrip(legacy.getId(), Cached.NO).orElseThrow();
+        assertEquals(stamped.getPageSeededAt(), NOW);
+        assertEquals(stamped.getDescription(), "<p>Come <b>along</b>.</p>", "the field itself is kept, read-only");
+        final List<ContentInstance> rows = dao.getContentForSection(OrgPageBootstrap.tripPageKey(legacy.getId()),
+                Cached.NO);
+        assertEquals(rows.size(), 1);
+        assertEquals(rows.get(0).getTemplateId(), StarterTemplates.TEXT_ONLY_ID);
+        assertEquals(rows.get(0).getTitle(), "");
+        assertEquals(rows.get(0).getValues().get("body"), "<p>Come <b>along</b>.</p>");
+        assertNull(rows.get(0).getEventDate());
+        assertFalse(OrgPageBootstrap.isSeededPlaceholder(rows.get(0)));
+        assertFalse(new ConferenceCommands(() -> null, () -> NOW).isLegacyPage(legacy.getId()),
+                "the page is sections from now on");
+
+        // Idempotent: a second click (or a stamped trip) is simply true, and nothing doubles.
+        assertTrue(views.convertLegacyPage(legacy.getId(), MANAGER));
+        assertEquals(dao.getContentForSection(OrgPageBootstrap.tripPageKey(legacy.getId()), Cached.NO).size(), 1);
+
+        // A page authored by hand before any conversion wins over the description: not legacy, nothing seeded.
+        final Trip authored = pilgrimageTrip("Authored Legacy", "<p>ignored</p>");
+        assertTrue(dao.saveContent(section(OrgPageBootstrap.tripPageKey(authored.getId())), 3));
+        assertFalse(views.isLegacyPage(authored.getId()));
+        final ConferenceCommands fresh = new ConferenceCommands(() -> null, () -> NOW);
+        assertTrue(fresh.hasLegacyDescription(authored), "still unstamped");
+        // Converting a trip whose id is no UUID is refused, never thrown.
+        assertFalse(fresh.convertLegacyPage("legacy-trip", MANAGER));
+
+        // A legacy trip WITHOUT a description gets its kind's starters instead of a description section.
+        final Trip blank = pilgrimageTrip("Blank Legacy", null);
+        priv.savePrivilege(priv.createPrivilege(PrivilegeCommands.TRIP_MGR, "blank mgr", blank.getId(),
+                List.of(MANAGER)));
+        final ConferenceCommands later = new ConferenceCommands(() -> null, () -> NOW);
+        assertTrue(later.isLegacyPage(blank.getId()), "unstamped and empty: the old page");
+        assertTrue(later.convertLegacyPage(blank.getId(), MANAGER));
+        assertEquals(dao.getContentForSection(OrgPageBootstrap.tripPageKey(blank.getId()), Cached.NO).stream()
+                .map(ContentInstance::getTemplateId).toList(),
+                List.of(StarterTemplates.BAND_HERO_ID, StarterTemplates.BAND_TEXT_ID,
+                        StarterTemplates.YOUTUBE_VIDEO_ID));
+        assertEquals(dao.getTrip(blank.getId(), Cached.NO).orElseThrow().getPageSeededAt(), NOW);
+    }
+
+    @Test
+    public void theLegacyRowIsTheDescriptionAndNothingElse() {
+        final Trip trip = Trip.builder().title("Legacy Rows").build();
+        trip.setDescription("<h2>Hi</h2><p>There</p>");
+        final List<ContentInstance> rows = OrgPageBootstrap.legacyRows(trip, id -> 4);
+        assertEquals(rows.size(), 1);
+        assertEquals(rows.get(0).getId(), OrgPageBootstrap.legacyRows(trip, id -> 4).get(0).getId(),
+                "deterministic");
+        assertEquals(rows.get(0).getSection(), OrgPageBootstrap.tripPageKey(trip.getId()));
+        assertEquals(rows.get(0).getValues(), Map.of("body", "<h2>Hi</h2><p>There</p>"));
+        assertEquals(rows.get(0).getTemplateVersion(), 4);
+        assertEquals(rows.get(0).getPosition(), 0);
+        assertEquals(OrgPageBootstrap.legacyRowTemplateIds(), List.of(StarterTemplates.TEXT_ONLY_ID));
+        assertTrue(OrgPageBootstrap.tripRowTemplateIds().contains(StarterTemplates.YOUTUBE_VIDEO_ID),
+                "the union of every kind's starters");
+    }
+
+    @Test
+    public void aTripsStarterRowsAreAHeroAboutAndAVideo() {
+        final Trip trip = Trip.builder().title("2027 May: Rome").startDate(LocalDateTime.of(2027, 5, 1, 8, 0))
+                .endDate(LocalDateTime.of(2027, 5, 9, 17, 0)).build();
+        final List<ContentInstance> rows = OrgPageBootstrap.tripRows(trip, "CFPW", id -> 2, NOW);
+        assertEquals(rows.stream().map(ContentInstance::getTemplateId).toList(),
+                List.of(StarterTemplates.BAND_HERO_ID, StarterTemplates.BAND_TEXT_ID,
+                        StarterTemplates.YOUTUBE_VIDEO_ID));
+        assertEquals(rows, OrgPageBootstrap.pilgrimageRows(trip, "CFPW", id -> 2, NOW), "the kind dispatches");
+        final ContentInstance hero = rows.get(0);
+        assertEquals(hero.getValues().get("headline"), "Rome");
+        assertEquals(hero.getValues().get("subheadline"), "May 1 - 9, 2027");
+        assertEquals(hero.getValues().get("eyebrow"), "CFPW");
+        assertEquals(hero.getValues().get("primaryText"), TripKind.PILGRIMAGE.getRegisterLabel());
+        assertEquals(hero.getValues().get("primaryUrl"), "/trip/joinTrip.jsf?trip=" + trip.getId());
+        assertEquals(hero.getValues().get("secondaryUrl"), "#" + rows.get(1).getId(), "About jumps to the section");
+        assertNull(hero.getEventDate(), "the hero shows at once");
+        assertEquals(rows.get(1).getEventDate(), NOW, "About is a hidden placeholder without a description");
+        assertEquals(rows.get(2).getEventDate(), NOW, "so is the video until a URL is set");
+        assertEquals(rows.get(2).getValues(), Map.of("videoUrl", "", "caption", ""));
+        trip.setDescription("<p>Nine days.</p>");
+        final ContentInstance about = OrgPageBootstrap.tripRows(trip, "CFPW", id -> 2, NOW).get(1);
+        assertNull(about.getEventDate(), "a described trip's About shows");
+        assertEquals(about.getValues().get("body"), "<p>Nine days.</p>");
+    }
+
+    @Test
+    public void theEventPickerOffersTripsOfEveryKind() throws IOException {
+        final Trip plain = pilgrimageTrip("2027 Mar: Picker Trip", null);
+        final List<String> picks = org.paulsens.trip.content.ProgrammaticTypes
+                .byId(StarterTemplates.TRIP_REGISTRATION_ID).orElseThrow()
+                .choicesFor(ConferenceCommands.PROP_TRIP_ID).stream()
+                .map(org.paulsens.trip.content.ProgrammaticContentTemplate.Choice::value)
+                .filter(value -> !value.isEmpty())
+                .toList();
+        // Exactly the public listing, whatever each trip's kind (the old list kept conferences only).
+        final List<String> expected = new TripCommands().getPublicTrips().stream().map(Trip::getId).toList();
+        assertEquals(picks, expected);
+        // The listing itself depends on the request's site and the suite's other fixtures; what this proves is
+        // that the picker no longer filters it by kind (the plain public trip above is in it whenever it is listed).
+        assertEquals(picks.contains(plain.getId()), expected.contains(plain.getId()));
+        assertFalse(picks.contains(FakeData.FAKE_TRIP_ID), "never a trip that is not public");
     }
 
     @Test
@@ -365,6 +533,14 @@ public class ConferencePageTest {
     }
 
     // ------------------------------------------------------------------ helpers
+
+    private Trip pilgrimageTrip(final String title, final String description) throws IOException {
+        final Trip trip = Trip.builder().title(title).orgId(FakeData.CFPW_ORG_ID).openToPublic(true)
+                .startDate(NOW.plusDays(50)).endDate(NOW.plusDays(58)).build();
+        trip.setDescription(description);
+        assertTrue(dao.saveTrip(trip));
+        return trip;
+    }
 
     private Trip conferenceTrip(final String title) throws IOException {
         final Trip trip = Trip.builder().title(title).kind(TripKind.CONFERENCE).orgId(FakeData.CFPW_ORG_ID)

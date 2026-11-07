@@ -2,6 +2,7 @@ package org.paulsens.trip.action;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.content.ProgrammaticTypes;
 import org.paulsens.trip.content.StarterTemplates;
@@ -133,12 +134,15 @@ public class ContentCommandsTest {
         final String section = "cc.section-expiry";
         final ContentInstance past = content.createContent(section, "cc-test-tpl");
         past.setTitle("past");
+        past.getValues().put("msg", "past");
         past.setEventDate(LocalDateTime.now().minusMinutes(1));
         final ContentInstance future = content.createContent(section, "cc-test-tpl");
         future.setTitle("future");
+        future.getValues().put("msg", "future");
         future.setEventDate(LocalDateTime.now().plusDays(1));
         final ContentInstance undated = content.createContent(section, "cc-test-tpl");
         undated.setTitle("undated");
+        undated.getValues().put("msg", "undated");
         Assert.assertTrue(content.saveContent(past));
         Assert.assertTrue(content.saveContent(future));
         Assert.assertTrue(content.saveContent(undated));
@@ -706,8 +710,10 @@ public class ContentCommandsTest {
         final String section = "cc.section-frozen";
         final ContentInstance first = content.createContent(section, "cc-test-tpl");
         first.setTitle("first");
+        first.getValues().put("msg", "first");
         final ContentInstance second = content.createContent(section, "cc-test-tpl");
         second.setTitle("second");
+        second.getValues().put("msg", "second");
         Assert.assertTrue(content.saveContent(first));
         Assert.assertTrue(content.saveContent(second));
 
@@ -742,5 +748,83 @@ public class ContentCommandsTest {
                 "children resolve in their frozen order");
         Assert.assertTrue(content.childrenForFrozen(null, true).isEmpty());
         Assert.assertTrue(content.childIdsFor(null, true).isEmpty());
+    }
+
+    // ------------------------------------------------------------------ the content dialog's prompts and picker
+
+    @Test
+    public void richTextPromptsReadContentAndWidgetsAreNamedByType() {
+        final ContentCommands content = new ContentCommands();
+        Assert.assertEquals(content.promptLabel(new Placeholder("b", Placeholder.Type.RICH_TEXT, "Text", null, true)),
+                "Content", "the old starter label");
+        Assert.assertEquals(content.promptLabel(new Placeholder("b", Placeholder.Type.RICH_TEXT, "Body", null, true)),
+                "Content");
+        Assert.assertEquals(content.promptLabel(new Placeholder("q", Placeholder.Type.RICH_TEXT, "Quotation", null,
+                true)), "Quotation", "a specific label stays");
+        Assert.assertEquals(content.promptLabel(new Placeholder("t", Placeholder.Type.TEXT, "Text", null, false)),
+                "Text", "a plain TEXT prompt labeled Text is not a rich-text body");
+        Assert.assertEquals(content.promptLabel(null), "");
+        Assert.assertEquals(content.widgetIdFor(new Placeholder("b", Placeholder.Type.RICH_TEXT, "x", null, false)),
+                "phRich");
+        Assert.assertEquals(content.widgetIdFor(new Placeholder("p", Placeholder.Type.PERSON, "x", null, false)),
+                "phPerson");
+        Assert.assertEquals(content.widgetIdFor(new Placeholder("m", Placeholder.Type.MULTI_CHOICE, "x", null,
+                false)), "phMulti");
+        Assert.assertEquals(content.widgetIdFor(new Placeholder("c", Placeholder.Type.CHOICE, "x", null, false)),
+                "phChoice");
+        Assert.assertEquals(content.widgetIdFor(new Placeholder("u", Placeholder.Type.URL, "x", null, false)),
+                "phText");
+        Assert.assertEquals(content.widgetIdFor(null), "phText");
+    }
+
+    @Test
+    public void thePickerCardsRenderEveryStandardStarterFromItsSamples() {
+        final ContentCommands content = new ContentCommands();
+        final List<ContentCommands.TemplateCard> cards = content.templateCards(FakeData.PAGE_KEY);
+        Assert.assertFalse(cards.isEmpty());
+        for (final ContentCommands.TemplateCard card : cards) {
+            Assert.assertFalse(card.name().isBlank(), card.id());
+            Assert.assertFalse(card.kindLabel().isBlank(), card.id());
+            Assert.assertTrue(card.icon().startsWith("pi-"), card.id() + " " + card.icon());
+            if ("STANDARD".equals(card.kind())) {
+                Assert.assertFalse(card.html().isBlank(), card.id() + " renders a thumbnail");
+                Assert.assertFalse(card.html().contains("{{"), card.id() + " leaves a token unfilled");
+            } else {
+                Assert.assertEquals(card.html(), "", card.id() + " shows an icon, not a render");
+            }
+        }
+        final ContentCommands.TemplateCard hero = cards.stream()
+                .filter(c -> StarterTemplates.BAND_HERO_ID.equals(c.id())).findFirst().orElseThrow();
+        Assert.assertTrue(hero.html().contains("A weekend that changes"), "the hero's headline sample");
+        Assert.assertEquals(hero.kindLabel(), "Section");
+        final ContentCommands.TemplateCard albums = cards.stream()
+                .filter(c -> StarterTemplates.PHOTO_ALBUMS_ID.equals(c.id())).findFirst().orElseThrow();
+        Assert.assertEquals(albums.icon(), "pi-images");
+        Assert.assertEquals(albums.kindLabel(), "Live");
+        // A template with no samples renders its labels, so a hand-authored template still gets a picture.
+        final ContentTemplate bare = new ContentTemplate("bare-" + UUID.randomUUID(), 1, "Bare", "d",
+                "<div class=\"contentItem\"><b>{{heading}}</b>{{body}}</div>",
+                List.of(new Placeholder("heading", Placeholder.Type.TEXT, "Heading", null, true),
+                        new Placeholder("body", Placeholder.Type.RICH_TEXT, "Content", null, true)), null, null);
+        Assert.assertTrue(content.sampleRender(bare).contains("<b>Heading</b>"));
+        Assert.assertEquals(content.sampleRender(null), "");
+    }
+
+    @Test
+    public void aBlankRequiredPromptIsRefusedOnSave() {
+        final ContentCommands content = as(Person.Id.newInstance(), true);
+        final ContentInstance blank = content.createContent(FakeData.PAGE_KEY, StarterTemplates.TEXT_ONLY_ID);
+        blank.setTitle("Blank body");
+        blank.getValues().put("body", "<p><br></p>");
+        Assert.assertFalse(content.saveContent(blank), "an empty paragraph is no content");
+        Assert.assertFalse(content.saveContent(withBody(content, "")), "nothing typed");
+        Assert.assertTrue(content.saveContent(withBody(content, "<p>Something</p>")), "a filled prompt saves");
+    }
+
+    private static ContentInstance withBody(final ContentCommands content, final String body) {
+        final ContentInstance instance = content.createContent(FakeData.PAGE_KEY, StarterTemplates.TEXT_ONLY_ID);
+        instance.setTitle("Body " + body.length());
+        instance.getValues().put("body", body);
+        return instance;
     }
 }

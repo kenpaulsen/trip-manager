@@ -4,6 +4,8 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.faces.context.FacesContext;
 import jakarta.inject.Named;
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -14,17 +16,20 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.config.KnownSettings;
+import org.paulsens.trip.content.EmbedStyles;
 import org.paulsens.trip.content.OrgPageBootstrap;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.Language;
 import org.paulsens.trip.model.MediaItem;
 import org.paulsens.trip.model.OptionChoice;
+import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Registration;
 import org.paulsens.trip.model.RegistrationOption;
 import org.paulsens.trip.model.Trip;
@@ -255,22 +260,18 @@ public class ConferenceCommands {
             "The stylesheet must be a CSS file in the organization's media library (upload it there first).";
 
     /**
-     * The look of the conference page for {@code tripId}, or null when this host shows no such page (no such trip,
-     * a pilgrimage, or a conference the site does not reach: the same rule as {@code SiteCommands.tripPageKey}).
-     * Cached reads only, memoized per request: the page's build-time params (the layout, the stylesheet link) read
-     * it from the request parameter before the page's initPage runs, and the render reads it again.
+     * The look of the trip page for {@code tripId}, any kind, or null when this host shows no such page (no such
+     * trip, or one the site does not reach: the same rule as {@code SiteCommands.tripPageKey}). With no options
+     * set it is the organization's look exactly. Cached reads only, memoized per request: the page's build-time
+     * params (the layout, the stylesheet link) read it from the request parameter before the page's initPage runs,
+     * and the render reads it again.
      */
     public PageLook lookFor(final String tripId) {
         if (tripId == null || tripId.isBlank()) {
             return null;
         }
         final String id = tripId.trim();
-        return memo("conferenceLook:" + id, () -> lookOf(reachableConference(id)));
-    }
-
-    private static Trip reachableConference(final String id) {
-        final Trip trip = reachableTrip(id);
-        return trip != null && trip.isConference() ? trip : null;
+        return memo("conferenceLook:" + id, () -> lookOf(reachableTrip(id)));
     }
 
     private PageLook lookOf(final Trip trip) {
@@ -282,7 +283,21 @@ public class ConferenceCommands {
         return new PageLook(options.fullWidth(orgFullWidth.get()),
                 ownBackground ? BrandCommands.rootStyleOf(options.getBackgroundUrl(), options.getBackgroundColor())
                         : null,
-                options.isTitleShown(), options.isNavShown(), BrandCommands.safeLinkUrl(options.getStylesheetUrl()));
+                options.isTitleShown(), options.isNavShown(), stylesheetLink(trip, options.getStylesheetUrl()));
+    }
+
+    /**
+     * The stylesheet URL the page links: the stored (bare) URL plus the library item's cache buster ({@code ?r=N}
+     * once the editor has rewritten it in place; docs/conference.md "Look and feel"), from the CACHED listing only:
+     * this is public-page render code. Screened for the attribute like every linked URL.
+     */
+    private static String stylesheetLink(final Trip trip, final String stored) {
+        final String safe = BrandCommands.safeLinkUrl(stored);
+        if (safe == null) {
+            return null;
+        }
+        final MediaItem item = new MediaCommands().cachedLibraryItemFor(trip.getOrgId(), safe);
+        return item == null || item.getCacheBuster().isEmpty() ? safe : safe + item.getCacheBuster();
     }
 
     /**
@@ -357,16 +372,20 @@ public class ConferenceCommands {
      * @return whether the trip now has (or already had) its seeded page
      */
     public boolean ensurePage(final Trip trip) {
-        if (trip == null || !trip.isConference()) {
+        if (trip == null) {
             return false;
         }
         if (trip.getPageSeededAt() != null) {
             return true;
         }
-        final String missing = missingStarter(ConferenceCommands::installed);
+        if (!OrgPageBootstrap.isTripId(trip.getId())) {
+            // Imported or hand-made rows with readable ids (and the unit tests' fixtures): no key, no page.
+            log.info("Page for trip {} not seeded: not a UUID id", trip.getId());
+            return false;
+        }
+        final String missing = missingStarter(this::starterInstalled);
         if (missing != null) {
-            log.warn("Conference page for trip {} not seeded: starter template '{}' is not installed", trip.getId(),
-                    missing);
+            log.warn("Page for trip {} not seeded: starter template '{}' is not installed", trip.getId(), missing);
             return false;
         }
         try {
@@ -394,8 +413,230 @@ public class ConferenceCommands {
         return DAO.getInstance().getTemplate(templateId, Cached.NO).isPresent();
     }
 
+    /** {@link #installed}, as {@link #convertLegacyPage} asks it. Seam for tests. */
+    protected boolean starterInstalled(final String templateId) {
+        return installed(templateId);
+    }
+
     private static String orgNameOf(final Trip trip) {
         return trip.getOrganization() == null ? "" : trip.getOrganization().getName();
+    }
+
+    // ------------------------------------------------------------------ legacy pages
+
+    /**
+     * Whether this trip still carries its details the old way (docs/conference.md, "Legacy trips"): saved before
+     * every trip had a page, so never stamped, with a description to show. Such a trip keeps rendering that
+     * description read-only until {@link #convertLegacyPage} turns it into a section.
+     */
+    public boolean hasLegacyDescription(final Trip trip) {
+        return trip != null && trip.getPageSeededAt() == null && trip.getDescription() != null
+                && !trip.getDescription().isBlank();
+    }
+
+    /**
+     * Whether the details page for {@code tripId} renders the OLD page (the title, the description if any, the
+     * registration card) rather than sections: a trip never stamped with a page AND no content row under its key
+     * yet (a page someone authored by hand wins). Cached reads only, memoized per request: the details page asks
+     * at build time and at render.
+     */
+    public boolean isLegacyPage(final String tripId) {
+        if (tripId == null || tripId.isBlank()) {
+            return false;
+        }
+        final String id = tripId.trim();
+        return memo("tripLegacy:" + id, () -> legacyPageOf(reachableTrip(id)));
+    }
+
+    private static boolean legacyPageOf(final Trip trip) {
+        if (trip == null || trip.getPageSeededAt() != null || !OrgPageBootstrap.isTripId(trip.getId())) {
+            return false;
+        }
+        try {
+            return DAO.getInstance()
+                    .getContentForSection(OrgPageBootstrap.tripPageKey(trip.getId()), Cached.YES).isEmpty();
+        } catch (final RuntimeException ex) {
+            log.error("Unable to read the page rows of trip " + trip.getId(), ex);
+            return false;
+        }
+    }
+
+    /**
+     * The "Edit page" click on a legacy page: gives the trip its page and stamps it, so the page is edited there
+     * from now on. A trip with a description gets THAT as the page's first section ({@code
+     * OrgPageBootstrap.legacyRows}: the description verbatim as one text-only section, the closest thing to the old
+     * page; the field itself is kept but never edited again); a trip without one gets its kind's starter sections
+     * ({@code OrgPageBootstrap.tripRows}). Only the page's own editors ({@code ContentCommands.canEditPage}: the
+     * trip's managers, its org's content admins, site admins); idempotent (a stamped trip answers true); refuses
+     * while a starter it needs is not installed. Saves the trip through the DAO like {@link #ensurePage}: a
+     * details-page button must not run the editor's kind, pricing and provider rules.
+     *
+     * @return whether the trip now has a page to edit
+     */
+    public boolean convertLegacyPage(final String tripId, final Person.Id userId) {
+        if (tripId == null || tripId.isBlank() || userId == null) {
+            return false;
+        }
+        if (!OrgPageBootstrap.isTripId(tripId.trim())) {
+            PageFeedback.warn("This trip cannot carry a page.");
+            return false;
+        }
+        final Trip trip = DAO.getInstance().getTrip(tripId.trim(), Cached.NO).orElse(null);
+        if (trip == null) {
+            PageFeedback.warn("Unknown trip.");
+            return false;
+        }
+        final String key = OrgPageBootstrap.tripPageKey(trip.getId());
+        if (!new ContentCommands().canEditPage(key, userId)) {
+            PageFeedback.warn("Only this trip's managers may edit its page.");
+            return false;
+        }
+        if (trip.getPageSeededAt() != null) {
+            return true;
+        }
+        final boolean described = hasLegacyDescription(trip);
+        final List<String> needed = described ? OrgPageBootstrap.legacyRowTemplateIds()
+                : OrgPageBootstrap.tripRowTemplateIds();
+        final String missing = needed.stream().filter(id -> !starterInstalled(id)).findFirst().orElse(null);
+        if (missing != null) {
+            PageFeedback.warn("The page could not be created: the starter template '" + missing
+                    + "' is not installed.");
+            return false;
+        }
+        try {
+            final LocalDateTime now = clock.get();
+            final List<ContentInstance> rows = described
+                    ? OrgPageBootstrap.legacyRows(trip, OrgCommands::currentTemplateVersion)
+                    : OrgPageBootstrap.tripRows(trip, orgNameOf(trip), OrgCommands::currentTemplateVersion, now);
+            // A page someone authored by hand before the trip was stamped is kept as it is; only the stamp is new.
+            OrgCommands.seedIfEmpty(key, rows);
+            trip.setPageSeededAt(now);
+            if (!DAO.getInstance().saveTrip(trip)) {
+                PageFeedback.warn("The page was created but the trip could not be saved. Try again.");
+                return false;
+            }
+            log.info("Trip {} given its page from its {}", trip.getId(), described ? "description" : "starters");
+            return true;
+        } catch (final RuntimeException | IOException ex) {
+            log.error("Unable to create the page of trip {}", trip.getId(), ex);
+            PageFeedback.warn("The page could not be created. Try again.");
+            return false;
+        }
+    }
+
+    // ------------------------------------------------------------------ the embed render (the apps)
+
+    /** Theme {@code :root} blocks and the two site stylesheets, read once per name; the embed inlines them. */
+    private static final ConcurrentHashMap<String, String> EMBED_CSS_CACHE = new ConcurrentHashMap<>();
+    /** The trip stylesheets the embed inlined, by key and rev: an S3 read once per version, never per render. */
+    private static final ConcurrentHashMap<String, String> EMBED_SHEET_CACHE = new ConcurrentHashMap<>();
+    private static final int EMBED_SHEET_CACHE_MAX = 64;
+
+    /**
+     * Everything the embedded trip page ({@code trip/tripPage.xhtml}, what the apps fetch and cache) needs in ONE
+     * inline stylesheet, so a copy saved on a phone renders with its styles offline: the current theme's variables
+     * (its {@code :root} block alone; the rest of the theme styles widgets the embed has none of), {@code site.css}
+     * and {@code albums.css}, the trip's own stylesheet when it has one, and the embed's overrides
+     * ({@link EmbedStyles#overrides}). Memoized per request; the pieces are cached statically.
+     */
+    public String embedCss(final String tripId) {
+        return memo("embedCss:" + tripId, () -> embedCssOf(tripId));
+    }
+
+    /**
+     * The trip's stylesheet URL for a live {@code <link>}, only when {@link #embedCss} could NOT inline it (no
+     * bucket to read from, or a read failure); null otherwise.
+     */
+    public String embedStylesheetLink(final String tripId) {
+        final PageLook look = lookFor(tripId);
+        if (look == null || look.stylesheetUrl() == null) {
+            return null;
+        }
+        return tripStylesheet(tripId, look) == null ? look.stylesheetUrl() : null;
+    }
+
+    private String embedCssOf(final String tripId) {
+        final StringBuilder css = new StringBuilder();
+        css.append(themeRoot()).append('\n');
+        css.append(siteResource("/resources/css/site.css")).append('\n');
+        css.append(siteResource("/resources/css/albums.css")).append('\n');
+        final PageLook look = lookFor(tripId);
+        final String own = look == null ? null : tripStylesheet(tripId, look);
+        if (own != null) {
+            css.append(own).append('\n');
+        }
+        css.append(EmbedStyles.overrides());
+        return css.toString();
+    }
+
+    /** The media bean the embed reads a trip's stylesheet through. Seam for tests. */
+    protected MediaCommands media() {
+        return new MediaCommands();
+    }
+
+    private static String themeRoot() {
+        // The theme name needs the request's site; off-request BrandCommands answers the platform default.
+        return EMBED_CSS_CACHE.computeIfAbsent("theme:" + new BrandCommands().getTheme(),
+                ConferenceCommands::loadThemeRoot);
+    }
+
+    private static String loadThemeRoot(final String cacheKey) {
+        final String theme = cacheKey.substring("theme:".length());
+        final String path = "META-INF/resources/primefaces-" + theme + "/theme.css";
+        final ClassLoader loader = Thread.currentThread().getContextClassLoader();
+        return EmbedStyles.rootBlockOf(readAll(loader == null ? null : loader.getResourceAsStream(path), path));
+    }
+
+    /** A webapp stylesheet's text (site.css, albums.css), read once; empty off-request or when missing. */
+    static String siteResource(final String path) {
+        return EMBED_CSS_CACHE.computeIfAbsent("resource:" + path, ConferenceCommands::loadSiteResource);
+    }
+
+    private static String loadSiteResource(final String cacheKey) {
+        final String path = cacheKey.substring("resource:".length());
+        final FacesContext ctx = FacesContext.getCurrentInstance();
+        return ctx == null ? "" : readAll(ctx.getExternalContext().getResourceAsStream(path), path);
+    }
+
+    /** A stylesheet's text from a stream that may be null (missing), closed afterwards; empty on any failure. */
+    private static String readAll(final InputStream stream, final String path) {
+        if (stream == null) {
+            return "";
+        }
+        try (InputStream in = stream) {
+            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        } catch (final IOException ex) {
+            log.warn("Unable to read the stylesheet " + path, ex);
+            return "";
+        }
+    }
+
+    /** The trip's own stylesheet text, or null when it has none or it could not be read (then link it live). */
+    private String tripStylesheet(final String tripId, final PageLook look) {
+        if (look.stylesheetUrl() == null) {
+            return null;
+        }
+        final Trip trip = reachableTrip(tripId == null ? "" : tripId.trim());
+        final MediaCommands media = media();
+        final MediaItem item = trip == null ? null
+                : media.cachedLibraryItemFor(trip.getOrgId(), look.stylesheetUrl());
+        if (item == null || !MediaCommands.isStylesheet(item)) {
+            return null;
+        }
+        final String cacheKey = item.getS3Key() + "|" + item.getRev();
+        final String cached = EMBED_SHEET_CACHE.get(cacheKey);
+        if (cached != null) {
+            return cached;
+        }
+        final String text = media.getObject(item.getS3Key())
+                .map(bytes -> new String(bytes, StandardCharsets.UTF_8)).orElse(null);
+        if (text != null) {
+            if (EMBED_SHEET_CACHE.size() >= EMBED_SHEET_CACHE_MAX) {
+                EMBED_SHEET_CACHE.clear();
+            }
+            EMBED_SHEET_CACHE.put(cacheKey, text);
+        }
+        return text;
     }
 
     // ------------------------------------------------------------------ helpers

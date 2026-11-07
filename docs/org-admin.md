@@ -503,6 +503,11 @@ like any other org grant and bounded by the org's allow-list) edits that ONE org
   (`page:trip:{id}:home`) belongs to the TRIP's org, resolved from the trip. Container config fields
   (editor-privilege chips, child allow-lists) stay global-`contentAdmin`-only, and the chips themselves
   are global privilege names (an org-scoped chip is a deliberate non-feature for now).
+- **Trip page stylesheets** (`TripStylesheets.canEdit`, 2026-11): the org's admins AND its `mediaAdmin` holders
+  create, edit and rename the org's trip page stylesheets (`text/css` library rows under
+  `org/{orgId}/stylesheets/`), from the trip editor's Trip Page dialog; a trip manager only picks one. Unlike the
+  library itself, org admins are included here: a stylesheet restyles the org's own trip pages and nothing else
+  (`docs/conference.md`, "Look and feel").
 - **Templates** (`TemplateCommands.mayAuthor`): an org editor authors templates scoped to their org only,
   may never re-scope a stored template into or out of it (seizure), sees shared + own templates in the
   manager, and gets only their org in the Scope menu; starter installation stays site-staff-only.

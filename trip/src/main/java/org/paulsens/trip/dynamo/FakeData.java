@@ -900,6 +900,11 @@ public final class FakeData {
         saveMedia(new MediaItem("fake-acme-doc", "downloads/FakeAcmeBrochure.pdf", "Acme Brochure",
                 "Acme's own document", "application/pdf", 120_000L, "home-docs", 3,
                 now.minusDays(2), "fake-seed", null, null, ACME_ORG_ID));
+        // A trip page stylesheet of CFPW's (docs/conference.md "Look and feel"): the Trip Page dialog's menu offers
+        // it and its Edit opens it; the bytes come from the starter until the editor saves (TripStylesheets.localGet).
+        saveMedia(new MediaItem("fake-css-cfpw", "org/" + CFPW_ORG_ID + "/stylesheets/sample.css",
+                "Sample trip page stylesheet", "Seeded for local mode", "text/css", 1_200L, null, 0,
+                now.minusDays(1), "fake-seed", null, null, CFPW_ORG_ID));
         // The galleria trip's album: 12 photos, one hidden -> 11 visible, above the min-count of 10.
         for (int i = 1; i <= 12; i++) {
             saveMedia(new MediaItem("fake-photo-past-" + i, chatPhotoKey(PUB_PAST_3D_TRIP_ID, i),

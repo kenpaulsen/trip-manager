@@ -270,8 +270,9 @@ registry never changes at runtime.
   Operations".
 - **HTML validation**: `HtmlFragmentValidator` (structural: balance, nesting, quotes, comments; void and
   raw-text elements understood) gates `saveTemplate` bodies and `saveContent` RICH_TEXT values and
-  markup-bearing titles. Failures surface as growl messages and keep the dialog open. It shares its tag
-  scanner with `RichTextRules` (`HtmlTags`), so the two never disagree about where a `<p>` begins.
+  markup-bearing titles. Failures keep the dialog open and are listed IN it (`dlgMsgs`, a `p:messages`: the
+  page's growl renders under a modal dialog's overlay, so a message that only went there is never seen). It
+  shares its tag scanner with `RichTextRules` (`HtmlTags`), so the two never disagree about where a `<p>` begins.
 - **RICH_TEXT is BLOCK html, and that is not negotiable**: Quill's document model is a list of lines and
   every line is a block element, so a one-line caption comes back as `<p>…</p>` plus a trailing empty
   paragraph, and alignment arrives as a `ql-align-*` CLASS that only works where Quill's stylesheet is
@@ -304,7 +305,25 @@ registry never changes at runtime.
   data-attributes) reaches the server VERBATIM. Switching back to visual re-parses through Quill and
   therefore simplifies such markup, so that pass runs only when the text actually changed. A template
   BODY additionally has the model-bound "Edit raw HTML" mode in `templateDialog` (no Quill parse at all
-  in either direction) -- the right choice for structural template bodies.
+  in either direction) -- the right choice for structural template bodies. **The content dialog's editors
+  (2026-11)** carry the same core as a **Visual | HTML | Preview** tab strip instead of the toolbar button
+  (`styleClass="tabbedEditor"` opts an editor in): Preview asks the page's `previewContent` remoteCommand to
+  render the WHOLE section from the current unsaved values into the hidden `dlgPreviewHost` (it processes the
+  form but re-renders only that host, so the editors and their tab state survive) and copies it into the
+  field's pane; the old Preview fieldset and Refresh button are gone. The request carries `contentPreview=1`,
+  which every `required` in the dialog honors as a bypass, or a half-filled form could never preview.
+- **The content dialog (2026-11)**: 90% of the window (capped at 1400px by `trip.css`, `.contentDlg`); each
+  prompt's label is a `p:outputLabel` FOR the row's widget (`content.widgetIdFor`), so PrimeFaces draws the
+  required star from the widget's own `required` and a blank required prompt refuses Apply with the message in
+  the dialog (and
+  `validateForSave` refuses it on the API too, an empty paragraph counting as blank); a rich-text prompt a
+  starter once labeled "Text" or "Body" reads **Content** (`content.promptLabel`, on every installed version;
+  the starters themselves say Content now). **The template picker** is a card grid (`content.templateCards`):
+  name, description, kind badge, and for a section template a thumbnail of the template rendered with its
+  placeholders' `sample` values (`Placeholder.sample`, the label when a prompt has none, never a URL; the
+  template manager's placeholder table has a Sample column) at the band's real width scaled to a quarter; a
+  live type shows its icon (`ProgrammaticContentTemplate.getIcon`). The card is a stretched link
+  (`f:param templateId`); the thumbnail's own anchors never take the click.
 - **Reordering**: the shared arrange dialog (`p:orderList`, drag or buttons) calls
   `applyOrder(section, orderedIds)` → `ContentDAO.reorderContent`, a **version-silent** in-place position
   rewrite (no version bump, no history churn; an editor dialog open across a reorder re-saves its stale
@@ -415,7 +434,7 @@ org site whose `site.layout` setting is `full-width` (`org-admin.md`, "Branding"
 it to `mainTemplate.xhtml` as the `fullWidth` ui:param, which builds (`c:if`, build time -- the
 `mainContent` insert may only be built once) either the classic card-and-sidebar grid or a bare
 `.layoutFull` holding the sections and the footer, and `template.xhtml` widens `.layout-content` with
-`layout-content-full`. Only the home page and a CONFERENCE's page (`trip/tripDetails.xhtml`, which reads the trip
+`layout-content-full`. Only the home page and a TRIP's page (`trip/tripDetails.xhtml`, which reads the trip
 from the request parameter because the branch is built before its initPage; `conference.md`) change; every other
 page, and every shared host, renders the classic markup byte for byte
 (`OrgSubdomainPwIT.theClassicLayoutIsUnchanged`). In edit mode the dashed section frames wrap each band, which then

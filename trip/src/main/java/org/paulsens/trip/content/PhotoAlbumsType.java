@@ -36,6 +36,11 @@ final class PhotoAlbumsType implements ProgrammaticContentTemplate {
     }
 
     @Override
+    public String getIcon() {
+        return "pi-images";
+    }
+
+    @Override
     public String getDescription() {
         return "A photo gallery per recent trip, from the publicly-visible chat photos.";
     }

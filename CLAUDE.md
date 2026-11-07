@@ -196,9 +196,14 @@ a separate model; answers store choice IDS and every page shows them through `re
 carries `paymentId`, `ticketCode` (`security/TicketCodes`; every CONFIRMED row has one, enforced in
 `saveRegistration`), `registrationType`, `priceBreakdown` (`PriceBreakdown`, stored once, never recomputed),
 `attestations` and the check-in stamps; `TripEvent` agenda details (`PRESENTER`/`LOCATION`/`TRACK`/
-`AGENDA_HIDDEN`; `hasDetails()` counts transport keys only); the trip role `checkinStaff`. A conference's PUBLIC PAGE is content sections under
-`page:trip:{tripUuid}:home` (`OrgPageBootstrap.tripPageKey`), hosted by `trip/tripDetails.xhtml`, edited by the
-trip's `tripMgr` and its org's content admins, seeded once on save (`ConferenceCommands.ensurePage`); its views
+`AGENDA_HIDDEN`; `hasDetails()` counts transport keys only); the trip role `checkinStaff`. EVERY trip's PUBLIC PAGE (both kinds since 2026-11) is content sections under
+`page:trip:{tripUuid}:home` (`OrgPageBootstrap.tripPageKey`), the body `WEB-INF/tripPageBody.xhtml` hosted by
+`trip/tripDetails.xhtml` (the site) and `trip/tripPage.xhtml` (the chrome-free EMBED the apps fetch through
+`TripDto.detailsUrl`, styles inlined by `ConferenceCommands.embedCss`), edited by the trip's `tripMgr` and its org's
+content admins, seeded once on save (`ConferenceCommands.ensurePage`; starters by kind, `OrgPageBootstrap.tripRows`).
+A trip saved before every trip had a page still renders its old `description` read-only (a LEGACY page,
+`ConferenceCommands.isLegacyPage`) until "Edit page" converts it (`convertLegacyPage`: the description verbatim as
+one text-only section); nothing edits `Trip.description` any more. The bean's views
 (`#{conference}`: `tripFor`, `publicAgenda`, `registrationInfo`) are cached-read-only render code. Its look is the
 trip's own `Trip.page` (`TripPageOptions`: layout, background, title, section links, a stylesheet from the org's media
 library; null = the org's Appearance setting; `ConferenceCommands.lookFor` renders it, `pageProblems` guards it on
@@ -280,8 +285,11 @@ on the trip side creates the option WITH its own participant price, `detach` cut
 `docs/lodging.md` "Rate plans"), `waiver` (WaiverCommands -- trip documents: an org's versioned library, a
 trip's pinned versions with the re-sign decision, the two-box signature, the `WAIVERS_REQUIRED` registration
 gate and the signed-copy PDF; see `docs/waivers.md`), `checkin` (CheckinCommands -- tickets, staff check-in,
-counts, the trip-bound balance, batch badges and the export rows; see `docs/checkin.md`), `deploy`, `json`,
-`tripUtil`.
+counts, the trip-bound balance, batch badges and the export rows; see `docs/checkin.md`), `tripStylesheets`
+(TripStylesheets -- a trip page's own stylesheets: one `text/css` library item each under
+`org/{orgId}/stylesheets/`, saved in place with a `rev` bump and a CDN invalidation, gated to the org's admins and
+media admins, with the "Classes on this page" report and the CodeMirror completion; local bytes served by
+`web/StylesheetServlet`; see `docs/conference.md` "Look and feel"), `deploy`, `json`, `tripUtil`.
 
 - A `Person` comes into being through exactly five paths: sign-up, a family manager's add-member flow, the
   REST people API, a lodging contact auto-created by `LodgingCommands.findOrCreateContact` (no

@@ -26,6 +26,7 @@ public interface TripMapper {
     TripMapper INSTANCE = Mappers.getMapper(TripMapper.class);
 
     @Mapping(target = "people", source = "people")
+    @Mapping(target = "detailsUrl", ignore = true)
     TripDto toDto(Trip trip);
 
     @Mapping(target = "participating", ignore = true)

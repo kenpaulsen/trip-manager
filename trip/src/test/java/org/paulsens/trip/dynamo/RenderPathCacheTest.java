@@ -125,15 +125,28 @@ public class RenderPathCacheTest {
         String speakers = null;
         for (final ContentInstance row : OrgPageBootstrap.tripRows(conference, "Org", id -> 1,
                 java.time.LocalDateTime.now())) {
-            Assert.assertTrue(content.saveContent(row, 5), row.getTitle());
+            // Seeded the way the bootstrap does it (the DAO): a placeholder row's required prompt is still blank.
+            Assert.assertTrue(DAO.getInstance().saveContent(row, 5), row.getTitle());
             if (StarterTemplates.PEOPLE_LIST_ID.equals(row.getTemplateId())) {
                 speakers = row.getId();
             }
         }
 
+        // Any other trip's page (2026-11): the hero, About and a video, through the same cached lookups.
+        final org.paulsens.trip.model.Trip plain = org.paulsens.trip.model.Trip.builder()
+                .title("Render Trip").build();
+        final String tripPage = OrgPageBootstrap.tripPageKey(plain.getId());
+        for (final ContentInstance row : OrgPageBootstrap.tripRows(plain, "Org", id -> 1,
+                java.time.LocalDateTime.now())) {
+            Assert.assertTrue(DAO.getInstance().saveContent(row, 5), row.getTitle());
+        }
+
         // Warm every cache the render path touches (the first request may hit the store; that is allowed).
         content.getContentForSection(conferencePage);
         content.getContentForSection(speakers);
+        content.getContentForSection(tripPage);
+        templates.getTemplate(StarterTemplates.YOUTUBE_VIDEO_ID, 1);
+        templates.getTemplate(StarterTemplates.BAND_TEXT_ID, 1);
         templates.getTemplate(StarterTemplates.PEOPLE_LIST_ID, 1);
         templates.getTemplate(StarterTemplates.PERSON_ID, 1);
         templates.getTemplate(StarterTemplates.TRIP_SCHEDULE_ID, 1);
@@ -171,6 +184,10 @@ public class RenderPathCacheTest {
             // The conference page: its sections, its speakers, and the four templates only it adds.
             content.getContentForSection(conferencePage);
             content.getContentForSection(speakers);
+            // A trip's page: its three starter sections.
+            content.getContentForSection(tripPage);
+            templates.getTemplate(StarterTemplates.YOUTUBE_VIDEO_ID, 1);
+            templates.getTemplate(StarterTemplates.BAND_TEXT_ID, 1);
             templates.getTemplate(StarterTemplates.PEOPLE_LIST_ID, 1);
             templates.getTemplate(StarterTemplates.PERSON_ID, 1);
             templates.getTemplate(StarterTemplates.TRIP_SCHEDULE_ID, 1);

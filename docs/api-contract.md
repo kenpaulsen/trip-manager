@@ -61,7 +61,7 @@ and no token change, the bearer stays the manager. A manager of someone on the r
 roster, events, lodging) without a seat of their own -- the website's `canSeeTrip` rule, on the API since this
 date. Chat posts while acting carry `onBehalfOf` (Chat section).
 
-`TripDto`: id, title, description, openToPublic, chatEnabled, startDate, endDate, regLimit, provider,
+`TripDto`: id, title, description, detailsUrl, openToPublic, chatEnabled, startDate, endDate, regLimit, provider,
 orgId, language, estimatedPrice, director, localGuide, facilitators, flyerUrl, nonHostedTripUrl,
 nonHostedRegNumber, regOptions[{id, shortDesc, longDesc, show}], people[ids], tripEvents[],
 paymentConfig{processorConfigId, feesPaidBy (ORGANIZATION|PAYER), donationEnabled, donationLabel,
@@ -71,6 +71,18 @@ absent from lists; on `POST`/`PUT` an absent field is left alone and `""` clears
 `processorConfigId` must name one of the trip's organization's configurations, else 400 `VALIDATION_FAILED`).
 `TripEventDto`: id, type (EVENT|FLIGHT|GROUND|LODGING), title, notes, start, end, participants[ids],
 participating, privNote, details{from,to,flightNumber,duration,carrier} (backend phase).
+
+**The trip page (2026-11).** Every `TripDto` carries `detailsUrl`: the ABSOLUTE address of the trip's public page as
+the apps embed it (`https://{host}/trip/tripPage.jsf?trip={id}`, built from the host the request came to), on lists
+and single reads alike. Fetch it with no authentication and `Accept: text/html` (an API client's usual Accept would
+be refused by the view): a complete HTML document with the page's styles INLINE, no site chrome, no scripts and no
+registration buttons (the app owns registration), so a copy cached on the device renders offline; images and video
+frames stay live. Clients cache it, refresh it in the background once the copy is older than an hour and swap the new
+one in, and warn when the copy shown is older than eight hours. A trip still carrying the old single `description`
+(a "legacy page", `docs/conference.md`) renders that description in the same document, so a client can always show the
+page; `description` itself is read-only legacy text: never edited by the website, sent by `POST`/`PUT` only for
+compatibility (a NEW trip created with one gets it as its page's About section). Absent only from an older server;
+a client without it falls back to `description`.
 
 Sample:
 

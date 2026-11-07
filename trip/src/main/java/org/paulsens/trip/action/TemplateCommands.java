@@ -749,8 +749,8 @@ public class TemplateCommands {
     private static void normalizePlaceholders(final ContentTemplate template) {
         final List<Placeholder> cleaned = new ArrayList<>();
         for (final Placeholder ph : template.getPlaceholders()) {
-            final Placeholder normalized =
-                    new Placeholder(ph.getName(), ph.getType(), ph.getLabel(), ph.getHint(), ph.isRequired());
+            final Placeholder normalized = new Placeholder(ph.getName(), ph.getType(), ph.getLabel(), ph.getHint(),
+                    ph.isRequired(), ph.getSample());
             if (!normalized.getName().isEmpty()) {
                 cleaned.add(normalized);
             }

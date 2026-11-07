@@ -8,9 +8,9 @@ import org.paulsens.trip.model.Placeholder;
 import org.paulsens.trip.model.Trip;
 
 /**
- * The shared "Event" property of the conference section types: blank means "the event this page is about" (a
- * conference's own page); a pick names a public conference, so the section can also sit on an organization's home
- * page. The choices are the site's public conferences, from the cached listing.
+ * The shared "Event" property of the trip section types: blank means "the trip this page is about" (a trip's own
+ * page); a pick names a public trip of either kind, so the section can also sit on an organization's home page. The
+ * choices are the site's public trips, from the cached listing.
  */
 final class ConferenceTripChoices {
     private ConferenceTripChoices() {
@@ -18,7 +18,7 @@ final class ConferenceTripChoices {
 
     static Placeholder property() {
         return new Placeholder(ConferenceCommands.PROP_TRIP_ID, Placeholder.Type.CHOICE, "Event",
-                "Blank on a conference's own page; pick one to show it elsewhere", false);
+                "Blank on a trip's own page; pick one to show it elsewhere", false);
     }
 
     static List<ProgrammaticContentTemplate.Choice> choices() {
@@ -30,9 +30,7 @@ final class ConferenceTripChoices {
         final List<ProgrammaticContentTemplate.Choice> choices = new ArrayList<>();
         choices.add(new ProgrammaticContentTemplate.Choice("", blankLabel));
         for (final Trip trip : new TripCommands().getPublicTrips()) {
-            if (trip.isConference()) {
-                choices.add(new ProgrammaticContentTemplate.Choice(trip.getId(), trip.getTitle()));
-            }
+            choices.add(new ProgrammaticContentTemplate.Choice(trip.getId(), trip.getTitle()));
         }
         return choices;
     }

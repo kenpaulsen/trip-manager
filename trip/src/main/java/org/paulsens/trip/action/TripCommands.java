@@ -193,10 +193,11 @@ public class TripCommands {
         }
         final List<String> page = new ConferenceCommands().pageProblems(trip);
         if (!page.isEmpty()) {
-            // Same for the Conference Page dialog (docs/conference.md, "Look and feel").
+            // Same for the Trip Page dialog (docs/conference.md, "Look and feel").
             PageFeedback.warn("Not saved", String.join(" ", page));
             return false;
         }
+        final boolean brandNew = isBrandNew(trip);
         boolean result;
         // Read the roster BEFORE the write, so anyone dropped in this edit can be taken off the chat too. Done
         // here rather than at each Remove button because there are several ways off a trip and they must all
@@ -218,8 +219,13 @@ public class TripCommands {
         }
         if (result) {
             ChatCommands.getChatCommands().leaveOnTripRemoval(trip.getId(), removed);
-            if (trip.isConference() && trip.getPageSeededAt() == null) {
-                // Every save path (both editors, REST create, a kind flip) reaches here; once per trip.
+            if (trip.getPageSeededAt() == null
+                    && (brandNew || trip.getDescription() == null || trip.getDescription().isBlank())) {
+                // Every save path (the editor, REST create, a kind flip) reaches here; once per trip, any kind. A
+                // trip that EXISTED before every trip had a page and still carries a description is the one
+                // exception: it stays a legacy page, rendering the description read-only, until "Edit page"
+                // converts it (ConferenceCommands.convertLegacyPage, docs/conference.md "Legacy trips"). A new
+                // trip created with a description seeds at once, the description becoming its About section.
                 new ConferenceCommands().ensurePage(trip);
             }
         }
@@ -1148,6 +1154,16 @@ public class TripCommands {
      */
     public boolean canChooseKind(final Trip trip) {
         return trip != null && orgSource.get().canCreateConferenceFor(trip.getOrgId());
+    }
+
+    /** Whether no row exists for this trip yet (the create paths); an unreadable store counts as existing. */
+    private static boolean isBrandNew(final Trip trip) {
+        try {
+            return DAO.getInstance().getTrip(trip.getId(), Cached.NO).isEmpty();
+        } catch (final RuntimeException ex) {
+            log.warn("Could not read trip {} to tell whether it is new", trip.getId(), ex);
+            return false;
+        }
     }
 
     /**

@@ -63,7 +63,11 @@ public class ConferencePageLookTest {
     public void withNoOptionsThePageIsExactlyTheOrgs() {
         final AtomicBoolean orgFullWidth = new AtomicBoolean(false);
         final ConferenceCommands views = new ConferenceCommands(() -> null, () -> NOW, orgFullWidth::get);
-        assertNull(views.lookFor(FakeData.FAKE_TRIP_ID), "a pilgrimage has no conference page");
+        final ConferenceCommands.PageLook plain = views.lookFor(FakeData.FAKE_TRIP_ID);
+        assertNotNull(plain, "every trip has a page and a look (2026-11)");
+        assertFalse(plain.fullWidth());
+        assertNull(plain.rootStyle(), "with no options of its own, the classic page is byte for byte the org's");
+        assertNull(plain.stylesheetUrl());
         assertNull(views.lookFor(UUID.randomUUID().toString()), "no such trip");
         assertNull(views.lookFor(" "));
         assertNull(views.lookFor(null));

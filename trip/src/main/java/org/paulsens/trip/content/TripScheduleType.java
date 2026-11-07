@@ -23,6 +23,11 @@ final class TripScheduleType implements ProgrammaticContentTemplate {
     }
 
     @Override
+    public String getIcon() {
+        return "pi-calendar";
+    }
+
+    @Override
     public String getDescription() {
         return "The event's public agenda by day, straight from its itinerary events (presenter, room, track).";
     }
