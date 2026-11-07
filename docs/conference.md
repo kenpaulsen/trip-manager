@@ -293,8 +293,12 @@ organization's"):
   SAME key (every trip's stored URL keeps working), bumps the row's `rev` so the rendered `<link>` carries `?r=N`
   (`ConferenceCommands.lookOf` appends `MediaItem.getCacheBuster()` from the CACHED listing,
   `MediaCommands.cachedLibraryItemFor`; the stored value stays bare and `libraryItemFor` ignores a query suffix),
-  and invalidates the CDN path once (`invalidateCdn`; CloudFront's cache key ignores query strings). Text only, at
-  most 64 KB, no `<` (`TripStylesheets.check`). The editor is `pe:codeMirror` in CSS mode; `completeMethod`
+  and invalidates the CDN path once (`invalidateCdn`; CloudFront's cache key ignores query strings). The editor
+  opens and saves in place ANY `text/css` library item stored in its organization's own folder as a `.css` file
+  (`TripStylesheets.isOrgStylesheet`), not only the ones it created: the conference import's page stylesheets live
+  under `org/{orgId}/conferences/...` (2026-11-07). Text only, at most 256 KB, no control characters and no
+  `</style` (`TripStylesheets.check`; a lone `<` is legal CSS: inline SVG data URLs, comments), and the embed
+  links rather than inlines any sheet that holds `</style`. The editor is `pe:codeMirror` in CSS mode; `completeMethod`
   (`complete`, Ctrl+Space) and the "Classes on this page" list (`classReport`: every `class` the page's rendered
   sections and typed rich text reference, tagged custom / hook / styled through `content/CssClassScan`) point a
   designer at the classes the page really uses; its plus drops an empty `.contentItem .name {}` at the cursor. A

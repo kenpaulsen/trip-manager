@@ -62,8 +62,11 @@ public class TripStylesheets {
 
     /** The folder under an org's namespace that only this bean writes. */
     public static final String FOLDER = "stylesheets/";
-    /** A stylesheet is a few KB of rules; a limit keeps a pasted framework out of the item cap and the session. */
-    public static final int MAX_BYTES = 64 * 1024;
+    /**
+     * A limit that keeps a pasted framework out of the session (the editor's text lives in the view while it is
+     * open). 256 KB since 2026-11-07: the conference import's own page stylesheets reach 120 KB.
+     */
+    public static final int MAX_BYTES = 256 * 1024;
     static final long CACHE_SECONDS = 86_400L;
     static final long LOCAL_STORE_MAX_BYTES = 8L * 1024 * 1024;
     static final String STARTER_PATH = "/resources/css/trip-page-starter.css";
@@ -98,6 +101,28 @@ public class TripStylesheets {
         return key != null && !key.contains("..") && KEY.matcher(key).matches();
     }
 
+    /** Whether CSS text holds {@code </style} in any case: it would close an inline style block. */
+    public static boolean closesStyleBlock(final String css) {
+        return css != null && css.toLowerCase(Locale.ROOT).contains("</style");
+    }
+
+    /**
+     * Whether a library item is one of its organization's stylesheets the editor may open and save in place: a
+     * {@code text/css} item stored in that organization's OWN folder as a {@code .css} file. Not only this bean's
+     * {@code stylesheets/} folder: the conference import put each event's page stylesheet under
+     * {@code org/{id}/conferences/...}, and a trip linking one opened the editor on "New stylesheet" and refused
+     * to read it (2026-11-07). A save rewrites the item's own key, so the folder check is what keeps a write inside
+     * the organization.
+     */
+    static boolean isOrgStylesheet(final MediaItem item) {
+        if (item == null || !MediaCommands.isStylesheet(item) || item.getOrgId() == null) {
+            return false;
+        }
+        final String key = item.getS3Key();
+        return key != null && !key.contains("..") && key.endsWith(".css")
+                && key.startsWith(MediaCommands.ORG_KEY_PREFIX + item.getOrgId() + "/");
+    }
+
     /** A title's slug: lower-case letters and digits with single dashes, never blank. */
     public static String slugOf(final String title) {
         final String slug = SLUG_UNSAFE.matcher(title == null ? "" : title.toLowerCase(Locale.ROOT))
@@ -121,8 +146,10 @@ public class TripStylesheets {
     }
 
     /**
-     * What is wrong with a stylesheet's text, or null when it may be stored: text only (a {@code <} would make it
-     * markup rather than CSS), a size cap, no control characters but tab and newline.
+     * What is wrong with a stylesheet's text, or null when it may be stored: a size cap, no control characters but
+     * tab and newline, and no {@code </style}, the one sequence that would end the style block the embed inlines
+     * the sheet into. A lone {@code <} is legal CSS (an inline SVG in a data URL, a comment), so it is allowed: the
+     * first version refused every {@code <} and with it the imported conference stylesheets.
      */
     public static String check(final String css) {
         if (css == null) {
@@ -131,8 +158,8 @@ public class TripStylesheets {
         if (css.getBytes(StandardCharsets.UTF_8).length > MAX_BYTES) {
             return "The stylesheet is larger than " + (MAX_BYTES / 1024) + " KB.";
         }
-        if (css.indexOf('<') >= 0) {
-            return "The stylesheet holds a '<' character; CSS only, no markup.";
+        if (closesStyleBlock(css)) {
+            return "The stylesheet holds '</style', which would end the page's style block; CSS only, no markup.";
         }
         for (int i = 0; i < css.length(); i++) {
             final char c = css.charAt(i);
@@ -225,7 +252,7 @@ public class TripStylesheets {
             return null;
         }
         final Optional<byte[]> bytes = media.isUploadEnabled() ? media.getObject(item.getS3Key())
-                : localGet(item.getS3Key());
+                : localBytes(item.getS3Key());
         return bytes.map(b -> new String(b, StandardCharsets.UTF_8)).orElse(null);
     }
 
@@ -419,7 +446,7 @@ public class TripStylesheets {
     /** The org's stylesheet a stored URL names (the dialog's menu value), or null for anything else. */
     public MediaItem itemFor(final String orgId, final String url) {
         final MediaItem item = media.libraryItemFor(orgId, url);
-        return item != null && MediaCommands.isStylesheet(item) && isStylesheetKey(item.getS3Key()) ? item : null;
+        return isOrgStylesheet(item) ? item : null;
     }
 
     /** The URL a trip stores for this stylesheet (bare: the render appends the cache buster). */
@@ -452,13 +479,18 @@ public class TripStylesheets {
                 : Optional.of(starterCss().getBytes(StandardCharsets.UTF_8));
     }
 
+    /** Local mode: the stored bytes of any org stylesheet key, else the starter for a row that has none. */
+    private Optional<byte[]> localBytes(final String key) {
+        final Optional<byte[]> stored = localStore.get(key);
+        return stored.isPresent() ? stored : Optional.of(starterCss().getBytes(StandardCharsets.UTF_8));
+    }
+
     private MediaItem editable(final String itemId) {
         if (itemId == null || itemId.isBlank()) {
             return null;
         }
         final MediaItem item = DAO.getInstance().getMedia(itemId.trim(), Cached.NO).orElse(null);
-        if (item == null || !MediaCommands.isStylesheet(item) || !isStylesheetKey(item.getS3Key())
-                || !canEdit(item.getOrgId())) {
+        if (!isOrgStylesheet(item) || !canEdit(item.getOrgId())) {
             return null;
         }
         return item;

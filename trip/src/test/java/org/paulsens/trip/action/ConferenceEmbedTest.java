@@ -10,6 +10,8 @@ import org.paulsens.trip.model.Trip;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertFalse;
+import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
 
@@ -72,6 +74,22 @@ public class ConferenceEmbedTest {
         assertNull(inlining.embedStylesheetLink(trip.getId()), "inlined, so not linked");
         assertTrue(inlining.embedCss(trip.getId()).contains(".contentItem .x"), "the second read is the cache's");
         org.mockito.Mockito.verify(readable, org.mockito.Mockito.times(1)).getObject(sample.getS3Key());
+
+        // A sheet holding "</style" would close the inline style block: it is linked, never inlined.
+        final MediaItem other = sample.withRewritten(11).withRewritten(12);
+        final MediaCommands hostile = org.mockito.Mockito.mock(MediaCommands.class);
+        org.mockito.Mockito.when(hostile.cachedLibraryItemFor(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString())).thenReturn(other);
+        org.mockito.Mockito.when(hostile.getObject(other.getS3Key()))
+                .thenReturn(java.util.Optional.of(".y{}</STYLE><script>bad()</script>".getBytes()));
+        final ConferenceCommands guarded = new ConferenceCommands(() -> null, () -> NOW) {
+            @Override
+            protected MediaCommands media() {
+                return hostile;
+            }
+        };
+        assertFalse(guarded.embedCss(trip.getId()).contains("<script>"), "never inlined");
+        assertNotNull(guarded.embedStylesheetLink(trip.getId()), "linked instead");
     }
 
     @Test

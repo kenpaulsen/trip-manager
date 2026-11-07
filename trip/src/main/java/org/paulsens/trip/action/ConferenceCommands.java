@@ -629,7 +629,9 @@ public class ConferenceCommands {
             return cached;
         }
         final String text = media.getObject(item.getS3Key())
-                .map(bytes -> new String(bytes, StandardCharsets.UTF_8)).orElse(null);
+                .map(bytes -> new String(bytes, StandardCharsets.UTF_8))
+                // A sheet that would close the inline style block is linked, never inlined.
+                .filter(css -> !TripStylesheets.closesStyleBlock(css)).orElse(null);
         if (text != null) {
             if (EMBED_SHEET_CACHE.size() >= EMBED_SHEET_CACHE_MAX) {
                 EMBED_SHEET_CACHE.clear();

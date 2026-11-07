@@ -20,6 +20,7 @@ import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.MediaItem;
 import org.paulsens.trip.model.Trip;
+import org.paulsens.trip.model.TripPageOptions;
 import org.primefaces.extensions.event.CompleteEvent;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.BeforeMethod;
@@ -88,6 +89,45 @@ public class TripStylesheetsTest {
         return bean;
     }
 
+    /**
+     * The conference import put each event's page stylesheet under {@code org/{id}/conferences/...}, not this bean's
+     * folder; a trip linking one opened the editor on "New stylesheet" and the menu refused to read it (2026-11-07).
+     */
+    @Test
+    public void anImportedStylesheetInTheOrgsOwnFolderOpensReadsAndSavesInPlace() throws IOException {
+        final String key = "org/" + ORG + "/conferences/2026-test/summer-" + UUID.randomUUID() + ".css";
+        final MediaItem imported = new MediaItem("imported-" + UUID.randomUUID(), key, "Summer page stylesheet",
+                "Imported", "text/css", 20, null, 0, LocalDateTime.now(), "import", null, null, ORG);
+        assertTrue(dao.saveMedia(imported));
+        final Trip trip = Trip.builder().title("Imported Trip").orgId(ORG).build();
+        final TripPageOptions options = new TripPageOptions();
+        options.setStylesheetUrl(sheets.urlOf(imported));
+        trip.setPage(options);
+
+        assertEquals(sheets.linkedItem(trip).getId(), imported.getId(), "the trip's link resolves to it");
+        assertTrue(sheets.openEditor(trip), "the Styles button opens it, not a new sheet");
+        assertEquals(stashed.get("cssItemId"), imported.getId());
+        assertEquals(stashed.get("cssTitle"), "Summer page stylesheet");
+        stashed.clear();
+        assertTrue(sheets.pick(imported.getId()), "the menu opens it too");
+        assertTrue(sheets.saveOnly(imported.getId(), "Summer page stylesheet", ".a{color:red}"), "saved in place");
+        assertEquals(dao.getMedia(imported.getId(), Cached.NO).orElseThrow().getS3Key(), key, "same key");
+        assertEquals(sheets.read(imported.getId()), ".a{color:red}");
+
+        // Never another organization's folder, never a file that is not a .css, never a path escape.
+        assertFalse(TripStylesheets.isOrgStylesheet(new MediaItem("x1", "org/" + FakeData.ACME_ORG_ID + "/a.css",
+                "t", null, "text/css", 1, null, 0, null, null, null, null, ORG)), "another org's folder");
+        assertFalse(TripStylesheets.isOrgStylesheet(new MediaItem("x2", "org/" + ORG + "/a.txt", "t", null,
+                "text/css", 1, null, 0, null, null, null, null, ORG)), "not a .css file");
+        assertFalse(TripStylesheets.isOrgStylesheet(new MediaItem("x3", "org/" + ORG + "/../x/a.css", "t", null,
+                "text/css", 1, null, 0, null, null, null, null, ORG)), "a path escape");
+        assertFalse(TripStylesheets.isOrgStylesheet(new MediaItem("x4", "org/" + ORG + "/a.css", "t", null,
+                "image/png", 1, null, 0, null, null, null, null, ORG)), "not a stylesheet");
+        assertFalse(TripStylesheets.isOrgStylesheet(new MediaItem("x5", "org/" + ORG + "/a.css", "t", null,
+                "text/css", 1, null, 0, null, null, null, null, null)), "no organization");
+        assertFalse(TripStylesheets.isOrgStylesheet(null));
+    }
+
     @Test
     public void keysAndSlugsAreStrict() {
         assertEquals(TripStylesheets.slugOf("PW Styles 2027!"), "pw-styles-2027");
@@ -106,7 +146,11 @@ public class TripStylesheetsTest {
     public void onlyCssTextWithinTheCapIsAccepted() {
         assertNull(TripStylesheets.check(".a { color: red }\n\t/* ok */"));
         assertNotNull(TripStylesheets.check(null));
-        assertNotNull(TripStylesheets.check("<style>.a{}</style>"), "markup is refused");
+        assertNotNull(TripStylesheets.check("<style>.a{}</style>"), "a closing style tag is refused");
+        assertNotNull(TripStylesheets.check(".a{}</STYLE ><script>"), "in any case");
+        assertNull(TripStylesheets.check(".a{mask-image:url('data:image/svg+xml;utf8,<svg/>')} /* <style> */"),
+                "a lone '<' is legal CSS: an inline SVG, a comment (the imported conference sheets hold both)");
+        assertNull(TripStylesheets.check("x".repeat(120 * 1024)), "a 120 KB imported sheet fits");
         assertNotNull(TripStylesheets.check(".a{}\u0007"), "a control character is refused");
         assertNotNull(TripStylesheets.check("x".repeat(TripStylesheets.MAX_BYTES + 1)));
     }
@@ -187,7 +231,7 @@ public class TripStylesheetsTest {
         assertEquals(saved.getTitle(), "Live renamed");
         assertEquals(saved.getRev(), 1);
         assertEquals(sheets.read(createdId), ".b{}");
-        assertFalse(sheets.saveOnly(createdId, "Live renamed", "<nope>"), "a refused text");
+        assertFalse(sheets.saveOnly(createdId, "Live renamed", "</style><nope>"), "a refused text");
 
         // Linked by the trip editor, the next open loads it; the menu pick loads any of the org's sheets.
         trip.getPage().setStylesheetUrl(sheets.urlOf(saved));
@@ -285,11 +329,11 @@ public class TripStylesheetsTest {
     public void refusalsChangeNothing() {
         final MediaItem created = sheets.create(ORG, "Refusals " + UUID.randomUUID(), ".a{}");
         assertNotNull(created);
-        assertFalse(sheets.save(created.getId(), "<b>no</b>"));
+        assertFalse(sheets.save(created.getId(), ".a{}</style><b>no</b>"));
         assertFalse(sheets.save(created.getId(), "x".repeat(TripStylesheets.MAX_BYTES + 1)));
         assertEquals(sheets.read(created.getId()), ".a{}", "a refused save leaves the text alone");
         assertEquals(dao.getMedia(created.getId(), Cached.NO).orElseThrow().getRev(), 0);
-        assertNull(sheets.create(ORG, "Bad", "<style>"));
+        assertNull(sheets.create(ORG, "Bad", "</style>"));
 
         editor = false;
         assertFalse(sheets.canEdit(ORG));
