@@ -117,6 +117,7 @@ public class ProgrammaticTypesTest {
         Assert.assertTrue(bare.choicesFor("anything").isEmpty(), "no choices unless a type offers some");
         Assert.assertTrue(bare.sharedSiteOnlyProperties().isEmpty(),
                 "every property of an unopinionated type shows on an organization's own site too");
+        Assert.assertEquals(bare.getIcon(), "pi-cog", "the template picker's card has an icon for any type");
     }
 
     /** A type declaring only the required half of the contract. */
