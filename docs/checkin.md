@@ -25,7 +25,8 @@ Every gate answers false for a caller who is not signed in BEFORE it reads anyth
 touch), so the anonymous ticket page and the tab strip's anonymous build may ask them freely. All are false for an
 unknown trip or one this site does not serve (`TripCommands.getTrip`'s rule).
 
-`checkinStaff` is a trip role (the editor's role picker; an org with an allow-list must tick it). A Check-in Staff
+`checkinStaff` is a trip role (the editor's role picker, on a conference only; an org with an allow-list must tick
+it). A Check-in Staff
 member is usually not on the roster, so their Trips menu does not list the event: the Admin menu lists
 "Check-in: {title}" for every ACTIVE trip where they hold the role explicitly (`staffTrips`; a site admin does not
 get an entry per trip).

@@ -138,6 +138,11 @@ composed leg. The REST event view sends any non-empty `details`, so the app sees
 whose `grantablePrivileges` allow-list is set must have it ticked before it can be granted. It opens the Check-in tab
 and page and the "Check-in: {title}" Admin menu entry (`docs/checkin.md`).
 
+The editor offers it on a CONFERENCE only (owner decision 2026-11-07, `OrgCommands.offeredOn`): a pilgrimage has no
+Check-in tab, ticket mail or check-in cards, so both the Add Manager menu and the per-row "+ Add role" leave it out,
+and `setTripRole` refuses a new grant on a pilgrimage. Only the grant is withheld: a holder left over from a kind
+flip still shows on the roster and can still be revoked, and flipping back to a conference loses nothing.
+
 ## The conference page
 
 A conference's public page is CONTENT SECTIONS, edited in place like an organization's home page, under the trip's

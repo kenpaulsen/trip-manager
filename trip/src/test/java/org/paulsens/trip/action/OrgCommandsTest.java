@@ -1186,7 +1186,8 @@ public class OrgCommandsTest {
         assertEquals(cmds.tripRoleDefs(trip), List.of(java.util.Map.of("name", "Editor Admin",
                         "desc", trip.getTitle() + " - Editor Admin", "base", PrivilegeCommands.TRIP_MGR)),
                 "Role defs mirror the allow-list filter with the editor's display names");
-        assertEquals(admin().tripRoleDefs(trip).size(), PrivilegeCommands.TRIP_SCOPED_BASES.size());
+        assertEquals(admin().tripRoleDefs(trip).size(), PrivilegeCommands.TRIP_SCOPED_BASES.size() - 1,
+                "A pilgrimage is offered every role but Check-in Staff");
         assertEquals(cmds.effectiveGrantable(orgId),
                 List.of(PrivilegeCommands.TRIP_MGR, PrivilegeCommands.ADD_TRIP));
         assertEquals(cmds.allTripRoleBases(), PrivilegeCommands.TRIP_SCOPED_BASES);
@@ -1299,6 +1300,52 @@ public class OrgCommandsTest {
 
         assertEquals(cmds.heldTripRoles(null, manager.getId()), List.of());
         assertEquals(cmds.addableTripRoles(trip, null), List.of());
+    }
+
+    /**
+     * Check-in Staff is a conference role (owner decision 2026-11-07): a pilgrimage's editor never offers it,
+     * nor grants it, but a holder left over from a kind flip still shows and can still be revoked.
+     */
+    @Test
+    public void checkinStaffIsOfferedOnConferencesOnly() throws IOException {
+        final Person orgAdmin = savedPerson();
+        final Person staff = savedPerson();
+        final Organization acme = orgWithAdmin(orgAdmin);
+        final String orgId = acme.getId().getValue();
+        assertTrue(admin().addMember(orgId, staff.getId()));
+        final org.paulsens.trip.model.Trip trip = org.paulsens.trip.model.Trip.builder()
+                .title("Kind Trip " + unique()).build();
+        trip.setOrgId(orgId);
+        trip.setKind(org.paulsens.trip.model.TripKind.CONFERENCE);
+        assertTrue(dao.saveTrip(trip));
+        final OrgCommands cmds = realPrivs(orgAdmin);
+
+        assertTrue(offers(cmds.tripRoleDefs(trip)), "A conference's Add Manager menu offers it");
+        assertTrue(offers(cmds.addableTripRoles(trip, staff.getId())), "So does its per-row Add role");
+        assertTrue(cmds.setTripRole(trip.getId(), staff.getId(), PrivilegeCommands.CHECKIN_STAFF, true));
+
+        trip.setKind(org.paulsens.trip.model.TripKind.PILGRIMAGE);
+        assertTrue(dao.saveTrip(trip));
+        assertFalse(offers(cmds.tripRoleDefs(trip)), "A pilgrimage's Add Manager menu does not");
+        assertFalse(offers(admin().tripRoleDefs(trip)), "Not even for a site admin");
+        final List<java.util.Map<String, String>> held = cmds.heldTripRoles(trip, staff.getId());
+        assertEquals(held.size(), 1, "The holder from the conference days still shows");
+        assertEquals(held.get(0).get("grantable"), "true", "... with its remove control");
+
+        final Person other = savedPerson();
+        assertTrue(admin().addMember(orgId, other.getId()));
+        assertFalse(offers(cmds.addableTripRoles(trip, other.getId())), "The per-row Add role does not offer it");
+        assertFalse(cmds.setTripRole(trip.getId(), other.getId(), PrivilegeCommands.CHECKIN_STAFF, true),
+                "A crafted grant is refused");
+        assertFalse(new PrivilegeCommands().check(PrivilegeCommands.CHECKIN_STAFF, trip.getId(), other.getId()));
+
+        assertTrue(cmds.setTripRole(trip.getId(), staff.getId(), PrivilegeCommands.CHECKIN_STAFF, false),
+                "The revoke still goes through");
+        assertFalse(new PrivilegeCommands().check(PrivilegeCommands.CHECKIN_STAFF, trip.getId(), staff.getId()));
+    }
+
+    private static boolean offers(final List<java.util.Map<String, String>> defs) {
+        return defs.stream().anyMatch(def -> PrivilegeCommands.CHECKIN_STAFF.equals(def.get("base")));
     }
 
     /**

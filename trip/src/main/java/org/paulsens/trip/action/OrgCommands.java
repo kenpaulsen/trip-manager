@@ -903,7 +903,20 @@ public class OrgCommands {
      * allow-list-aware).
      */
     public List<java.util.Map<String, String>> tripRoleDefs(final Trip trip) {
-        return grantableTripBases(trip).stream().map(base -> roleDef(trip, base)).toList();
+        return grantableTripBases(trip).stream()
+                .filter(base -> offeredOn(trip, base))
+                .map(base -> roleDef(trip, base))
+                .toList();
+    }
+
+    /**
+     * Whether the trip editor offers this role for a NEW grant on this trip. Check-in Staff only on a
+     * conference: a pilgrimage has no Check-in tab, ticket mail or check-in cards, so the role would grant
+     * nothing a pilgrimage uses (owner decision 2026-11-07). Only the GRANT is withheld: a holder (left over
+     * from a kind flip) still shows and can still be revoked, and a flip back to conference loses nothing.
+     */
+    static boolean offeredOn(final Trip trip, final String base) {
+        return !PrivilegeCommands.CHECKIN_STAFF.equals(base) || trip.isConference();
     }
 
     private java.util.Map<String, String> roleDef(final Trip trip, final String base) {
@@ -951,6 +964,7 @@ public class OrgCommands {
         }
         final PrivilegeCommands priv = privCommands();
         return grantableTripBases(trip).stream()
+                .filter(base -> offeredOn(trip, base))
                 .filter(base -> !priv.check(base, trip.getId(), personId))
                 .map(base -> roleDef(trip, base))
                 .toList();
@@ -1238,6 +1252,9 @@ public class OrgCommands {
         }
         if (!grantableTripBases(trip).contains(base)) {
             return fail("Not available", "'" + base + "' is not a role this organization can grant.");
+        }
+        if (granted && !offeredOn(trip, base)) {
+            return fail("Not available", "Check-in Staff applies to conferences only.");
         }
         // Tenancy: an org's trip roles go to that org's members, period (the same stance as
         // grantOrgPrivilege, site admins included). Revokes stay unchecked so a departed member's

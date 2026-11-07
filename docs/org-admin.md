@@ -150,7 +150,7 @@ does NOT light up the other trip tabs, the way an invited chat guest gets exactl
 
 `checkinStaff@trip` (display name "Check-in Staff", 2026-11, `docs/conference.md`) is the event check-in role:
 looking up registrants and tickets and checking people in, nothing else. An org whose allow-list is set must tick
-it before it can be granted. Its pages arrive with the check-in phase.
+it before it can be granted. The trip editor offers it on conferences only (`OrgCommands.offeredOn`).
 
 `tripMgr@trip` also edits that trip's public CONFERENCE page (`page:trip:{id}:home`, `docs/conference.md`), the
 one trip role that edits content; the trip's org's `contentAdmin` edits it too (below).
