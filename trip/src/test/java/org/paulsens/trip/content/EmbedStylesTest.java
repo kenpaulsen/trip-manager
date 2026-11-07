@@ -24,5 +24,11 @@ public class EmbedStylesTest {
         assertTrue(css.contains(".tripEmbed .confNavCta"), "the nav strip's button, should a host ever build it");
         assertTrue(css.contains("display: none"));
         assertTrue(css.contains("--layout-full-bg"), "the app's backdrop shows through the full-width ground");
+        assertTrue(css.contains("body.tripEmbed { font-family: var(--font-family"),
+                "the theme's font, not the browser's default serif");
+        assertTrue(css.contains("color: var(--text-color"), "the theme's text color");
+        assertTrue(css.contains(".tripEmbed .tripEmbedText { padding: 16px;"), "an old description page keeps margins");
+        assertTrue(css.contains(".tripEmbed .tripEmbedText img, .tripEmbed .tripEmbedText iframe"),
+                "pictures and videos never overflow the column");
     }
 }

@@ -312,6 +312,35 @@ public class TripStylesheets {
         return linked != null && openItem(linked.getId());
     }
 
+    /**
+     * The page toolbar's Styles button. The first open in a view loads the stylesheet the trip links, or the starter
+     * when it links none; a later open keeps what the designer already has in the editor. One call, because a
+     * JSFT command script cannot hold this logic: an {@code if} body with a comparison inside a method argument
+     * fails EL parsing at run time (the 2026-11-07 "Something went wrong" on every click).
+     *
+     * @return whether the editor holds something
+     */
+    public boolean openEditor(final Trip trip) {
+        if (viewValue("cssText") != null) {
+            return true;
+        }
+        return prepare(trip, linkedItem(trip) == null ? "new" : "true");
+    }
+
+    /**
+     * The editor's menu pick: the "New stylesheet" entry (blank) loads the starter, any other entry that
+     * stylesheet. One call for the same reason as {@link #openEditor}: the menu's old if-body script never ran.
+     *
+     * @return whether the pick loaded
+     */
+    public boolean pick(final String itemId) {
+        if (itemId == null || itemId.isBlank()) {
+            stashAll(null, "", starterCss());
+            return true;
+        }
+        return openItem(itemId.trim());
+    }
+
     /** The stylesheet the trip's STORED page options link, or null. */
     public MediaItem linkedItem(final Trip trip) {
         return trip == null || trip.pageOrNull() == null ? null
@@ -507,6 +536,11 @@ public class TripStylesheets {
     /** Writes one of the editor's view-state scalars (the dialog's bindings). Seam for tests. */
     protected void stash(final String key, final Object value) {
         FacesContext.getCurrentInstance().getViewRoot().getViewMap().put(key, value);
+    }
+
+    /** Reads one of the editor's view-state scalars. Seam for tests. */
+    protected Object viewValue(final String key) {
+        return org.paulsens.trip.util.ScopeUtil.getInstance().getViewMap(key);
     }
 
     /** The trip the editor page pins in the view (the dialog lives on trip/edit.xhtml), or null off-page. */

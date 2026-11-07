@@ -76,6 +76,11 @@ public class TripStylesheetsTest {
             protected void stash(final String key, final Object value) {
                 stashed.put(key, value);
             }
+
+            @Override
+            protected Object viewValue(final String key) {
+                return stashed.get(key);
+            }
         };
         final Field field = TripStylesheets.class.getDeclaredField("media");
         field.setAccessible(true);
@@ -197,6 +202,28 @@ public class TripStylesheetsTest {
         assertEquals(stashed.get("cssText"), sheets.starterCss());
         assertFalse(sheets.openItem("no-such-item"));
         assertFalse(sheets.openItem(null));
+
+        // The toolbar's Styles button: the first open loads the linked sheet; a later open keeps the editor's text.
+        stashed.clear();
+        assertTrue(sheets.openEditor(trip));
+        assertEquals(stashed.get("cssItemId"), createdId, "the sheet the trip links, not a new one");
+        assertEquals(stashed.get("cssText"), ".b{}");
+        stashed.put("cssText", ".edited{}");
+        assertTrue(sheets.openEditor(trip));
+        assertEquals(stashed.get("cssText"), ".edited{}", "a reopen keeps the work in progress");
+        // The menu: the blank "New stylesheet" entry loads the starter, an id loads that sheet.
+        assertTrue(sheets.pick(""));
+        assertNull(stashed.get("cssItemId"));
+        assertEquals(stashed.get("cssText"), sheets.starterCss());
+        assertTrue(sheets.pick(" " + createdId + " "));
+        assertEquals(stashed.get("cssText"), ".b{}");
+        assertTrue(sheets.pick(null));
+        assertFalse(sheets.pick("no-such-item"));
+        // A trip linking nothing opens on the starter.
+        stashed.clear();
+        final Trip bare = Trip.builder().title("Bare").orgId(ORG).build();
+        assertTrue(sheets.openEditor(bare));
+        assertEquals(stashed.get("cssText"), sheets.starterCss());
 
         // Off the trip editor's page (no trip in view) a new sheet has no organization to belong to.
         tripInView = null;
