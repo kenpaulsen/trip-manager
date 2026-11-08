@@ -113,6 +113,37 @@ public class TripsResourceTest extends ResourceTestSupport {
         Assert.assertEquals(one.withoutEvents().detailsUrl(), one.detailsUrl());
     }
 
+    /**
+     * In production the page is addressed on the site of the organization that OWNS the trip, never on the host
+     * the app asked (2026-11-08: built on the product host, a shared-site org's trip answered "This page is not
+     * available."): its own subdomain, else the "Link base URL" setting its tickets and emails use.
+     */
+    @Test
+    public void productionLinksTheTripOnItsOwnOrganizationsSite() throws java.io.IOException {
+        final org.paulsens.trip.action.ConfigCommands config = new org.paulsens.trip.action.ConfigCommands();
+        final java.util.function.UnaryOperator<String> requestHost = path -> "https://unitetrip.com" + path;
+
+        final org.paulsens.trip.model.Organization own = new org.paulsens.trip.model.Organization();
+        own.setName("Own site " + java.util.UUID.randomUUID());
+        final String slug = "ds" + java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 10);
+        own.setSlug(slug);
+        Assert.assertTrue(org.paulsens.trip.dynamo.DAO.getInstance().saveOrganization(own));
+        final Trip onOwnSite = trip(TRIP_ID, ME);
+        onOwnSite.setOrgId(own.getId().getValue());
+        Assert.assertEquals(TripsResource.detailsUrl(onOwnSite, false, requestHost, config),
+                "https://" + slug + ".unitetrip.com/trip/tripPage.jsf?trip=" + TRIP_ID);
+
+        final Trip shared = trip(TRIP_ID, ME);
+        shared.setOrgId(org.paulsens.trip.dynamo.FakeData.CFPW_ORG_ID);
+        Assert.assertEquals(TripsResource.detailsUrl(shared, false, requestHost, config),
+                config.getString(org.paulsens.trip.config.KnownSettings.REG_MAIL_BASE_URL).replaceAll("/+$", "")
+                        + "/trip/tripPage.jsf?trip=" + TRIP_ID,
+                "an org on the shared site: the link base its tickets use (www.visitqueenofpeace.com in production)");
+
+        Assert.assertEquals(TripsResource.detailsUrl(shared, true, requestHost, config),
+                "https://unitetrip.com/trip/tripPage.jsf?trip=" + TRIP_ID, "local mode keeps the request's host");
+    }
+
     @Test
     public void mineListsTheCallersTrips() {
         signedInAs(ME);

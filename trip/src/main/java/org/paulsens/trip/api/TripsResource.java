@@ -19,7 +19,9 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.UnaryOperator;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.action.ConfigCommands;
 import org.paulsens.trip.action.ItineraryAccess;
 import org.paulsens.trip.action.OrgCommands;
 import org.paulsens.trip.action.ProfilePhotos;
@@ -31,7 +33,9 @@ import org.paulsens.trip.api.dto.RegChoiceDto;
 import org.paulsens.trip.api.dto.RegOptionDto;
 import org.paulsens.trip.api.dto.SharedItineraryDto;
 import org.paulsens.trip.api.dto.TripDto;
+import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.dynamo.LocalMode;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.model.PaymentProcessorConfig;
 import org.paulsens.trip.model.Organization;
@@ -49,6 +53,7 @@ import org.paulsens.trip.model.RegistrationOption;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripKind;
 import org.paulsens.trip.site.SiteContext;
+import org.paulsens.trip.site.SiteUrls;
 import org.paulsens.trip.model.TripEvent;
 
 /**
@@ -129,11 +134,23 @@ public class TripsResource extends BaseResource {
     }
 
     /**
-     * The absolute address of the trip's embedded page ({@code trip/tripPage.jsf}, docs/conference.md "The embed"),
-     * built from THIS request's host: the site the app is talking to is the site that renders the page.
+     * The absolute address of the trip's embedded page ({@code trip/tripPage.jsf}, docs/conference.md "The embed")
+     * on the site of the ORGANIZATION that owns the trip ({@code SiteUrls}, the base its tickets and emails link
+     * to): its own subdomain, else the "Link base URL" setting. Never this request's host: the app talks to the API
+     * on the product host, where an ordinary page reaches only the trips the marketing page lists, so a link built
+     * there answered "This page is not available." for the rest (2026-11-08). Local mode keeps the request's host,
+     * since the link-base setting names the production site there.
      */
     private String detailsUrl(final Trip trip) {
-        return absoluteUrl("/trip/tripPage.jsf?trip=" + trip.getId());
+        return detailsUrl(trip, LocalMode.isLocal(), this::absoluteUrl, new ConfigCommands());
+    }
+
+    /** {@link #detailsUrl(Trip)} on explicit facts (the testable half). */
+    static String detailsUrl(final Trip trip, final boolean local,
+            final UnaryOperator<String> requestAbsolute, final ConfigCommands config) {
+        final String path = "/trip/tripPage.jsf?trip=" + trip.getId();
+        return local ? requestAbsolute.apply(path)
+                : SiteUrls.baseUrlForTrip(trip, KnownSettings.REG_MAIL_BASE_URL, config) + path;
     }
 
     /**

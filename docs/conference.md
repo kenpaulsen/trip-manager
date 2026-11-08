@@ -199,6 +199,9 @@ a phone renders with its styles offline; images and video frames stay live, and 
 description's relative paths. Anonymous-safe like `manifest.xhtml`: a transient view with `contentType="text/html"`
 (an app's Accept header names the API media type), requestScope only; `contentSections.xhtml` takes a `readOnly`
 param so a signed-in browser's cookie never builds the edit dialogs into it. `AnonymousFootprintPwIT` sweeps it.
+`detailsUrl` addresses it on the OWNING organization's site (`TripsResource.detailsUrl` over `SiteUrls.baseUrlForTrip`,
+as tickets do), where the page's ordinary reach rule admits the trip; built on the product host the apps' API calls go
+to, it answered "This page is not available." for every trip the marketing page does not list (2026-11-08).
 
 **Who edits it.** `ContentCommands.canEdit`/`mayEdit` gained `tripMgr@{trip}` for a trip page and its containers'
 children (`ContentCommands.tripOf`, derived from the SECTION like `orgOf`, never the host): the first trip role that

@@ -73,8 +73,11 @@ absent from lists; on `POST`/`PUT` an absent field is left alone and `""` clears
 participating, privNote, details{from,to,flightNumber,duration,carrier} (backend phase).
 
 **The trip page (2026-11).** Every `TripDto` carries `detailsUrl`: the ABSOLUTE address of the trip's public page as
-the apps embed it (`https://{host}/trip/tripPage.jsf?trip={id}`, built from the host the request came to), on lists
-and single reads alike. Fetch it with no authentication and `Accept: text/html` (an API client's usual Accept would
+the apps embed it (`{base}/trip/tripPage.jsf?trip={id}`), on lists and single reads alike. `{base}` is the site of
+the organization that OWNS the trip, the same base its tickets and emails link to (`SiteUrls`): its own subdomain
+(`https://{slug}.unitetrip.com`), else the "Link base URL" setting (`https://www.visitqueenofpeace.com`). Never the
+host the request came to: the apps call the API on the product host, where the page reaches only the trips the
+marketing page lists (2026-11-08). Local mode alone builds it on the request's host. Fetch it with no authentication and `Accept: text/html` (an API client's usual Accept would
 be refused by the view): a complete HTML document with the page's styles INLINE, no site chrome, no scripts and no
 registration buttons (the app owns registration), so a copy cached on the device renders offline; images and video
 frames stay live. Clients cache it, refresh it in the background once the copy is older than an hour and swap the new
