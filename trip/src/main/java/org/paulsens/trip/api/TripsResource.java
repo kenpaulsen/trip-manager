@@ -25,7 +25,7 @@ import org.paulsens.trip.action.OrgCommands;
 import org.paulsens.trip.action.ProfilePhotos;
 import org.paulsens.trip.action.LodgingCommands;
 import org.paulsens.trip.action.LodgingViews;
-import org.paulsens.trip.action.ConferenceCommands;
+import org.paulsens.trip.action.TripPageCommands;
 import org.paulsens.trip.action.TripCommands;
 import org.paulsens.trip.api.dto.RegChoiceDto;
 import org.paulsens.trip.api.dto.RegOptionDto;
@@ -772,9 +772,9 @@ public class TripsResource extends BaseResource {
         }
     }
 
-    /** Why the trip's page options cannot be saved ({@code ConferenceCommands.pageProblems}), or null. */
+    /** Why the trip's page options cannot be saved ({@code TripPageCommands.pageProblems}), or null. */
     private static String pageProblem(final Trip trip) {
-        final List<String> problems = new ConferenceCommands().pageProblems(trip);
+        final List<String> problems = new TripPageCommands().pageProblems(trip);
         return problems.isEmpty() ? null : "page: " + String.join(" ", problems);
     }
 

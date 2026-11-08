@@ -440,8 +440,8 @@ page, and every shared host, renders the classic markup byte for byte
 (`OrgSubdomainPwIT.theClassicLayoutIsUnchanged`). In edit mode the dashed section frames wrap each band, which then
 stays inside its frame rather than reaching the window's edges.
 
-**A page's own stylesheet.** A conference page names one in its page options (`Trip.page.stylesheetUrl`, a CSS file
-in the org's media library, the trip managers' Conference Page dialog; `conference.md`, "Look and feel"). Any page can
+**A page's own stylesheet.** A trip page names one in its page options (`Trip.page.stylesheetUrl`, a CSS file
+in the org's media library, the trip managers' Trip Page dialog; `conference.md`, "Look and feel"). Any page can
 also carry one as a content section: an org-scoped STANDARD template whose body is a `<link rel="stylesheet">` to a
 `.css` in the org's media library (or a `<style>` block), placed once on the page it styles; authoring that is the
 template manager's raw-HTML trust (`contentAdmin`), the same as any template. Either way the rules belong under

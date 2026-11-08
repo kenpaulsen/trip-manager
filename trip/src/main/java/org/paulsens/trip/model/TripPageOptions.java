@@ -20,7 +20,7 @@ import org.paulsens.trip.content.ContentRenderer;
  * own default (no title over the hero, the section links shown, no stylesheet), so a trip stored before this
  * existed renders exactly as it did. The values are screened the way the org's settings are: the layout must be
  * one of {@link KnownSettings#SITE_LAYOUT}'s choices, the URLs {@code http(s)}, the color a hex value; whether a
- * stylesheet is a CSS file in the trip's org library needs the DAO and is {@code ConferenceCommands.pageProblems}'.
+ * stylesheet is a CSS file in the trip's org library needs the DAO and is {@code TripPageCommands.pageProblems}'.
  */
 @Data
 public final class TripPageOptions implements Serializable {

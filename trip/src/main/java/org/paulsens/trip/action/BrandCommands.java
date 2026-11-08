@@ -329,7 +329,7 @@ public class BrandCommands {
 
     /**
      * The root element's background declarations for a stored image URL and color: the one rule for the org's
-     * settings and for a conference page's own options ({@code ConferenceCommands.lookFor}), so the two cannot
+     * settings and for a conference page's own options ({@code TripPageCommands.lookFor}), so the two cannot
      * screen or escape differently. An image also makes the full-width layout's own surface transparent
      * ({@code --layout-full-bg}, read by {@code site.css}): that layout paints an opaque ground of its own, which
      * would otherwise hide the very image chosen to show behind the page.

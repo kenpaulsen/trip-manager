@@ -40,7 +40,7 @@ import static org.testng.Assert.assertTrue;
  * org's content admins), which section types it offers, which site shows it, the schedule and registration views,
  * and seeding its starter sections exactly once.
  */
-public class ConferencePageTest {
+public class TripPageTest {
     private static final Person.Id MANAGER = Person.Id.from("conf-page-manager");
     private static final Person.Id CFPW_EDITOR = Person.Id.from("conf-page-cfpw-editor");
     private static final Person.Id NOBODY = Person.Id.from("conf-page-nobody");
@@ -156,11 +156,11 @@ public class ConferencePageTest {
 
     @Test
     public void aSectionShowsItsPickedTripElseItsPagesElseTheHosts() throws Exception {
-        final ConferenceCommands views = new ConferenceCommands(() -> null, () -> NOW);
+        final TripPageCommands views = new TripPageCommands(() -> null, () -> NOW);
         final ContentInstance onPage = section(OrgPageBootstrap.tripPageKey(conference.getId()));
         assertEquals(views.tripFor(onPage, null).getId(), conference.getId(), "from the page key");
         final ContentInstance picked = section(FakeData.PAGE_KEY);
-        picked.getValues().put(ConferenceCommands.PROP_TRIP_ID, other.getId());
+        picked.getValues().put(TripPageCommands.PROP_TRIP_ID, other.getId());
         assertEquals(views.tripFor(picked, conference.getId()).getId(), other.getId(), "an explicit pick wins");
         final ContentInstance child = section("some-container-id");
         assertEquals(views.tripFor(child, conference.getId()).getId(), conference.getId(), "else the host's trip");
@@ -182,27 +182,27 @@ public class ConferencePageTest {
                 event("Keynote", day1.withHour(11), "Main Hall"), event("Opening", day1.withHour(9), "Main Hall"),
                 hidden, flight, event("Closing", day1.plusDays(1).withHour(10), null))).build();
 
-        final List<ConferenceCommands.AgendaDay> days = new ConferenceCommands(() -> null, () -> NOW)
+        final List<TripPageCommands.AgendaDay> days = new TripPageCommands(() -> null, () -> NOW)
                 .publicAgenda(trip);
         assertEquals(days.size(), 2);
         assertEquals(days.get(0).label(), "Friday, March 5");
-        assertEquals(days.get(0).items().stream().map(ConferenceCommands.AgendaItem::title).toList(),
+        assertEquals(days.get(0).items().stream().map(TripPageCommands.AgendaItem::title).toList(),
                 List.of("Opening", "Keynote"), "in start order; the flight and the hidden session are not program");
-        final ConferenceCommands.AgendaItem opening = days.get(0).items().get(0);
+        final TripPageCommands.AgendaItem opening = days.get(0).items().get(0);
         assertTrue(opening.time().contains("9:00") && opening.time().contains("10:00"), opening.time());
         assertEquals(opening.presenter(), "Presenter of Opening");
         assertEquals(opening.location(), "Main Hall");
         assertNull(opening.notes(), "blank notes show nothing");
         assertNull(days.get(1).items().get(0).location());
-        assertEquals(new ConferenceCommands(() -> null, () -> NOW).publicAgenda(null), List.of());
+        assertEquals(new TripPageCommands(() -> null, () -> NOW).publicAgenda(null), List.of());
     }
 
     @Test
     public void viewsAreComputedOncePerRequest() {
         final Map<String, Object> request = new HashMap<>();
-        final ConferenceCommands views = new ConferenceCommands(() -> request, () -> NOW);
+        final TripPageCommands views = new TripPageCommands(() -> request, () -> NOW);
         final Trip trip = Trip.builder().title("Memo").build();
-        final List<ConferenceCommands.AgendaDay> first = views.publicAgenda(trip);
+        final List<TripPageCommands.AgendaDay> first = views.publicAgenda(trip);
         assertSame(views.publicAgenda(trip), first, "the request map holds it");
         assertTrue(request.containsKey("conferenceAgenda:" + trip.getId()));
     }
@@ -225,9 +225,9 @@ public class ConferencePageTest {
         register(trip, Registration.Status.PENDING);
         register(trip, Registration.Status.NOT_REGISTERED);
 
-        final ConferenceCommands views = new ConferenceCommands(() -> null, () -> NOW);
-        final ConferenceCommands.RegistrationInfo info = views.registrationInfo(trip);
-        assertEquals(info.phase(), ConferenceCommands.Phase.OPEN);
+        final TripPageCommands views = new TripPageCommands(() -> null, () -> NOW);
+        final TripPageCommands.RegistrationInfo info = views.registrationInfo(trip);
+        assertEquals(info.phase(), TripPageCommands.Phase.OPEN);
         assertEquals(info.taken(), 2, "confirmed and pending hold places; not-registered rows do not");
         assertEquals(info.seatsLeft(), Integer.valueOf(1));
         assertEquals(info.prices().size(), 1, "a hidden question is not advertised");
@@ -237,25 +237,25 @@ public class ConferencePageTest {
         assertEquals(info.startDateIso(), trip.getStartDateIso());
 
         trip.setRegLimit(2);
-        assertEquals(views.registrationInfo(trip).phase(), ConferenceCommands.Phase.FULL);
+        assertEquals(views.registrationInfo(trip).phase(), TripPageCommands.Phase.FULL);
         trip.setRegLimit(null);
         assertNull(views.registrationInfo(trip).seatsLeft(), "no limit, no count");
-        assertEquals(new ConferenceCommands(() -> null, () -> trip.getStartDate().plusHours(1))
-                .registrationInfo(trip).phase(), ConferenceCommands.Phase.CLOSED, "under way");
+        assertEquals(new TripPageCommands(() -> null, () -> trip.getStartDate().plusHours(1))
+                .registrationInfo(trip).phase(), TripPageCommands.Phase.CLOSED, "under way");
         assertNull(views.registrationInfo(null));
     }
 
     @Test
     public void anUnpricedTripFallsBackToItsEstimatedPrice() {
         final Trip trip = Trip.builder().title("Plain").estimatedPrice("$95").build();
-        final ConferenceCommands.RegistrationInfo info =
-                new ConferenceCommands(() -> null, () -> NOW).registrationInfo(trip);
+        final TripPageCommands.RegistrationInfo info =
+                new TripPageCommands(() -> null, () -> NOW).registrationInfo(trip);
         assertTrue(info.prices().isEmpty());
         assertEquals(info.fallbackPrice(), "$95");
         assertEquals(info.registerLabel(), "Join Pilgrimage");
         final Trip external = Trip.builder().nonHostedTripUrl("https://example.com/reg").build();
-        assertEquals(new ConferenceCommands().registerUrl(external), "https://example.com/reg");
-        assertEquals(new ConferenceCommands().registerUrl(null), "");
+        assertEquals(new TripPageCommands().registerUrl(external), "https://example.com/reg");
+        assertEquals(new TripPageCommands().registerUrl(null), "");
     }
 
     // ------------------------------------------------------------------ seeding
@@ -284,7 +284,7 @@ public class ConferencePageTest {
         for (final ContentInstance section : sections) {
             dao.deleteContent(section.getId());
         }
-        assertTrue(new ConferenceCommands().ensurePage(trip));
+        assertTrue(new TripPageCommands().ensurePage(trip));
         assertTrue(dao.getContentForSection(page, Cached.NO).isEmpty());
     }
 
@@ -294,21 +294,21 @@ public class ConferencePageTest {
         final String page = OrgPageBootstrap.tripPageKey(trip.getId());
         final ContentInstance own = section(page);
         assertTrue(dao.saveContent(own, 3));
-        assertTrue(new ConferenceCommands(() -> null, () -> NOW).ensurePage(trip));
+        assertTrue(new TripPageCommands(() -> null, () -> NOW).ensurePage(trip));
         assertEquals(trip.getPageSeededAt(), NOW);
         assertEquals(dao.getContentForSection(page, Cached.NO).stream().map(ContentInstance::getId).toList(),
                 List.of(own.getId()), "only the authored section");
 
         // Any other kind seeds too (2026-11): a hero, About and a video, the trip's own starters.
         final Trip plain = pilgrimageTrip("Seeded Trip", null);
-        assertTrue(new ConferenceCommands(() -> null, () -> NOW).ensurePage(plain));
+        assertTrue(new TripPageCommands(() -> null, () -> NOW).ensurePage(plain));
         assertEquals(plain.getPageSeededAt(), NOW);
         final List<ContentInstance> rows = dao.getContentForSection(OrgPageBootstrap.tripPageKey(plain.getId()),
                 Cached.NO);
         assertEquals(rows.stream().map(ContentInstance::getTemplateId).toList(),
                 List.of(StarterTemplates.BAND_HERO_ID, StarterTemplates.BAND_TEXT_ID,
                         StarterTemplates.YOUTUBE_VIDEO_ID));
-        assertFalse(new ConferenceCommands().ensurePage(null));
+        assertFalse(new TripPageCommands().ensurePage(null));
     }
 
     // ------------------------------------------------------------------ legacy description pages
@@ -344,14 +344,18 @@ public class ConferencePageTest {
 
     @Test
     public void aLegacyPageRendersTheDescriptionUntilAnEditorConvertsIt() throws IOException {
-        final ConferenceCommands views = new ConferenceCommands(() -> null, () -> NOW);
+        final TripPageCommands views = new TripPageCommands(() -> null, () -> NOW);
         final Trip legacy = pilgrimageTrip("Legacy Page", "<p>Come <b>along</b>.</p>");
         priv.savePrivilege(priv.createPrivilege(PrivilegeCommands.TRIP_MGR, "legacy mgr", legacy.getId(),
                 List.of(MANAGER)));
         assertTrue(views.hasLegacyDescription(legacy));
         assertTrue(views.isLegacyPage(legacy.getId()));
         assertFalse(views.hasLegacyDescription(conference), "no description, nothing legacy about it");
-        assertFalse(views.isLegacyPage(FakeData.CONF_TRIP_ID), "a trip with its page seeded is never legacy");
+        // Seeded HERE: FakeData's conference is legacy-shaped, and whether some other test seeded its page first
+        // depends on the suite's class order.
+        final Trip seeded = conferenceTrip("Seeded Page");
+        assertTrue(views.ensurePage(seeded));
+        assertFalse(views.isLegacyPage(seeded.getId()), "a trip with its page seeded is never legacy");
         assertFalse(views.isLegacyPage(UUID.randomUUID().toString()));
         assertFalse(views.isLegacyPage(" "));
         assertFalse(views.hasLegacyDescription(null));
@@ -379,7 +383,7 @@ public class ConferencePageTest {
         assertEquals(rows.get(0).getValues().get("body"), "<p>Come <b>along</b>.</p>");
         assertNull(rows.get(0).getEventDate());
         assertFalse(OrgPageBootstrap.isSeededPlaceholder(rows.get(0)));
-        assertFalse(new ConferenceCommands(() -> null, () -> NOW).isLegacyPage(legacy.getId()),
+        assertFalse(new TripPageCommands(() -> null, () -> NOW).isLegacyPage(legacy.getId()),
                 "the page is sections from now on");
 
         // Idempotent: a second click (or a stamped trip) is simply true, and nothing doubles.
@@ -390,7 +394,7 @@ public class ConferencePageTest {
         final Trip authored = pilgrimageTrip("Authored Legacy", "<p>ignored</p>");
         assertTrue(dao.saveContent(section(OrgPageBootstrap.tripPageKey(authored.getId())), 3));
         assertFalse(views.isLegacyPage(authored.getId()));
-        final ConferenceCommands fresh = new ConferenceCommands(() -> null, () -> NOW);
+        final TripPageCommands fresh = new TripPageCommands(() -> null, () -> NOW);
         assertTrue(fresh.hasLegacyDescription(authored), "still unstamped");
         // Converting a trip whose id is no UUID is refused, never thrown.
         assertFalse(fresh.convertLegacyPage("legacy-trip", MANAGER));
@@ -399,7 +403,7 @@ public class ConferencePageTest {
         final Trip blank = pilgrimageTrip("Blank Legacy", null);
         priv.savePrivilege(priv.createPrivilege(PrivilegeCommands.TRIP_MGR, "blank mgr", blank.getId(),
                 List.of(MANAGER)));
-        final ConferenceCommands later = new ConferenceCommands(() -> null, () -> NOW);
+        final TripPageCommands later = new TripPageCommands(() -> null, () -> NOW);
         assertTrue(later.isLegacyPage(blank.getId()), "unstamped and empty: the old page");
         assertTrue(later.convertLegacyPage(blank.getId(), MANAGER));
         assertEquals(dao.getContentForSection(OrgPageBootstrap.tripPageKey(blank.getId()), Cached.NO).stream()
@@ -457,7 +461,7 @@ public class ConferencePageTest {
         final Trip plain = pilgrimageTrip("2027 Mar: Picker Trip", null);
         final List<String> picks = org.paulsens.trip.content.ProgrammaticTypes
                 .byId(StarterTemplates.TRIP_REGISTRATION_ID).orElseThrow()
-                .choicesFor(ConferenceCommands.PROP_TRIP_ID).stream()
+                .choicesFor(TripPageCommands.PROP_TRIP_ID).stream()
                 .map(org.paulsens.trip.content.ProgrammaticContentTemplate.Choice::value)
                 .filter(value -> !value.isEmpty())
                 .toList();
@@ -472,15 +476,15 @@ public class ConferencePageTest {
 
     @Test
     public void seedingWaitsForEveryStarterAndNeverThrows() {
-        assertEquals(ConferenceCommands.missingStarter(id -> !StarterTemplates.TRIP_SCHEDULE_ID.equals(id)),
+        assertEquals(TripPageCommands.missingStarter(id -> !StarterTemplates.TRIP_SCHEDULE_ID.equals(id)),
                 StarterTemplates.TRIP_SCHEDULE_ID, "a missing starter is named, and nothing is seeded");
-        assertNull(ConferenceCommands.missingStarter(id -> true));
+        assertNull(TripPageCommands.missingStarter(id -> true));
         // A conference whose id is no UUID cannot have a page key: refused, logged, never thrown.
         final Trip legacy = Trip.builder().id("legacy-conference").title("Legacy").kind(TripKind.CONFERENCE).build();
-        assertFalse(new ConferenceCommands().ensurePage(legacy));
+        assertFalse(new TripPageCommands().ensurePage(legacy));
         assertNull(legacy.getPageSeededAt(), "not stamped, so a later save retries");
         // Off-request (no FacesContext) the views still compute, just without the per-request memo.
-        assertTrue(new ConferenceCommands().publicAgenda(Trip.builder().title("x").build()).isEmpty());
+        assertTrue(new TripPageCommands().publicAgenda(Trip.builder().title("x").build()).isEmpty());
     }
 
     @Test

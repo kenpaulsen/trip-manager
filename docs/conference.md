@@ -166,11 +166,11 @@ Register button, and the Edit page toggle) or the legacy page; a second build-ti
 param (a literal per host, so a GET and its postbacks agree) leaves the chrome out of the embed. Every read in that
 script names its scope: a bare-name read of a missing value probes the view map, which would mint a session, and
 `embed` is read in the initPage and `c:if` tests only (a jsft command script cannot see a Facelets param). The page's
-look is `ConferenceCommands.lookFor(tripId)` (a `PageLook`: full width or not, its own root style or null, title
+look is `TripPageCommands.lookFor(tripId)` (a `PageLook`: full width or not, its own root style or null, title
 shown, section links shown, a screened stylesheet URL), the trip's page options (`Trip.page`, below) laid over the
 org's Appearance settings, so a trip with none renders exactly as the org's home page does. `mainTemplate` decides
 `fullWidth` before the page's initPage runs, so the page's build-time params (`fullWidth`, `rootStyle`, the
-stylesheet `<link>` in `pageextrahead`) read `conference.lookFor(param.trip)` from the REQUEST parameter (memoized
+stylesheet `<link>` in `pageextrahead`) read `tripPage.lookFor(param.trip)` from the REQUEST parameter (memoized
 per request), and the body carries a plain hidden `trip` field outside every branch so a postback (which posts without
 the query string) rebuilds the same branch. `lookFor` is null for a trip this host does not reach, which EL reads as
 false/empty: that page stays classic, byte for byte. By default a trip page renders NO `<h1>` title (the hero band
@@ -178,9 +178,9 @@ carries it, as on the named content pages); the trip tab strip stays for the mem
 
 **Legacy pages.** A trip never stamped with a page (`pageSeededAt == null`) and with no content row under its key
 yet renders the OLD page: the title, the tab strip, the "Register Now!" card, the stored description (if any), the Join
-link (`ConferenceCommands.isLegacyPage`, cached reads, memoized per request; a page someone authored by hand first wins
+link (`TripPageCommands.isLegacyPage`, cached reads, memoized per request; a page someone authored by hand first wins
 over the description). The apps show the same through the embed. It stays that way until one of the page's editors
-(`ContentCommands.canEditPage`) clicks **Edit page** on it and confirms: `ConferenceCommands.convertLegacyPage` gives
+(`ContentCommands.canEditPage`) clicks **Edit page** on it and confirms: `TripPageCommands.convertLegacyPage` gives
 the trip its page and stamps it. A trip WITH a description gets that description, verbatim, as ONE untitled text-only
 section (`OrgPageBootstrap.legacyRows`; neither a placeholder nor normalized, so the page reads as the old one did;
 `RichTextRules.normalize` may tidy a lone `<p>` on the section's first save) and the description field is kept but
@@ -193,7 +193,7 @@ the editor's kind, pricing and provider rules.
 footer, tab strip, section strip, edit toolbar or scripts), no registration controls (the app owns registration:
 `EmbedStyles.overrides` hides the hero and call-to-action buttons and the registration block's button; a tap would
 land on an anonymous sign-in page in the system browser), and everything it needs to look right in ONE inline
-`<style>` (`ConferenceCommands.embedCss`: the current theme's `:root` block alone, found by index in the 200 KB theme,
+`<style>` (`TripPageCommands.embedCss`: the current theme's `:root` block alone, found by index in the 200 KB theme,
 `site.css`, `albums.css`, the trip's own stylesheet when its bytes can be read, then the overrides) so a copy saved on
 a phone renders with its styles offline; images and video frames stay live, and a `<base href>` resolves a legacy
 description's relative paths. Anonymous-safe like `manifest.xhtml`: a transient view with `contentType="text/html"`
@@ -213,30 +213,30 @@ as everywhere.
   `subtitle` (the talk title) and `bio` (RICH_TEXT, validated and cleaned on save). Programmatic properties are read
   live from the registry, so the fields appear on already-installed `person` templates.
 - **`trip-schedule`** (`TripScheduleType`, `WEB-INF/ptypes/tripSchedule.xhtml`): the trip's EVENT-type events not
-  hidden from the agenda, in start order, grouped by day (`ConferenceCommands.publicAgenda`). Flights, buses and
+  hidden from the agenda, in start order, grouped by day (`TripPageCommands.publicAgenda`). Flights, buses and
   lodging are logistics and never appear; participants and private notes are never part of it.
 - **`trip-registration`** (`TripRegistrationType`, `tripRegistration.xhtml`): open / full / closed (closed once the
   event starts), places left (CONFIRMED and PENDING registrations against `regLimit`), the trip's priced questions'
   shown choices and prices (else its `estimatedPrice`), a countdown, and the Register button
-  (`ConferenceCommands.registrationInfo`). A person's own price (age, codes) is checkout's, never this block's.
+  (`TripPageCommands.registrationInfo`). A person's own price (age, codes) is checkout's, never this block's.
 
 Both types have one optional "Event" property (blank: the page's own trip; a pick: show it on an org's home page);
-`ConferenceCommands.tripFor` resolves explicit pick, then the page key, then the host page's `theTripId` (a section
+`TripPageCommands.tripFor` resolves explicit pick, then the page key, then the host page's `theTripId` (a section
 inside a container), never a trip the site does not reach. `ProgrammaticContentTemplate.fitsTripPage()` keeps the
 one type that can only list OTHER trips (`pilgrimages`) off a trip page's Add dialog. `photo-albums` fits: it carries
 the same optional "Event" property, and on a conference's page (or with an event picked) `MediaCommands.getHomeAlbumsFor`
 answers that ONE event's album from its chat photos, whatever its age or photo count, so a conference page shows its
 own pictures; anywhere else it is the recent trips' albums as before. The album cards' CSS and the photo-viewer glue
 moved out of `homePage.xhtml` into `resources/css/albums.css` and `resources/trip-js/albums.js`, which both hosts
-load (the glue reads the page's facts off `#albumsGlue`). The `#{conference}` bean
-(`ConferenceCommands`) reads only cached DAO lookups and memoizes per request: this is the anonymous render path
+load (the glue reads the page's facts off `#albumsGlue`). The `#{tripPage}` bean
+(`TripPageCommands`) reads only cached DAO lookups and memoizes per request: this is the anonymous render path
 (`RenderPathCacheTest` covers the page's sections and templates).
 
 **Countdowns** moved from an inline script in `mainTemplate`'s classic layout to `resources/trip-js/countdown.js`,
 loaded once by `template.xhtml`, so the registration block counts down on either layout.
 
 **Seeding.** The first save of a trip (the editor, REST create, or flipping a trip's kind) calls
-`ConferenceCommands.ensurePage` from `TripCommands.saveTrip`: `OrgPageBootstrap.tripRows` dispatches on the kind.
+`TripPageCommands.ensurePage` from `TripCommands.saveTrip`: `OrgPageBootstrap.tripRows` dispatches on the kind.
 A CONFERENCE gets `conferenceRows` (hero with Register and a Schedule anchor, About from the trip's description,
 Speakers with one placeholder card, Schedule, Registration, Venue, Questions with one Q/A, a closing call to
 action); any other trip gets `pilgrimageRows` (a hero with the kind's Join button and an About anchor, About from the
@@ -274,7 +274,7 @@ organization's"):
   (`.layoutFull` in `site.css`) no longer hides a background image, the org's or the trip's.
 - `showTitle` (null = no: the hero carries it) and `showNav` (null = yes: the strip of section links).
 - `stylesheetUrl`: a CSS file in the trip's organization's media library, loaded by this page alone. The field rules
-  are `TripPageOptions.problems()`; the library rule is `ConferenceCommands.pageProblems` (`MediaCommands.libraryItemFor`
+  are `TripPageOptions.problems()`; the library rule is `TripPageCommands.pageProblems` (`MediaCommands.libraryItemFor`
   must resolve the URL to an item of that org with `text/css`), because any other URL would let a trip manager load
   arbitrary CSS into the org's site, which is its content admins' call. Rules belong under `.contentItem` (every
   section's wrapper) so the menu and the dialogs are never restyled. **The live editor** (2026-11, `TripStylesheets`,
@@ -291,7 +291,7 @@ organization's"):
   `canManageOrg` or `canViewOrgMedia`); a trip manager only picks. ONE media item per stylesheet, `text/css`,
   under `org/{orgId}/stylesheets/{slug}.css` (`slugOf` the title, `-2`, `-3` on a collision); Save overwrites the
   SAME key (every trip's stored URL keeps working), bumps the row's `rev` so the rendered `<link>` carries `?r=N`
-  (`ConferenceCommands.lookOf` appends `MediaItem.getCacheBuster()` from the CACHED listing,
+  (`TripPageCommands.lookOf` appends `MediaItem.getCacheBuster()` from the CACHED listing,
   `MediaCommands.cachedLibraryItemFor`; the stored value stays bare and `libraryItemFor` ignores a query suffix),
   and invalidates the CDN path once (`invalidateCdn`; CloudFront's cache key ignores query strings). The editor
   opens and saves in place ANY `text/css` library item stored in its organization's own folder as a `.css` file
@@ -350,7 +350,7 @@ people.
 
 ## Tests
 
-`ConferenceModelTest`, `ConferenceFoundationsTest`, `ConferencePageTest` (key, authorization, picker, template
+`ConferenceModelTest`, `ConferenceFoundationsTest`, `TripPageTest` (key, authorization, picker, template
 choices, site reach, agenda, registration block, seeding by kind, the legacy page and its conversion),
 `ConferenceTypesTest`, `TicketCodesTest`, `AgesTest`, `EmbedStylesTest`, additions to `PersonTypeTest`,
 `RenderPathCacheTest`, `TripsResourceTest` (`detailsUrl`) and `RegistrationsResourceTest`. Webtests:

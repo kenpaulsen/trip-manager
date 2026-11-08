@@ -39,15 +39,16 @@ import org.paulsens.trip.pay.MoneyMath;
 import org.paulsens.trip.site.ListingScope;
 
 /**
- * The conference page's views (docs/conference.md): which trip a section is about, the public agenda, and the
- * registration block. Everything here runs on the PUBLIC render path of an anonymous visitor, so it reads only
- * the cached DAO lookups (RenderPathCacheTest) and touches no session or view scope. Results are memoized per
- * request, because a fragment's EL evaluates the same value several times while it renders.
+ * A trip's public page, every kind (docs/conference.md, "The trip page"): its look, seeding, the legacy
+ * description page and its conversion, the embed's CSS, and the views its sections render (which trip a section is
+ * about, the public agenda, the registration block). Everything here runs on the PUBLIC render path of an anonymous
+ * visitor, so it reads only the cached DAO lookups (RenderPathCacheTest) and touches no session or view scope.
+ * Results are memoized per request, because a fragment's EL evaluates the same value several times while it renders.
  */
 @Slf4j
-@Named("conference")
+@Named("tripPage")
 @ApplicationScoped
-public class ConferenceCommands {
+public class TripPageCommands {
     /** The programmatic property naming an explicit trip (blank means "this page's trip"). */
     public static final String PROP_TRIP_ID = "tripId";
 
@@ -55,17 +56,17 @@ public class ConferenceCommands {
     private final Supplier<LocalDateTime> clock;
     private final Supplier<Boolean> orgFullWidth;
 
-    public ConferenceCommands() {
-        this(ConferenceCommands::facesRequestMap, LocalDateTime::now, () -> new BrandCommands().isFullWidth());
+    public TripPageCommands() {
+        this(TripPageCommands::facesRequestMap, LocalDateTime::now, () -> new BrandCommands().isFullWidth());
     }
 
     /** Test seam: a request map (null for none) and the current time. */
-    ConferenceCommands(final Supplier<Map<String, Object>> requestMap, final Supplier<LocalDateTime> clock) {
+    TripPageCommands(final Supplier<Map<String, Object>> requestMap, final Supplier<LocalDateTime> clock) {
         this(requestMap, clock, () -> new BrandCommands().isFullWidth());
     }
 
     /** Test seam adding the host organization's layout choice ({@code BrandCommands.isFullWidth}). */
-    ConferenceCommands(final Supplier<Map<String, Object>> requestMap, final Supplier<LocalDateTime> clock,
+    TripPageCommands(final Supplier<Map<String, Object>> requestMap, final Supplier<LocalDateTime> clock,
             final Supplier<Boolean> orgFullWidth) {
         this.requestMap = requestMap;
         this.clock = clock;
@@ -226,7 +227,7 @@ public class ConferenceCommands {
         for (final RegistrationOption question : trip.getRegOptions()) {
             if (Boolean.TRUE.equals(question.getShow()) && question.isPriced()) {
                 groups.add(new PriceGroup(question.getShortDesc(),
-                        question.getOfferedChoices().stream().map(ConferenceCommands::priceLine).toList()));
+                        question.getOfferedChoices().stream().map(TripPageCommands::priceLine).toList()));
             }
         }
         return groups;
@@ -577,7 +578,7 @@ public class ConferenceCommands {
     private static String themeRoot() {
         // The theme name needs the request's site; off-request BrandCommands answers the platform default.
         return EMBED_CSS_CACHE.computeIfAbsent("theme:" + new BrandCommands().getTheme(),
-                ConferenceCommands::loadThemeRoot);
+                TripPageCommands::loadThemeRoot);
     }
 
     private static String loadThemeRoot(final String cacheKey) {
@@ -589,7 +590,7 @@ public class ConferenceCommands {
 
     /** A webapp stylesheet's text (site.css, albums.css), read once; empty off-request or when missing. */
     static String siteResource(final String path) {
-        return EMBED_CSS_CACHE.computeIfAbsent("resource:" + path, ConferenceCommands::loadSiteResource);
+        return EMBED_CSS_CACHE.computeIfAbsent("resource:" + path, TripPageCommands::loadSiteResource);
     }
 
     private static String loadSiteResource(final String cacheKey) {

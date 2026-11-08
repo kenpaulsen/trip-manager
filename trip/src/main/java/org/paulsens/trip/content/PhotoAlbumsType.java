@@ -2,7 +2,7 @@ package org.paulsens.trip.content;
 
 import java.util.List;
 import java.util.Set;
-import org.paulsens.trip.action.ConferenceCommands;
+import org.paulsens.trip.action.TripPageCommands;
 import org.paulsens.trip.model.Placeholder;
 
 /**
@@ -21,7 +21,7 @@ final class PhotoAlbumsType implements ProgrammaticContentTemplate {
      * blank meaning the page's own event on a conference page (and the recent trips anywhere else). What lets a
      * conference page show its own photos, which is why the type no longer refuses trip pages.
      */
-    private static final Placeholder EVENT = new Placeholder(ConferenceCommands.PROP_TRIP_ID, Placeholder.Type.CHOICE,
+    private static final Placeholder EVENT = new Placeholder(TripPageCommands.PROP_TRIP_ID, Placeholder.Type.CHOICE,
             "Event", "Blank: recent trips' albums (an event's own on its page); pick an event to show its album alone",
             false);
 
@@ -64,7 +64,7 @@ final class PhotoAlbumsType implements ProgrammaticContentTemplate {
     @Override
     public List<Choice> choicesFor(final String propertyName) {
         if (EVENT.getName().equals(propertyName)) {
-            return ConferenceTripChoices.choices("Recent trips (on an event's page: that event)");
+            return EventTripChoices.choices("Recent trips (on an event's page: that event)");
         }
         return SharedSiteOrgChoices.PROP_INCLUDE_ORGS.equals(propertyName)
                 ? SharedSiteOrgChoices.choices() : List.of();

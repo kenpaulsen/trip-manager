@@ -2,7 +2,7 @@ package org.paulsens.trip.content;
 
 import java.util.ArrayList;
 import java.util.List;
-import org.paulsens.trip.action.ConferenceCommands;
+import org.paulsens.trip.action.TripPageCommands;
 import org.paulsens.trip.action.TripCommands;
 import org.paulsens.trip.model.Placeholder;
 import org.paulsens.trip.model.Trip;
@@ -12,12 +12,12 @@ import org.paulsens.trip.model.Trip;
  * page); a pick names a public trip of either kind, so the section can also sit on an organization's home page. The
  * choices are the site's public trips, from the cached listing.
  */
-final class ConferenceTripChoices {
-    private ConferenceTripChoices() {
+final class EventTripChoices {
+    private EventTripChoices() {
     }
 
     static Placeholder property() {
-        return new Placeholder(ConferenceCommands.PROP_TRIP_ID, Placeholder.Type.CHOICE, "Event",
+        return new Placeholder(TripPageCommands.PROP_TRIP_ID, Placeholder.Type.CHOICE, "Event",
                 "Blank on a trip's own page; pick one to show it elsewhere", false);
     }
 

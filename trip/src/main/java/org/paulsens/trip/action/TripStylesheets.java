@@ -617,6 +617,6 @@ public class TripStylesheets {
     }
 
     private static Set<String> siteHooks() {
-        return CssClassScan.selectorsIn(ConferenceCommands.siteResource("/resources/css/site.css"));
+        return CssClassScan.selectorsIn(TripPageCommands.siteResource("/resources/css/site.css"));
     }
 }

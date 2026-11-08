@@ -191,7 +191,7 @@ public class TripCommands {
             PageFeedback.warn("Not saved", String.join(" ", pricing));
             return false;
         }
-        final List<String> page = new ConferenceCommands().pageProblems(trip);
+        final List<String> page = new TripPageCommands().pageProblems(trip);
         if (!page.isEmpty()) {
             // Same for the Trip Page dialog (docs/conference.md, "Look and feel").
             PageFeedback.warn("Not saved", String.join(" ", page));
@@ -224,9 +224,9 @@ public class TripCommands {
                 // Every save path (the editor, REST create, a kind flip) reaches here; once per trip, any kind. A
                 // trip that EXISTED before every trip had a page and still carries a description is the one
                 // exception: it stays a legacy page, rendering the description read-only, until "Edit page"
-                // converts it (ConferenceCommands.convertLegacyPage, docs/conference.md "Legacy trips"). A new
+                // converts it (TripPageCommands.convertLegacyPage, docs/conference.md "Legacy trips"). A new
                 // trip created with a description seeds at once, the description becoming its About section.
-                new ConferenceCommands().ensurePage(trip);
+                new TripPageCommands().ensurePage(trip);
             }
         }
         return result;

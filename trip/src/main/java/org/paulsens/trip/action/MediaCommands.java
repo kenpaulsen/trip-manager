@@ -441,7 +441,7 @@ public class MediaCommands {
         if (instance == null) {
             return List.of();
         }
-        final String tripId = ConferenceCommands.tripIdFor(instance, hostTripId);
+        final String tripId = TripPageCommands.tripIdFor(instance, hostTripId);
         if (tripId != null) {
             return albumOf(tripId);
         }

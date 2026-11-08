@@ -149,7 +149,7 @@ public class BrandCommandsTest {
         onSite(SiteContext.shared("www.visitqueenofpeace.com"), () -> assertNeutral("the shared site"));
     }
 
-    /** One rule for the org's background and a conference page's own ({@code ConferenceCommands.lookFor}). */
+    /** One rule for the org's background and a conference page's own ({@code TripPageCommands.lookFor}). */
     @Test
     public void theRootStyleRuleIsSharedWithConferencePages() {
         Assert.assertEquals(BrandCommands.rootStyleOf("https://cdn.example/bg(1).jpg", "#fff"),

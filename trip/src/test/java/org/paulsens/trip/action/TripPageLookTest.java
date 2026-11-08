@@ -33,7 +33,7 @@ import static org.testng.Assert.assertTrue;
  * hidden"): the trip's own options over the org's, the stylesheet rule, the editor's summary, and the first save
  * that publishes a seeded placeholder.
  */
-public class ConferencePageLookTest {
+public class TripPageLookTest {
     private static final Person.Id MANAGER = Person.Id.from("conf-look-manager");
     private static final LocalDateTime NOW = LocalDateTime.of(2027, 2, 1, 12, 0);
 
@@ -62,8 +62,8 @@ public class ConferencePageLookTest {
     @Test
     public void withNoOptionsThePageIsExactlyTheOrgs() {
         final AtomicBoolean orgFullWidth = new AtomicBoolean(false);
-        final ConferenceCommands views = new ConferenceCommands(() -> null, () -> NOW, orgFullWidth::get);
-        final ConferenceCommands.PageLook plain = views.lookFor(FakeData.FAKE_TRIP_ID);
+        final TripPageCommands views = new TripPageCommands(() -> null, () -> NOW, orgFullWidth::get);
+        final TripPageCommands.PageLook plain = views.lookFor(FakeData.FAKE_TRIP_ID);
         assertNotNull(plain, "every trip has a page and a look (2026-11)");
         assertFalse(plain.fullWidth());
         assertNull(plain.rootStyle(), "with no options of its own, the classic page is byte for byte the org's");
@@ -72,7 +72,7 @@ public class ConferencePageLookTest {
         assertNull(views.lookFor(" "));
         assertNull(views.lookFor(null));
 
-        ConferenceCommands.PageLook look = views.lookFor(conference.getId());
+        TripPageCommands.PageLook look = views.lookFor(conference.getId());
         assertNotNull(look);
         assertFalse(look.fullWidth(), "follows the org: classic");
         orgFullWidth.set(true);
@@ -93,8 +93,8 @@ public class ConferencePageLookTest {
         trip.getPage().setShowNav(false);
         trip.getPage().setStylesheetUrl("https://cdn.example/page.css");
         assertTrue(dao.saveTrip(trip));
-        final ConferenceCommands views = new ConferenceCommands(() -> null, () -> NOW, () -> true);
-        ConferenceCommands.PageLook look = views.lookFor(trip.getId());
+        final TripPageCommands views = new TripPageCommands(() -> null, () -> NOW, () -> true);
+        TripPageCommands.PageLook look = views.lookFor(trip.getId());
         assertFalse(look.fullWidth(), "classic of its own while the org is full width");
         assertEquals(look.rootStyle(), "--site-bg:url(https://cdn.example/bg%281%29.jpg);--layout-full-bg:transparent",
                 "the org setting's own escaping, plus the full-width ground made transparent");
@@ -107,7 +107,7 @@ public class ConferencePageLookTest {
         trip.getPage().setBackgroundColor("#336699");
         trip.getPage().setStylesheetUrl("https://cdn.example/\"quoted\".css");
         assertTrue(dao.saveTrip(trip));
-        look = new ConferenceCommands(() -> null, () -> NOW, () -> false).lookFor(trip.getId());
+        look = new TripPageCommands(() -> null, () -> NOW, () -> false).lookFor(trip.getId());
         assertTrue(look.fullWidth(), "full width of its own while the org is classic");
         assertEquals(look.rootStyle(), "--site-bg:none;--site-bg-color:#336699");
         assertNull(look.stylesheetUrl(), "a URL that could end the attribute is dropped, never emitted");
@@ -116,8 +116,8 @@ public class ConferencePageLookTest {
     @Test
     public void theLookIsComputedOncePerRequest() {
         final Map<String, Object> request = new HashMap<>();
-        final ConferenceCommands views = new ConferenceCommands(() -> request, () -> NOW, () -> false);
-        final ConferenceCommands.PageLook first = views.lookFor(conference.getId());
+        final TripPageCommands views = new TripPageCommands(() -> request, () -> NOW, () -> false);
+        final TripPageCommands.PageLook first = views.lookFor(conference.getId());
         assertSame(views.lookFor(conference.getId()), first, "the build-time params and the render share it");
         assertTrue(request.containsKey("conferenceLook:" + conference.getId()));
     }
@@ -126,21 +126,21 @@ public class ConferencePageLookTest {
 
     @Test
     public void aStylesheetMustBeACssFileInTheTripsOrgLibrary() throws IOException {
-        final ConferenceCommands views = new ConferenceCommands(() -> null, () -> NOW, () -> false);
+        final TripPageCommands views = new TripPageCommands(() -> null, () -> NOW, () -> false);
         final Trip trip = conferenceTrip("Styled");
         assertTrue(views.pageProblems(trip).isEmpty(), "no options, nothing to refuse");
         assertEquals(views.pageSummary(trip), "the organization's look");
 
         trip.getPage().setStylesheetUrl("https://cdn.example/anything.css");
-        assertEquals(views.pageProblems(trip), List.of(ConferenceCommands.STYLESHEET_RULE), "not in the library");
+        assertEquals(views.pageProblems(trip), List.of(TripPageCommands.STYLESHEET_RULE), "not in the library");
         trip.getPage().setStylesheetUrl("/org/" + FakeData.CFPW_ORG_ID + "/conferences/look/bg.jpg");
-        assertEquals(views.pageProblems(trip), List.of(ConferenceCommands.STYLESHEET_RULE), "an image, not CSS");
+        assertEquals(views.pageProblems(trip), List.of(TripPageCommands.STYLESHEET_RULE), "an image, not CSS");
         trip.getPage().setStylesheetUrl("/" + css.getS3Key());
         assertTrue(views.pageProblems(trip).isEmpty(), "the org's own CSS item, by its public URL");
         assertTrue(views.acceptPage(trip));
 
         trip.setOrgId(FakeData.ACME_ORG_ID);
-        assertEquals(views.pageProblems(trip), List.of(ConferenceCommands.STYLESHEET_RULE),
+        assertEquals(views.pageProblems(trip), List.of(TripPageCommands.STYLESHEET_RULE),
                 "another org's item is not this trip's to load");
         trip.setOrgId(FakeData.CFPW_ORG_ID);
 
@@ -178,7 +178,7 @@ public class ConferencePageLookTest {
         final Trip trip = conferenceTrip("Published");
         priv.savePrivilege(priv.createPrivilege(PrivilegeCommands.TRIP_MGR, "look mgr", trip.getId(),
                 List.of(MANAGER)));
-        assertTrue(new ConferenceCommands(() -> null, () -> NOW).ensurePage(trip));
+        assertTrue(new TripPageCommands(() -> null, () -> NOW).ensurePage(trip));
         final String page = OrgPageBootstrap.tripPageKey(trip.getId());
         final ContentInstance speakers = row(page, StarterTemplates.PEOPLE_LIST_ID);
         final ContentInstance speaker = dao.getContentForSection(speakers.getId(), Cached.NO).get(0);
@@ -246,7 +246,7 @@ public class ConferencePageLookTest {
                 "Pictures", StarterTemplates.PHOTO_ALBUMS_ID, 1, new HashMap<>(), null, 0, 0, null, "test");
         assertEquals(media.getHomeAlbumsFor(inContainer, trip.getId()).get(0).trip().getId(), trip.getId(),
                 "inside a container the host page's trip names the album");
-        inContainer.getValues().put(ConferenceCommands.PROP_TRIP_ID, conference.getId());
+        inContainer.getValues().put(TripPageCommands.PROP_TRIP_ID, conference.getId());
         assertTrue(media.getHomeAlbumsFor(inContainer, trip.getId()).isEmpty(),
                 "an explicit pick wins, and an event with no photos renders nothing");
         assertEquals(media.getHomeAlbumsFor(onPage), media.getHomeAlbumsFor(onPage, null), "the one-arg form");

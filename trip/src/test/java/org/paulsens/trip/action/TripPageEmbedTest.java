@@ -20,7 +20,7 @@ import static org.testng.Assert.assertTrue;
  * stylesheet inlined when its bytes can be read and linked live when they cannot, and the version suffix the page's
  * link carries once the stylesheet was rewritten in place.
  */
-public class ConferenceEmbedTest {
+public class TripPageEmbedTest {
     private static final LocalDateTime NOW = LocalDateTime.of(2027, 1, 10, 12, 0);
 
     @BeforeClass
@@ -31,7 +31,7 @@ public class ConferenceEmbedTest {
 
     @Test
     public void theEmbedCarriesTheOverridesAndLinksAStylesheetItCannotInline() throws IOException {
-        final ConferenceCommands views = new ConferenceCommands(() -> null, () -> NOW);
+        final TripPageCommands views = new TripPageCommands(() -> null, () -> NOW);
         final String css = views.embedCss(FakeData.CONF_TRIP_ID);
         assertTrue(css.contains(".tripEmbed .cta-row"), "the overrides close the stylesheet: " + css);
         assertTrue(css.contains("--layout-full-bg"));
@@ -46,13 +46,13 @@ public class ConferenceEmbedTest {
         final String url = new MediaCommands().getUrl(sample);
         trip.getPage().setStylesheetUrl(url);
         assertTrue(DAO.getInstance().saveTrip(trip));
-        final ConferenceCommands fresh = new ConferenceCommands(() -> null, () -> NOW);
+        final TripPageCommands fresh = new TripPageCommands(() -> null, () -> NOW);
         assertEquals(fresh.embedStylesheetLink(trip.getId()), url, "linked live when the bytes are unreadable");
         assertEquals(fresh.lookFor(trip.getId()).stylesheetUrl(), url, "rev 0: no version suffix");
 
         // Rewritten in place: the page's link carries the row's version so browsers refetch it.
         assertTrue(DAO.getInstance().saveMedia(sample.withRewritten(10)));
-        assertEquals(new ConferenceCommands(() -> null, () -> NOW).lookFor(trip.getId()).stylesheetUrl(),
+        assertEquals(new TripPageCommands(() -> null, () -> NOW).lookFor(trip.getId()).stylesheetUrl(),
                 url + "?r=1");
         assertEquals(new MediaCommands().libraryItemFor(FakeData.CFPW_ORG_ID, url + "?r=1").getId(), sample.getId(),
                 "a pasted suffix still resolves to the item");
@@ -64,7 +64,7 @@ public class ConferenceEmbedTest {
                 org.mockito.ArgumentMatchers.anyString())).thenReturn(sample);
         org.mockito.Mockito.when(readable.getObject(sample.getS3Key()))
                 .thenReturn(java.util.Optional.of(".contentItem .x { color: red }".getBytes()));
-        final ConferenceCommands inlining = new ConferenceCommands(() -> null, () -> NOW) {
+        final TripPageCommands inlining = new TripPageCommands(() -> null, () -> NOW) {
             @Override
             protected MediaCommands media() {
                 return readable;
@@ -82,7 +82,7 @@ public class ConferenceEmbedTest {
                 org.mockito.ArgumentMatchers.anyString())).thenReturn(other);
         org.mockito.Mockito.when(hostile.getObject(other.getS3Key()))
                 .thenReturn(java.util.Optional.of(".y{}</STYLE><script>bad()</script>".getBytes()));
-        final ConferenceCommands guarded = new ConferenceCommands(() -> null, () -> NOW) {
+        final TripPageCommands guarded = new TripPageCommands(() -> null, () -> NOW) {
             @Override
             protected MediaCommands media() {
                 return hostile;
@@ -98,7 +98,7 @@ public class ConferenceEmbedTest {
                 .startDate(NOW.plusDays(20)).endDate(NOW.plusDays(22)).build();
         legacy.setDescription("<p>old</p>");
         assertTrue(DAO.getInstance().saveTrip(legacy));
-        final ConferenceCommands starterless = new ConferenceCommands(() -> null, () -> NOW) {
+        final TripPageCommands starterless = new TripPageCommands(() -> null, () -> NOW) {
             @Override
             protected boolean starterInstalled(final String templateId) {
                 return false;
@@ -130,7 +130,7 @@ public class ConferenceEmbedTest {
         } catch (final IOException ex) {
             throw new AssertionError(ex);
         }
-        final ConferenceCommands views = new ConferenceCommands(() -> null, () -> NOW) {
+        final TripPageCommands views = new TripPageCommands(() -> null, () -> NOW) {
             @Override
             protected MediaCommands media() {
                 return odd;

@@ -1,7 +1,7 @@
 package org.paulsens.trip.content;
 
 /**
- * The string work behind the embedded trip page's inline stylesheet ({@code ConferenceCommands.embedCss}, the
+ * The string work behind the embedded trip page's inline stylesheet ({@code TripPageCommands.embedCss}, the
  * render the apps fetch and cache; docs/conference.md "The embed"): which part of a theme to carry, and the rules
  * the embed adds on top. Pure functions, so the pieces are unit-tested without a container.
  */

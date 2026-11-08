@@ -1655,7 +1655,7 @@ public class OrgCommands {
     /**
      * Saves a page's starter rows when the page has no sections yet; a page someone already authored by hand is
      * theirs, so seeding only ever fills an EMPTY page. Shared by an organization's home page and a conference's
-     * page (ConferenceCommands). Throws on a read failure; false when a row could not be saved.
+     * page (TripPageCommands). Throws on a read failure; false when a row could not be saved.
      */
     static boolean seedIfEmpty(final String pageKey, final List<ContentInstance> rows) {
         if (!DAO.getInstance().getContentForSection(pageKey, Cached.NO).isEmpty()) {

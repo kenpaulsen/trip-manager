@@ -34,7 +34,7 @@ final class TripScheduleType implements ProgrammaticContentTemplate {
 
     @Override
     public List<Placeholder> getProperties() {
-        return List.of(ConferenceTripChoices.property());
+        return List.of(EventTripChoices.property());
     }
 
     @Override
@@ -44,7 +44,7 @@ final class TripScheduleType implements ProgrammaticContentTemplate {
 
     @Override
     public List<Choice> choicesFor(final String propertyName) {
-        return ConferenceTripChoices.property().getName().equals(propertyName)
-                ? ConferenceTripChoices.choices() : List.of();
+        return EventTripChoices.property().getName().equals(propertyName)
+                ? EventTripChoices.choices() : List.of();
     }
 }
