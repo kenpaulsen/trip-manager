@@ -163,7 +163,7 @@
         <dependency>
             <groupId>com.paypal.sdk</groupId>
             <artifactId>paypal-server-sdk</artifactId>
-            <version>2.2.0</version>
+            <version>2.4.0</version>
             <exclusions>
                 <!--
                     okio 3.x splits into okio (Kotlin metadata only, ZERO class files) + okio-jvm (all the
@@ -305,7 +305,7 @@
         <dependency>
             <groupId>com.googlecode.libphonenumber</groupId>
             <artifactId>libphonenumber</artifactId>
-            <version>9.0.24</version>
+            <version>9.0.43</version>
         </dependency>
         <!-- PrimeFaces p:barcode's rendering engine; QR codes for chat invite links. -->
         <dependency>
@@ -336,7 +336,7 @@
         <dependency>
             <groupId>com.drewnoakes</groupId>
             <artifactId>metadata-extractor</artifactId>
-            <version>2.19.0</version>
+            <version>2.22.0</version>
         </dependency>
         <!--
             Profile-picture background removal (U^2-Net-small via ONNX Runtime; flag-gated by

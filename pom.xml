@@ -26,14 +26,14 @@
             <dependency>
                 <groupId>io.netty</groupId>
                 <artifactId>netty-bom</artifactId>
-                <version>4.1.137.Final</version>
+                <version>4.1.140.Final</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
             <dependency>
                 <groupId>software.amazon.awssdk</groupId>
                 <artifactId>bom</artifactId>
-                <version>2.48.1</version>
+                <version>2.57.11</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -41,7 +41,7 @@
             <dependency>
                 <groupId>com.fasterxml.jackson</groupId>
                 <artifactId>jackson-bom</artifactId>
-                <version>2.21.7</version>
+                <version>2.23.0</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -62,7 +62,7 @@
             <dependency>
                 <groupId>org.apache.commons</groupId>
                 <artifactId>commons-lang3</artifactId>
-                <version>3.18.0</version>
+                <version>3.21.0</version>
             </dependency>
             <!-- Guava reaches the runtime classpath only through webauthn-server-core (passkeys), which asks
                  for 32.1.3-jre: inside Dependabot alert #90's range (GHSA-xxph-c9ww-hj94, deserialization of
@@ -71,7 +71,7 @@
             <dependency>
                 <groupId>com.google.guava</groupId>
                 <artifactId>guava</artifactId>
-                <version>33.7.2-jre</version>
+                <version>33.8.0-jre</version>
             </dependency>
             <!-- log4j-api rides in at compile scope via POI; log4j-core is a test dependency of the trip
                  module (DynamoDBLocal needs a modern core). The two MUST move together (a core newer than
@@ -80,17 +80,17 @@
             <dependency>
                 <groupId>org.apache.logging.log4j</groupId>
                 <artifactId>log4j-api</artifactId>
-                <version>2.25.5</version>
+                <version>2.26.1</version>
             </dependency>
             <dependency>
                 <groupId>org.apache.logging.log4j</groupId>
                 <artifactId>log4j-core</artifactId>
-                <version>2.25.5</version>
+                <version>2.26.1</version>
             </dependency>
             <dependency>
                 <groupId>org.slf4j</groupId>
                 <artifactId>slf4j-api</artifactId>
-                <version>2.0.17</version>
+                <version>2.0.20</version>
                 <scope>compile</scope>
             </dependency>
             <!-- Valkey/Redis client for the shared cache layer (async, CompletableFuture-native).
@@ -98,7 +98,7 @@
             <dependency>
                 <groupId>io.lettuce</groupId>
                 <artifactId>lettuce-core</artifactId>
-                <version>6.8.2.RELEASE</version>
+                <version>6.9.0.RELEASE</version>
             </dependency>
             <!-- Password hashing (BCrypt). Self-contained, pure Java, no meaningful transitive dependencies;
                  bundles at.favre.lib:bytes. See org.paulsens.trip.security.PasswordHasher. -->
@@ -114,12 +114,12 @@
             <dependency>
                 <groupId>com.yubico</groupId>
                 <artifactId>webauthn-server-core</artifactId>
-                <version>2.7.0</version>
+                <version>2.10.1</version>
             </dependency>
             <dependency>
                 <groupId>ch.qos.logback</groupId>
                 <artifactId>logback-classic</artifactId>
-                <version>1.5.34</version>
+                <version>1.6.6</version>
             </dependency>
             <dependency>
                 <groupId>jakarta.enterprise</groupId>
@@ -166,7 +166,7 @@
             <dependency>
                 <groupId>org.glassfish</groupId>
                 <artifactId>jakarta.faces</artifactId>
-                <version>4.1.6</version>
+                <version>4.1.20</version>
                 <scope>compile</scope>
             </dependency>
         </dependencies>

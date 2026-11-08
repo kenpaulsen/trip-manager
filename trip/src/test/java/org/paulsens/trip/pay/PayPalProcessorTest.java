@@ -4,7 +4,9 @@ import com.paypal.sdk.PaypalServerSdkClient;
 import com.paypal.sdk.controllers.OrdersController;
 import com.paypal.sdk.exceptions.ApiException;
 import com.paypal.sdk.exceptions.ErrorException;
+import com.paypal.sdk.http.client.HttpContext;
 import com.paypal.sdk.http.response.ApiResponse;
+import com.paypal.sdk.http.response.HttpResponse;
 import com.paypal.sdk.models.ErrorDetails;
 import com.paypal.sdk.models.LinkDescription;
 import com.paypal.sdk.models.Money;
@@ -14,8 +16,6 @@ import com.paypal.sdk.models.OrdersCapture;
 import com.paypal.sdk.models.PaymentCollection;
 import com.paypal.sdk.models.PurchaseUnit;
 import com.paypal.sdk.models.SellerReceivableBreakdown;
-import io.apimatic.coreinterfaces.http.Context;
-import io.apimatic.coreinterfaces.http.response.Response;
 import java.util.List;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
@@ -140,7 +140,7 @@ public class PayPalProcessorTest {
 
         // (d) no parsed details: the raw response body is the fallback.
         // Mocks are built BEFORE the when() (Mockito nesting rule).
-        final Context rawContext = contextWithBody(
+        final HttpContext rawContext = contextWithBody(
                 "{\"name\":\"UNPROCESSABLE_ENTITY\",\"details\":[{\"issue\":\"ORDER_ALREADY_CAPTURED\"}]}");
         final ApiException rawOnly = Mockito.mock(ApiException.class);
         Mockito.when(rawOnly.getResponseCode()).thenReturn(422);
@@ -151,7 +151,7 @@ public class PayPalProcessorTest {
         final ErrorException bare = Mockito.mock(ErrorException.class);
         Mockito.when(bare.getResponseCode()).thenReturn(422);
         assertFalse(PayPalProcessor.isAlreadyCaptured(bare));
-        final Context emptyContext = Mockito.mock(Context.class);
+        final HttpContext emptyContext = Mockito.mock(HttpContext.class);
         final ApiException noResponse = Mockito.mock(ApiException.class);
         Mockito.when(noResponse.getResponseCode()).thenReturn(422);
         Mockito.when(noResponse.getHttpContext()).thenReturn(emptyContext);
@@ -262,10 +262,10 @@ public class PayPalProcessorTest {
         return ex;
     }
 
-    private static Context contextWithBody(final String body) {
-        final Response response = Mockito.mock(Response.class);
+    private static HttpContext contextWithBody(final String body) {
+        final HttpResponse response = Mockito.mock(HttpResponse.class);
         Mockito.when(response.getBody()).thenReturn(body);
-        final Context context = Mockito.mock(Context.class);
+        final HttpContext context = Mockito.mock(HttpContext.class);
         Mockito.when(context.getResponse()).thenReturn(response);
         return context;
     }
