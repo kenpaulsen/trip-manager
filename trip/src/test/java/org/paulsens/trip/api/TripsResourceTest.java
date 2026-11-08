@@ -138,7 +138,7 @@ public class TripsResourceTest extends ResourceTestSupport {
         Assert.assertEquals(TripsResource.detailsUrl(shared, false, requestHost, config),
                 config.getString(org.paulsens.trip.config.KnownSettings.REG_MAIL_BASE_URL).replaceAll("/+$", "")
                         + "/trip/tripPage.jsf?trip=" + TRIP_ID,
-                "an org on the shared site: the link base its tickets use (www.visitqueenofpeace.com in production)");
+                "an org on the shared site: the link base its tickets use (visitqueenofpeace.com in production)");
 
         Assert.assertEquals(TripsResource.detailsUrl(shared, true, requestHost, config),
                 "https://unitetrip.com/trip/tripPage.jsf?trip=" + TRIP_ID, "local mode keeps the request's host");

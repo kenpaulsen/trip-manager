@@ -1974,7 +1974,7 @@ public class OrgCommandsTest {
         final String regBase = KnownSettings.REG_MAIL_BASE_URL.getDefaultValue();
         assertEquals(values.getValue().get("createAccountUrl"),
                 OrgCommands.inviteLoginUrl(regBase, sharedInvitee));
-        assertEquals(values.getValue().get("siteHost"), "www.visitqueenofpeace.com");
+        assertEquals(values.getValue().get("siteHost"), "visitqueenofpeace.com");
         assertEquals(values.getValue().get("siteName"), new ConfigCommands()
                 .siteString(KnownSettings.SITE_ORG_NAME));
 

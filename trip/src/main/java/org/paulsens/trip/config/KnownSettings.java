@@ -539,7 +539,7 @@ public final class KnownSettings {
                     + "somebody reads." + MODE_NOTE);
 
     public static final SettingDef REG_MAIL_BASE_URL = new SettingDef(
-            "reg.mail.baseUrl", Config.Type.STRING, "https://www.visitqueenofpeace.com", "Link base URL",
+            "reg.mail.baseUrl", Config.Type.STRING, "https://visitqueenofpeace.com", "Link base URL",
             "Prefixes the trip/profile links inside registration emails.");
 
     // --- email addresses (rendered by the Settings page's Email addresses section with a mode widget) ---
