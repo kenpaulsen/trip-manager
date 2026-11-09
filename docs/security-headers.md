@@ -87,9 +87,10 @@ kilobyte on each of the dozens of requests a page makes.
 
 The policy as shipped, with the reason for every source. `{media}` is the origin of `TRIP_MEDIA_BASE_URL`
 (`https://files.visitqueenofpeace.com` in production; absent locally, where the local servlets serve those bytes).
-Three directives (`img-src`, `style-src`, `font-src`) allow any https source on purpose: this site carries
-editor-authored content and designer-authored stylesheets that reach services nobody lists in advance, and none of
-the three can run code. Frames and media stay listed, and scripts and connections stay narrow.
+Five directives (`img-src`, `style-src`, `font-src`, `frame-src`, `media-src`) allow any https source on purpose:
+this site carries editor-authored content and designer-authored stylesheets that reach services nobody lists in
+advance (an image, a font, an embedded video or map, an audio clip), and none of the five can run code in our
+page. Scripts and connections stay narrow; that is where the protection lives.
 
 | Directive | Sources | Why |
 |---|---|---|
@@ -102,9 +103,9 @@ the three can run code. Frames and media stay listed, and scripts and connection
 | `img-src` | `'self' data: blob: https:` | Content editors paste image URLs from anywhere (Quill's image-by-URL is the sanctioned shape, so the landing and trip pages carry arbitrary https images), chat, profile, branding and lodging photos come from the CDN, PrimeFaces themes inline `data:` images, the photo viewer and the crop dialog show `blob:` previews, the analytics tag and PayPal's button use pixel images. Any https image is allowed; scripts and frames stay narrow, which is where the protection is. |
 | `font-src` | `'self' data: https:` | The Freya theme ships its fonts as resources; `data:` for inlined icon fonts; any https host for the font files a trip stylesheet's `@import` resolves to (`fonts.gstatic.com` today). |
 | `connect-src` | `'self' https://api.stripe.com https://*.google-analytics.com https://*.analytics.google.com https://www.googletagmanager.com {media}` | Ajax, the REST API and the chat long-poll are same-origin; Stripe.js talks to its API (Stripe's documented list); the analytics tag beacons to Google's collectors; the CDN in case a script fetches a library item. |
-| `frame-src` | `'self' https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com https://www.youtube.com https://www.youtube-nocookie.com https://www.google.com https://maps.google.com https://docs.google.com https://calendar.google.com` | Stripe's Payment Element frames and its 3-D Secure challenge frame (`hooks.`); the microsite pages under `medjugorje/` embed YouTube videos, Google Maps (both hosts), a Google Form and a Google Calendar; our own two frames. |
+| `frame-src` | `'self' https:` | Content editors paste embeds from sites nobody knows in advance (YouTube or Vimeo players, Google Maps, a Google Form on the old microsite pages), and Stripe.js opens its Payment Element and 3-D Secure frames itself. A framed page runs in its own origin and cannot read or script ours, so any https site may be framed; the protection lives in `script-src` and `connect-src`, which stay narrow. |
 | `object-src` | `'self' {media}` | `admin/mediaItem.xhtml` previews a PDF inline with an `<object>` pointing at the CDN (locally at a servlet). |
-| `media-src` | `'self' blob: {media}` | The check-in camera `<video>` takes a stream object, not a URL, but `blob:` costs nothing; the CDN for any future media row. |
+| `media-src` | `'self' blob: https:` | Pasted audio or video from any https site, the same reasoning as frames; `blob:` for the check-in camera stream. |
 | `worker-src` | `'self'` | `sw.js` (Web Push). |
 | `manifest-src` | `'self'` | `/manifest.jsf`. |
 | `report-uri` / `report-to` | `/csp-report` / `csp-endpoint` | Both reporting mechanisms, same servlet. `Reporting-Endpoints: csp-endpoint="/csp-report"` accompanies the policy. |

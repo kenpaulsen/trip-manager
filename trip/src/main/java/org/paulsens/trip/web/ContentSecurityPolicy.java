@@ -54,21 +54,22 @@ public final class ContentSecurityPolicy {
         policy.add("style-src 'self' 'unsafe-inline' https:");
         // Content editors paste image URLs from anywhere (Quill's image-by-URL is the sanctioned shape), chat and
         // branding photos come from the CDN, PrimeFaces themes inline data: images, the photo viewer and the
-        // crop dialog preview blobs. Any https image is therefore allowed; scripts and frames stay narrow.
+        // crop dialog preview blobs. Any https image is therefore allowed; scripts and connections stay narrow.
         policy.add("img-src 'self' data: blob: https:");
         policy.add("font-src 'self' data: https:");
         // Ajax, the REST API and the long-poll are same-origin; Stripe.js talks to its API; the analytics tag
         // beacons to Google's collectors.
         policy.add(withOrigin("connect-src 'self' https://api.stripe.com https://*.google-analytics.com"
                 + " https://*.analytics.google.com https://www.googletagmanager.com", mediaOrigin));
-        // Stripe's Payment Element and its 3-D Secure challenge frames; the microsite pages' YouTube videos,
-        // Google Maps and Google Forms embeds; our own two same-origin frames.
-        policy.add("frame-src 'self' https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com"
-                + " https://www.youtube.com https://www.youtube-nocookie.com https://www.google.com"
-                + " https://maps.google.com https://docs.google.com https://calendar.google.com");
+        // Content editors paste embeds from sites nobody knows in advance (a YouTube or Vimeo player, a Google
+        // Map, a form), and Stripe.js opens its Payment Element and 3-D Secure frames itself, so any https site
+        // may be framed. A framed page runs in its own origin: it cannot read or script ours, so this costs
+        // little, unlike a script source.
+        policy.add("frame-src 'self' https:");
         // The media page previews a PDF inline with an object tag pointing at the CDN (locally, at a servlet).
         policy.add(withOrigin("object-src 'self'", mediaOrigin));
-        policy.add(withOrigin("media-src 'self' blob:", mediaOrigin));
+        // Pasted audio or video the same way; blob: for the check-in camera stream.
+        policy.add("media-src 'self' blob: https:");
         // sw.js (Web Push) and /manifest.jsf.
         policy.add("worker-src 'self'");
         policy.add("manifest-src 'self'");

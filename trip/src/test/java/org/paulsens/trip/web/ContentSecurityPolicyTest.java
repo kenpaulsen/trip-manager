@@ -31,13 +31,14 @@ public class ContentSecurityPolicyTest {
     }
 
     @Test
-    public void framesAreStripeTheMicrositeEmbedsAndOurselves() {
+    public void anyHttpsSiteMayBeFramedOrPlayedButNeverRunScript() {
         final String policy = ContentSecurityPolicy.build(MEDIA, "/csp-report");
-        Assert.assertTrue(policy.contains("frame-src 'self' https://js.stripe.com https://*.js.stripe.com"
-                + " https://hooks.stripe.com https://www.youtube.com https://www.youtube-nocookie.com"
-                + " https://www.google.com https://maps.google.com https://docs.google.com"
-                + " https://calendar.google.com;"), policy);
+        Assert.assertTrue(policy.contains("frame-src 'self' https:;"), policy);
+        Assert.assertTrue(policy.contains("media-src 'self' blob: https:;"), policy);
         Assert.assertTrue(policy.contains("frame-ancestors 'self';"), policy);
+        // The widening stops at frames and media: a script source of https: would be the whole policy's undoing.
+        Assert.assertFalse(policy.contains("'unsafe-eval' https:;"), policy);
+        Assert.assertTrue(policy.contains("'unsafe-eval' https://js.stripe.com"), policy);
     }
 
     @Test
@@ -60,7 +61,6 @@ public class ContentSecurityPolicyTest {
         final String policy = ContentSecurityPolicy.build(MEDIA, "/csp-report");
         Assert.assertTrue(policy.contains(" https://www.googletagmanager.com " + MEDIA + "; frame-src"), policy);
         Assert.assertTrue(policy.contains("object-src 'self' " + MEDIA + ";"), policy);
-        Assert.assertTrue(policy.contains("media-src 'self' blob: " + MEDIA + ";"), policy);
         // Images are any https source already, so the origin adds nothing there.
         Assert.assertTrue(policy.contains("img-src 'self' data: blob: https:;"), policy);
     }
@@ -69,7 +69,7 @@ public class ContentSecurityPolicyTest {
     public void withoutAMediaOriginTheDirectivesStandAlone() {
         final String policy = ContentSecurityPolicy.build(null, "/csp-report");
         Assert.assertTrue(policy.contains("style-src 'self' 'unsafe-inline' https:; img-src"), policy);
-        Assert.assertTrue(policy.contains("object-src 'self'; media-src 'self' blob:; worker-src"), policy);
+        Assert.assertTrue(policy.contains("object-src 'self'; media-src 'self' blob: https:; worker-src"), policy);
         Assert.assertFalse(policy.contains("null"), policy);
     }
 
