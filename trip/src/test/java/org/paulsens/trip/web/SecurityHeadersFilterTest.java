@@ -140,7 +140,7 @@ public class SecurityHeadersFilterTest {
     @Test
     public void theMediaOriginJoinsThePolicy() {
         final String policy = defaults().policy();
-        Assert.assertTrue(policy.contains("style-src 'self' 'unsafe-inline' https://media.example.org;"), policy);
+        Assert.assertTrue(policy.contains("connect-src 'self' https://api.stripe.com"), policy);
         Assert.assertTrue(policy.contains("object-src 'self' https://media.example.org;"), policy);
     }
 

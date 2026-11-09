@@ -47,13 +47,16 @@ public final class ContentSecurityPolicy {
         policy.add("script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://*.js.stripe.com"
                 + " https://www.googletagmanager.com");
         // PrimeFaces writes style attributes everywhere (unsafe-inline). A trip page's own stylesheets are media
-        // library rows the CDN serves in production.
-        policy.add(withOrigin("style-src 'self' 'unsafe-inline'", mediaOrigin));
+        // library rows the CDN serves in production, and a designer's sheet @imports a font service (the mir
+        // summerfest page pulls League Spartan and Playfair Display from Google Fonts), so any https stylesheet
+        // and any https font is allowed: a foreign stylesheet cannot run code, and the next org may pick Adobe or
+        // Bunny rather than Google. Scripts and connections stay narrow; that is where the protection lives.
+        policy.add("style-src 'self' 'unsafe-inline' https:");
         // Content editors paste image URLs from anywhere (Quill's image-by-URL is the sanctioned shape), chat and
         // branding photos come from the CDN, PrimeFaces themes inline data: images, the photo viewer and the
         // crop dialog preview blobs. Any https image is therefore allowed; scripts and frames stay narrow.
         policy.add("img-src 'self' data: blob: https:");
-        policy.add(withOrigin("font-src 'self' data:", mediaOrigin));
+        policy.add("font-src 'self' data: https:");
         // Ajax, the REST API and the long-poll are same-origin; Stripe.js talks to its API; the analytics tag
         // beacons to Google's collectors.
         policy.add(withOrigin("connect-src 'self' https://api.stripe.com https://*.google-analytics.com"

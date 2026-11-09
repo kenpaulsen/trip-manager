@@ -87,6 +87,9 @@ kilobyte on each of the dozens of requests a page makes.
 
 The policy as shipped, with the reason for every source. `{media}` is the origin of `TRIP_MEDIA_BASE_URL`
 (`https://files.visitqueenofpeace.com` in production; absent locally, where the local servlets serve those bytes).
+Three directives (`img-src`, `style-src`, `font-src`) allow any https source on purpose: this site carries
+editor-authored content and designer-authored stylesheets that reach services nobody lists in advance, and none of
+the three can run code. Frames and media stay listed, and scripts and connections stay narrow.
 
 | Directive | Sources | Why |
 |---|---|---|
@@ -95,9 +98,9 @@ The policy as shipped, with the reason for every source. `{media}` is the origin
 | `frame-ancestors` | `'self'` | See X-Frame-Options above. |
 | `form-action` | `'self' https://www.paypal.com https://www.sandbox.paypal.com` | `pay/donate.xhtml` is a plain form posting to PayPal; every other form posts to us. Chrome also checks the REDIRECT after a form post against this list, and the PayPal checkout is a postback that answers with a redirect to the approval URL, so both PayPal hosts must be here. **Watch this one** in the reports: any other redirect-after-POST to a foreign host would show up as a `form-action` violation. |
 | `script-src` | `'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://*.js.stripe.com https://www.googletagmanager.com` | Mojarra and PrimeFaces render inline `<script>` blocks and `on*` attributes (`unsafe-inline`), and both run the scripts an ajax partial response carries through `eval` (`unsafe-eval`). Stripe.js is loaded by `trip/payment.xhtml` and the priced-checkout step (`PaymentProcessor.Inline.STRIPE_JS`); `*.js.stripe.com` is where Stripe starts frames for performance. The analytics tag loads from Google Tag Manager, with consent only. |
-| `style-src` | `'self' 'unsafe-inline' {media}` | PrimeFaces writes `style=` attributes everywhere. A trip page's own stylesheets are media-library rows the CDN serves. |
+| `style-src` | `'self' 'unsafe-inline' https:` | PrimeFaces writes `style=` attributes everywhere. A trip page's own stylesheets are media-library rows the CDN serves, and a designer's sheet may `@import` a font service: the mir summerfest page pulls League Spartan and Playfair Display from Google Fonts. Any https stylesheet is allowed because a stylesheet cannot run code and the next org may pick a different service. |
 | `img-src` | `'self' data: blob: https:` | Content editors paste image URLs from anywhere (Quill's image-by-URL is the sanctioned shape, so the landing and trip pages carry arbitrary https images), chat, profile, branding and lodging photos come from the CDN, PrimeFaces themes inline `data:` images, the photo viewer and the crop dialog show `blob:` previews, the analytics tag and PayPal's button use pixel images. Any https image is allowed; scripts and frames stay narrow, which is where the protection is. |
-| `font-src` | `'self' data: {media}` | The Freya theme ships its fonts as resources; `data:` for inlined icon fonts; the CDN for a trip stylesheet's own fonts. |
+| `font-src` | `'self' data: https:` | The Freya theme ships its fonts as resources; `data:` for inlined icon fonts; any https host for the font files a trip stylesheet's `@import` resolves to (`fonts.gstatic.com` today). |
 | `connect-src` | `'self' https://api.stripe.com https://*.google-analytics.com https://*.analytics.google.com https://www.googletagmanager.com {media}` | Ajax, the REST API and the chat long-poll are same-origin; Stripe.js talks to its API (Stripe's documented list); the analytics tag beacons to Google's collectors; the CDN in case a script fetches a library item. |
 | `frame-src` | `'self' https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com https://www.youtube.com https://www.youtube-nocookie.com https://www.google.com https://maps.google.com https://docs.google.com https://calendar.google.com` | Stripe's Payment Element frames and its 3-D Secure challenge frame (`hooks.`); the microsite pages under `medjugorje/` embed YouTube videos, Google Maps (both hosts), a Google Form and a Google Calendar; our own two frames. |
 | `object-src` | `'self' {media}` | `admin/mediaItem.xhtml` previews a PDF inline with an `<object>` pointing at the CDN (locally at a servlet). |

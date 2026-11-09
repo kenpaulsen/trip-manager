@@ -48,10 +48,16 @@ public class ContentSecurityPolicyTest {
     }
 
     @Test
-    public void theMediaOriginJoinsStylesFontsConnectionsObjectsAndMedia() {
+    public void stylesAndFontsComeFromAnyHttpsSource() {
+        // A trip stylesheet on the CDN @imports a font service, and the service is the org's choice.
         final String policy = ContentSecurityPolicy.build(MEDIA, "/csp-report");
-        Assert.assertTrue(policy.contains("style-src 'self' 'unsafe-inline' " + MEDIA + ";"), policy);
-        Assert.assertTrue(policy.contains("font-src 'self' data: " + MEDIA + ";"), policy);
+        Assert.assertTrue(policy.contains("style-src 'self' 'unsafe-inline' https:;"), policy);
+        Assert.assertTrue(policy.contains("font-src 'self' data: https:;"), policy);
+    }
+
+    @Test
+    public void theMediaOriginJoinsConnectionsObjectsAndMedia() {
+        final String policy = ContentSecurityPolicy.build(MEDIA, "/csp-report");
         Assert.assertTrue(policy.contains(" https://www.googletagmanager.com " + MEDIA + "; frame-src"), policy);
         Assert.assertTrue(policy.contains("object-src 'self' " + MEDIA + ";"), policy);
         Assert.assertTrue(policy.contains("media-src 'self' blob: " + MEDIA + ";"), policy);
@@ -62,7 +68,7 @@ public class ContentSecurityPolicyTest {
     @Test
     public void withoutAMediaOriginTheDirectivesStandAlone() {
         final String policy = ContentSecurityPolicy.build(null, "/csp-report");
-        Assert.assertTrue(policy.contains("style-src 'self' 'unsafe-inline'; img-src"), policy);
+        Assert.assertTrue(policy.contains("style-src 'self' 'unsafe-inline' https:; img-src"), policy);
         Assert.assertTrue(policy.contains("object-src 'self'; media-src 'self' blob:; worker-src"), policy);
         Assert.assertFalse(policy.contains("null"), policy);
     }
