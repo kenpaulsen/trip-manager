@@ -351,6 +351,9 @@ expenses (`getClasses()` is the authoritative list) +
 
 ### Other packages
 
+- `web/SecurityHeadersFilter` + `web/ContentSecurityPolicy` + `web/CspReportServlet` -- the HTTP security headers
+  (HSTS, nosniff, X-Frame-Options, the CSP as report-only first) and where browsers report CSP violations. Read
+  `docs/security-headers.md` before adding a foreign script, frame, font or style source to any page.
 - `chat/` — per-trip chat runtime: digest scheduler (Valkey-coordinated so N tasks send once), notifier
   chain, rate limiter, long-poll nudge registry. Design doc: `chat-design.md` at the workspace root. Several
   chat decisions deliberately reverse the obvious approach — read the design doc before changing behavior.
