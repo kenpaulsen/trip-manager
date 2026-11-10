@@ -196,9 +196,12 @@ land on an anonymous sign-in page in the system browser), and everything it need
 `<style>` (`TripPageCommands.embedCss`: the current theme's `:root` block alone, found by index in the 200 KB theme,
 `site.css`, `albums.css`, the trip's own stylesheet when its bytes can be read, then the overrides) so a copy saved on
 a phone renders with its styles offline; images and video frames stay live, and a `<base href>` resolves a legacy
-description's relative paths. Anonymous-safe like `manifest.xhtml`: a transient view with `contentType="text/html"`
-(an app's Accept header names the API media type), requestScope only; `contentSections.xhtml` takes a `readOnly`
-param so a signed-in browser's cookie never builds the edit dialogs into it. `AnonymousFootprintPwIT` sweeps it.
+description's relative paths. The page paints its own opaque ground (the theme's `--surface-ground`, or the trip's
+`--layout-full-bg`) and a legacy description sits on a `--surface-card` card: the apps draw the web view transparent
+over a blurred photo, and a see-through page left dark text on it, unreadable (2026-11-09). Anonymous-safe like
+`manifest.xhtml`: a transient view with `contentType="text/html"` (an app's Accept header names the API media type),
+requestScope only; `contentSections.xhtml` takes a `readOnly` param so a signed-in browser's cookie never builds the
+edit dialogs into it. `AnonymousFootprintPwIT` sweeps it.
 `detailsUrl` addresses it on the OWNING organization's site (`TripsResource.detailsUrl` over `SiteUrls.baseUrlForTrip`,
 as tickets do), where the page's ordinary reach rule admits the trip; built on the product host the apps' API calls go
 to, it answered "This page is not available." for every trip the marketing page does not list (2026-11-08).
