@@ -320,7 +320,12 @@ Edited on the trip editor's "Trip Page" dialog (`WEB-INF/tripPageDialog.xhtml`, 
 hidden while a trip is being created; binds into the `TripEditDrafts` draft, Done refuses with growls and stays open on `pageOk`, Save
 persists; the page's edit-mode toolbar links there as "Page settings"), and on the API as `TripDto.page`
 (`TripPageOptionsDto`, absent = leave alone, `""` = back to the org's, 400 `VALIDATION_FAILED` on a problem, read back
-by managers only). `TripCommands.saveTrip` refuses the same problems, since a dialog closed with its X skips Done. A
+by managers only). `TripCommands.saveTrip` refuses the same problems, since a dialog closed with its X skips Done.
+The dialog's two library pick lists (background image, stylesheet) have a search box and label each file "title
+(file name)" (`MediaCommands.pickLabel`), and a "Selected file" line under each names the choice by its path in the
+library (`MediaCommands.describeChoice`: no protocol, host or organization folder; any other URL as its host and path,
+marked as not in the library). A media URL is too long for its field, so its file name was never in view, and a
+stylesheet's title is a description (2026-11-09). A
 styles template (an org-scoped STANDARD template holding a `<link rel="stylesheet">`, `content-templates.md`) remains
 possible for a single section. Fonts loaded from the media CDN need a CORS policy (`MediaStack`), which it does not
 have yet; Google Fonts load fine.

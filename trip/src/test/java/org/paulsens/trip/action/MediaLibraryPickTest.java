@@ -68,6 +68,39 @@ public class MediaLibraryPickTest {
         assertEquals(media.libraryItemFor(null, media.getUrl(media.get("pick-css-site"))).getId(), "pick-css-site");
     }
 
+    @Test
+    public void aPickLabelCarriesTheFileNameTheTitleDoesNotSay() {
+        assertEquals(media.pickLabel(media.get("pick-css-a")), "alpha styles (a.css)");
+        assertEquals(media.pickLabel(media.get("pick-img")), "Background (bg.webp)");
+        assertEquals(media.pickLabel(item("org/" + ORG + "/pick/Hero.JPG", "hero.jpg")), "Hero.JPG",
+                "a title that is the file name is not repeated");
+        assertEquals(media.pickLabel(item("org/" + ORG + "/pick/untitled.png", " ")), "untitled.png");
+        assertEquals(media.pickLabel(item("org/" + ORG + "/pick/none.png", null)), "none.png");
+        assertEquals(media.pickLabel(item(null, "Keyless")), "Keyless");
+        assertEquals(media.pickLabel(null), "");
+    }
+
+    @Test
+    public void aChosenUrlReadsAsItsPathInTheLibraryOrAsAForeignAddress() {
+        final String css = media.getUrl(media.get("pick-css-a"));
+        assertEquals(media.describeChoice(ORG, css), "pick/a.css", "no protocol, no host, no org folder");
+        assertEquals(media.describeChoice(ORG, " " + css + "?r=3 "), "pick/a.css", "a cache buster is not the name");
+        assertEquals(media.describeChoice(ORG, media.getUrl(media.get("pick-img"))), "pick/bg.webp");
+        assertEquals(media.describeChoice(null, media.getUrl(media.get("pick-css-site"))), "downloads/site.css",
+                "a site-level item keeps its whole key");
+        assertEquals(media.describeChoice(ORG, "https://cdn.example/art/bg.jpg?v=2#top"),
+                "cdn.example/art/bg.jpg" + MediaCommands.NOT_IN_LIBRARY);
+        assertEquals(media.describeChoice(FakeData.BETA_ORG_ID, css),
+                css.replaceFirst("^https?://", "") + MediaCommands.NOT_IN_LIBRARY, "another org's item is foreign");
+        assertEquals(media.describeChoice(ORG, null), "");
+        assertEquals(media.describeChoice(ORG, "  "), "");
+    }
+
+    private static MediaItem item(final String key, final String title) {
+        return new MediaItem("pick-unsaved", key, title, null, "image/png", 10L, null, 0, LocalDateTime.now(),
+                "seed", null, null, ORG);
+    }
+
     private static void save(final String id, final String key, final String title, final String type,
             final String slot, final Boolean hidden, final String orgId) {
         assertTrue(DAO.getInstance().saveMedia(new MediaItem(id, key, title, null, type, 10L, slot, 0,

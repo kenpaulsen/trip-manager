@@ -609,6 +609,48 @@ public class MediaCommands {
         }
     }
 
+    /**
+     * A pick list's label for one library item: its title, then its file name when the title does not already say
+     * it. A title is often a description ("Summer Fest 2026 page stylesheet") and two items may share one, while
+     * the file name is what the editor saw on the Media page; the menu's filter searches both (2026-11-09).
+     */
+    public String pickLabel(final MediaItem item) {
+        if (item == null) {
+            return "";
+        }
+        final String file = fileNameOf(item.getS3Key());
+        final String title = item.getTitle() == null ? "" : item.getTitle().trim();
+        if (title.isEmpty() || title.equalsIgnoreCase(file)) {
+            return file;
+        }
+        return file.isEmpty() ? title : title + " (" + file + ")";
+    }
+
+    /**
+     * What a chosen URL names, short enough to read at a glance, for the line under a pick list: a media URL is
+     * too long for its field, so the file name at its end was never visible (2026-11-09). One of {@code orgId}'s
+     * library items reads as its path inside that organization's library; any other URL as its host and path with
+     * a note that it is not in the library. No protocol, no query. Blank for no URL. Cached reads only: this renders
+     * with the dialog.
+     */
+    public String describeChoice(final String orgId, final String url) {
+        if (url == null || url.isBlank()) {
+            return "";
+        }
+        final MediaItem item = cachedLibraryItemFor(orgId, url);
+        if (item == null) {
+            return SCHEME.matcher(stripQuery(url.trim())).replaceFirst("") + NOT_IN_LIBRARY;
+        }
+        final String own = ORG_KEY_PREFIX + item.getOrgId() + "/";
+        final String key = item.getS3Key();
+        return item.getOrgId() != null && key.startsWith(own) ? key.substring(own.length()) : key;
+    }
+
+    /** The file part of a key: what follows its last slash. */
+    static String fileNameOf(final String key) {
+        return key == null ? "" : key.substring(key.lastIndexOf('/') + 1);
+    }
+
     private static String stripQuery(final String url) {
         final int cut = url.indexOf('?') >= 0 ? url.indexOf('?') : url.indexOf('#');
         return cut < 0 ? url : url.substring(0, cut);
@@ -1037,6 +1079,10 @@ public class MediaCommands {
 
     /** Where {@code web/StylesheetServlet} serves a trip page stylesheet in local mode. */
     static final String LOCAL_STYLESHEET_PATH = "/trip-stylesheets/";
+
+    /** What {@link #describeChoice} appends to a URL that names no item of the organization's library. */
+    static final String NOT_IN_LIBRARY = " (not in the organization's media library)";
+    private static final Pattern SCHEME = Pattern.compile("^[A-Za-z][A-Za-z0-9+.-]*://");
 
     /**
      * Stores raw bytes at a key with an explicit cache policy — the primitive under chat photos, which need a
