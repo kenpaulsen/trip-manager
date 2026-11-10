@@ -72,8 +72,8 @@ that lacks the fold can ever read a row again.
       `LodgingResourceTest` / `RoomInvoiceReportTest` assertion that reads `getNightlyPriceCents()` off an
       offer (read `getPrice().getNightlyCents()` instead). `aLegacyRowReadsAsPricedAtItsOldNumbersZeroIncluded`
       and `aPriceObjectOutranksTheLegacyMirror` STAY: they test the fold, which stays.
-- [ ] `docs/lodging.md` "Price vs cost": delete the mirror paragraph; `trip/CLAUDE.md` Domain model: drop the
-      "mirror on write" clause; this file: mark section 2 done with the date.
+- [ ] `docs/lodging.md` "Price vs cost": delete the mirror paragraph; `.claude/rules/model.md` (the domain
+      model): drop the "mirror on write" clause; this file: mark section 2 done with the date.
 - [ ] Deploy check as in section 5: a recompute on a seeded trip still reports `written 0`.
 
 ## 4. The `lodging_rate_plans` table (rollout order)

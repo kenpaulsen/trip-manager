@@ -3,8 +3,21 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 This is the **public** Trip Manager application repo. The deployable pages, the live `WEB-INF/web.xml`, the
-container image, and all infrastructure live in the private sibling repo (`../medjugorje/`) — keep anything
+container image, and all infrastructure live in the private sibling repo (`../medjugorje/`) -- keep anything
 account- or deployment-specific out of this repo.
+
+## How this guidance is organized
+
+This file holds only what applies to nearly every task here. Everything else loads when it is needed:
+
+- **Path-scoped rules** in `.claude/rules/*.md` load by themselves the first time a file matching their `paths:`
+  globs is opened with the Read tool. A grep or a shell `cat` does NOT trigger them, so before changing an area
+  you have not Read a file in, open its rule file by hand ("Rules by area" below).
+- **Docs** in `docs/` never load by themselves. Read the one "Docs by area" names BEFORE touching that area;
+  several are marked required because they record decisions that reverse the obvious approach.
+
+Paths in the rule files and docs are relative to this repo's root unless they start with `../`. A new rule file
+MUST carry `paths:` frontmatter: one without it loads on every read in this repo, exactly like this file.
 
 ## Build & test
 
@@ -15,15 +28,15 @@ mvn test -pl trip -Dtest=PersonTest                # one test class
 mvn test -pl trip -Dtest=TripCommandsTest#method   # one method
 ```
 
-- Coverage gate: JaCoCo runs with `test` — bundle ≥ 90% line AND ≥ 90% per class. It only halts the build in
+- Coverage gate: JaCoCo runs with `test` -- bundle ≥ 90% line AND ≥ 90% per class. It only halts the build in
   CI (`-Djacoco.check.halt=true`); locally it just reports (`trip/target/site/jacoco/index.html`). Excluding a
   class from the gate requires the owner's approval first.
-- Style gate: checkstyle (adapted Oracle/Sun rules, `checkstyle.xml` at the repo root — 120-column lines, no
+- Style gate: checkstyle (adapted Oracle/Sun rules, `checkstyle.xml` at the repo root -- 120-column lines, no
   tabs, no mandatory Javadoc; the file's header comment lists every adaptation) runs at `validate` on the
   `trip` module, main AND test sources, and any violation fails the build immediately, locally and in CI
   alike. Escape hatch for a genuine exception: `@SuppressWarnings("checkstyle:RuleName")`, used sparingly and
   with a comment saying why. Emergency skip: `-Dcheckstyle.skip=true`.
-- Browser/integration tests are NOT here — they are in `../medjugorje/webtest/` (Playwright).
+- Browser/integration tests are NOT here -- they are in `../medjugorje/webtest/` (Playwright).
 
 ## Modules & stack
 
@@ -32,395 +45,95 @@ mvn test -pl trip -Dtest=TripCommandsTest#method   # one method
 | `jsft/` | JSF Templating helper library (`com.sun.jsftemplating`, `com.sun.jsft.*`) |
 | `trip/` | Main WAR (finalName `ROOT`): models, DAOs, cache, CDI beans, REST API |
 
-Java 25 · Jakarta EE 10 (Servlet 6.1, Faces 4.1 / Mojarra, CDI 4.1 / Weld) · PrimeFaces 15 + extensions
-(`jakarta` classifier) · Jersey 3.1 (REST) · MapStruct · Lombok · Jackson · AWS SDK v2, sync clients blocking
-on virtual threads (DynamoDB, SES,
-Secrets Manager, CloudWatch Logs, S3, CloudFront, CodePipeline) · Lettuce (**must stay 6.x** — the build pins
-Netty 4.1; Lettuce 7 needs Netty 4.2) · BCrypt (`at.favre.lib`) · PayPal server SDK · Stripe Java SDK (blocking
-HttpURLConnection; the key travels per call in `RequestOptions`, never the global `Stripe.apiKey`) · Apache POI · TestNG ·
-NightMonkeys `imageio-heif` (chat-photo HEIC decode over the SYSTEM libheif via FFM — needs
-`--enable-native-access` plus an unversioned `libheif.so` on `java.library.path`; without it HEIC uploads get
-a clean "convert to JPEG" rejection and everything else works) · metadata-extractor (EXIF orientation).
+Java 25 · Jakarta EE 10 (Servlet 6.1, Faces 4.1 / Mojarra, CDI 4.1 / Weld) · PrimeFaces 15 + extensions · Jersey 3.1
+(REST) · MapStruct · Lombok · Jackson · AWS SDK v2, sync clients blocking on virtual threads · Lettuce (**must stay
+6.x**) · PayPal server SDK · Stripe Java SDK · Apache POI · TestNG. The full list, with every pin and native-library
+caveat, is `.claude/rules/dependencies.md` (it loads with any `pom.xml`).
 
-## Architecture
+## Rules that apply everywhere
 
-### Threading model
-
-Blocking-first on virtual threads (the section `../medjugorje/CLAUDE.md` points at). Requests run one virtual
-thread each (Tomcat's `StandardVirtualThreadExecutor`, thread prefix `peace-`; the webtest `EmbeddedApp` wires
-the same executor), and every DAO, cache and AWS call **blocks its calling thread** — sync AWS clients, no
-reactive layer. The ONLY `CompletableFuture` in the main tree is Lettuce's, consumed inside
-`ValkeyCacheClient`'s single interruptible await point; `ArchitectureTest` greps these invariants into the
-build (no CF import elsewhere, no future `join()`, no cached platform pools). There is deliberately no
-`maxThreads`-style cap: admission control lives where load lands — the DynamoDB connection pool (100),
-the two Lettuce request queues (5000 foreground / 500 background via `CacheLane`), `RefreshPermits`, and
-per-feature gates (e.g. `BackgroundRemover.GATE`).
-
-- Fan-out uses `StructuredTaskScope` (a preview API — `--enable-preview` is set in the compiler args, the
-  surefire argLine, the container's `CATALINA_OPTS` AND `ci/buildspec-integtest.yml`): trip-event resolve,
-  mail-merge sends, password migration (semaphore-bounded). Forks inherit ScopedValues.
-- Fire-and-forget background work spawns via `TripThreads.start`/`startAs` (named virtual threads, bound to
-  the background cache lane). Plain spawns do NOT inherit ScopedValues — work that outlives its request
-  re-binds identity via `startAs` (`RequestContext`/`AuditActor`); schedulers bind `RequestContext.system()`.
-- Never run caller code on a Lettuce/Netty event loop (pub/sub listeners hand off to a fresh virtual thread)
-  and never block a request on delivery backends: the audit sinks queue to dedicated daemon writer threads.
-- The few remaining platform threads are ones we cannot make virtual: Lettuce's Netty event loops, the AWS
-  SDK's Apache client internals, the dedicated `bg-remover-inference` thread (ONNX inference pins its carrier,
-  so it runs on one platform thread), and the shutdown hook. The audit-sink writers and the
-  `ChatDigestScheduler` timer thread are virtual.
-
-### Persistence (`org.paulsens.trip.dynamo`)
-
-- `Persistence` interface — abstracts the store. `DynamoPersistence` is the real one (async client);
-  `InMemoryPersistence` is a real in-memory table store used in local mode and tests (`FakeData` seeds it).
-- `LocalMode` — the single authority on local vs production. Explicit-only, defaults to production; see the
+- `LocalMode` -- the single authority on local vs production. Explicit-only, defaults to production; see the
   workspace root CLAUDE.md. `TripBootstrapListener` (in `web/`) resolves it at startup and **must stay first**
   in web.xml's listener order (`ChatLifecycleListener` touches the DAO in its own `contextInitialized`).
-- `DAO` — singleton composing the domain DAOs: Person, Family, Trip, TripEvent, Registration, Transaction,
-  Credentials, Todo, PersonDataValue, Privileges, Binding, Config, Media, Template, Content, Audit, Chat.
-  Payments add: Organization/OrgMember (org_members is the membership source of truth, Person.orgIds the derived edge), PaymentProcessorConfig (org-partitioned; secrets live in Secrets Manager via `security/ProcessorSecrets`, never in rows), and Payment (UNCACHED state machine CREATED/CAPTURED/RECORDED with conditional-put transitions) — read `docs/payments.md` before touching any of them.
-  Lodging adds `LodgingDAO` (`lodging_accommodations` whole-table `PartitionScanCache`; `lodging_offers`
-  and `lodging_reservations` per-trip `PartitionCache`s, the latter with a sparse `by-accommodation` GSI
-  (PK `accommodationId`, SK `stayEnd`) behind the uncached cross-trip read `getReservationsAt`;
-  `lodging_blocks` per-hotel `PartitionCache` for the nights a hotel has taken its own rooms back, kept off
-  the accommodation row so a block never races a room edit; `lodging_rate_plans` a second per-hotel
-  `PartitionCache` in the same shape for the hotel's reusable `RatePlan`s, which linked offers COPY from
-  (write-through, never a read-time join); versioned conditional puts) — `docs/lodging.md`.
-  The `family` row is the source of truth for household membership (optimistic-version conditional puts);
-  managers' `Person.managedUsers` lists are DERIVED from it — see `docs/family-accounts.md` before touching
-  anything family-related.
-  Trip budgets add `BudgetDAO` (`trip_budgets`, PK `tripId`: ONE `TripBudget` row per trip with its lines
-  inline, one `PointCache`, one versioned conditional put per save) -- `docs/budget.md`. Trip expense reports
-  add `ExpenseReportDAO` (`trip_expense_reports`, the same shape: ONE shared `TripExpenseReport` per trip,
-  currencies, expenses and receipt ids inline) -- `docs/expense-report.md`. Trip documents ("waivers") add
-  `WaiverDAO`: `org_waivers` (PK orgId, SK id; every published version inline, versioned puts) and
-  `waiver_acceptances` (PK tripId, SK personId#waiverId#version; WRITE-ONCE, uncached, never deleted) --
-  `docs/waivers.md`.
-- **Caching** (`org.paulsens.trip.cache`) — full architecture doc: `docs/caching.md` (read it before
-  touching any cache or DAO read path). All caching goes through the `CacheClient` abstraction —
-  `ValkeyCacheClient` (production, shared across instances; TWO connections: foreground queue 5000,
-  background queue 500 routed by `CacheLane` — background work sheds early and can never starve the
-  request path), `InMemoryCacheClient` (local), `NoopCacheClient` (off), with `NearCacheClient` (in-JVM
-  heap for `Cached.YES` reads) decorating the production client. Each DAO uses a typed cache on top
-  (`PointCache`, `PartitionCache`, `PartitionScanCache`, `AdjacencyCache`, plus `SearchIndex`/`TripIndex`).
-  Freshness: every cached value carries its loaded-at stamp (`PointCache` envelope `"<epoch>|<json>"`,
-  in-hash `__loaded_at__`, index markers) — staleness is decided INLINE, and only a stale hit schedules a
-  background refresh through the shared `Revalidator` (dedup → `RefreshPermits` → lock → reload; gates
-  before spawn, always — the 2026-08-18 incident was a per-hit probe ahead of the gates). Out-of-band
-  writes are made visible by `DAO.invalidate(CacheScope)` (clears + broadcasts on `sys:v1:cache_inval`;
-  REST: `POST /api/cache/invalidate`; scripts: `scripts/lib/cache-invalidate.sh`). `AuditDAO` and
-  `CredentialsDAO` are deliberately uncached. `DAO.clearAllCaches()` clears the data namespace only —
-  never a Valkey FLUSH, never sessions. NB: `NoopCacheClient.tryAcquireLock` grants every lock — never
-  use a cache lock for exclusion without probing the cache mode first.
-
-Persistence gotchas (each has caused a real bug):
-
-- DAO reads return **copies**: mutating an object you read earlier and saving its *parent* writes nothing.
-- `Trip` stores event **ids** (`tripEventIds`); `TripEvent`s resolve lazily on the first `getTripEvents()`
-  call per instance and are memoized (same mutable list every call — mutate-then-`saveTrip` still works).
-  A trip whose events are never touched never fans out, and `saveTrip` skips event rows for unresolved
-  instances. The id list is authoritative: a failed event read never shrinks it on save.
-- A read immediately after a write can be stale in production (async invalidation) — pass along the object
-  you just saved instead of re-reading.
-- `queryAll` ignores `limit` (it paginates the whole partition); use `query()` for unbounded partitions.
-- A key condition may name the sort key ONCE: a two-sided range is `BETWEEN :lo AND :hi`, never
-  `> :after AND < :before` (DynamoDB answers 400; the in-memory fake rejects it too since 2026-10-16,
-  after the chat reaction window shipped that shape with green tests and failed on every production read).
-- Lombok `@Builder` zeroes primitive defaults — hand-write builders (see `TripBuilder`) and assert
-  `builder().build().equals(new Whatever())` in the model test.
-- `Registration` is immutable and every field is `@With`: change one field with `withX`, NEVER rebuild through a
-  constructor -- the 5-arg one predates the ticket, payment, price and check-in fields and silently erases them
-  on the next save (two REST paths did; `docs/conference.md`).
-- A DAO on `PartitionScanCache` must delete rows via `removeOne`, never `invalidate()`: in local mode the
-  cache client IS the datastore (soft revalidate off), so a full invalidation silently deletes every OTHER
-  row too — one removed chat photo emptied the whole trip album before this rule existed.
-
-### Page state and row identity — `docs/page-state-and-identity.md` (required reading)
-
-Two rules that outrank convenience everywhere, and that a new page must follow from its first line:
-
-1. **Domain objects live in `requestScope`, resolved from the DAO caches every request.** A view or a
-   session may hold ids and scalars only — `STATE_SAVING_METHOD=server` serializes viewScope INTO the
-   session, so an object in a view is an object in the session, and a later change to that class's shape
-   500s every returning visitor (the 2026-08-14 outage). The DAO caches already ARE the app-scoped layer —
-   `people.getPerson(id)` is the hashmap lookup — so per-request resolve is nearly free and a higher-level
-   cache earns nothing. Beans obey this too: a bean reading `getViewMap("theTrip")` starves the moment its
-   page is converted.
-2. **Row commands act on an identity baked in at RENDER**, never on a row position: `f:param` for commands
-   that act on a record, a frozen key list for editors that bind INTO the row, a scalar row model for
-   tables that sort. Tables resolve per request now, so the decode-time list is not the rendered list.
-   NB an `f:param` does NOT ride a plain `ajax="false"` button submit — such buttons must be ajax.
-
-Guarded by `../medjugorje/webtest/.../SessionScopePolicyIT` (source-scan ratchet, three families of
-violation) and by a webtest per row command. The doc carries the patterns, the sanctioned exceptions, and
-the new-page checklist.
-
-### Domain model (`org.paulsens.trip.model`)
-
-Lombok-annotated, Jackson-serialized to/from DynamoDB. Core types: `Person` (nested `Person.Id`), `Family`, `Trip`,
-`TripEvent`, `Registration`, `RegistrationOption`, `Transaction`, `Creds`, `TodoItem`/`TodoStatus`,
-`PersonDataValue`, `Privilege`, `BindingType`, `Config`/`SettingDef`/`SettingSection`, `MediaItem`,
-`AuditEvent`/`AuditQuery`/`AuditPage`, lodging (`Accommodation` with inline `RoomType`/`Room`/`FloorMap`,
-`RoomBlock`, `ReservationOffer` carrying TWO `RateSchedule`s -- `price` = what a participant pays, the bills;
-`cost` = what the hotel charges, the Room Invoice, null = "not set", which REFUSES the invoice (never assumed
-from the price since 2026-10-26) -- plus `CostExtra`s and an optional `RatePlan` link; `Reservation` with a
-`priceConcession` and a `costConcession` (`Concession`, no side field: the field IS the side); the hotel-owned `RatePlan` (the hotel's cost side only -- no participant
-price on a plan); `PricingModel`, `OfferType`; the trip's planning budget `TripBudget` with inline
-`BudgetLine`s (`BudgetLineKind` SHARED/INDIVIDUAL, `BudgetCategory`) and `BudgetLodgingLine`s that read one of
-the trip's options LIVE, `docs/budget.md`; the trip's expense report `TripExpenseReport` with inline
-`CurrencyRate`s (foreign units per dollar, in millionths), `ExpenseLine`s (one currency each, optionally
-matched to a budget line, with a paid status: Not yet reimbursed / Paid by organization / Already reimbursed; dollar
-figures derived on read, never stored), `AdvanceEntry`s (the cash-advance WORKSHEET: typed `AdvanceType` entries,
-a magnitude in their own currency with the type carrying the sign, a `fields` name-value map for the type's own
-answers, and the one Payment `Transaction` a participant entry may have recorded) and `ExpensePayment`s (signed,
-recorded by a finance admin against the expenses they settle), `docs/expense-report.md` --
-`docs/lodging.md` "Price vs cost" before touching any money field; the four legacy flat price keys still
-fold on read and mirror on write for one release, `docs/migrations/lodging-price-cost.md`), plus
-`model/chat/*` (15 chat types) and `model/deploy/*`. **Accommodations are GLOBAL, not org-owned** — the one
-deliberate exception to the organization tenancy rule, like `Person`; `Accommodation.orgIds` records the
-orgs USING a hotel and `tripIds` the trips holding an option there (both written by `HotelUsage` on every
-offer save), and editing is gated by the per-hotel `accommodationAdmin` privilege (display "Hotel
-Operator"), never a field on the row. That exception has exactly two documented extensions -- the hotel's
-Availability calendar (counts, dates) and the operator's Trips tab (trip titles, dates, guest names at THEIR
-hotel; never a price or a bill) -- `docs/lodging.md` "Roles".
-**Every type that can land in viewScope must be `Serializable`** — a non-serializable one breaks the session
-save and 500s every later request (looks like a site-wide outage). `ModelSerializationTest` is the guard.
-
-**Conferences** (`docs/conference.md`, required reading before touching any of these): a conference is a `Trip`
-with `kind` `TripKind.CONFERENCE` (null reads as PILGRIMAGE; kind changes copy, never permissions -- except that
-creating a conference, or making or unmaking one, takes the org-scoped `addConference`, which org admins are NOT
-implied and the org's allow-list must offer at use: docs/conference.md, "Access");
-`RegistrationOption` is TYPED (`QuestionType` TEXT/CHOICE/MULTI_CHOICE/YES_NO, `required`, `OptionChoice`s with
-optional price, capacity, attestation, days) -- a conference's admission types are a priced pick-one question, NOT
-a separate model; answers store choice IDS and every page shows them through `reg.answerText`; `Registration`
-carries `paymentId`, `ticketCode` (`security/TicketCodes`; every CONFIRMED row has one, enforced in
-`saveRegistration`), `registrationType`, `priceBreakdown` (`PriceBreakdown`, stored once, never recomputed),
-`attestations` and the check-in stamps; `TripEvent` agenda details (`PRESENTER`/`LOCATION`/`TRACK`/
-`AGENDA_HIDDEN`; `hasDetails()` counts transport keys only); the trip role `checkinStaff`. EVERY trip's PUBLIC PAGE (both kinds since 2026-11) is content sections under
-`page:trip:{tripUuid}:home` (`OrgPageBootstrap.tripPageKey`), the body `WEB-INF/tripPageBody.xhtml` hosted by
-`trip/tripDetails.xhtml` (the site) and `trip/tripPage.xhtml` (the chrome-free EMBED the apps fetch through
-`TripDto.detailsUrl`, styles inlined by `TripPageCommands.embedCss`), edited by the trip's `tripMgr` and its org's
-content admins, seeded once on save (`TripPageCommands.ensurePage`; starters by kind, `OrgPageBootstrap.tripRows`).
-A trip saved before every trip had a page still renders its old `description` read-only (a LEGACY page,
-`TripPageCommands.isLegacyPage`) until "Edit page" converts it (`convertLegacyPage`: the description verbatim as
-one text-only section); nothing edits `Trip.description` any more. The bean's views
-(`#{tripPage}`: `tripFor`, `publicAgenda`, `registrationInfo`) are cached-read-only render code. Its look is the
-trip's own `Trip.page` (`TripPageOptions`: layout, background, title, section links, a stylesheet from the org's media
-library; null = the org's Appearance setting; `TripPageCommands.lookFor` renders it, `pageProblems` guards it on
-both save paths) laid over the org's Appearance page (`docs/conference.md`, "Look and feel"); its placeholder sections
-are seeded with a passed "Show until" (`ContentInstance.eventDate`) so visitors never see them, and their first save
-publishes them (`OrgPageBootstrap.isSeededPlaceholder`, cleared in `ContentCommands.saveContent`; a child's save
-publishes its container). `photo-albums` fits a conference page and shows that event's own album. **Priced checkout** (`docs/checkout.md`, required reading
-before touching pricing or a checkout payment): the pure engine in `checkout/` (`CheckoutPricing`, `CheckoutValidator`,
-`CheckoutCapacity`), the policy `Trip.checkout` (`CheckoutConfig`: the payment switch, an optional per-person
-`depositCents` + `balanceDueOn`, auto-confirm (null = OFF), window, `AgeBand`s (admission price only), `DiscountCode`s;
-prices stay on the typed questions), bean `checkout` (`CheckoutCommands`), PAY-FIRST: the party rides the `Payment` as a
-`PendingParty` and `PaymentCommands.recordNow` writes it via `finalizeParty`; `ProcessorType.OFFLINE` for checks,
-cash, comps and $0 parties; `pay/Bills` is the one deterministic Bill writer (lodging and checkout).
-`Payment.hasCheckout()` must never become a bean getter (`docs/checkout.md`, "Idempotency"). Tickets and check-in
-(`docs/checkin.md`, required reading before touching them): ONE bean, `CheckinCommands` (`#{checkin}`), behind the
-anonymous TRANSIENT ticket page (`trip/ticket.jsf`, inline SVG QR from `util/TicketQr`, never `p:barcode`), the
-staff check-in page, the batch badges, the export rows and the four check-in endpoints on `RegistrationsResource`;
-a registration's type and days come from the trip's type question (`RegistrationOption.typeQuestion`), a person's
-money is `tripBalance` (rows bound to THAT trip only, never `getBalance`), and listings never carry a ticket.
-
-`Person.privacy` (`PrivacySettings`) holds the owner's field-visibility choices; `PersonDto.redactedFor`
-(REST) and `PrivacyView` (pages) are the two enforcement points — read `docs/privacy-settings.md` before
-touching Person field visibility, redaction, or the profile/contacts pages.
-
-### CDI action beans (`org.paulsens.trip.action`)
-
-`@Named @ApplicationScoped` beans exposed to JSF EL. Current names: `trip` (TripCommands), `people`
-(PersonCommands), `reg` (RegistrationCommands), `txCmds` (TransactionsCommands), `todo`, `bind`, `priv`,
-`pdv`, `pass`, `mail`, `chat`, `audit`, `auditView`, `config` (ConfigCommands — admin Settings page),
-`media`, `reports` (ReportCommands — the trip report pages' scalar rows; see `docs/reports.md`),
-`profilePhotos`, `chatPhotos` (ChatPhotos — chat photo storage/staging/album), `photoChat`
-(PhotoChatCommands — per-photo comment threads/reactions; see `docs/photo-comments.md` before touching),
-`content` (ContentCommands — template-driven page sections) and `contentTemplate` (TemplateCommands — the
-template manager; see `docs/content-templates.md` before touching either — MAIL-kind templates are
-runtime-editable email copy rendered by `MailCommands.sendManagedTemplate`, tokens filled by Java only),
-`family` (FamilyCommands — family accounts; the create-and-link security boundary, see
-`docs/family-accounts.md`), `support` (SupportChatCommands — the support:main channel; requests post
-without membership), `org` (OrgCommands — organizations, THE tenancy boundary: membership, org-scoped privileges + the per-org
-allow-list, processor configs, the payment-config ladder; see `docs/org-admin.md` and `docs/payments.md`
-before touching), `payment` (PaymentCommands — the whole payment flow in Java: quote/start/complete/cancel + reconciliation + paymentsAdmin sandbox; see `docs/payments.md`), `site` (SiteCommands — the request's
-resolved `SiteContext`: shared / org / marketing host, its page key, org name, org-site URLs; the ONLY
-sanctioned window onto which site a request is for — never copy its answers into session or view scope; see
-`docs/org-admin.md` "Organization sites"), `brand` (BrandCommands — the org site's look: theme/layout
-names, logo or wordmark, favicon, footer, contact card, donate link, analytics id, ALL from the org's own
-org-only Branding settings; neutral/null on every other host so shared pages keep their literal chrome; see
-`docs/org-admin.md` "Branding"), `brandingUpload` (BrandingUploadCommands — the Appearance page's four image
-uploads through the shared crop dialog, ONE bean carrying the `BrandingRole` chosen when the dialog opens)
-and `brandingPhotos` (BrandingPhotos — their versioned `org/{orgId}/branding/{role}-{version}.{ext}` store,
-whose KEPT previous versions are what makes a replaced image recoverable; see `docs/org-admin.md`
-"Uploading the four images"), `lodging` (LodgingCommands — accommodations, room types, rooms, floor maps,
-offers, reservations, the room-assignment board, lodging bills, the itinerary rows; see `docs/lodging.md`
-before touching), `budget` (BudgetCommands -- the trip's planning budget: typed inputs, shared and per-person
-lines, lodging lines reading the trip's options live, the page's rows and the dashboard headline; edit =
-tripMgr/tripFinAdmin, view adds tripFinView and the global viewFinances; arithmetic in `pay/BudgetMath`; see
-`docs/budget.md`; both gates live in `TripFinanceGate`, shared with the expense report), `expenses`
-(ExpenseCommands -- the trip's shared expense report: details, currencies, expenses matched to budget lines,
-the submit stamp, budget vs actual, payments recorded behind the narrower settle gate (site admin or
-`tripFinAdmin` only, `TripFinanceGate.canSettle`); arithmetic in `pay/ExpenseMath`; the PDF (`ExpenseReportPdf`, receipts
-appended) and the email to the org's treasurer (`finance.treasurer.email`) through
-`MailCommands.sendWithAttachment`, the ONE send that carries a file (raw MIME over SES `SendRawEmail`); both money
-PDFs draw with `action/PdfSheet` and download from `web/TripMoneyPdfServlet`; see `docs/expense-report.md`),
-`expenseReceipts` (ExpenseReceipts -- the report's receipts, images or PDFs, in the media bucket under
-`receipts/{tripId}/` and slot `receipts-{tripId}`, served ONLY by `web/ExpenseReceiptServlet` at
-`/expense-receipts/{id}` behind the report's view gate: never a CDN URL, fenced out of every media listing, and
-the CDN denied the prefix by `MediaStack`), `lodgingAccess` (LodgingAccessCommands -- the lodging gates'
-bodies, re-exposed by
-`#{lodging.can*}`, and `forTrip(tripId)`: ONE per-request `LodgingAccess` -- `internal`, `operatorAccIds`,
-`allowedAccIds`, `canAssign`, `operatorHere` -- that `trip/lodging.xhtml` and `roomInvoice.xhtml` keep as
-`requestScope.access`; also `mayNameTrip`, the one naming rule for cross-trip reads), `hotel` (HotelCommands
--- the same hotel seen from its own side: the nights its rooms are blocked and how full it is across EVERY
-trip staying there, counts and dates but never a guest's name in the calendar; plus `tripRows`, the Trips
-tab's rows for the hotel's OPERATORS alone, which DO name the guests at their hotel across orgs -- the
-documented tenancy extension; same doc) and `lodgingUpload`
-(LodgingUploadCommands — hotel photos, room-type photos and floor plans
-through the shared crop dialog into slot `lodging-{accId}`), `ratePlans` (RatePlanCommands -- hotel rate
-plans and their write-through link to offers: a plan is the hotel's COST side only (`canEditCost` is its one
-gate), `savePlan` fans the cost out to every linked option and never recomputes a bill, `attach(AttachForm)`
-on the trip side creates the option WITH its own participant price, `detach` cuts it loose; see
-`docs/lodging.md` "Rate plans"), `waiver` (WaiverCommands -- trip documents: an org's versioned library, a
-trip's pinned versions with the re-sign decision, the two-box signature, the `WAIVERS_REQUIRED` registration
-gate and the signed-copy PDF; see `docs/waivers.md`), `checkin` (CheckinCommands -- tickets, staff check-in,
-counts, the trip-bound balance, batch badges and the export rows; see `docs/checkin.md`), `tripStylesheets`
-(TripStylesheets -- a trip page's own stylesheets: one `text/css` library item each under
-`org/{orgId}/stylesheets/`, saved in place with a `rev` bump and a CDN invalidation, gated to the org's admins and
-media admins, with the "Classes on this page" report and the CodeMirror completion; local bytes served by
-`web/StylesheetServlet`; see `docs/conference.md` "Look and feel"), `deploy`, `json`, `tripUtil`.
-
+- **Blocking-first on virtual threads.** Every DAO, cache and AWS call blocks its calling thread: no
+  `CompletableFuture`, no future `join()`, no cached platform pools (`ArchitectureTest` greps these into the build).
+  Fire-and-forget work spawns via `TripThreads.start`/`startAs`, fan-out uses `StructuredTaskScope`. The whole model:
+  `.claude/rules/threading.md`.
+- **Page state and row identity** (`docs/page-state-and-identity.md`, required reading): domain objects live in
+  `requestScope`, resolved from the DAO caches every request, and a view or a session may hold ids and scalars only; row
+  commands act on an identity baked in at RENDER, never on a row position. In full: `.claude/rules/page-state.md`.
+- **Organization is THE tenancy boundary** (`docs/org-admin.md`, `docs/payments.md`). Accommodations and `Person` are
+  the deliberate global exceptions (`docs/lodging.md`, "Roles").
+- Bean `get*` methods (e.g. `getPerson`, `getTrip`) **never return null** -- they answer a blank object with a
+  fresh id, so null checks don't fire and a careless PUT saves a junk row. REST code must use the
+  `BaseResource.find*` helpers instead.
 - A `Person` comes into being through exactly five paths: sign-up, a family manager's add-member flow, the
   REST people API, a lodging contact auto-created by `LodgingCommands.findOrCreateContact` (no
   credentials, no mail; email-code activation on first sign-in), and the owner-approved, script-only conference
   import (`migrate/`, `docs/migrations/conference-import.md`; reachable from no page). Never add a sixth without
   the owner.
-
-- `ChatPhotos.getChatPhotos()` is ONE static instance on purpose — never give it ChatCommands'
-  FacesContext/application-map lookup: the upload servlet has no FacesContext and the JSF send does, so a
-  context-sensitive lookup splits the staging registry across two instances and every photo "is no longer
-  available" at send.
-
-- Bean `get*` methods (e.g. `getPerson`, `getTrip`) **never return null** — they answer a blank object with a
-  fresh id, so null checks don't fire and a careless PUT saves a junk row. REST code must use the
-  `BaseResource.find*` helpers instead.
-- `AuditActor.current()` reads the `RequestContext` ScopedValue, bound per request by `SessionRecoveryFilter`
-  and inherited by `StructuredTaskScope` forks. A plain `TripThreads.start` spawn does NOT inherit it -- use
-  `startAs(actor, ...)` for work that outlives its request (`CompletableFuture` is banned by `ArchitectureTest`).
-
-### REST API (`org.paulsens.trip.api`, served at `/api/*`)
-
-Jersey servlet (declared in the live web.xml, sibling repo) running `TripApiApplication` — resources are
-registered **explicitly** in `getClasses()`, no package scanning; a new resource must be added there (and to
-`ApiSurfaceTest.RESOURCES`). Resources include auth, people, trips, registrations, transactions, todos,
-privileges, chat, chat-admin, photo-chat, audit, config, mail, payments, the Stripe webhook
-(`webhooks/stripe/{configId}`, deliberately not `@TripApi`: its authority is Stripe's HMAC signature over the
-body, verified with that config's stored signing secret; `docs/payments.md`), deploy, lodging, family, budget and
-expenses (`getClasses()` is the authoritative list) +
-`TripAuthFilter`, `JsonExceptionMapper`, `ObjectMapperProvider`. DTOs in `api/dto`, MapStruct mappers in
-`api/mapper`. Versioning is via the `Accept` media type, not a URL segment.
-
-- The API is the native client's (UniteTrip iOS, `../UniteTrip`) only door, so a page feature the app needs
-  gets a resource that WRAPS the page's bean — never a second implementation. Person-scoped reads take the
-  SUBJECT explicitly (`?personId=` or the path id) and authorize it with `BaseResource.subjectOf`/`actsFor`
-  (self or `canAccessUserId`; site admin never implied) -- the website's acting-for without a session, and
-  the one spelling of the rule. There is deliberately no act-as header: identity never changes. Where a bean
-  only growled, it gained an `*Outcome` sibling that returns a coded result and the page method delegates to
-  it (`FamilyCommands.FamilyResult`, `RegistrationCommands.PartyOutcome`, `ProfilePhotoCommands.PhotoResult`).
-- Photo uploads on the API are RAW bodies (`image/*` or `application/octet-stream`, crop in query params),
-  read through `BaseResource.readUpload`, which refuses over-cap bodies before buffering. The API servlet
-  has no `multipart-config` and must not get one (Tomcat's `maxPartCount` counts ordinary fields).
-- Every URL that leaves the API is absolute (`BaseResource.absoluteUrl`): a mobile client cannot resolve a
-  context-relative `/profile-photos/...` the way a page can. `GET /api/media/bases` names the photo bases.
-
-- `PhotoChatResource` is deliberately NOT `@TripApi`: the auth filter is name-bound, so its GETs serve
-  anonymous readers (comments follow the photo — `docs/photo-comments.md`); mutations enforce the session
-  themselves and answer 401 JSON. `BaseResource.personId` still recognises a bearer caller there (the
-  servlet edge resolves the principal for every `/api/` request; only the filter's stamp is missing).
-- API authentication is dual: session cookie OR `Authorization: Bearer` (feature-gated by
-  `api.token.enabled`, default off). Read `docs/api-tokens.md` before touching `TripAuthFilter`,
-  `AuthResource`, `TokenService`, `RememberMeService`, `SelectorTokens`, the `auth_tokens` table, or
-  anything that mints or validates a credential -- it holds the invariants (fully-attributed audit,
-  bounded revocation, one Valkey GET on the hot path) every change must preserve.
-
-- Redaction is authorization: a DTO field the caller may not see is redacted by the mapper, not blocked by a
-  route. `AccessLevel` is unranked — do not compare its constants with ordinal logic.
-- `Beans.get` must select with the `Any` qualifier: `@FacesConfig` (on `PassCommands`) suppresses `@Default`,
-  so a bare `CDI.current().select(type)` 500s at runtime and no unit test catches it.
-
-### Other packages
-
-- `web/SecurityHeadersFilter` + `web/ContentSecurityPolicy` + `web/CspReportServlet` -- the HTTP security headers
-  (HSTS, nosniff, X-Frame-Options, the CSP as report-only first) and where browsers report CSP violations. Read
-  `docs/security-headers.md` before adding a foreign script, frame, font or style source to any page.
-- `chat/` — per-trip chat runtime: digest scheduler (Valkey-coordinated so N tasks send once), notifier
-  chain, rate limiter, long-poll nudge registry. Design doc: `chat-design.md` at the workspace root. Several
-  chat decisions deliberately reverse the obvious approach — read the design doc before changing behavior.
-  Non-members participate via whole-family access or invite links (QR code + `chat_invites` table; guests
-  are explicit guest-marked membership rows) — read `docs/chat-invites.md` before touching chat
-  authorization (`canParticipate`/`readDenial`/`rejoin`) or `ChatMembership` copy methods.
-  Channels are no longer only per-trip: each chat photo gets a `photo:{s3Key}` channel for its comment
-  thread and image reactions, which roll up (SUM) into the carrying message's chips — read
-  `docs/photo-comments.md` before touching photo threads, the summary fold, or `purgeChannel`.
-  Notification recipients are route-neutral candidates (`ChatNotifications.eligible`, membership only);
-  each route applies its own preference — email `mentionEmail`, push `ChatNotifyPref.pushMode`.
-  Bodies carry a small formatting markup (`**bold**`, `*italic*`, `__underline__`, `~~strike~~`, `- ` and
-  `1. ` list lines), parsed by `model/chat/ChatMarkup` and rendered per surface (`chat/ChatBodyHtml` for
-  mail, `ChatMarkup.plain` for push and reply snippets, `chatFormat.js` on the site, `ChatMarkup.swift` in
-  the app) -- read `docs/chat-formatting.md` before touching any body renderer; the three parsers share one
-  conformance table.
-- `push/` — push notifications: direct APNs (HTTP/2 + ES256 token auth) and standard Web Push (RFC 8291
-  aes128gcm + VAPID), all JDK, behind one `PushGateway` seam; devices in ONE reserved person-data row per
-  person (`push-devices`), pruned by every credential revocation; `PushSender` gates + dedupe + quiet hours +
-  badge; `PushChatNotifier` in the notifier chain, `PushNotifications` for approvals/payments/support; REST
-  `api/PushResource`, bean `#{push}`. Ships dark behind `push.enabled`. Read `docs/push-notifications.md`
-  before touching any of it, the `pushMode` field, or the three event hooks.
-- `media/` — the chat-photo pipeline (P4 media, landed 2026-08-07): `PhotoProcessor` (two renditions per
-  upload — untouched original + ≤800px display copy; HEIC transcodes to full-res JPEG; animated GIF passes
-  through), `ImageFormat` (magic-byte sniffing), `ChatPhotoStaging` (upload→send authorization). Uploads go
-  through `web/ChatUploadServlet` (`/chat-photos/*`, own multipart-config in the live web.xml — the chat
-  page's JSF form must NEVER go multipart, Tomcat's `maxPartCount` counts ordinary fields). Album rows land
-  in the media table under slot `tripChat-{tripId}`; message removal deletes photos everywhere (album
-  semantics: retention expiry does NOT). Rotation (`PhotoProcessor.rotate`, `QuarterTurn`, `RotationGuard`):
-  chat photos and receipts turn IN PLACE and bump `rev` (clients append `?r=N`; never fire REMOVED for a
-  rotated chat key), while profile, badge, lodging and branding images get a NEW key.
-- `audit/` — `Audit` writes every event to CloudWatch Logs (`TRIP_AUDIT_LOG_GROUP`) AND the `audit` DynamoDB
-  table when deployed, stdout otherwise. Append-only in IAM *and* in code — no update/delete paths.
-- `config/KnownSettings` — every runtime setting is declared ONCE here (`SettingDef` constants); the admin
+- `config/KnownSettings` -- every runtime setting is declared ONCE here (`SettingDef` constants); the admin
   Settings page and the reading code both consume it. Never introduce a literal settings key + default.
-- `security/` — `PasswordHasher` (BCrypt over a peppered pre-hash) + `Pepper` (versioned key from Secrets
-  Manager; unset ⇒ logs a warning, hashes unpeppered). Local mode uses `Pepper.none()`.
+- Lombok `@Builder` zeroes primitive defaults -- hand-write builders (see `TripBuilder`). This and seven more
+  persistence gotchas, each from a real bug: `.claude/rules/persistence-gotchas.md` (read it before writing DAO-calling
+  code).
+- A new REST resource is registered **explicitly** in `TripApiApplication.getClasses()` (and in
+  `ApiSurfaceTest.RESOURCES`); the REST rules are `.claude/rules/api.md`.
 
-## Scripts & data migrations
+## Testing
 
-The conference import from an older deployment (people, past conferences, registrations, ledger, roles) is the
-`org.paulsens.trip.migrate` CLI, run by the private repo's `scripts/conf-import/` -- plan (reads only), rehearse
-(in memory), apply, verify, rollback; `docs/migrations/conference-import.md` holds the owner's rules and the checks.
-
-`scripts/`: `backfill-people-email.sh` (email-index GSI backfill), `migrate-group-tx-membership.sh`
-(also `--repair`, for group rows whose stamped membership went stale), `sweep-orphan-tx-bindings.sh`
-(deletes bindings left behind by deleted transactions; dry-run by default),
-`rotate-password-pepper.sh` (pepper rotation and plaintext-password migration). One-time migration docs are in
-`docs/migrations/`. The family-accounts migration scripts (report/migrate/consistency) live in the private
-repo's `scripts/` — see `docs/family-accounts.md`.
-
-## Testing notes
-
-- **TestNG only** (no JUnit). The surefire `surefire-testng` provider is explicitly pinned — auto-detection
+- **TestNG only** (no JUnit). The surefire `surefire-testng` provider is explicitly pinned -- auto-detection
   once silently switched to the JUnit platform and reported "Tests run: 0 … SUCCESS". For the same reason,
   never add `jersey-test-framework` (it drags in junit-jupiter).
 - The entire suite runs in local mode (surefire sets `trip.local.mode=true`): fake persistence, in-memory
-  cache, `Pepper.none()`. This means **no unit test can catch a production-only mode/wiring bug** — verify
+  cache, `Pepper.none()`. This means **no unit test can catch a production-only mode/wiring bug** -- verify
   those against the container image.
-- **Seeded fixtures carry fixed, canonical UUIDs** — `FakeData` exposes one constant per seed
-  (`FAKE_TRIP_ID`, `PUB_EN_1_TRIP_ID`, `ADMIN_PERSON_ID`, …); reference those, never a literal id. Trips,
-  people and events are UUIDs in production, and a privilege scoped to anything else parses back as GLOBAL,
-  so `Privilege.requireStorableScope` refuses it: the readable ids the seeds once used ("faketrip") made
-  every trip-role write on a demo trip throw. The browser tests keep a mirrored copy in
-  `../medjugorje/webtest/.../pw/SeededIds.java`, guarded against drift by `SeededFixturesPwIT`.
-- Valkey integration tests auto-skip unless `TRIP_VALKEY_URI` is set (see the Testing section of
-  `../medjugorje/setup-instructions.txt`). Pointing tests at a *configured* cache in local mode additionally
-  requires the sysprop-only `trip.cache.local.useConfigured` guard.
-- New tests go in `trip/src/test/java/`; useful harnesses: `dynamo/DynamoLocal` (real DynamoDB engine),
-  `cache/LocalRedisCluster`, `api/ResourceTestSupport`.
+- Fixtures, the Valkey integration tests and the harnesses: `.claude/rules/testing.md`.
+
+## Rules by area (`.claude/rules/`, loaded on a matching Read)
+
+| Rule file | Loads for | Holds |
+|-----------|-----------|-------|
+| `threading.md` | any main Java source | virtual threads, `TripThreads`, `StructuredTaskScope`, `AuditActor` |
+| `persistence-gotchas.md` | any Java source, main or test | eight DAO/model gotchas, each from a real bug |
+| `persistence.md` | `dynamo/`, `cache/` | `Persistence`, the DAO inventory, the cache architecture |
+| `page-state.md` | `action/`, `web/`, `jsf/` | the two page rules in full, and what guards them |
+| `model.md` | `model/` | domain types, lodging price vs cost, the `Serializable` rule, privacy |
+| `api.md` | `api/` | resource registration, subjects, uploads, URLs, auth, redaction |
+| `chat.md` | `chat/`, `model/chat/`, `moderation/`, chat beans | chat runtime, invites, photo channels, markup |
+| `push.md` | `push/`, `PushResource` | APNs + Web Push, devices, gates |
+| `media.md` | `media/`, `ChatUploadServlet`, chat-photo beans | the chat-photo pipeline and rotation |
+| `security-headers.md` | the three header classes in `web/` | the security headers and CSP reports |
+| `audit-config-security.md` | `audit/`, `config/`, `security/` | audit sinks, `KnownSettings`, hashing and the pepper |
+| `scripts-migrations.md` | `scripts/`, `docs/migrations/`, `migrate/` | the scripts and the conference import CLI |
+| `testing.md` | `trip/src/test/`, any `pom.xml` | seeded ids, Valkey tests, harnesses |
+| `dependencies.md` | any `pom.xml` | the full stack with its pins and native-library caveats |
+
+## Docs by area (`docs/`, read BEFORE touching the area)
+
+| Doc | Read it before touching |
+|-----|-------------------------|
+| `page-state-and-identity.md` (required) | a new page, a scope variable, a row command, a bean reading view state |
+| `caching.md` | any cache or DAO read path |
+| `payments.md` | organizations and org members, processor configs, `Payment`, `PaymentCommands`, the Stripe webhook |
+| `org-admin.md` | `OrgCommands`, org-scoped privileges, `SiteCommands` and org sites, branding and its uploads |
+| `lodging.md` | anything lodging; "Price vs cost" before any money field; "Roles"; "Rate plans" |
+| `family-accounts.md` | anything family-related |
+| `budget.md`, `expense-report.md`, `reports.md` | the trip budget, the expense report, the report pages |
+| `waivers.md` | trip documents ("waivers") |
+| `conference.md` (required) | conferences, typed registration questions, trip pages and their look |
+| `checkout.md` (required) | pricing or a checkout payment |
+| `checkin.md` (required) | tickets and check-in |
+| `privacy-settings.md` | Person field visibility, redaction, the profile/contacts pages |
+| `content-templates.md` | `ContentCommands`, `TemplateCommands`, MAIL-kind templates |
+| `photo-comments.md` | photo threads, the summary fold, `purgeChannel`, `PhotoChatCommands` |
+| `chat-invites.md` | chat authorization (`canParticipate`/`readDenial`/`rejoin`), `ChatMembership` copy methods |
+| `chat-formatting.md` | any chat body renderer |
+| `../chat-design.md` (workspace root) | chat behavior: several decisions deliberately reverse the obvious |
+| `push-notifications.md` | `push/`, the `pushMode` field, the three event hooks |
+| `api-tokens.md` | `TripAuthFilter`, `AuthResource`, anything that mints or validates a credential |
+| `api-contract.md` | the wire contract both native apps are written against |
+| `security-headers.md` | adding a foreign script, frame, font or style source to any page |
+| `migrations/` | one-time data migrations (`conference-import.md` holds the owner's rules) |
+| `code-map.md` | finding a bean by EL name; the conference / trip page / checkout / check-in overview |
+| `moderation.md`, `shared-itineraries.md`, `trip-delete.md` | those features |
