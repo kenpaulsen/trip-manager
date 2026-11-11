@@ -87,6 +87,15 @@
                 <artifactId>log4j-core</artifactId>
                 <version>2.26.1</version>
             </dependency>
+            <!-- org.json reaches only the test classpath, through jedis-mock's jedis, which asks for 20251224:
+                 inside CVE-2026-59171 (JSONTokener numeric-string DoS, fixed in 20260719). Held at a patched
+                 release here until a jedis-mock release asks for one itself. License: JSON-java's is Public
+                 Domain since 20231013. -->
+            <dependency>
+                <groupId>org.json</groupId>
+                <artifactId>json</artifactId>
+                <version>20260814</version>
+            </dependency>
             <dependency>
                 <groupId>org.slf4j</groupId>
                 <artifactId>slf4j-api</artifactId>
