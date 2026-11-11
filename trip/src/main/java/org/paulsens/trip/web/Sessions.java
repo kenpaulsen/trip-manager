@@ -14,6 +14,7 @@ import org.paulsens.trip.action.PersonCommands;
 import org.paulsens.trip.model.Creds;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.security.RememberMeService;
+import org.paulsens.trip.security.SecureCookies;
 import org.paulsens.trip.site.SiteContext;
 
 /**
@@ -248,7 +249,7 @@ public final class Sessions {
         dead.setPath(path);
         dead.setMaxAge(0);
         dead.setHttpOnly(true);
-        dead.setSecure(request.isSecure());
+        dead.setSecure(SecureCookies.flagFor(request));
         response.addCookie(dead);
         if (!SiteContext.current().isShared()) {
             response.addHeader("Set-Cookie", hostOnlyDeletion(SESSION_COOKIE, path));

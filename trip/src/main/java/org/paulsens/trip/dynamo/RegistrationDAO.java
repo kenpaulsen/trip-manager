@@ -7,6 +7,7 @@ import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
@@ -25,7 +26,6 @@ public class RegistrationDAO {
     private static final String CONTENT = "content";
     private static final String TRIP_ID = "tripId";
     private static final String USER_ID = "userId";
-    private static final String DELETED = "deleted";
     private static final String REGISTRATION_TABLE = "registrations";
 
     private final ObjectMapper mapper;
@@ -146,7 +146,7 @@ public class RegistrationDAO {
         log.info("Cache miss for registration data for tripId: {}", tripId);
         return persistence.queryAll(qb -> registrationsByTripId(qb, tripId)).stream()
                 .map(m -> toRegistration(m.get(CONTENT)))
-                .filter(reg -> (reg != null) && !DELETED.equals(reg.getStatus()))
+                .filter(Objects::nonNull)
                 .toList();
     }
 

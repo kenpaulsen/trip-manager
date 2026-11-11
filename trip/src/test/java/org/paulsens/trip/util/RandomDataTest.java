@@ -44,10 +44,23 @@ public class RandomDataTest {
     }
 
     @Test
+    public void generatedStringsUseTheirAlphabetAndDoNotRepeat() {
+        // genString feeds DataId row ids in production; it draws from the CSPRNG like everything else here.
+        final Set<String> seen = new HashSet<>();
+        for (int draw = 0; draw < 100; draw++) {
+            final String id = RandomData.genString(18, RandomData.ALPHA_NUM);
+            Assert.assertTrue(id.matches("[A-Za-z0-9]{18}"), "outside the alphabet or length: " + id);
+            Assert.assertTrue(seen.add(id), "an 18-character id repeated -- the generator is broken");
+        }
+        Assert.assertTrue(RandomData.genAlpha(12).matches("[A-Za-z]{12}"));
+        Assert.assertEquals(RandomData.genPassChars(9).length(), 9);
+    }
+
+    @Test
     public void securePassCharsStayInThePasswordAlphabet() {
         final String pass = RandomData.genSecurePassChars(24);
         Assert.assertEquals(pass.length(), 24);
-        final String alphabet = new String(RandomData.PASS_CHARS);
+        final String alphabet = RandomData.PASS_CHARS;
         for (final char ch : pass.toCharArray()) {
             Assert.assertTrue(alphabet.indexOf(ch) >= 0, "'" + ch + "' is not a password character");
         }

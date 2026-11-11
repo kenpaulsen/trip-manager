@@ -542,7 +542,10 @@ public class TransactionsCommands {
         if (tx == null || tx.getAmount() == null) {
             return null;
         }
-        return tx.isShared() ? tx.getAmount() / Math.max(1, getUserIdsForGroup(tx).size()) : tx.getAmount();
+        if (!tx.isShared()) {
+            return tx.getAmount();
+        }
+        return tx.getAmount() / Math.max(1, getUserIdsForGroup(tx).size());
     }
 
     /**

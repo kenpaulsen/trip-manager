@@ -85,7 +85,7 @@ public class PersonTest {
                 .id(Person.Id.from(RandomData.genAlpha(5)))
                 .first(RandomData.genAlpha(12))
                 .last(RandomData.genAlpha(18))
-                .cell(RandomData.genString(10, new char[] {'1', '2', '3', '4', '5', '6', '7', '8', '9'}))
+                .cell(RandomData.genString(10, "123456789"))
                 .birthdate(LocalDate.now())
                 .build();
         final String json = mapper.writeValueAsString(before);

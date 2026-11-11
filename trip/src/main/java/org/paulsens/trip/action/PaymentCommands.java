@@ -195,7 +195,6 @@ public class PaymentCommands {
      */
     public Start startPayment(final Trip trip, final Map<String, Object> rawAmounts,
             final Object rawDonation, final boolean sandbox, final String pageUrl) {
-        final Caller current = caller();
         final Person payer = currentPerson();
         if (payer == null || trip == null) {
             return failNull("Not signed in", "Sign in to make a payment.");
@@ -245,7 +244,9 @@ public class PaymentCommands {
                 .allocations(allocations)
                 .donationCents(donation)
                 .feesPaidBy(effective.getFeesPaidBy())
-                .creditFeeCents(payerPays ? creditFee : creditFee)
+                // Stored whoever pays it: the receipt and the mailer report the fee in the organization-pays case
+                // too, and totalChargedCents (below) is what takes payerPays into account.
+                .creditFeeCents(creditFee)
                 .donationFeeCents(MoneyMath.donationFeeCents(donation, config.getEffectiveFeeBps()))
                 .totalChargedCents(MoneyMath.totalChargedCents(credits, creditFee, donation, payerPays))
                 .sandbox(sandbox)

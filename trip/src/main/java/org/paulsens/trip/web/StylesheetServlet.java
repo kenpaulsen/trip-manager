@@ -17,7 +17,7 @@ import org.paulsens.trip.api.Beans;
  */
 public class StylesheetServlet extends HttpServlet {
 
-    private TripStylesheets stylesheets;
+    private transient TripStylesheets stylesheets;
 
     void setStylesheets(final TripStylesheets stylesheets) {
         this.stylesheets = stylesheets;

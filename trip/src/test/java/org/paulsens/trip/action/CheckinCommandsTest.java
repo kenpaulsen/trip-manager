@@ -604,6 +604,24 @@ public class CheckinCommandsTest {
     }
 
     @Test
+    public void theExportRowEscapesAQuestionLabelOnScreenAndLeavesTheFileTextAlone() throws IOException {
+        // The export page renders tripOpts unescaped (for the list markup), so the label must be escaped
+        // here; exportOpts goes into a CSV/XLSX cell, where the label is plain text.
+        final Trip trip = newTrip();
+        trip.getRegOptions().get(2).setShortDesc("Diet & <img src=x onerror=alert(1)>");
+        final Person ann = newPerson("Ann", "Escape", null);
+        register(trip, ann, Registration.Status.CONFIRMED, null);
+        trip.getPeople().add(ann.getId());
+
+        final Map<String, Object> row = admin().exportRow(trip, ann.getId());
+
+        final String html = (String) row.get("tripOpts");
+        assertTrue(html.contains("<li><b>Diet &amp; &lt;img src=x onerror=alert(1)&gt;</b> Vegetarian</li>"), html);
+        assertFalse(html.contains("<img"), "no label markup reaches the page");
+        assertTrue(((String) row.get("exportOpts")).contains("Diet & <img src=x onerror=alert(1)> Vegetarian"));
+    }
+
+    @Test
     public void theExportRowKeepsTheOldCellsAndAddsTheNewOnes() throws IOException {
         final Trip trip = newTrip();
         final Person ann = newPerson("Ann", "Export", null);

@@ -18,7 +18,7 @@ import org.paulsens.trip.api.Beans;
  */
 public class BrandingPhotoServlet extends HttpServlet {
 
-    private BrandingPhotos brandingPhotos;
+    private transient BrandingPhotos brandingPhotos;
 
     void setBrandingPhotos(final BrandingPhotos brandingPhotos) {
         this.brandingPhotos = brandingPhotos;

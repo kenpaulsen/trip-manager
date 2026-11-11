@@ -65,7 +65,7 @@ public class PushPrefs implements Serializable {
     /** The same devices with the person-level settings replaced (null keeps a value, blank clears it). */
     public PushPrefs withSettings(final Boolean newEnabled, final String newStart, final String newEnd,
             final String newZone) {
-        return new PushPrefs(newEnabled == null ? enabled : newEnabled,
+        return new PushPrefs(newEnabled == null ? Boolean.valueOf(enabled) : newEnabled,
                 newStart == null ? quietHoursStart : newStart,
                 newEnd == null ? quietHoursEnd : newEnd,
                 newZone == null ? timeZone : newZone, devices);

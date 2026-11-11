@@ -98,12 +98,7 @@ public final class StarterTemplates {
         return new Placeholder(name, Placeholder.Type.TEXT, label, hint, required, sample);
     }
 
-    private static Placeholder richText(final String name, final String label, final String hint,
-            final boolean required) {
-        return new Placeholder(name, Placeholder.Type.RICH_TEXT, label, hint, required);
-    }
-
-    /** As {@link #richText}, with the thumbnail's sample markup. */
+    /** A rich-text prompt, with the thumbnail's sample markup. */
     private static Placeholder richText(final String name, final String label, final String hint,
             final boolean required, final String sample) {
         return new Placeholder(name, Placeholder.Type.RICH_TEXT, label, hint, required, sample);

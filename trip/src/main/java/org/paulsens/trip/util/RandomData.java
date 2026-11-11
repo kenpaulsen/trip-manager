@@ -2,23 +2,20 @@ package org.paulsens.trip.util;
 
 import java.security.SecureRandom;
 import java.util.Base64;
-import java.util.Random;
-import java.util.concurrent.ThreadLocalRandom;
 
 public final class RandomData {
     private RandomData() {
     }
 
-    private static final Random RAND = new Random();
-    // Anything an attacker could profit from predicting (login codes, remember-me tokens) must come from
-    // here, never from the shared java.util.Random above.
+    // The ONLY generator here. There used to be a shared java.util.Random beside it for "display data", and the
+    // one production caller (DataId) took its row ids from it; a second, weaker source is a trap for the next
+    // caller, and the CSPRNG is fast enough for everything this class does.
     private static final SecureRandom SECURE = new SecureRandom();
-    public static final char[] ALPHA =
-            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz".toCharArray();
-    public static final char[] ALPHA_NUM =
-            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789".toCharArray();
-    public static final char[] PASS_CHARS =
-            "@#!*23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz".toCharArray();
+    // Strings, not char[]: a public array is writable by any code, and one stray write would silently weaken
+    // every id and password generated afterwards.
+    public static final String ALPHA = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+    public static final String ALPHA_NUM = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    public static final String PASS_CHARS = "@#!*23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz";
 
     public static String genAlpha(final int len) {
         return genString(len, ALPHA);
@@ -48,33 +45,16 @@ public final class RandomData {
     public static String genSecurePassChars(final int len) {
         final StringBuilder buf = new StringBuilder(len);
         for (int count = 0; count < len; count++) {
-            buf.append(PASS_CHARS[SECURE.nextInt(PASS_CHARS.length)]);
+            buf.append(PASS_CHARS.charAt(SECURE.nextInt(PASS_CHARS.length())));
         }
         return buf.toString();
     }
 
-    public static String genString(final int len, final char[] chars) {
+    public static String genString(final int len, final String chars) {
         final StringBuilder buf = new StringBuilder();
         for (int count = 0; count < len; count++) {
-            buf.append(chars[RAND.nextInt(chars.length)]);
+            buf.append(chars.charAt(SECURE.nextInt(chars.length())));
         }
         return buf.toString();
-    }
-
-    public static int randomInt(final int max) {
-        return ThreadLocalRandom.current().nextInt(max);
-    }
-
-    public static long randomLong(final long max) {
-        return ThreadLocalRandom.current().nextLong(max);
-    }
-
-    public static float randomFloat(final float max) {
-        return ThreadLocalRandom.current().nextFloat(max);
-    }
-
-    public static <E extends Enum<E>> E randomEnum(final Class<E> enumClass) {
-        final E[] possible = enumClass.getEnumConstants();
-        return possible[randomInt(possible.length)];
     }
 }

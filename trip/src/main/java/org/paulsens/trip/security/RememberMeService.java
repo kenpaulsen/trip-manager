@@ -200,8 +200,8 @@ public class RememberMeService {
     private Cookie cookie(final HttpServletRequest request, final String value, final int maxAge) {
         final Cookie cookie = new Cookie(COOKIE_NAME, value);
         cookie.setHttpOnly(true);
-        // Secure tracks the request so plain-http local mode still works; production is TLS-only.
-        cookie.setSecure(request.isSecure());
+        // Always Secure in production; only plain-http local mode follows the request (SecureCookies).
+        cookie.setSecure(SecureCookies.flagFor(request));
         cookie.setPath("/");
         cookie.setMaxAge(maxAge);
         cookie.setAttribute("SameSite", "Lax");

@@ -31,8 +31,8 @@ public class ProfilePhotoServlet extends HttpServlet {
 
     static final String PREVIEW_PATH = "/preview/";
 
-    private ProfilePhotos profilePhotos;
-    private PendingUploads pendingUploads = PendingUploads.getPendingUploads();
+    private transient ProfilePhotos profilePhotos;
+    private transient PendingUploads pendingUploads;
 
     void setProfilePhotos(final ProfilePhotos profilePhotos) {
         this.profilePhotos = profilePhotos;
@@ -73,7 +73,7 @@ public class ProfilePhotoServlet extends HttpServlet {
             resp.sendError(401);
             return;
         }
-        final Optional<PendingUploads.Pending> pending = pendingUploads.peek(token, me.getValue());
+        final Optional<PendingUploads.Pending> pending = pendingUploads().peek(token, me.getValue());
         if (pending.isEmpty()) {
             resp.sendError(404);
             return;
@@ -90,6 +90,17 @@ public class ProfilePhotoServlet extends HttpServlet {
         resp.setContentLength(bytes.length);
         resp.setHeader("Cache-Control", cacheControl);
         resp.getOutputStream().write(bytes);
+    }
+
+    private PendingUploads pendingUploads() {
+        PendingUploads pending = pendingUploads;
+        if (pending == null) {
+            // Resolved lazily, like photos(): a field initializer would not run again if the container ever
+            // restored this servlet, and the transient field would stay null.
+            pending = PendingUploads.getPendingUploads();
+            pendingUploads = pending;
+        }
+        return pending;
     }
 
     private ProfilePhotos photos() {

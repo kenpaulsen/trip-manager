@@ -16,7 +16,7 @@ import org.paulsens.trip.api.Beans;
  */
 public class LodgingPhotoServlet extends HttpServlet {
 
-    private LodgingUploadCommands uploads;
+    private transient LodgingUploadCommands uploads;
 
     void setUploads(final LodgingUploadCommands uploads) {
         this.uploads = uploads;

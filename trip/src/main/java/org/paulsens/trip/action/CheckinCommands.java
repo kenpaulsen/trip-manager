@@ -944,7 +944,11 @@ public class CheckinCommands {
                     : opt.displayOf(reg.getOptions().get(opt.getKey()));
             if (value != null) {
                 final String escaped = com.sun.jsft.util.Util.htmlEscape(value);
-                html.append("<li><b>").append(opt.getShortDesc()).append("</b> ").append(escaped).append("</li>");
+                // The label is escaped too: the page renders this column unescaped (for the list markup built
+                // here), so a raw label would let whoever edits a trip's questions run markup in every
+                // manager's and admin's browser. Stored labels are plain text; none holds a tag.
+                final String label = com.sun.jsft.util.Util.htmlEscape(opt.getShortDesc());
+                html.append("<li><b>").append(label).append("</b> ").append(escaped).append("</li>");
                 text.append(opt.getShortDesc()).append(' ').append(escaped).append('\n');
             }
         }

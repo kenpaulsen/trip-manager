@@ -8,6 +8,7 @@ import nl.jqno.equalsverifier.EqualsVerifier;
 import nl.jqno.equalsverifier.Warning;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.util.RandomData;
+import org.paulsens.trip.util.TestRandom;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
@@ -32,7 +33,7 @@ public class TransactionTest {
     @Test
     public void canSerializeDeserialize() throws IOException {
         final ObjectMapper mapper = DAO.getInstance().getMapper();
-        final Transaction.TransactionType tt = RandomData.randomEnum(Transaction.TransactionType.class);
+        final Transaction.TransactionType tt = TestRandom.randomEnum(Transaction.TransactionType.class);
         final Transaction orig = new Transaction(null, Person.Id.from("userId"), RandomData.genAlpha(5),
                 Transaction.Type.Tx, tt, LocalDateTime.now(ZoneOffset.UTC), 12.0f, "category", null);
         final String json = mapper.writeValueAsString(orig);
@@ -44,7 +45,7 @@ public class TransactionTest {
     public void deletePersists() throws IOException {
         final ObjectMapper mapper = DAO.getInstance().getMapper();
         final LocalDateTime date = LocalDateTime.now(ZoneOffset.UTC);
-        final Transaction.TransactionType tt = RandomData.randomEnum(Transaction.TransactionType.class);
+        final Transaction.TransactionType tt = TestRandom.randomEnum(Transaction.TransactionType.class);
         final Transaction orig = new Transaction(
                 null, Person.Id.from("userId"), null, null, tt, date, null, null, null);
         orig.setDeleted(orig.getTxDate().plusHours(2));

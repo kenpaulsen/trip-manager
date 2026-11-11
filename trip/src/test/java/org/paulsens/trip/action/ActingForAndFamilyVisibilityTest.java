@@ -14,6 +14,7 @@ import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Transaction;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.util.RandomData;
+import org.paulsens.trip.util.TestRandom;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
@@ -212,7 +213,7 @@ public class ActingForAndFamilyVisibilityTest {
 
     private static Transaction plainTx(final Person.Id userId, final float amount) {
         return new Transaction("tx-" + RandomData.genAlpha(9), userId, null, Transaction.Type.Tx,
-                Transaction.TransactionType.Payment, LocalDateTime.now().minusDays(RandomData.randomLong(30)),
+                Transaction.TransactionType.Payment, LocalDateTime.now().minusDays(TestRandom.randomLong(30)),
                 amount, "Test", "test row");
     }
 

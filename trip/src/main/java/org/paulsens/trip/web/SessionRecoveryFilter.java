@@ -21,6 +21,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.Audit;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.security.BearerTokens;
+import org.paulsens.trip.security.SecureCookies;
 import org.paulsens.trip.security.TokenPrincipal;
 import org.paulsens.trip.site.SiteContext;
 import org.paulsens.trip.site.SiteIndex;
@@ -240,7 +241,7 @@ public class SessionRecoveryFilter implements Filter {
         dead.setPath(req.getContextPath().isEmpty() ? "/" : req.getContextPath());
         dead.setMaxAge(0);
         dead.setHttpOnly(true);
-        dead.setSecure(req.isSecure());
+        dead.setSecure(SecureCookies.flagFor(req));
         res.addCookie(dead);
     }
 

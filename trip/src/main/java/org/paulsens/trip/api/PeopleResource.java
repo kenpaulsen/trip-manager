@@ -501,9 +501,13 @@ public class PeopleResource extends BaseResource {
         if (!canEdit(levelFor(personId, null))) {
             return error(403, ApiErrors.FORBIDDEN, "Not permitted to edit this person's data.");
         }
+        // PersonDataValue.type is @NonNull: without this an empty body is a NullPointerException and a 500.
+        if (body == null || body.type() == null || body.type().isBlank()) {
+            return error(400, ApiErrors.BAD_REQUEST, "A data value needs a type.");
+        }
         final PersonDataValue value = PersonDataValueCommands.createPersonDataValue(
-                personId, DataId.from(dataId), body == null ? null : body.type());
-        value.setContent(body == null ? null : body.content());
+                personId, DataId.from(dataId), body.type());
+        value.setContent(body.content());
         if (!PersonDataValueCommands.savePersonDataValue(value)) {
             return error(500, ApiErrors.STORE_FAILED, "Could not save the data value.");
         }
@@ -649,8 +653,8 @@ public class PeopleResource extends BaseResource {
 
     private static PersonDataValueDto toDto(final PersonDataValue value) {
         return new PersonDataValueDto(
-                value.getUserId() == null ? null : value.getUserId().getValue(),
-                value.getDataId() == null ? null : value.getDataId().getValue(),
+                value.getUserId().getValue(),
+                value.getDataId().getValue(),
                 value.getType(),
                 value.getContent());
     }

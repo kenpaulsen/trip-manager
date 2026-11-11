@@ -6,6 +6,7 @@ import nl.jqno.equalsverifier.EqualsVerifier;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Registration.Status;
 import org.paulsens.trip.util.RandomData;
+import org.paulsens.trip.util.TestRandom;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
@@ -42,7 +43,7 @@ public class RegistrationTest {
     @Test
     void createDateIsPreserved() throws Exception {
         final LocalDateTime createTime = LocalDateTime.now();
-        final Status status = RandomData.randomEnum(Status.class);
+        final Status status = TestRandom.randomEnum(Status.class);
         Thread.sleep(1L);
         final Registration reg = new Registration(
                 RandomData.genAlpha(3), Person.Id.newInstance(), createTime, status, null);

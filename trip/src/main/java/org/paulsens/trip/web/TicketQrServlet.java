@@ -26,8 +26,8 @@ import org.paulsens.trip.util.TicketQr;
  */
 public class TicketQrServlet extends HttpServlet {
 
-    private CheckinCommands checkin;
-    private Function<String, Optional<Trip>> trips;
+    private transient CheckinCommands checkin;
+    private transient Function<String, Optional<Trip>> trips;
 
     /** Test seam: the bean that resolves tickets and the trip lookup. */
     void setCheckin(final CheckinCommands checkin, final Function<String, Optional<Trip>> trips) {

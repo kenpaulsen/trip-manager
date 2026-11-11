@@ -36,6 +36,14 @@ mvn test -pl trip -Dtest=TripCommandsTest#method   # one method
   `trip` module, main AND test sources, and any violation fails the build immediately, locally and in CI
   alike. Escape hatch for a genuine exception: `@SuppressWarnings("checkstyle:RuleName")`, used sparingly and
   with a comment saying why. Emergency skip: `-Dcheckstyle.skip=true`.
+- Bug and security scan: SpotBugs with Find Security Bugs runs at `verify` on the `trip` module (so `mvn install`
+  runs it, about 30 s; `mvn test` does not). The scan is CLEAN (zero findings since 2026-11-10), so any finding is
+  new: fix it. Like the coverage gate it only reports locally and halts in CI (`-Dspotbugs.failOnError=true`).
+  Accepted findings are in `spotbugs-exclude.xml` at the repo root, each with its reason; a new entry needs the
+  owner's approval. Run it alone with `mvn -pl trip compile spotbugs:check`;
+  skip with `-Dspotbugs.skip=true`.
+- Code review: commits are reviewed before every push (process, checklist and manual commands:
+  `../medjugorje/docs/code-review.md`).
 - Browser/integration tests are NOT here -- they are in `../medjugorje/webtest/` (Playwright).
 
 ## Modules & stack

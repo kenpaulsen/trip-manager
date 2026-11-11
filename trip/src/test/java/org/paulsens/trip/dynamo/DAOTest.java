@@ -33,6 +33,7 @@ import org.paulsens.trip.model.Transaction.Type;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripEvent;
 import org.paulsens.trip.util.RandomData;
+import org.paulsens.trip.util.TestRandom;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
@@ -419,11 +420,11 @@ public class DAOTest {
         final String id = RandomData.genAlpha(7);
         final Person.Id userId = personId == null ? Person.Id.from(RandomData.genAlpha(8)) : personId;
         final String groupId = RandomData.genAlpha(17);
-        final Transaction.Type type = RandomData.randomEnum(Transaction.Type.class);
-        final Transaction.TransactionType txType = RandomData.randomEnum(Transaction.TransactionType.class);
+        final Transaction.Type type = TestRandom.randomEnum(Transaction.Type.class);
+        final Transaction.TransactionType txType = TestRandom.randomEnum(Transaction.TransactionType.class);
         final LocalDateTime txDate = LocalDateTime.now()
-                .plus(RandomData.randomLong(MONTH_IN_MILLIS) - MONTH_IN_MILLIS, ChronoUnit.MILLIS);
-        final float amount = RandomData.randomFloat(1_000_000f);
+                .plus(TestRandom.randomLong(MONTH_IN_MILLIS) - MONTH_IN_MILLIS, ChronoUnit.MILLIS);
+        final float amount = TestRandom.randomFloat(1_000_000f);
         final String category = RandomData.genAlpha(9);
         final String note = RandomData.genAlpha(6);
         return new Transaction(id, userId, groupId, type, txType, txDate, amount, category, note);

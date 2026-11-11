@@ -46,7 +46,7 @@ public class MediaUploadServlet extends HttpServlet {
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     /** Direct instance, not CDI: MediaCommands has no injected collaborators, and tests replace this. */
-    private MediaCommands media = new MediaCommands();
+    private transient MediaCommands media;
 
     @Override
     protected void doPost(final HttpServletRequest req, final HttpServletResponse resp) throws IOException {
@@ -91,7 +91,7 @@ public class MediaUploadServlet extends HttpServlet {
             error(resp, 400, "bad_name", "The file needs a plain file name.");
             return;
         }
-        if (!media.isUploadEnabled()) {
+        if (!media().isUploadEnabled()) {
             error(resp, 503, "no_bucket", "Uploads are not available in this deployment.");
             return;
         }
@@ -100,7 +100,7 @@ public class MediaUploadServlet extends HttpServlet {
         final String key = MediaCommands.siteKey(KEY_PREFIX + fileName);
         final boolean stored;
         try (InputStream in = part.getInputStream()) {
-            stored = media.upload(key, in, part.getSize(), part.getContentType(),
+            stored = media().upload(key, in, part.getSize(), part.getContentType(),
                     req.getParameter("title"), req.getParameter("description"), slot, 0,
                     caller.auditActor().email(), null);
         } catch (final RuntimeException ex) {
@@ -114,7 +114,7 @@ public class MediaUploadServlet extends HttpServlet {
         }
         // The dialog shows the URL as a link the moment the upload finishes: the item is in the library, but
         // putting it ON the page is a separate step, and without the link there is no way back to the file.
-        final String url = media.publicUrl(key);
+        final String url = media().publicUrl(key);
         json(resp, 200, Map.of("key", key, "slot", slot, "url", (url == null) ? "" : url));
     }
 
@@ -146,6 +146,17 @@ public class MediaUploadServlet extends HttpServlet {
     /** Seam for tests. */
     void setMedia(final MediaCommands media) {
         this.media = media;
+    }
+
+    private MediaCommands media() {
+        MediaCommands commands = media;
+        if (commands == null) {
+            // Created lazily: a field initializer would not run again if the container ever restored this
+            // servlet, and the transient field would stay null.
+            commands = new MediaCommands();
+            media = commands;
+        }
+        return commands;
     }
 
     private static void error(final HttpServletResponse resp, final int status, final String code,

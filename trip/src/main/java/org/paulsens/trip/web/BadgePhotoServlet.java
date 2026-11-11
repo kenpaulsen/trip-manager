@@ -17,7 +17,7 @@ import org.paulsens.trip.api.Beans;
  */
 public class BadgePhotoServlet extends HttpServlet {
 
-    private BadgePhotoCommands badgePhotos;
+    private transient BadgePhotoCommands badgePhotos;
 
     void setBadgePhotos(final BadgePhotoCommands badgePhotos) {
         this.badgePhotos = badgePhotos;

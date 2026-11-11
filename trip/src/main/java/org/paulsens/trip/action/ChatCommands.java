@@ -538,8 +538,7 @@ public class ChatCommands {
 
     /** The channel's description, shown above the conversation. Empty when there is none. */
     public String descriptionForTrip(final String tripId) {
-        final ChatChannel channel = channelForPage(tripId);
-        final String description = channel == null ? null : channel.getDescription();
+        final String description = channelForPage(tripId).getDescription();
         return description == null ? "" : description;
     }
 
@@ -652,9 +651,6 @@ public class ChatCommands {
     /** The look this person gets for this chat: their override per field, else the channel's default. */
     public ChatAppearance appearanceForTrip(final String tripId, final Person.Id personId) {
         final ChatChannel channel = channelForPage(tripId);
-        if (channel == null) {
-            return ChatAppearance.NONE;
-        }
         final ChatSettings settings = channel.getSettings();
         final ChatAppearance channelDefault =
                 new ChatAppearance(settings.getBackgroundColor(), settings.getBackgroundImageUrl());

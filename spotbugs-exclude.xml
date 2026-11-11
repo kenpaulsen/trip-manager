@@ -1,0 +1,290 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    SpotBugs findings this codebase accepts. Every entry needs a comment saying why; an entry without a
+    reason is a finding being hidden, not accepted. Prefer fixing the code, then a narrow entry here (one
+    class, one method, one pattern) over a broad one. A new entry needs the owner's approval.
+
+    The entries below come from the triage of 2026-11-10, when every finding of the first run was read
+    against the code. The three real defects it found were fixed, not listed here.
+
+    A method-scoped entry hides FUTURE findings of that pattern in that method too. When you change one of
+    the listed methods, re-check the reason given for it still holds.
+-->
+<FindBugsFilter>
+    <!--
+        "May expose internal representation": fires on every getter, setter and constructor that passes a
+        List, Map, Date or injected collaborator through without copying. That is every Lombok @Data model
+        and every constructor-injected bean here (301 of the first run's 396 findings). The models are
+        deliberately plain mutable carriers; defensive copies on each accessor would cost allocations on
+        every DAO read for no gain. MS_EXPOSE_REP (a STATIC mutable exposed) is left on: that one is real.
+    -->
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+    </Match>
+
+    <!-- ============================ markup built by string concatenation ============================ -->
+    <!--
+        The scanner flags any append into a string that contains markup; it cannot see that the values are
+        escaped. In each method below EVERY user-entered value passes through an escaper before it is
+        appended; what is appended raw is literals, numbers, dates and enum names.
+    -->
+    <!-- The org notice email: every free-text value goes through esc() (ModerationCommands.escape). -->
+    <Match>
+        <Class name="org.paulsens.trip.action.AccountDeletionCommands"/>
+        <Method name="noticeBody"/>
+        <Bug pattern="POTENTIAL_XML_INJECTION"/>
+    </Match>
+    <!-- The treasurer email: every dynamic value goes through the local esc(). -->
+    <Match>
+        <Class name="org.paulsens.trip.action.ExpenseCommands"/>
+        <Method name="treasurerBody"/>
+        <Bug pattern="POTENTIAL_XML_INJECTION"/>
+    </Match>
+    <!--
+        The export report's Options cell: label and answer are both htmlEscape'd (the label since
+        2026-11-10, when it was the real bug); CheckinCommandsTest pins it with a markup label.
+    -->
+    <Match>
+        <Class name="org.paulsens.trip.action.CheckinCommands"/>
+        <Method name="putAnswers"/>
+        <Bug pattern="POTENTIAL_XML_INJECTION"/>
+    </Match>
+    <!-- The rooming list's answers cell: same fix, same date; LodgingCommandsTest pins it. -->
+    <Match>
+        <Class name="org.paulsens.trip.action.LodgingItinerary"/>
+        <Method name="answersLine"/>
+        <Bug pattern="POTENTIAL_XML_INJECTION"/>
+    </Match>
+    <!-- row() does not escape; its only callers (body()) pass escape(...) of every user value. -->
+    <Match>
+        <Class name="org.paulsens.trip.action.ModerationCommands"/>
+        <Method name="row"/>
+        <Bug pattern="POTENTIAL_XML_INJECTION"/>
+    </Match>
+    <!-- Text and link (href and label) go through escapeHtml; an href can only start http(s):// or /. -->
+    <Match>
+        <Class name="org.paulsens.trip.action.SupportChatCommands"/>
+        <Method name="renderBody"/>
+        <Bug pattern="POTENTIAL_XML_INJECTION"/>
+    </Match>
+    <!-- Author goes through MailTemplates.escape; the body is ChatBodyHtml's allow-list renderer. -->
+    <Match>
+        <Class name="org.paulsens.trip.chat.ChatDigestSender"/>
+        <Method name="appendMessage"/>
+        <Bug pattern="POTENTIAL_XML_INJECTION"/>
+    </Match>
+    <!-- Writes a fixed page formatted only with an int status code and a literal title; no request data. -->
+    <Match>
+        <Class name="org.paulsens.trip.web.NotFoundServlet"/>
+        <Method name="writeStaticNotFound"/>
+        <Bug pattern="XSS_SERVLET"/>
+    </Match>
+    <!-- Serves one of three packaged files chosen from an allow-list, as JSON or plain text, never HTML. -->
+    <Match>
+        <Class name="org.paulsens.trip.web.WellKnownServlet"/>
+        <Method name="doGet"/>
+        <Bug pattern="XSS_SERVLET"/>
+    </Match>
+
+    <!-- ======================================= redirects ======================================= -->
+    <!--
+        Each sends the browser to the login page on THIS site: context path + a constant path, with the
+        request's own URI only as a URL-encoded "to" value, which login accepts as a same-site path only
+        (TripUtilCommands.normalizeReturnPath). No request data can choose the host.
+    -->
+    <Match>
+        <Or>
+            <Class name="org.paulsens.trip.web.ExpenseReceiptServlet"/>
+            <Class name="org.paulsens.trip.web.RoomInvoicePdfServlet"/>
+            <Class name="org.paulsens.trip.web.TripMoneyPdfServlet"/>
+            <Class name="org.paulsens.trip.web.WaiverPdfServlet"/>
+        </Or>
+        <Method name="doGet"/>
+        <Bug pattern="UNVALIDATED_REDIRECT"/>
+    </Match>
+    <!-- Target is the constant landing path; trip id and token ride as URL-encoded query values. -->
+    <Match>
+        <Class name="org.paulsens.trip.web.InviteLinkServlet"/>
+        <Method name="doGet"/>
+        <Bug pattern="UNVALIDATED_REDIRECT"/>
+    </Match>
+    <!-- Host is the deployment's media base URL (env, read once); the request picks only a file name. -->
+    <Match>
+        <Class name="org.paulsens.trip.web.PdfRedirectFilter"/>
+        <Method name="doFilter"/>
+        <Bug pattern="UNVALIDATED_REDIRECT"/>
+    </Match>
+    <!-- Both redirect to LocalRedirect.samePathOrRoot: the request's own path, or "/" (rejects //host). -->
+    <Match>
+        <Class name="org.paulsens.trip.web.RememberMeFilter"/>
+        <Method name="doFilter"/>
+        <Bug pattern="UNVALIDATED_REDIRECT"/>
+    </Match>
+    <Match>
+        <Class name="org.paulsens.trip.web.SessionRecoveryFilter"/>
+        <Method name="recover"/>
+        <Bug pattern="UNVALIDATED_REDIRECT"/>
+    </Match>
+
+    <!-- ======================================== cookies ======================================== -->
+    <!--
+        All three set Secure from SecureCookies.flagFor: always true in production, the request's scheme
+        only in plain-http local mode. The scanner wants a literal true and cannot follow the call.
+    -->
+    <Match>
+        <Class name="org.paulsens.trip.security.RememberMeService"/>
+        <Method name="cookie"/>
+        <Bug pattern="INSECURE_COOKIE"/>
+    </Match>
+    <Match>
+        <Class name="org.paulsens.trip.web.SessionRecoveryFilter"/>
+        <Method name="expireCookie"/>
+        <Bug pattern="INSECURE_COOKIE"/>
+    </Match>
+    <Match>
+        <Class name="org.paulsens.trip.web.Sessions"/>
+        <Method name="logout"/>
+        <Bug pattern="INSECURE_COOKIE"/>
+    </Match>
+
+    <!-- ==================================== randomness, secrets ==================================== -->
+    <!-- Timing jitter (cache soft-TTL spread, digest retry delay): nothing is gained by predicting it. -->
+    <Match>
+        <Class name="org.paulsens.trip.cache.Revalidator"/>
+        <Method name="randomJitter"/>
+        <Bug pattern="PREDICTABLE_RANDOM"/>
+    </Match>
+    <Match>
+        <Class name="org.paulsens.trip.chat.ChatDigestScheduler"/>
+        <Method name="reschedule"/>
+        <Bug pattern="PREDICTABLE_RANDOM"/>
+    </Match>
+    <!-- No credential here: the detector tripped on the name PASS_CHARS, the password ALPHABET. -->
+    <Match>
+        <Class name="org.paulsens.trip.util.RandomData"/>
+        <Bug pattern="HARD_CODE_PASSWORD"/>
+    </Match>
+
+    <!-- ==================================== regular expressions ==================================== -->
+    <!-- LINK_TOKEN: no nested quantifiers; worst case quadratic on a chat body capped at 4000 chars. -->
+    <Match>
+        <Class name="org.paulsens.trip.action.SupportChatCommands"/>
+        <Bug pattern="REDOS"/>
+    </Match>
+    <!-- CHILD_TOKEN: no nested or overlapping quantifiers, so matching is linear. -->
+    <Match>
+        <Class name="org.paulsens.trip.content.ContentRenderer"/>
+        <Bug pattern="REDOS"/>
+    </Match>
+
+    <!-- ===================================== synchronization ===================================== -->
+    <!--
+        "A synchronized method can be blocked by untrusted code holding the same monitor." This WAR runs
+        no untrusted code. start/stop run at container start and stop only; put() serializes the
+        read-merge-write of processor secrets, which is the point of the lock.
+    -->
+    <Match>
+        <Class name="org.paulsens.trip.chat.ChatDigestScheduler"/>
+        <Or>
+            <Method name="start"/>
+            <Method name="stop"/>
+        </Or>
+        <Bug pattern="USO_UNSAFE_METHOD_SYNCHRONIZATION,USO_UNSAFE_STATIC_METHOD_SYNCHRONIZATION"/>
+    </Match>
+    <Match>
+        <Class name="org.paulsens.trip.security.ProcessorSecrets"/>
+        <Method name="put"/>
+        <Bug pattern="USO_UNSAFE_METHOD_SYNCHRONIZATION"/>
+    </Match>
+    <!-- startReaper's only caller holds the class lock, and the field is volatile: no race. -->
+    <Match>
+        <Class name="org.paulsens.trip.media.BackgroundRemover"/>
+        <Method name="startReaper"/>
+        <Bug pattern="LI_LAZY_INIT_UPDATE_STATIC"/>
+    </Match>
+    <!-- Deliberate and documented: one System.gc() before declining a model load for lack of headroom. -->
+    <Match>
+        <Class name="org.paulsens.trip.media.BackgroundRemover"/>
+        <Method name="enoughHeadroomForSession"/>
+        <Bug pattern="DM_GC"/>
+    </Match>
+
+    <!-- ======================================= serialization ======================================= -->
+    <!--
+        A servlet is Serializable only because HttpServlet inherits the interface. The container owns the
+        instance for the life of the app and never serializes it (<distributable/> replicates sessions,
+        not servlets), so a serialVersionUID would pin nothing. Collaborator fields are transient.
+    -->
+    <Match>
+        <Class name="~org\.paulsens\.trip\.web\.[A-Za-z]+Servlet"/>
+        <Bug pattern="SE_NO_SERIALVERSIONID"/>
+    </Match>
+    <!-- Both transients are a per-instance memo whose null state means "not resolved yet" and is re-derived. -->
+    <Match>
+        <Class name="org.paulsens.trip.model.Trip"/>
+        <Bug pattern="SE_TRANSIENT_FIELD_NOT_RESTORED"/>
+    </Match>
+    <!-- A per-call view, Serializable only for the model-package ratchet; its outer class is Serializable too. -->
+    <Match>
+        <Class name="org.paulsens.trip.model.ContentInstance$ListValuesView"/>
+        <Bug pattern="SE_INNER_CLASS"/>
+    </Match>
+
+    <!-- ================================ deliberate null and singletons ================================ -->
+    <!-- null is the documented third state ("the visitor never chose"); the one reader null-checks first. -->
+    <Match>
+        <Class name="org.paulsens.trip.action.BrandCommands"/>
+        <Method name="darkOf"/>
+        <Bug pattern="NP_BOOLEAN_RETURN_NULL"/>
+    </Match>
+    <!-- The recovery value of a fire-and-forget expire(); the resulting future is discarded, never read. -->
+    <Match>
+        <Class name="org.paulsens.trip.cache.ValkeyCacheClient"/>
+        <Method name="logTtlFailure"/>
+        <Bug pattern="NP_BOOLEAN_RETURN_NULL"/>
+    </Match>
+    <!-- Documented tri-state (null = not found or not visible, empty = a photo with no message row). -->
+    <Match>
+        <Class name="org.paulsens.trip.action.ModerationCommands"/>
+        <Method name="locate"/>
+        <Bug pattern="NP_OPTIONAL_RETURN_NULL"/>
+    </Match>
+    <!-- The await result (nudged vs timed out) is unused on purpose: the feed is re-read either way. -->
+    <Match>
+        <Class name="org.paulsens.trip.api.ChatResource"/>
+        <Method name="awaitNudge"/>
+        <Bug pattern="RV_RETURN_VALUE_IGNORED"/>
+    </Match>
+    <!-- HTML output: a literal \n is the right line ending on every platform; %n would vary by host. -->
+    <Match>
+        <Class name="org.paulsens.trip.web.NotFoundServlet"/>
+        <Method name="staticPage"/>
+        <Bug pattern="VA_FORMAT_STRING_USES_NEWLINE"/>
+    </Match>
+    <!-- Package-private constructors are the test seams; production reaches both through getInstance(). -->
+    <Match>
+        <Or>
+            <Class name="org.paulsens.trip.security.RememberMeService"/>
+            <Class name="org.paulsens.trip.site.SiteIndex"/>
+        </Or>
+        <Bug pattern="SING_SINGLETON_HAS_NONPRIVATE_CONSTRUCTOR"/>
+    </Match>
+    <!-- getInstance() returning the singleton is its whole purpose; no array or collection leaks. -->
+    <Match>
+        <Or>
+            <Class name="org.paulsens.trip.dynamo.DAO"/>
+            <Class name="org.paulsens.trip.push.PushDevices"/>
+        </Or>
+        <Method name="getInstance"/>
+        <Bug pattern="MS_EXPOSE_REP"/>
+    </Match>
+    <!-- LOCAL is the local-mode recording gateway; handing it out (tests, the local recipe) is the intent. -->
+    <Match>
+        <Class name="org.paulsens.trip.push.PushRuntime"/>
+        <Or>
+            <Method name="gatewayFor"/>
+            <Method name="recorder"/>
+        </Or>
+        <Bug pattern="MS_EXPOSE_REP"/>
+    </Match>
+</FindBugsFilter>

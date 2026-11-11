@@ -24,6 +24,12 @@
             cost decision), so GitHub is the one place a coverage regression stops anything.
         -->
         <jacoco.check.halt>false</jacoco.check.halt>
+        <!--
+            SpotBugs' kill switch, the same arrangement as the coverage gate above: false here so a laptop
+            `mvn install` reports a finding without failing; GitHub Actions passes -Dspotbugs.failOnError=true.
+            The scan has been clean since 2026-11-10, so a finding is a new one.
+        -->
+        <spotbugs.failOnError>false</spotbugs.failOnError>
     </properties>
 
     <dependencies>
@@ -687,6 +693,39 @@
                     <execution>
                         <id>checkstyle-check</id>
                         <phase>validate</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <!--
+                    Bug and security scan of the compiled classes: SpotBugs plus Find Security Bugs (injection,
+                    weak crypto, path traversal, unsafe deserialization and the like). Runs at `verify`, so
+                    `mvn test` stays fast and `mvn install` reports. failOnError comes from
+                    ${spotbugs.failOnError}: false locally, true in GitHub Actions (see that property).
+                    Accepted findings are listed, each with its reason, in ../spotbugs-exclude.xml.
+                    Skip entirely with -Dspotbugs.skip=true.
+                -->
+                <groupId>com.github.spotbugs</groupId>
+                <artifactId>spotbugs-maven-plugin</artifactId>
+                <version>4.10.5.0</version>
+                <configuration>
+                    <plugins>
+                        <plugin>
+                            <groupId>com.h3xstream.findsecbugs</groupId>
+                            <artifactId>findsecbugs-plugin</artifactId>
+                            <version>1.14.0</version>
+                        </plugin>
+                    </plugins>
+                    <excludeFilterFile>${project.basedir}/../spotbugs-exclude.xml</excludeFilterFile>
+                    <failOnError>${spotbugs.failOnError}</failOnError>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>spotbugs-check</id>
+                        <phase>verify</phase>
                         <goals>
                             <goal>check</goal>
                         </goals>

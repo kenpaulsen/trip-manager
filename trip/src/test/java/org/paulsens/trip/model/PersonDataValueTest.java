@@ -6,6 +6,7 @@ import nl.jqno.equalsverifier.EqualsVerifier;
 import nl.jqno.equalsverifier.Warning;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.util.RandomData;
+import org.paulsens.trip.util.TestRandom;
 import org.testng.annotations.Test;
 
 import static org.testng.Assert.assertEquals;
@@ -75,7 +76,7 @@ public class PersonDataValueTest {
 
     @Test
     public void canHoldIntData() {
-        final int content = RandomData.randomInt(Integer.MAX_VALUE);
+        final int content = TestRandom.randomInt(Integer.MAX_VALUE);
         final PersonDataValue pdv = PersonDataValue.builder()
                 .userId(Person.Id.newInstance())
                 .dataId(DataId.newInstance())
@@ -87,7 +88,7 @@ public class PersonDataValueTest {
 
     @Test
     public void canHoldIntegerData() {
-        final Integer content = RandomData.randomInt(Integer.MAX_VALUE);
+        final Integer content = TestRandom.randomInt(Integer.MAX_VALUE);
         final PersonDataValue pdv = PersonDataValue.builder()
                 .userId(Person.Id.newInstance())
                 .dataId(DataId.newInstance())
@@ -99,7 +100,7 @@ public class PersonDataValueTest {
 
     @Test
     public void wrongCastThrows() {
-        final Integer content = RandomData.randomInt(Integer.MAX_VALUE);
+        final Integer content = TestRandom.randomInt(Integer.MAX_VALUE);
         final PersonDataValue pdv = PersonDataValue.builder()
                 .userId(Person.Id.newInstance())
                 .dataId(DataId.newInstance())

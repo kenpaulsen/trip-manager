@@ -1333,6 +1333,29 @@ public class LodgingCommandsTest {
      * answers and both kinds of room note, because that is the whole reason to ask mid-assignment.
      */
     @Test
+    public void theRoomingListEscapesTheQuestionLabelAsWellAsTheAnswer() throws IOException {
+        // The rooming list page renders this cell unescaped (for the <b> and <br /> built here), so the
+        // label a trip editor typed must not be able to carry markup of its own.
+        final Person pat = savedPerson("Pat");
+        final Trip own = Trip.builder().id(java.util.UUID.randomUUID().toString()).title("Escaping trip")
+                .startDate(CHECK_IN).endDate(CHECK_OUT.plusDays(2))
+                .people(new ArrayList<>(List.of(pat.getId())))
+                .regOptions(List.of(new RegistrationOption(1, "Diet & <img src=x onerror=alert(1)>", "", true)))
+                .build();
+        own.setOrgId(orgId);
+        assertTrue(DAO.getInstance().saveTrip(own));
+        final Registration reg = new Registration(own.getId(), pat.getId());
+        reg.getOptions().put("1", "<i>None</i>");
+        assertTrue(saveRegistration(reg));
+
+        final List<RoomingRow> rows = admin.roomingList(own.getId());
+
+        assertEquals(rows.size(), 1);
+        assertEquals(rows.get(0).getAnswers(),
+                "Diet &amp; &lt;img src=x onerror=alert(1)&gt; <b>&lt;i&gt;None&lt;/i&gt;</b><br />");
+    }
+
+    @Test
     public void aRoomTellsYouWhoIsInItAndWhatTheyAskedFor() throws IOException {
         // Its OWN trip and people: this test houses somebody, and the shared trip's rooming list and bills
         // are asserted elsewhere (fixture side effects here are load-bearing).

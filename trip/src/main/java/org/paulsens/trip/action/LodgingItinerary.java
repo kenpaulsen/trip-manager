@@ -104,8 +104,9 @@ final class LodgingItinerary {
     private String answersLine(final Trip trip, final Person.Id person) {
         final StringBuilder sb = new StringBuilder();
         for (final Map.Entry<String, String> entry : lodging.answersFor(trip, person).entrySet()) {
-            sb.append(entry.getKey()).append(" <b>").append(LodgingCommands.escape(entry.getValue()))
-                    .append("</b><br />");
+            // Label AND answer are escaped: the rooming list renders this unescaped for the markup built here.
+            sb.append(LodgingCommands.escape(entry.getKey())).append(" <b>")
+                    .append(LodgingCommands.escape(entry.getValue())).append("</b><br />");
         }
         return sb.toString();
     }

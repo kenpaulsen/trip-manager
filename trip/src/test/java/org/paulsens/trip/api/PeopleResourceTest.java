@@ -670,7 +670,21 @@ public class PeopleResourceTest extends ResourceTestSupport {
                 ArgumentMatchers.any(), ArgumentMatchers.any())).thenReturn(value);
         dataValues.when(() -> PersonDataValueCommands.savePersonDataValue(value)).thenReturn(false);
 
-        assertError(resource.saveDataValue(ME.getValue(), "d1", CSRF_OK, null), 500, ApiErrors.STORE_FAILED);
+        assertError(resource.saveDataValue(ME.getValue(), "d1", CSRF_OK,
+                new PersonDataValueDto(null, null, "text", "a new value")), 500, ApiErrors.STORE_FAILED);
+    }
+
+    @Test
+    public void aDataValueWithNoBodyOrNoTypeIsABadRequest() {
+        // The model's type is @NonNull: these used to reach the builder and come back as a 500.
+        signedInAs(ME);
+        exists(person(ME, "Ken"));
+
+        assertError(resource.saveDataValue(ME.getValue(), "d1", CSRF_OK, null), 400, ApiErrors.BAD_REQUEST);
+        assertError(resource.saveDataValue(ME.getValue(), "d1", CSRF_OK,
+                new PersonDataValueDto(null, null, null, "orphan")), 400, ApiErrors.BAD_REQUEST);
+        assertError(resource.saveDataValue(ME.getValue(), "d1", CSRF_OK,
+                new PersonDataValueDto(null, null, " ", "orphan")), 400, ApiErrors.BAD_REQUEST);
     }
 
     @Test

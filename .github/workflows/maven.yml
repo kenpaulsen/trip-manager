@@ -27,8 +27,10 @@ jobs:
     - name: Build with Maven
       # -Djacoco.check.halt=true arms the coverage gate (90% overall, 90% per class): GitHub is the ONE place
       # a coverage regression blocks. Locally and in the CodePipeline buildspec the same check only reports.
-      run: mvn -B package --file pom.xml -Djacoco.check.halt=true
-    # JaCoCo's report is written during `test`, so `package` above has already produced it.
+      # `verify` (not `package`) so SpotBugs runs, and -Dspotbugs.failOnError=true arms it the same way: the
+      # scan is clean, so any finding here is new.
+      run: mvn -B verify --file pom.xml -Djacoco.check.halt=true -Dspotbugs.failOnError=true
+    # JaCoCo's report is written during `test`, so `verify` above has already produced it.
     - name: Upload coverage report
       if: always()
       uses: actions/upload-artifact@v4

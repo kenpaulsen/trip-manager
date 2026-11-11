@@ -461,9 +461,6 @@ public class RegistrationCommands {
     private static boolean applyOptionEdits(final org.paulsens.trip.model.Trip trip, final Registration stored,
             final Registration draftReg) {
         boolean changed = false;
-        if (trip.getRegOptions() == null) {
-            return false;
-        }
         for (final org.paulsens.trip.model.RegistrationOption opt : trip.getRegOptions()) {
             if (CheckoutCommands.isPaidQuestion(trip, opt)) {
                 continue;   // what they paid for; staff change it on the admin pages
