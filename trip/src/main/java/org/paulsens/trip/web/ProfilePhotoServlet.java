@@ -95,7 +95,8 @@ public class ProfilePhotoServlet extends HttpServlet {
     private PendingUploads pendingUploads() {
         PendingUploads pending = pendingUploads;
         if (pending == null) {
-            // Resolved on first use, like photos(): one pattern for every collaborator field.
+            // Transient plus resolved on first use, like photos(), for the SpotBugs serialization reason
+            // MediaUploadServlet.media() gives.
             pending = PendingUploads.getPendingUploads();
             pendingUploads = pending;
         }

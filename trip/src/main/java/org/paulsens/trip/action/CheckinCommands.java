@@ -936,7 +936,10 @@ public class CheckinCommands {
                 .orElse(choiceId);
     }
 
-    /** The Options column: an HTML list for the screen and newline-joined text for the file, as the page built them. */
+    /**
+     * The Options column: an HTML list for the screen (as the page built it) and newline-joined plain text, raw
+     * label and raw answer, for the file.
+     */
     private static void putAnswers(final Map<String, Object> row, final Trip trip, final Registration reg) {
         final StringBuilder html = new StringBuilder("<ul>");
         final StringBuilder text = new StringBuilder();

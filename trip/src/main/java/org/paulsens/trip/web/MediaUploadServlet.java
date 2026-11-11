@@ -151,8 +151,11 @@ public class MediaUploadServlet extends HttpServlet {
     private MediaCommands media() {
         MediaCommands commands = media;
         if (commands == null) {
-            // Created on first use, the way every servlet here fills its collaborator fields: one pattern
-            // (a transient reference plus an accessor) rather than a field initializer in some and not others.
+            // Transient plus filled on first use, for SpotBugs: a non-transient field of a non-Serializable
+            // class on a (nominally Serializable) servlet is SE_BAD_FIELD, and a transient one filled by an
+            // initializer is SE_TRANSIENT_FIELD_NOT_RESTORED. See spotbugs-exclude.xml, "serialization".
+            // CspReportServlet's clock, an interface-typed field, is not flagged at this build's threshold, so it
+            // keeps its initializer.
             commands = new MediaCommands();
             media = commands;
         }
