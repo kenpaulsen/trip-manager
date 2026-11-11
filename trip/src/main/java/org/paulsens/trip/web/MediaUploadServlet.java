@@ -45,7 +45,7 @@ public class MediaUploadServlet extends HttpServlet {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    /** Direct instance, not CDI: MediaCommands has no injected collaborators, and tests replace this. */
+    /** Direct instance, not CDI (no injected collaborators), created by {@link #media()}; tests replace it. */
     private transient MediaCommands media;
 
     @Override
@@ -151,8 +151,8 @@ public class MediaUploadServlet extends HttpServlet {
     private MediaCommands media() {
         MediaCommands commands = media;
         if (commands == null) {
-            // Created lazily: a field initializer would not run again if the container ever restored this
-            // servlet, and the transient field would stay null.
+            // Created on first use, the way every servlet here fills its collaborator fields: one pattern
+            // (a transient reference plus an accessor) rather than a field initializer in some and not others.
             commands = new MediaCommands();
             media = commands;
         }

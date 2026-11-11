@@ -68,7 +68,8 @@ final class LodgingItinerary {
                 rows.add(new RoomingRow(person.getValue(), lodging.displayName(person), cellOf(person),
                         acc == null ? "" : acc.getName(), room == null ? "" : nullSafe(room.getFloor()),
                         room == null ? "" : room.getRoomNumber(), type == null ? "" : type.getName(),
-                        res.getStart(), res.getEnd(), res.getNotes(), answersLine(trip, person), true));
+                        res.getStart(), res.getEnd(), res.getNotes(), answersLine(trip, person),
+                        answersText(trip, person), true));
             }
         }
         rows.sort((a, b) -> {
@@ -81,7 +82,8 @@ final class LodgingItinerary {
         for (final Person.Id person : trip.getPeople()) {
             if (!reserved.contains(person)) {
                 rest.add(new RoomingRow(person.getValue(), lodging.displayName(person), cellOf(person), "", "",
-                        legacyRoom(tripId, person), "", null, null, null, answersLine(trip, person), false));
+                        legacyRoom(tripId, person), "", null, null, null, answersLine(trip, person),
+                        answersText(trip, person), false));
             }
         }
         rest.sort((a, b) -> nullSafe(a.getName()).compareToIgnoreCase(nullSafe(b.getName())));
@@ -107,6 +109,19 @@ final class LodgingItinerary {
             // Label AND answer are escaped: the rooming list renders this unescaped for the markup built here.
             sb.append(LodgingCommands.escape(entry.getKey())).append(" <b>")
                     .append(LodgingCommands.escape(entry.getValue())).append("</b><br />");
+        }
+        return sb.toString();
+    }
+
+    /**
+     * The same answers for the export file, where nothing is markup: raw label, raw answer, one per line.
+     * The export column used to strip the tags out of {@link #answersLine}, which left its HTML entities in
+     * the spreadsheet.
+     */
+    private String answersText(final Trip trip, final Person.Id person) {
+        final StringBuilder sb = new StringBuilder();
+        for (final Map.Entry<String, String> entry : lodging.answersFor(trip, person).entrySet()) {
+            sb.append(entry.getKey()).append(' ').append(entry.getValue()).append('\n');
         }
         return sb.toString();
     }

@@ -216,12 +216,12 @@ public class ReportCommandsTest {
     private static LodgingViews.RoomingRow stay(final String personId, final String name, final String place,
             final String room, final String type, final LocalDateTime start, final LocalDateTime end) {
         return new LodgingViews.RoomingRow(personId, name, "555-1212", place, "1", room, type, start, end, null,
-                null, true);
+                null, null, true);
     }
 
     private static LodgingViews.RoomingRow waiting(final String personId, final String name) {
         return new LodgingViews.RoomingRow(personId, name, "555-1212", "", "", "", "", null, null, null, null,
-                false);
+                null, false);
     }
 
     @Test

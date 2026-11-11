@@ -610,15 +610,19 @@ public class CheckinCommandsTest {
         final Trip trip = newTrip();
         trip.getRegOptions().get(2).setShortDesc("Diet & <img src=x onerror=alert(1)>");
         final Person ann = newPerson("Ann", "Escape", null);
-        register(trip, ann, Registration.Status.CONFIRMED, null);
+        final Registration reg = register(trip, ann, Registration.Status.CONFIRMED, null);
+        reg.getOptions().put("3", "Fish & <chips>");
+        assertTrue(DAO.getInstance().saveRegistration(reg));
         trip.getPeople().add(ann.getId());
 
         final Map<String, Object> row = admin().exportRow(trip, ann.getId());
 
         final String html = (String) row.get("tripOpts");
-        assertTrue(html.contains("<li><b>Diet &amp; &lt;img src=x onerror=alert(1)&gt;</b> Vegetarian</li>"), html);
+        assertTrue(html.contains("<li><b>Diet &amp; &lt;img src=x onerror=alert(1)&gt;</b> "
+                + "Fish &amp; &lt;chips&gt;</li>"), html);
         assertFalse(html.contains("<img"), "no label markup reaches the page");
-        assertTrue(((String) row.get("exportOpts")).contains("Diet & <img src=x onerror=alert(1)> Vegetarian"));
+        assertTrue(((String) row.get("exportOpts")).contains("Diet & <img src=x onerror=alert(1)> Fish & <chips>"),
+                "the file cell is plain text: neither the label nor the answer carries an HTML entity");
     }
 
     @Test

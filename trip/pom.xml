@@ -27,6 +27,8 @@
         <!--
             SpotBugs' kill switch, the same arrangement as the coverage gate above: false here so a laptop
             `mvn install` reports a finding without failing; GitHub Actions passes -Dspotbugs.failOnError=true.
+            The CodePipeline build skips the scan (-Dspotbugs.skip=true): a billable run has nothing to gain
+            from repeating it.
             The scan has been clean since 2026-11-10, so a finding is a new one.
         -->
         <spotbugs.failOnError>false</spotbugs.failOnError>
@@ -706,7 +708,12 @@
                     `mvn test` stays fast and `mvn install` reports. failOnError comes from
                     ${spotbugs.failOnError}: false locally, true in GitHub Actions (see that property).
                     Accepted findings are listed, each with its reason, in ../spotbugs-exclude.xml.
-                    Skip entirely with -Dspotbugs.skip=true.
+                    Skip entirely with -Dspotbugs.skip=true; the CodePipeline buildspec does (the sibling
+                    repo's ci/buildspec-build.yml), since GitHub Actions has already scanned the commit.
+
+                    Licenses: this Maven plugin is Apache-2.0; the SpotBugs engine it runs is LGPL-2.1 and
+                    Find Security Bugs is LGPL (v3). Both are BUILD TOOLS only: run unmodified at `verify`,
+                    never a dependency of the application and never packaged into the WAR.
                 -->
                 <groupId>com.github.spotbugs</groupId>
                 <artifactId>spotbugs-maven-plugin</artifactId>

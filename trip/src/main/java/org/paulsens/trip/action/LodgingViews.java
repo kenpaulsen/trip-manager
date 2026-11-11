@@ -825,7 +825,10 @@ public final class LodgingViews {
         private LocalDateTime start;
         private LocalDateTime end;
         private String notes;
+        /** The answers as markup for the screen: label and answer escaped, {@code <b>} and {@code <br />} added. */
         private String answers;
+        /** The same answers as plain text for the CSV/XLSX export: nothing escaped, one per line. */
+        private String answersText;
         private boolean reserved;
     }
 

@@ -53,7 +53,6 @@ public class RandomDataTest {
             Assert.assertTrue(seen.add(id), "an 18-character id repeated -- the generator is broken");
         }
         Assert.assertTrue(RandomData.genAlpha(12).matches("[A-Za-z]{12}"));
-        Assert.assertEquals(RandomData.genPassChars(9).length(), 9);
     }
 
     @Test

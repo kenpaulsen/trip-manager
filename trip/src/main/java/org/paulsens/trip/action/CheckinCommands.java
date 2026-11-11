@@ -872,9 +872,10 @@ public class CheckinCommands {
 
     /**
      * One person's export row: the cells the export table cannot read straight off the Person. {@code name},
-     * {@code tripOpts}, {@code exportOpts} and {@code age} are what the page built in EL before this moved here, byte
-     * for byte, so an export with the default columns is unchanged; the rest feed the new optional columns. Strings
-     * and numbers only (the page keeps these rows in its view). Empty unless the caller is the trip's viewer.
+     * {@code tripOpts}, {@code exportOpts} and {@code age} are what the page built in EL before this moved here, so
+     * an export with the default columns is unchanged (except that {@code exportOpts} no longer carries HTML
+     * entities); the rest feed the new optional columns. Strings and numbers only (the page keeps these rows in its
+     * view). Empty unless the caller is the trip's viewer.
      */
     public Map<String, Object> exportRow(final Trip trip, final Person.Id personId) {
         final Map<String, Object> row = new HashMap<>();
@@ -949,7 +950,8 @@ public class CheckinCommands {
                 // manager's and admin's browser. Stored labels are plain text; none holds a tag.
                 final String label = com.sun.jsft.util.Util.htmlEscape(opt.getShortDesc());
                 html.append("<li><b>").append(label).append("</b> ").append(escaped).append("</li>");
-                text.append(opt.getShortDesc()).append(' ').append(escaped).append('\n');
+                // The file cell is plain text: raw label, raw answer. Only the on-screen list is escaped.
+                text.append(opt.getShortDesc()).append(' ').append(value).append('\n');
             }
         }
         row.put("tripOpts", html.append("</ul>").toString());

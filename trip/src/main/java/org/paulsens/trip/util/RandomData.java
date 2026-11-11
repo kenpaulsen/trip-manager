@@ -21,10 +21,6 @@ public final class RandomData {
         return genString(len, ALPHA);
     }
 
-    public static String genPassChars(final int len) {
-        return genString(len, PASS_CHARS);
-    }
-
     /** A digits-only one-time code (leading zeros allowed) from the CSPRNG. */
     public static String genSecureDigits(final int len) {
         final StringBuilder buf = new StringBuilder(len);
@@ -41,13 +37,9 @@ public final class RandomData {
         return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
     }
 
-    /** {@link #genPassChars} from the CSPRNG, for generated passwords rather than display data. */
+    /** A generated password: {@code len} characters of {@link #PASS_CHARS}. */
     public static String genSecurePassChars(final int len) {
-        final StringBuilder buf = new StringBuilder(len);
-        for (int count = 0; count < len; count++) {
-            buf.append(PASS_CHARS.charAt(SECURE.nextInt(PASS_CHARS.length())));
-        }
-        return buf.toString();
+        return genString(len, PASS_CHARS);
     }
 
     public static String genString(final int len, final String chars) {

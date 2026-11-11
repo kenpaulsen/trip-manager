@@ -95,8 +95,7 @@ public class ProfilePhotoServlet extends HttpServlet {
     private PendingUploads pendingUploads() {
         PendingUploads pending = pendingUploads;
         if (pending == null) {
-            // Resolved lazily, like photos(): a field initializer would not run again if the container ever
-            // restored this servlet, and the transient field would stay null.
+            // Resolved on first use, like photos(): one pattern for every collaborator field.
             pending = PendingUploads.getPendingUploads();
             pendingUploads = pending;
         }

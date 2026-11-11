@@ -1328,10 +1328,6 @@ public class LodgingCommandsTest {
         }
     }
 
-    /**
-     * Clicking a room with nobody selected asks who is in it. The answer has to carry the registration
-     * answers and both kinds of room note, because that is the whole reason to ask mid-assignment.
-     */
     @Test
     public void theRoomingListEscapesTheQuestionLabelAsWellAsTheAnswer() throws IOException {
         // The rooming list page renders this cell unescaped (for the <b> and <br /> built here), so the
@@ -1353,8 +1349,14 @@ public class LodgingCommandsTest {
         assertEquals(rows.size(), 1);
         assertEquals(rows.get(0).getAnswers(),
                 "Diet &amp; &lt;img src=x onerror=alert(1)&gt; <b>&lt;i&gt;None&lt;/i&gt;</b><br />");
+        assertEquals(rows.get(0).getAnswersText(), "Diet & <img src=x onerror=alert(1)> <i>None</i>\n",
+                "the export file gets plain text: no entity, no tag added");
     }
 
+    /**
+     * Clicking a room with nobody selected asks who is in it. The answer has to carry the registration
+     * answers and both kinds of room note, because that is the whole reason to ask mid-assignment.
+     */
     @Test
     public void aRoomTellsYouWhoIsInItAndWhatTheyAskedFor() throws IOException {
         // Its OWN trip and people: this test houses somebody, and the shared trip's rooming list and bills
