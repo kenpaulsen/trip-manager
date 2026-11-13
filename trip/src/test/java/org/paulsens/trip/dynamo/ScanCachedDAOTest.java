@@ -66,6 +66,12 @@ public class ScanCachedDAOTest {
                         ContentDAO.CONTENT_TABLE, OrganizationDAO.ORG_TABLE, LodgingDAO.ACCOMMODATIONS_TABLE));
         Assert.assertTrue(store.scans.stream().allMatch(scan -> Boolean.TRUE.equals(scan.consistentRead())),
                 "every one of them is consistent: " + store.scans);
+        // And every one of them is a table the local fake keeps. In local mode on a real Valkey (the pipeline's
+        // integration test) these caches rebuild against InMemoryPersistence, and a rebuild removes what its
+        // scan does not return: an unregistered table scans empty and its seeded rows vanish on the first full
+        // read. Media, then templates and content, then privileges and config (run f3752b04) each did.
+        Assert.assertTrue(store.scans.stream().map(ScanRequest::tableName).allMatch(InMemoryPersistence::isRegistered),
+                "every scan-cached table must be in InMemoryPersistence.TABLES: " + store.scans);
     }
 
     // --- PrivilegesDAO ---

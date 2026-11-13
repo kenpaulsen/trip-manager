@@ -68,14 +68,15 @@ public class InMemoryPersistence implements Persistence {
             Map.entry(MediaDAO.MEDIA_TABLE, new TableKeys("id", null)),
             // Both content-template tables are written in local mode (admin dialogs + FakeData seeds); same
             // lesson as media -- without a real fake, rows live only in the cache.
-            // Privileges and settings too (FakeData seeds the org roles; the admin pages edit both). Their scan
-            // caches rebuild against this store whenever local mode runs on a real Valkey (the pipeline's
-            // integration test), and a rebuild removes what its scan does not return: unregistered, every scan
-            // came back empty and the first full read removed every seeded role (pipeline run f3752b04).
-            Map.entry(PrivilegesDAO.PRIVILEGE_TABLE, new TableKeys(PrivilegesDAO.NAME, null)),
-            Map.entry(ConfigDAO.CONFIG_TABLE, new TableKeys(ConfigDAO.NAME, null)),
             Map.entry(TemplateDAO.TEMPLATES_TABLE, new TableKeys("id", null)),
             Map.entry(ContentDAO.CONTENT_TABLE, new TableKeys("id", null)),
+            // Like media, templates and content: privileges and settings (FakeData seeds the org roles; the admin
+            // pages edit both). Their scan caches rebuild against this store whenever local mode runs on a real
+            // Valkey (the pipeline's integration test), and a rebuild removes what its scan does not return:
+            // unregistered, every scan came back empty and the first full read removed every seeded role
+            // (pipeline run f3752b04). ScanCachedDAOTest now fails for any scan-cached table missing here.
+            Map.entry(PrivilegesDAO.PRIVILEGE_TABLE, new TableKeys(PrivilegesDAO.NAME, null)),
+            Map.entry(ConfigDAO.CONFIG_TABLE, new TableKeys(ConfigDAO.NAME, null)),
             // Auth tokens (remember-me, API refresh/access) work fully in local mode (the webtest deletes
             // JSESSIONID and expects the cookie to restore the session), so the token rows need a real fake
             // store -- the legacy table too, or the lazy migration is untestable. Same for passkeys: the
@@ -123,6 +124,11 @@ public class InMemoryPersistence implements Persistence {
 
     /** Counts conditional rejections, so a test can assert a collision actually happened. */
     private final AtomicInteger rejections = new AtomicInteger();
+
+    /** Whether this fake keeps real rows for the table (its scans and reads answer what was written). */
+    static boolean isRegistered(final String tableName) {
+        return TABLES.containsKey(tableName);
+    }
 
     @Override
     public PutItemResponse putItem(final Consumer<PutItemRequest.Builder> request) {

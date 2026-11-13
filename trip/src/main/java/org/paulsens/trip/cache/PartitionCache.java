@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -170,7 +171,7 @@ public class PartitionCache<K, V> {
         // Snapshot before Dynamo so concurrent write-through of new fields is not reconcile-deleted.
         // Reconcile-delete only when the hash was already fully loaded (sentinel present); a first load over
         // write-through-only fields must overlay without HDEL (local FakeData / empty scan must not wipe cache).
-        final Map<String, String> preHash = withLoadMark(key, cache.getHash(key));
+        final Map<String, String> preHash = markedSnapshot(key);
         final List<V> list = loader.get();
         return mergeLoaderResult(key, list, preHash);
     }
@@ -198,18 +199,25 @@ public class PartitionCache<K, V> {
      */
     static final String LOAD_MARK = "__load_mark__";
 
-    private Map<String, String> withLoadMark(final String key, final Map<String, String> snapshot) {
-        if (snapshot.containsKey(CacheKeys.LOADED_SENTINEL) || snapshot.isEmpty()) {
+    /**
+     * The snapshot a load compares against. For a COLD load over written-through rows the mark is planted FIRST
+     * and the hash read again, and that second read is the snapshot: a drop before the mark landed is then
+     * already in it (the reread holds no rows, or no mark), and a drop after it removes the mark, which is the
+     * tell. Snapshotting first and marking after let a drop in between recreate the key holding only the mark,
+     * which looked like no drop at all while the snapshot still held the vanished rows.
+     */
+    private Map<String, String> markedSnapshot(final String key) {
+        final Map<String, String> first = cache.getHash(key);
+        if (first.containsKey(CacheKeys.LOADED_SENTINEL) || first.isEmpty()) {
             // Loaded: the sentinel tells a drop. Empty: nothing in it can be mistaken for a removed row.
-            return snapshot;
+            return first;
         }
-        final String mark = java.util.UUID.randomUUID().toString();
-        if (!cache.putHashFields(key, Map.of(LOAD_MARK, mark))) {
-            return snapshot;
+        if (!cache.putHashFields(key, Map.of(LOAD_MARK, UUID.randomUUID().toString()))) {
+            return first;
         }
-        final Map<String, String> marked = new HashMap<>(snapshot);
-        marked.put(LOAD_MARK, mark);
-        return marked;
+        // A load that fails after the mark must not leave a key that never expires.
+        cache.expire(key, gcTtl);
+        return cache.getHash(key);
     }
 
     private List<V> mergeLoaderResult(final String key, final List<V> list, final Map<String, String> snapshot) {
@@ -259,8 +267,9 @@ public class PartitionCache<K, V> {
      * loader row is put unless a write-through has already landed in its field.
      */
     private static boolean droppedDuringLoad(final Map<String, String> snapshot, final Map<String, String> now) {
+        // The mark's VALUE is compared: a drop followed by another cold load's own mark is still a drop.
         return snapshot.containsKey(CacheKeys.LOADED_SENTINEL) && !now.containsKey(CacheKeys.LOADED_SENTINEL)
-                || snapshot.containsKey(LOAD_MARK) && !now.containsKey(LOAD_MARK);
+                || snapshot.containsKey(LOAD_MARK) && !Objects.equals(snapshot.get(LOAD_MARK), now.get(LOAD_MARK));
     }
 
     private boolean maybeReconcileDeletes(

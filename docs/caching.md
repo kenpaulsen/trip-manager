@@ -71,7 +71,7 @@ Two things the compare alone gets wrong, and what covers each:
   back and still mark the cache loaded: an authoritative empty answer until the soft TTL. So `PartitionCache`
   treats a loaded sentinel that was in the snapshot and is gone after the load as a drop; a COLD load over rows
   that were only written through has no sentinel, so it first plants a `__load_mark__` field and treats that
-  mark's absence after the load as the drop (a meta field, like the sentinel: no reader takes it for a row). And
+  mark's absence (or a different mark) after the load as the drop (a meta field, like the sentinel: no reader takes it for a row). And
   `PartitionScanCache` plants an epoch member in its registry set at snapshot time and trusts the snapshot only
   while that member is still there (every drop takes the registry with it; a write-through after the drop
   re-creates the registry, but without the epoch). A dropped load is merged onto an EMPTY snapshot: every
@@ -154,7 +154,8 @@ session login is the only auth mechanism the API has today.
   `softRevalidate` ON, so the scan caches rebuild against `InMemoryPersistence`, and a rebuild removes what its
   scan does not return. Every table behind a `PartitionScanCache` must therefore be registered in
   `InMemoryPersistence.TABLES`: privileges and config were not, every scan of them came back empty, and the
-  first full read removed every seeded role (pipeline run f3752b04, 2026-11-13).
+  first full read removed every seeded role (pipeline run f3752b04, 2026-11-13). `ScanCachedDAOTest` fails for
+  any scan-cached table missing from `TABLES`.
 - The near cache is deliberately NOT wrapped around `InMemoryCacheClient`.
 - Pub/sub works in-process; the invalidation broadcast is a no-op with one JVM (and skipped via the
   per-JVM origin id anyway). `DAO.invalidate` still clears, so the endpoint behaves.

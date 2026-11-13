@@ -11,6 +11,10 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
+import org.mockito.AdditionalAnswers;
+import org.mockito.ArgumentMatchers;
+import org.mockito.Mockito;
+import org.mockito.invocation.InvocationOnMock;
 import org.testng.annotations.Test;
 
 import static org.testng.Assert.assertEquals;
@@ -338,6 +342,37 @@ public class PartitionCacheTest {
 
         assertEquals(cache.getAll("p1", ArrayList::new), List.of("a-db", "b-db", "c-db"),
                 "every loader row is cached, the written-through one included");
+    }
+
+    /**
+     * The drop lands BETWEEN the cold load's first look and its mark: the mark write then recreates the key holding
+     * only the mark. The snapshot is read after the mark, so it already shows the drop, and every loader row is
+     * cached rather than skipped as "removed during the load".
+     */
+    @Test
+    public void aKeyDroppedJustBeforeTheMarkIsLoadedInFull() {
+        final AtomicLong clock = new AtomicLong(1_000_000L);
+        final InMemoryCacheClient client = new InMemoryCacheClient();
+        final CacheClient dropsBeforeTheMark = Mockito.mock(CacheClient.class, AdditionalAnswers.delegatesTo(client));
+        Mockito.doAnswer(call -> dropThenWrite(client, call)).when(dropsBeforeTheMark).putHashFields(
+                ArgumentMatchers.eq("t:p1"), ArgumentMatchers.argThat(PartitionCacheTest::isTheMarkWrite));
+        final PartitionCache<String, String> cache = partition(clock, dropsBeforeTheMark);
+        assertTrue(cache.put("p1", "a-written")); // a written-through row in a hash nobody has loaded
+
+        cache.getAll("p1", () -> List.of("a-db", "b-db", "c-db"));
+
+        assertEquals(cache.getAll("p1", ArrayList::new), List.of("a-db", "b-db", "c-db"),
+                "every loader row is cached, the one dropped before the mark included");
+    }
+
+    private static boolean isTheMarkWrite(final java.util.Map<String, String> fields) {
+        return fields != null && fields.containsKey(PartitionCache.LOAD_MARK);
+    }
+
+    /** The drop a failed write-through's recover makes, just before the mark write goes through. */
+    private static boolean dropThenWrite(final InMemoryCacheClient real, final InvocationOnMock call) {
+        real.removeKey("t:p1");
+        return real.putHashFields(call.getArgument(0), call.getArgument(1));
     }
 
     private static List<String> blockedTable(final CountDownLatch entered, final CountDownLatch release) {
