@@ -62,9 +62,12 @@ on acme.unitetrip.com showing up on visitqueenofpeace.com; now:
   whose TRANSACTION→TRIP binding names `?trip=` (or the trip's own ledger rows), create a row only for
   someone on that trip (`TripCommands.isOnTrip`: roster, or a registration that is not NOT_REGISTERED), and a
   group save is held to the same two rules. A person (or their family manager) still reads their whole
-  ledger; a site admin reaches every row. An update never re-binds a row to another trip. The website's
-  `trip/transaction.xhtml` and `trip/transactions.xhtml` do NOT apply the row rule yet (their finance view of
-  a roster member still shows that member's whole ledger).
+  ledger; a site admin reaches every row. An update never re-binds a row to another trip. The website applies
+  the same rule (2026-11-12): `trip/transaction.xhtml` opens a row for a trip's finance admin only through
+  `txCmds.tripStaffMayOpen` (the row is on that trip's books; a new row's person is on the trip) and otherwise
+  drops the role from its auth check, and `trip/transactions.xhtml` hands someone who is there ONLY by a finance
+  role `txCmds.getTransactionsOnBooks` (that trip's rows) instead of the whole ledger with the other trips' rows
+  hidden by a style class.
 
 ## Processor configs and secrets
 

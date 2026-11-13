@@ -71,6 +71,47 @@ public class TripFinanceGateLedgerTest {
         Assert.assertFalse(admin.canReadLedgers(UUID.randomUUID().toString()), "a trip nobody created");
     }
 
+    /**
+     * The website's half of the same rule: the transaction page opens a row for a trip's finance admin only when
+     * the row is on that trip's books (a new row: when its person is on the trip), and the ledger page hands a
+     * trip's finance staff only that trip's rows instead of the whole ledger with the rest hidden by a style.
+     */
+    @Test
+    public void theTransactionPagesHoldATripsFinanceStaffToThatTripsBooks() throws IOException {
+        final Person.Id traveler = Person.Id.newInstance();
+        final Person.Id stranger = Person.Id.newInstance();
+        final Trip mine = storedTrip(traveler);
+        final Trip other = storedTrip(traveler, stranger);
+        final Transaction here = saved(rowOnBooks(traveler, mine));
+        final Transaction elsewhere = saved(rowOnBooks(traveler, other));
+        final TripFinanceGate admin = gateFor(PrivilegeCommands.TRIP_FIN_ADMIN, mine);
+        final TripFinanceGate viewer = gateFor(PrivilegeCommands.TRIP_FIN_VIEW, mine);
+
+        Assert.assertTrue(TransactionsCommands.tripStaffMayOpen(admin, mine.getId(), traveler, here.getTxId()));
+        Assert.assertFalse(TransactionsCommands.tripStaffMayOpen(admin, mine.getId(), traveler, elsewhere.getTxId()),
+                "a row on another trip's books, opened with a role on mine");
+        Assert.assertFalse(TransactionsCommands.tripStaffMayOpen(admin, mine.getId(), traveler, "no-such-row"));
+        Assert.assertTrue(TransactionsCommands.tripStaffMayOpen(admin, mine.getId(), traveler, null),
+                "a new row for someone on the trip");
+        Assert.assertFalse(TransactionsCommands.tripStaffMayOpen(admin, mine.getId(), stranger, " "),
+                "a new row for someone who is not on it");
+        Assert.assertFalse(TransactionsCommands.tripStaffMayOpen(viewer, mine.getId(), traveler, here.getTxId()),
+                "a finance viewer opens nothing for writing");
+        Assert.assertFalse(TransactionsCommands.tripStaffMayOpen(admin, null, traveler, here.getTxId()));
+        Assert.assertFalse(TransactionsCommands.tripStaffMayOpen(admin, mine.getId(), null, here.getTxId()));
+
+        final List<Transaction> shown = new TransactionsCommands().getTransactionsOnBooks(traveler, mine.getId());
+        Assert.assertEquals(shown.stream().map(Transaction::getTxId).toList(), List.of(here.getTxId()),
+                "only this trip's rows are handed to the page");
+    }
+
+    private static Transaction saved(final Transaction row) throws IOException {
+        row.setAmount(10f);
+        row.setCategory("Payment");
+        Assert.assertTrue(DAO.getInstance().saveTransaction(row));
+        return row;
+    }
+
     /** The trip's own ledger keys its rows by the trip id (the page's "trip as person"): those are its books. */
     @Test
     public void theTripsOwnLedgerRowsAreOnItsBooks() throws IOException {

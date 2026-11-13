@@ -1613,6 +1613,14 @@ public class TripCommands {
      * role wrote charges on people who had nothing to do with the trip (audit 2026-11-11). The registration
      * is read fresh because the answer authorizes.
      */
+    public boolean personIsOnTrip(final String tripId, final Person.Id personId) {
+        if (tripId == null || tripId.isBlank() || personId == null) {
+            return false;
+        }
+        return isOnTrip(DAO.getInstance().getTrip(tripId, Cached.YES).orElse(null), personId);
+    }
+
+    /** {@link #personIsOnTrip} over a trip already in hand. */
     public static boolean isOnTrip(final Trip trip, final Person.Id personId) {
         if (trip == null || trip.getId() == null || personId == null) {
             return false;

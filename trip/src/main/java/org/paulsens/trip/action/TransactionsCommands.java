@@ -13,6 +13,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.AuditActor;
@@ -439,6 +440,41 @@ public class TransactionsCommands {
         return txs;
     }
 
+    /**
+     * The rows of one person's ledger that are on ONE trip's books ({@link TripFinanceGate#onBooks}), date
+     * sorted: what the trip's finance staff are shown. The ledger page used to load the person's whole
+     * ledger for them and merely HIDE the other trips' rows with a style class, so every row was in the page
+     * source for anyone holding a finance role on one trip the person was on.
+     */
+    public List<Transaction> getTransactionsOnBooks(final Person.Id userId, final String tripId) {
+        return getTransactionsSorted(userId).stream()
+                .filter(tx -> TripFinanceGate.onBooks(tripId, tx, Cached.YES))
+                .collect(Collectors.toCollection(ArrayList::new));
+    }
+
+    /**
+     * Whether a trip's finance role lets the signed-in user open THIS row (or, with no {@code txId}, record a
+     * new one for this person) on the transaction page: the role must be on a trip whose books the row is on,
+     * and a new row's person must be on that trip. The page checked only the role on the caller's own
+     * {@code ?trip=}, so a finance admin of one small trip could open, zero and delete anybody's row by URL
+     * (audit 2026-11-11; the REST half is {@code TransactionsResource}).
+     */
+    public boolean tripStaffMayOpen(final String tripId, final Person.Id subject, final String txId) {
+        return tripStaffMayOpen(TripFinanceGate.forCaller(Caller::current), tripId, subject, txId);
+    }
+
+    static boolean tripStaffMayOpen(final TripFinanceGate gate, final String tripId, final Person.Id subject,
+            final String txId) {
+        if (isNullOrEmpty(tripId) || subject == null) {
+            return false;
+        }
+        if (isNullOrEmpty(txId)) {
+            return gate.mayCharge(tripId, subject);
+        }
+        final Transaction row = DAO.getInstance().getTransaction(subject, txId, Cached.NO).orElse(null);
+        return row != null && gate.mayWriteRow(tripId, row);
+    }
+
     private boolean persistTx(final Transaction tx, final String tripId, final String eventId) {
         if ((tx.getGroupId() != null) && ((tx.getGroupPeople() == null) || tx.getGroupPeople().isEmpty())) {
             // An EMPTY membership list is worse than a missing one: getUserIdsForGroup reads it as the legacy
@@ -614,7 +650,7 @@ public class TransactionsCommands {
         return audit;
     }
 
-    private boolean isNullOrEmpty(final String str) {
+    private static boolean isNullOrEmpty(final String str) {
         return (str == null) || str.isEmpty();
     }
 }

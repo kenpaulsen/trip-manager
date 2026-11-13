@@ -223,12 +223,38 @@ public class PersonCommands {
      * "New Person" button was exactly that path (removed 2026-09-01).
      */
     public boolean saveProfile(final Person person) {
+        return saveProfile(person, getCurrentPerson(), hasRole("admin"));
+    }
+
+    /** {@link #saveProfile(Person)} with the editor named (the session lookup needs a FacesContext). */
+    boolean saveProfile(final Person person, final Person editor, final boolean siteAdmin) {
         if (person == null || person.getId() == null || !personExists(person.getId())) {
             PageFeedback.error("Not saved: this profile does not exist. A person is created by signing up, not from "
                             + "a profile page.");
             return false;
         }
+        if (!mayEditProfile(editor, siteAdmin, person.getId())) {
+            return PageFeedback.refuse("Not saved: you can view this profile, but only the person, their family "
+                    + "manager or an administrator can change it.");
+        }
         return savePerson(person);
+    }
+
+    /**
+     * Whether {@code editor} may CHANGE this profile: the person, whoever manages them, a site admin, or a
+     * people admin of an organization they belong to ({@link OrgCommands#canAdminPerson}). A trip role is not
+     * on the list on purpose: the profile page opens for a trip's managers and finance viewers so they can
+     * READ a traveler's record, and until 2026-11 its Save checked nothing at all, so that read grant let any
+     * trip manager overwrite anybody's profile (and fill in an empty email, handing the identity to an address
+     * of their choosing).
+     */
+    boolean mayEditProfile(final Person editor, final boolean siteAdmin, final Person.Id subjectId) {
+        return siteAdmin || canAccessUserId(editor, subjectId) || orgSource.get().canAdminPerson(subjectId);
+    }
+
+    /** {@link #mayEditProfile} for the signed-in user: the profile page shows its Save button under it. */
+    public boolean canEditProfile(final Person.Id subjectId) {
+        return subjectId != null && mayEditProfile(getCurrentPerson(), hasRole("admin"), subjectId);
     }
 
     /**

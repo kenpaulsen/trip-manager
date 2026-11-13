@@ -500,6 +500,21 @@ public class MediaResourceTest extends ResourceTestSupport {
                 500, ApiErrors.INTERNAL);
     }
 
+    /** A direct upload's bytes are never seen here, so a type that can run on the media host is not signed. */
+    @Test
+    public void anUploadUrlIsRefusedForATypeThatCouldRunOnTheMediaHost() {
+        signedInAsSiteAdmin(ADMIN);
+        Mockito.when(media.isUploadEnabled()).thenReturn(true);
+        assertError(resource.uploadUrl(CSRF_OK,
+                new MediaResource.UploadUrlRequest("downloads/guide.html", "text/html", 9L)),
+                422, ApiErrors.VALIDATION_FAILED);
+        assertError(resource.uploadUrl(CSRF_OK,
+                new MediaResource.UploadUrlRequest("downloads/logo.svg", "image/svg+xml", 9L)),
+                422, ApiErrors.VALIDATION_FAILED);
+        Mockito.verify(media, Mockito.never()).presignUpload(ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.anyLong());
+    }
+
     @Test
     public void anUploadUrlAnswersTheSignedUrlAndItsTerms() {
         signedInAsSiteAdmin(ADMIN);

@@ -52,7 +52,11 @@ email to signed-in viewers -- unless the person set that field PRIVATE, which wi
   A trip admin is the admin of a trip the PERSON is on: over REST (`GET /api/people/{id}?trip=`) the role
   counts only when the person is on that trip's roster or holds a registration there that is not
   NOT_REGISTERED (`TripCommands.isOnTrip`, 2026-11-12); naming a trip of one's own that the person has
-  nothing to do with yields the peer view.
+  nothing to do with yields the peer view. The profile page applies the same bound
+  (`trip.personIsOnTrip` beside the role check in `account/person.xhtml`).
+  **Opening a profile is not permission to change it** (2026-11-12): `people.saveProfile` saves only for the
+  person, whoever manages them, a site admin, or a people admin of one of their organizations
+  (`PersonCommands.mayEditProfile`); a trip's staff get no Save button. Until then the save checked nothing.
 - **Everyone else signed-in** (peers, `tripView` holders): exactly what the knobs share. `tripView` is
   roster access and does NOT override a privacy choice.
 - **Admin reports and exports** (`admin/reports/*`, the emergency list, the emails page, TSV/XLSX):

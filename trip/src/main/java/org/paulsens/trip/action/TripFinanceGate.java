@@ -90,6 +90,11 @@ public final class TripFinanceGate {
      * books, so only its person and a site admin reach it. Read fresh: the answer authorizes a money write.
      */
     static boolean onBooks(final String tripId, final Transaction tx) {
+        return onBooks(tripId, tx, Cached.NO);
+    }
+
+    /** {@link #onBooks(String, Transaction)} with the caller's choice of freshness: a LIST filter may read cached. */
+    static boolean onBooks(final String tripId, final Transaction tx, final Cached cached) {
         if (tripId == null || tx == null || tx.getUserId() == null || tx.getTxId() == null) {
             return false;
         }
@@ -98,7 +103,7 @@ public final class TripFinanceGate {
             return true;
         }
         final String key = CompositeKey.builder().partitionKey(owner).sortKey(tx.getTxId()).build().getValue();
-        return DAO.getInstance().getBindings(key, BindingType.TRANSACTION, BindingType.TRIP, Cached.NO)
+        return DAO.getInstance().getBindings(key, BindingType.TRANSACTION, BindingType.TRIP, cached)
                 .contains(tripId);
     }
 

@@ -231,9 +231,17 @@ public class TripUtilCommands {
      * Same-site path+query from a stash or form value, or null when it cannot be trusted or would land on a
      * sign-in page. Absolute URLs (the legacy stash format every gated page writes) are reduced to their path;
      * everything else must already be an absolute path.
+     *
+     * <p>A value holding ANY control character is refused outright. Browsers delete tabs and line breaks from a
+     * URL before they parse it, in a Location header and in a script's {@code window.location} assignment
+     * alike, so {@code /<tab>/evil.example/login} passed the {@code //} check below as written and still sent
+     * a freshly signed-in visitor to {@code //evil.example/login}.
      */
     static String normalizeReturnPath(final String raw) {
         if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        if (raw.strip().chars().anyMatch(Character::isISOControl)) {
             return null;
         }
         String path = raw.trim();

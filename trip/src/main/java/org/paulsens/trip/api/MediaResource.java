@@ -20,6 +20,7 @@ import org.paulsens.trip.api.dto.MediaBasesDto;
 import org.paulsens.trip.api.dto.MediaItemDto;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.media.UploadType;
 import org.paulsens.trip.model.MediaItem;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
@@ -258,6 +259,12 @@ public class MediaResource extends BaseResource {
         final String stored = MediaCommands.siteKey(body.key());
         if (media.getByKey(stored) != null) {
             return error(409, ApiErrors.CONFLICT, "A media item already uses that key.");
+        }
+        if (!UploadType.mayDeclare(body.contentType())) {
+            // The bytes go straight to S3 and are served from the media host every organization shares, so
+            // only a type that cannot run there is signed (docs/security-headers.md, "nosniff").
+            return error(422, ApiErrors.VALIDATION_FAILED, "That file type cannot be uploaded directly. Upload "
+                    + "an image, a PDF, video or audio, or use application/octet-stream for a download.");
         }
         final String url = media.presignUpload(stored, body.contentType(), body.size());
         if (url == null) {

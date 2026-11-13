@@ -47,6 +47,14 @@ public class TripUtilCommandsTest {
         assertNull(TripUtilCommands.normalizeReturnPath("/\\evil.example.com"),
                 "Backslash tricks (browsers treat \\ as /) are refused");
         assertNull(TripUtilCommands.normalizeReturnPath("ftp://x/y"), "Foreign schemes are refused");
+        // Browsers delete tab, CR and LF from a URL before parsing it, so each of these IS "//evil.example".
+        for (final String hidden : new String[] {"/\t/evil.example/login", "/\n/evil.example", "/\r/evil.example",
+                "/\r\n/evil.example", "https://visitqueenofpeace.com/\t/evil.example", "/trip/x.jsf?a=1\u0000",
+                "/a\u007f/b"}) {
+            assertNull(TripUtilCommands.normalizeReturnPath(hidden), "A control character hides a redirect");
+        }
+        assertEquals(TripUtilCommands.normalizeReturnPath("  /trip/joinTrip.jsf?trip=x\n"),
+                "/trip/joinTrip.jsf?trip=x", "Whitespace around the value is still just trimmed");
         assertNull(TripUtilCommands.normalizeReturnPath("relative/path"),
                 "Only absolute paths can be trusted to stay on this site");
         // 2026-10-09: the topbar Login link on Create Account named that page as the return target, so a
