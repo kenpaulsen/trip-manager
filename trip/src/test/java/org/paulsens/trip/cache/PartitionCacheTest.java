@@ -4,6 +4,7 @@ import java.time.Duration;
 import java.util.Comparator;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -344,6 +345,54 @@ public class PartitionCacheTest {
                 "every loader row is cached, the written-through one included");
     }
 
+    /** A drop, then ANOTHER cold load's mark: the first load's own mark is gone, so it is still a drop. */
+    @Test
+    public void aDropFollowedByAnotherLoadsMarkIsStillADrop() throws Exception {
+        final AtomicLong clock = new AtomicLong(1_000_000L);
+        final CountDownLatch enteredLoad = new CountDownLatch(1);
+        final CountDownLatch releaseLoad = new CountDownLatch(1);
+        final InMemoryCacheClient client = new InMemoryCacheClient();
+        final PartitionCache<String, String> cache = partition(clock, client);
+        assertTrue(cache.put("p1", "a-written"));
+        final Supplier<List<String>> loader = () -> blockedTable(enteredLoad, releaseLoad);
+
+        final Thread reader = Thread.ofVirtual().start(() -> cache.getAll("p1", loader));
+        assertTrue(enteredLoad.await(3, TimeUnit.SECONDS));
+        assertTrue(client.removeKey("t:p1"));
+        assertTrue(client.putHashFields("t:p1", Map.of(PartitionCache.LOAD_MARK + "second-load", "1")));
+        releaseLoad.countDown();
+        reader.join(TimeUnit.SECONDS.toMillis(3));
+
+        assertEquals(cache.getAll("p1", ArrayList::new), List.of("a-db", "b-db", "c-db"),
+                "every loader row is cached: the drop was seen despite the other load's mark");
+    }
+
+    /**
+     * Two overlapping cold loads and a removal between them: the second load's mark is not a drop, so the first
+     * load still trusts its snapshot and does not put back the row removed while it loaded.
+     */
+    @Test
+    public void aSecondColdLoadDoesNotBringBackARowRemovedDuringTheFirst() throws Exception {
+        final AtomicLong clock = new AtomicLong(1_000_000L);
+        final CountDownLatch enteredLoad = new CountDownLatch(1);
+        final CountDownLatch releaseLoad = new CountDownLatch(1);
+        final InMemoryCacheClient client = new InMemoryCacheClient();
+        final PartitionCache<String, String> cache = partition(clock, client);
+        assertTrue(cache.put("p1", "a-written"));
+        assertTrue(cache.put("p1", "c-written"));
+        final Supplier<List<String>> loader = () -> blockedTable(enteredLoad, releaseLoad);
+
+        final Thread reader = Thread.ofVirtual().start(() -> cache.getAll("p1", loader));
+        assertTrue(enteredLoad.await(3, TimeUnit.SECONDS));
+        assertTrue(cache.remove("p1", "c"));       // deleted while the (stale) load still returns it
+        assertTrue(client.putHashFields("t:p1", Map.of(PartitionCache.LOAD_MARK + "second-load", "1")));
+        releaseLoad.countDown();
+        reader.join(TimeUnit.SECONDS.toMillis(3));
+
+        assertEquals(cache.getAll("p1", ArrayList::new), List.of("a-db", "b-db"),
+                "the removed row stays removed");
+    }
+
     /**
      * The drop lands BETWEEN the cold load's first look and its mark: the mark write then recreates the key holding
      * only the mark. The snapshot is read after the mark, so it already shows the drop, and every loader row is
@@ -365,8 +414,8 @@ public class PartitionCacheTest {
                 "every loader row is cached, the one dropped before the mark included");
     }
 
-    private static boolean isTheMarkWrite(final java.util.Map<String, String> fields) {
-        return fields != null && fields.containsKey(PartitionCache.LOAD_MARK);
+    private static boolean isTheMarkWrite(final Map<String, String> fields) {
+        return fields != null && fields.keySet().stream().anyMatch(field -> field.startsWith(PartitionCache.LOAD_MARK));
     }
 
     /** The drop a failed write-through's recover makes, just before the mark write goes through. */
