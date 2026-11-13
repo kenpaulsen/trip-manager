@@ -401,7 +401,8 @@ public class TransactionsResource extends BaseResource {
      */
     private boolean groupIsOnTheBooks(final GroupTransactionRequest body, final String tripId) {
         final List<Person.Id> members = ids(body.people());
-        if (!members.stream().allMatch(member -> gate().mayCharge(tripId, member))) {
+        if (!members.stream().allMatch(member -> TransactionsCommands.mayKeepInGroup(gate(), tripId, member,
+                body.groupId()))) {
             return false;
         }
         if (body.groupId() == null || body.groupId().isBlank()) {

@@ -542,7 +542,7 @@ public class PersonCommands {
         return listOrSearch(candidates, query, reach, PEOPLE_LIST_LIMIT);
     }
 
-    private static PeopleResult listOrSearch(final Collection<Person> candidates, final String query,
+    static PeopleResult listOrSearch(final Collection<Person> candidates, final String query,
             final PersonMatch.Reach reach, final int limit) {
         if (candidates == null || candidates.isEmpty()) {
             return PeopleResult.NONE;

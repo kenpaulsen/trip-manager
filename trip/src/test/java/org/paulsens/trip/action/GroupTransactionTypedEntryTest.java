@@ -113,4 +113,40 @@ public class GroupTransactionTypedEntryTest {
                 (Object) List.of(traveler.getId())));
         Assert.assertTrue(transactions.getGroupTransactionForUser(traveler.getId(), allowed).isPresent());
     }
+
+    /**
+     * Editing a batch after one member left the trip: their row stays on this trip's books, so the edit is saved
+     * with them still on it. Only someone being ADDED must be on the trip now.
+     */
+    @Test
+    public void aBatchCanBeEditedAfterAMemberLeftTheTrip() throws java.io.IOException {
+        final Person financeAdmin = TenancyFixtures.savedPerson("Fin");
+        final Person stays = TenancyFixtures.savedPerson("Stays");
+        final Person leaves = TenancyFixtures.savedPerson("Leaves");
+        final Person stranger = TenancyFixtures.savedPerson("Stranger");
+        final org.paulsens.trip.model.Trip trip =
+                TenancyFixtures.tripOwnedBy(TenancyFixtures.org("BatchEdit", stays, leaves), stays, leaves);
+        final PrivilegeCommands privileges = new PrivilegeCommands();
+        Assert.assertTrue(privileges.savePrivilege(privileges.getOrCreate(PrivilegeCommands.TRIP_FIN_ADMIN,
+                trip.getId(), "Finance Admin").withNewPerson(financeAdmin.getId())));
+        final TripFinanceGate gate = TripFinanceGate.forCaller(() -> TenancyFixtures.callerFor(financeAdmin));
+        final String group = "grp-edit-" + System.nanoTime();
+        final List<Person.Id> both = List.of(stays.getId(), leaves.getId());
+        Assert.assertTrue(transactions.saveGroupTxAs(gate, group, List.of(), Transaction.Type.Batch,
+                Transaction.TransactionType.Bill, LocalDateTime.now(), 100.0f, "Bus", "deposit", trip.getId(), null,
+                (Object) both));
+
+        final org.paulsens.trip.model.Trip after = org.paulsens.trip.dynamo.DAO.getInstance()
+                .getTrip(trip.getId(), org.paulsens.trip.cache.Cached.NO).orElseThrow();
+        after.setPeople(new java.util.ArrayList<>(List.of(stays.getId())));
+        Assert.assertTrue(org.paulsens.trip.dynamo.DAO.getInstance().saveTrip(after));
+
+        Assert.assertTrue(transactions.saveGroupTxAs(gate, group, both, Transaction.Type.Batch,
+                Transaction.TransactionType.Bill, LocalDateTime.now(), 120.0f, "Bus", "deposit", trip.getId(), null,
+                (Object) both), "the withdrawn traveler's row is still on this trip's books");
+        Assert.assertTrue(transactions.getGroupTransactionForUser(leaves.getId(), group).isPresent());
+        Assert.assertFalse(transactions.saveGroupTxAs(gate, group, both, Transaction.Type.Batch,
+                Transaction.TransactionType.Bill, LocalDateTime.now(), 120.0f, "Bus", "deposit", trip.getId(), null,
+                (Object) List.of(stays.getId(), leaves.getId(), stranger.getId())), "but nobody new off the trip");
+    }
 }

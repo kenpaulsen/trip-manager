@@ -170,7 +170,7 @@ public class PartitionCache<K, V> {
         // Snapshot before Dynamo so concurrent write-through of new fields is not reconcile-deleted.
         // Reconcile-delete only when the hash was already fully loaded (sentinel present); a first load over
         // write-through-only fields must overlay without HDEL (local FakeData / empty scan must not wipe cache).
-        final Map<String, String> preHash = cache.getHash(key);
+        final Map<String, String> preHash = withLoadMark(key, cache.getHash(key));
         final List<V> list = loader.get();
         return mergeLoaderResult(key, list, preHash);
     }
@@ -186,7 +186,30 @@ public class PartitionCache<K, V> {
     }
 
     private static boolean isMetaField(final String field) {
-        return CacheKeys.LOADED_SENTINEL.equals(field) || CacheKeys.LOADED_AT.equals(field);
+        return CacheKeys.LOADED_SENTINEL.equals(field) || CacheKeys.LOADED_AT.equals(field)
+                || LOAD_MARK.equals(field);
+    }
+
+    /**
+     * A field a COLD load plants before it reads the store, so a drop of the whole key during that load can be
+     * told from single rows going away (see {@link #droppedDuringLoad}). A loaded hash needs none: its sentinel
+     * is the tell. Meta, so no reader takes it for a row; harmless if left behind by a load that failed, since a
+     * hash without the sentinel is reloaded anyway.
+     */
+    static final String LOAD_MARK = "__load_mark__";
+
+    private Map<String, String> withLoadMark(final String key, final Map<String, String> snapshot) {
+        if (snapshot.containsKey(CacheKeys.LOADED_SENTINEL) || snapshot.isEmpty()) {
+            // Loaded: the sentinel tells a drop. Empty: nothing in it can be mistaken for a removed row.
+            return snapshot;
+        }
+        final String mark = java.util.UUID.randomUUID().toString();
+        if (!cache.putHashFields(key, Map.of(LOAD_MARK, mark))) {
+            return snapshot;
+        }
+        final Map<String, String> marked = new HashMap<>(snapshot);
+        marked.put(LOAD_MARK, mark);
+        return marked;
     }
 
     private List<V> mergeLoaderResult(final String key, final List<V> list, final Map<String, String> snapshot) {
@@ -231,11 +254,13 @@ public class PartitionCache<K, V> {
      * {@link #invalidate}, the admin Clear caches. Every field is then missing, which the per-field compare
      * would read as "each of these rows was removed during the load": it would skip them all and still mark
      * the partition loaded, an authoritative "nothing here" until the soft TTL. The sentinel is the tell (no
-     * single-row removal touches it), and the load is then merged as the cold load it has become: onto an
-     * empty snapshot, so every loader row is put unless a write-through has already landed in its field.
+     * single-row removal touches it), and for a cold load over write-through-only rows the {@link #LOAD_MARK} it
+     * planted is. The load is then merged as the cold load it has become: onto an empty snapshot, so every
+     * loader row is put unless a write-through has already landed in its field.
      */
     private static boolean droppedDuringLoad(final Map<String, String> snapshot, final Map<String, String> now) {
-        return snapshot.containsKey(CacheKeys.LOADED_SENTINEL) && !now.containsKey(CacheKeys.LOADED_SENTINEL);
+        return snapshot.containsKey(CacheKeys.LOADED_SENTINEL) && !now.containsKey(CacheKeys.LOADED_SENTINEL)
+                || snapshot.containsKey(LOAD_MARK) && !now.containsKey(LOAD_MARK);
     }
 
     private boolean maybeReconcileDeletes(

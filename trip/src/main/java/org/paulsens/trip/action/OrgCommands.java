@@ -219,14 +219,10 @@ public class OrgCommands {
 
     /** Membership rows resolved to people, org-roster order (by person id -- stable, not name-sorted). */
     public List<Person> getMembers(final Organization org) {
-        final List<Person> result = new ArrayList<>();
         if (org == null || org.getId() == null) {
-            return result;
+            return new ArrayList<>();
         }
-        for (final OrgMember member : DAO.getInstance().getOrgMembers(org.getId(), Cached.YES)) {
-            DAO.getInstance().getPerson(member.getPersonId(), Cached.YES).ifPresent(result::add);
-        }
-        return result;
+        return membersOfOrganizations(DAO.getInstance(), List.of(org.getId()));
     }
 
     /** The organizations this person belongs to, resolved from the derived back-pointer list. */
@@ -1051,6 +1047,11 @@ public class OrgCommands {
                 dao.getPerson(me, Cached.NO).map(Person::getOrgIds).orElse(List.of()));
     }
 
+    /**
+     * THE way a set of organizations becomes their member people: membership rows (the source of truth, not the
+     * people's derived orgIds) resolved through the caches, once each, in roster order. Every member list and
+     * every people scope in this class is built here, so a rule about whom to leave out lives in one place.
+     */
     private static List<Person> membersOfOrganizations(final DAO dao, final Collection<Organization.Id> orgIds) {
         final Map<Person.Id, Person> byId = new LinkedHashMap<>();
         for (final Organization.Id orgId : orgIds) {
@@ -2833,11 +2834,8 @@ public class OrgCommands {
      * in memory for a caller who is not a site admin.
      */
     public List<Person> peopleAdminScope() {
-        final Map<Person.Id, Person> byId = new LinkedHashMap<>();
-        for (final Organization org : orgsWithPriv(PrivilegeCommands.PEOPLE_ADMIN)) {
-            getMembers(org).forEach(member -> byId.putIfAbsent(member.getId(), member));
-        }
-        return new ArrayList<>(byId.values());
+        return membersOfOrganizations(DAO.getInstance(),
+                orgsWithPriv(PrivilegeCommands.PEOPLE_ADMIN).stream().map(Organization::getId).toList());
     }
 
     private boolean saveOrgOrWarn(final Organization org) {

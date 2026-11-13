@@ -178,12 +178,36 @@ public class TransactionsCommands {
                 final Object... objArr) {
         final List<Person.Id> txPeople = (objArr == null) ? Collections.emptyList()
                 : Arrays.stream(objArr).flatMap(this::castToPersonId).toList();
-        if (!txPeople.stream().allMatch(member -> gate.mayCharge(tripId, member))) {
-            return PageFeedback.refuse("Not saved",
-                    "Everyone on a batch or shared transaction must be on this trip. Remove anyone who is not.");
+        final List<String> refused = txPeople.stream()
+                .filter(member -> !mayKeepInGroup(gate, tripId, member, gid))
+                .map(TransactionsCommands::nameOf)
+                .toList();
+        if (!refused.isEmpty()) {
+            return PageFeedback.refuse("Not saved", "Everyone on a batch or shared transaction must be on this "
+                    + "trip. Not on it: " + String.join(", ", refused) + ".");
         }
         return saveGroupTransaction(gid, origPeople, type, txType, date, amount, cat, note, tripId, eventId,
                 txPeople);
+    }
+
+    /**
+     * Whether this member may be on the group as saved: someone who already has a row in it keeps it while that
+     * row is on this trip's books ({@code mayWriteRow}), even after leaving the trip (an edit of a deposit must
+     * not force the admin to delete a withdrawn traveler's row); anyone being ADDED must be someone this caller
+     * may charge on the trip ({@code mayCharge}). The REST door asks the same ({@code TransactionsResource}).
+     */
+    public static boolean mayKeepInGroup(final TripFinanceGate gate, final String tripId, final Person.Id member,
+            final String groupId) {
+        final Transaction existing = isNullOrEmpty(groupId) || member == null ? null
+                : DAO.getInstance().getTransactions(member, Cached.NO).stream()
+                        .filter(tx -> groupId.equals(tx.getGroupId())).findAny().orElse(null);
+        return existing == null ? gate.mayCharge(tripId, member) : gate.mayWriteRow(tripId, existing);
+    }
+
+    private static String nameOf(final Person.Id id) {
+        return DAO.getInstance().getPerson(id, Cached.YES)
+                .map(person -> person.getPreferredName() + " " + person.getLast())
+                .orElse(id.getValue());
     }
 
     /**
@@ -504,9 +528,16 @@ public class TransactionsCommands {
     }
 
     private static boolean mayPutOnBooks(final TripFinanceGate gate, final Transaction tx, final String tripId) {
-        final Transaction stored = tx.getTxId() == null ? null
-                : DAO.getInstance().getTransaction(tx.getUserId(), tx.getTxId(), Cached.NO).orElse(null);
-        return stored == null ? gate.mayCharge(tripId, tx.getUserId()) : gate.mayWriteRow(tripId, stored);
+        // A Transaction always carries an id (its constructors mint one), so "new" means nothing stored under it.
+        final Transaction stored =
+                DAO.getInstance().getTransaction(tx.getUserId(), tx.getTxId(), Cached.NO).orElse(null);
+        return mayPutOnBooks(gate, tripId, tx.getUserId(), stored);
+    }
+
+    /** The ONE books rule for both page gates: a new row needs mayCharge, an existing one mayWriteRow. */
+    private static boolean mayPutOnBooks(final TripFinanceGate gate, final String tripId, final Person.Id subject,
+            final Transaction storedOrNull) {
+        return storedOrNull == null ? gate.mayCharge(tripId, subject) : gate.mayWriteRow(tripId, storedOrNull);
     }
 
     /**
@@ -526,10 +557,11 @@ public class TransactionsCommands {
             return false;
         }
         if (isNullOrEmpty(txId)) {
-            return gate.mayCharge(tripId, subject);
+            return mayPutOnBooks(gate, tripId, subject, null);
         }
+        // Opening a txId that names no row is refused: the page edits stored rows, it does not invent them.
         final Transaction row = DAO.getInstance().getTransaction(subject, txId, Cached.NO).orElse(null);
-        return row != null && gate.mayWriteRow(tripId, row);
+        return row != null && mayPutOnBooks(gate, tripId, subject, row);
     }
 
     private boolean persistTx(final Transaction tx, final String tripId, final String eventId) {

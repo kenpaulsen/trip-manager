@@ -72,4 +72,43 @@ public class RegistrationStaffReachTest {
         assertEquals(DAO.getInstance().getRegistration(trip.getId(), member.getId(),
                 org.paulsens.trip.cache.Cached.NO).orElseThrow().getStatus(), Registration.Status.PENDING);
     }
+
+    /**
+     * The Registrations page's Move files a Pending registration on the destination trip, so it asks for the
+     * registration role on BOTH trips and the destination's staff reach: the destination came from a hidden field.
+     */
+    @Test
+    public void aMoveNeedsBothTripsRolesAndTheDestinationsReach() {
+        final Person registrar = TenancyFixtures.savedPerson("Registrar");
+        final Person traveler = TenancyFixtures.savedPerson("Traveler");
+        final Organization home = TenancyFixtures.org("MoveHome", traveler);
+        final Trip from = TenancyFixtures.tripOwnedBy(home, traveler);
+        final Trip sibling = TenancyFixtures.tripOwnedBy(home);
+        final Trip foreign = TenancyFixtures.tripOwnedBy(TenancyFixtures.org("MoveForeign"));
+        grantRegistrationAdmin(registrar, from, sibling, foreign);
+        final RegistrationCommands asRegistrar = registrationsAs(registrar);
+
+        assertTrue(asRegistrar.mayMoveRegistration(from.getId(), traveler.getId(), sibling.getId()),
+                "both trips are theirs and the traveler is one of the destination organization's people");
+        assertFalse(asRegistrar.mayMoveRegistration(from.getId(), traveler.getId(), foreign.getId()),
+                "another organization's trip: the traveler is nobody there");
+        assertFalse(asRegistrar.mayMoveRegistration(from.getId(), traveler.getId(), from.getId()), "the same trip");
+        assertFalse(asRegistrar.mayMoveRegistration(from.getId(), traveler.getId(), "no-such-trip"));
+        assertFalse(asRegistrar.mayMoveRegistration(from.getId(), null, sibling.getId()));
+
+        final Person onlyHere = TenancyFixtures.savedPerson("OnlyHere");
+        grantRegistrationAdmin(onlyHere, from);
+        assertFalse(registrationsAs(onlyHere).mayMoveRegistration(from.getId(), traveler.getId(), sibling.getId()),
+                "no registration role on the destination");
+        assertTrue(new RegistrationCommands(TenancyFixtures::siteAdminCaller)
+                .mayMoveRegistration(from.getId(), traveler.getId(), foreign.getId()), "a site admin is not bounded");
+    }
+
+    private static void grantRegistrationAdmin(final Person person, final Trip... trips) {
+        final PrivilegeCommands privileges = new PrivilegeCommands();
+        for (final Trip trip : trips) {
+            assertTrue(privileges.savePrivilege(privileges.getOrCreate(PrivilegeCommands.REGISTRATION_ADMIN,
+                    trip.getId(), "Registration admin").withNewPerson(person.getId())));
+        }
+    }
 }

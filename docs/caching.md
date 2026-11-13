@@ -69,7 +69,9 @@ Two things the compare alone gets wrong, and what covers each:
   failed write-through, an `invalidate`, the admin Clear caches) leaves every field missing, exactly what
   "each of these rows was removed during the load" looks like. Taken that way the reload would write nothing
   back and still mark the cache loaded: an authoritative empty answer until the soft TTL. So `PartitionCache`
-  treats a loaded sentinel that was in the snapshot and is gone after the load as a drop, and
+  treats a loaded sentinel that was in the snapshot and is gone after the load as a drop; a COLD load over rows
+  that were only written through has no sentinel, so it first plants a `__load_mark__` field and treats that
+  mark's absence after the load as the drop (a meta field, like the sentinel: no reader takes it for a row). And
   `PartitionScanCache` plants an epoch member in its registry set at snapshot time and trusts the snapshot only
   while that member is still there (every drop takes the registry with it; a write-through after the drop
   re-creates the registry, but without the epoch). A dropped load is merged onto an EMPTY snapshot: every

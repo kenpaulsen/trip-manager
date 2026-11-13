@@ -2,6 +2,7 @@ package org.paulsens.trip.cache;
 
 import java.time.Duration;
 import java.util.Comparator;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
@@ -313,6 +314,36 @@ public class PartitionCacheTest {
 
         assertEquals(cache.getAll("p1", loader), List.of("a-db", "b-db", "c-written"));
         assertEquals(loads.get(), 2);
+    }
+
+    /**
+     * A COLD load (no sentinel) over a row that was only written through: the drop of the whole key during the
+     * load must not read as "that row was removed", or the partition is marked loaded without it.
+     */
+    @Test
+    public void aKeyDroppedDuringAColdLoadIsLoadedInFull() throws Exception {
+        final AtomicLong clock = new AtomicLong(1_000_000L);
+        final CountDownLatch enteredLoad = new CountDownLatch(1);
+        final CountDownLatch releaseLoad = new CountDownLatch(1);
+        final InMemoryCacheClient client = new InMemoryCacheClient();
+        final PartitionCache<String, String> cache = partition(clock, client);
+        assertTrue(cache.put("p1", "a-written")); // write-through into a hash nobody has loaded
+        final Supplier<List<String>> loader = () -> blockedTable(enteredLoad, releaseLoad);
+
+        final Thread reader = Thread.ofVirtual().start(() -> cache.getAll("p1", loader));
+        assertTrue(enteredLoad.await(3, TimeUnit.SECONDS));
+        assertTrue(client.removeKey("t:p1")); // a failed write-through's recover, an invalidate, Clear caches
+        releaseLoad.countDown();
+        reader.join(TimeUnit.SECONDS.toMillis(3));
+
+        assertEquals(cache.getAll("p1", ArrayList::new), List.of("a-db", "b-db", "c-db"),
+                "every loader row is cached, the written-through one included");
+    }
+
+    private static List<String> blockedTable(final CountDownLatch entered, final CountDownLatch release) {
+        entered.countDown();
+        awaitRelease(release);
+        return List.of("a-db", "b-db", "c-db");
     }
 
     /**

@@ -82,6 +82,41 @@ public class RegistrationCommands {
         this.waiverSource = () -> new WaiverCommands(callerSource);
     }
 
+    /**
+     * Whether the Registrations page may MOVE this traveler's registration from one trip to another: a site
+     * admin, or someone who administers the registrations of BOTH trips, and the traveler is within the
+     * destination trip's staff reach ({@link #withinStaffReach}). A move files a Pending registration on the
+     * destination, which makes the traveler "on" that trip for its staff, so without this the destination came
+     * from a hidden field and a registration admin of one trip could file anybody onto any other organization's
+     * trip. Growls the refusal; true when the move may go ahead.
+     */
+    public boolean mayMoveRegistration(final String fromTripId, final Person.Id userId, final String toTripId) {
+        final Caller caller = callerSource.get();
+        final org.paulsens.trip.model.Trip from = existingTrip(fromTripId);
+        final org.paulsens.trip.model.Trip to = existingTrip(toTripId);
+        if (from == null || to == null || userId == null || from.getId().equals(to.getId())) {
+            return PageFeedback.refuse("Not moved: choose another existing trip to move this registration to.");
+        }
+        final boolean administersBoth = caller.isSiteAdmin()
+                || caller.has(PrivilegeCommands.REGISTRATION_ADMIN, from.getId())
+                        && caller.has(PrivilegeCommands.REGISTRATION_ADMIN, to.getId());
+        if (!administersBoth) {
+            return PageFeedback.refuse("Not moved: you can move a registration only to a trip whose registrations"
+                    + " you administer.");
+        }
+        if (!withinStaffReach(to, userId)) {
+            return PageFeedback.refuse("Not moved: " + OUT_OF_REACH);
+        }
+        return true;
+    }
+
+    private static org.paulsens.trip.model.Trip existingTrip(final String tripId) {
+        if (tripId == null || tripId.isBlank()) {
+            return null;
+        }
+        return DAO.getInstance().getTrip(tripId, Cached.YES).orElse(null);
+    }
+
     public Registration createRegistration(final String tripId, final Person.Id userId) {
         return new Registration(tripId, userId);
     }

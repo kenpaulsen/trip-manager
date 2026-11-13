@@ -554,15 +554,11 @@ public class PhotoChatCommands {
      */
     public List<Map<String, String>> mentionSearch(final Person.Id me, final String query, final int maxResults) {
         final String q = query == null ? "" : query.strip();
-        final List<String> words = PersonMatch.queryWords(q);
-        if (q.length() < 2 || words.isEmpty()) {
+        if (q.length() < 2 || PersonMatch.queryWords(q).isEmpty()) {
             return List.of();
         }
-        return labeled(OrgCommands.fellowMembersOf(dao(), me).stream()
-                .filter(person -> PersonMatch.matchesAll(person, words, PersonMatch.SHARED_FIELDS))
-                .sorted(Person.PEOPLE_SORTER)
-                .limit(Math.max(1, maxResults))
-                .toList());
+        return labeled(PersonCommands.listOrSearch(OrgCommands.fellowMembersOf(dao(), me), q,
+                PersonMatch.SHARED_FIELDS, Math.max(1, maxResults)).rows());
     }
 
     /** Labels for a result page: display name, plus a masked address only where two names collide. */
