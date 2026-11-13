@@ -3,11 +3,14 @@ package org.paulsens.trip.api;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.util.List;
+import java.util.UUID;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
 import org.paulsens.trip.action.AuditCommands;
 import org.paulsens.trip.action.PersonCommands;
+import org.paulsens.trip.action.PrivilegeCommands;
 import org.paulsens.trip.action.TodoCommands;
+import org.paulsens.trip.action.TripCommands;
 import org.paulsens.trip.api.dto.TodoDto;
 import org.paulsens.trip.api.dto.TodoStatusDto;
 import org.paulsens.trip.model.DataId;
@@ -15,6 +18,7 @@ import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Status;
 import org.paulsens.trip.model.TodoItem;
 import org.paulsens.trip.model.TodoStatus;
+import org.paulsens.trip.model.Trip;
 import org.testng.Assert;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
@@ -33,15 +37,39 @@ public class TodosResourceTest extends ResourceTestSupport {
     private static final Person.Id OTHER = Person.Id.from("person-other");
 
     private TodoCommands todos;
+    private TripCommands trips;
     private TodosResource resource;
 
     @BeforeMethod
     public void bindBeans() {
         todos = bindMock(TodoCommands.class);
+        // The owner rule is a pure function of the status: let the real one decide, not a stub's opinion.
+        Mockito.when(todos.userCanEdit(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.anyBoolean()))
+                .thenCallRealMethod();
         // Bound for every test: the authorization path resolves the viewer through PersonCommands, so almost
         // any endpoint asks for it before it gets as far as the behaviour under test.
         bindMock(PersonCommands.class);
+        // The trip the todos hang off must be real, and ME is on it: the ordinary traveler's case.
+        trips = bindMock(TripCommands.class);
+        tripWith(TRIP, ME);
         resource = resource(new TodosResource());
+    }
+
+    private void tripWith(final String tripId, final Person.Id... roster) {
+        Mockito.when(trips.getTrip(tripId)).thenReturn(
+                Trip.builder().id(tripId).title("Todo trip").people(List.of(roster)).build());
+    }
+
+    private static Person.Id holderOf(final String base, final String tripId) {
+        final Person.Id who = Person.Id.newInstance();
+        final PrivilegeCommands priv = new PrivilegeCommands();
+        Assert.assertTrue(priv.savePrivilege(priv.getOrCreate(base, tripId, base).withNewPerson(who), null));
+        return who;
+    }
+
+    private TodosResource as(final Person.Id who) {
+        signedInAs(who);
+        return resource(new TodosResource());
     }
 
     private static TodoItem todoItem(final String dataId) {
@@ -237,7 +265,7 @@ public class TodosResourceTest extends ResourceTestSupport {
         final TodoItem todo = todoItem("d1");
         final TodoStatus status = status("d1", ME, null);
         Mockito.when(todos.getTodo(ArgumentMatchers.eq(TRIP), ArgumentMatchers.any())).thenReturn(todo);
-        Mockito.when(todos.getOrCreateTodoStatus(todo, ME)).thenReturn(status);
+        Mockito.when(todos.getTodoStatus(todo, ME)).thenReturn(status);
         Mockito.when(todos.saveTodoStatus(status)).thenReturn(true);
 
         assertOk(resource.saveStatus(TRIP, "d1", ME.getValue(), CSRF_OK,
@@ -251,8 +279,7 @@ public class TodosResourceTest extends ResourceTestSupport {
         final TodoItem todo = todoItem("d1");
         final TodoStatus status = status("d1", OTHER, null);
         Mockito.when(todos.getTodo(ArgumentMatchers.eq(TRIP), ArgumentMatchers.any())).thenReturn(todo);
-        Mockito.when(todos.getOrCreateTodoStatus(todo, OTHER)).thenReturn(status);
-        Mockito.when(todos.userCanEdit(status, ME, false)).thenReturn(false);
+        Mockito.when(todos.getTodoStatus(todo, OTHER)).thenReturn(status);
 
         assertError(resource.saveStatus(TRIP, "d1", OTHER.getValue(), CSRF_OK, null), 403, ApiErrors.FORBIDDEN);
         Mockito.verify(todos, Mockito.never()).saveTodoStatus(ArgumentMatchers.any());
@@ -269,7 +296,7 @@ public class TodosResourceTest extends ResourceTestSupport {
         final TodoStatus status = status("d1", ME, null);
         status.setVisibility(Status.Visibility.USER);
         Mockito.when(todos.getTodo(ArgumentMatchers.eq(TRIP), ArgumentMatchers.any())).thenReturn(todo);
-        Mockito.when(todos.getOrCreateTodoStatus(todo, ME)).thenReturn(status);
+        Mockito.when(todos.getTodoStatus(todo, ME)).thenReturn(status);
         Mockito.when(todos.saveTodoStatus(status)).thenReturn(true);
 
         assertOk(resource.saveStatus(TRIP, "d1", ME.getValue(), CSRF_OK,
@@ -285,7 +312,7 @@ public class TodosResourceTest extends ResourceTestSupport {
         final TodoItem todo = todoItem("d1");
         final TodoStatus status = status("d1", ME, null);
         Mockito.when(todos.getTodo(ArgumentMatchers.eq(TRIP), ArgumentMatchers.any())).thenReturn(todo);
-        Mockito.when(todos.getOrCreateTodoStatus(todo, ME)).thenReturn(status);
+        Mockito.when(todos.getTodoStatus(todo, ME)).thenReturn(status);
         Mockito.when(todos.saveTodoStatus(status)).thenReturn(false);
 
         assertError(resource.saveStatus(TRIP, "d1", ME.getValue(), CSRF_OK, null), 500, ApiErrors.STORE_FAILED);
@@ -298,8 +325,9 @@ public class TodosResourceTest extends ResourceTestSupport {
         final AuditCommands audit = bindMock(AuditCommands.class);
         final TodoItem todo = todoItem("d1");
         final TodoStatus status = status("d1", ME, null);
+        status.setOwner(ME);        // theirs to move: a traveler moves only a status they own
         Mockito.when(todos.getTodo(ArgumentMatchers.eq(TRIP), ArgumentMatchers.any())).thenReturn(todo);
-        Mockito.when(todos.getOrCreateTodoStatus(todo, ME)).thenReturn(status);
+        Mockito.when(todos.getTodoStatus(todo, ME)).thenReturn(status);
         Mockito.when(todos.saveTodoStatus(status)).thenReturn(true);
 
         // A note edit alone moves nothing.
@@ -311,6 +339,141 @@ public class TodosResourceTest extends ResourceTestSupport {
                 submitted("DONE", null, null, null));
         Mockito.verify(audit).todoStatus(ArgumentMatchers.any(), ArgumentMatchers.any(),
                 ArgumentMatchers.eq("DONE"), ArgumentMatchers.any());
+    }
+
+    // ------------------------------------------------------------------ audit 2026-11-11: F11, F24
+
+    /** F11: the trip's task list answered anybody signed in, for any organization's trip. */
+    @Test
+    public void aStrangerCannotReadATripsTodos() {
+        tripWith("trip-of-others", OTHER);
+        signedInAs(ME);
+
+        assertError(resource.list("trip-of-others"), 403, ApiErrors.FORBIDDEN);
+        assertError(resource.get("trip-of-others", "d1"), 403, ApiErrors.FORBIDDEN);
+        Mockito.verify(todos, Mockito.never()).getTodos(ArgumentMatchers.any());
+        Mockito.verify(todos, Mockito.never()).getTodo(ArgumentMatchers.any(), ArgumentMatchers.any());
+        // A trip nobody created is a 404, not an empty list.
+        assertThrown(() -> resource.list("no-such-trip"), 404, ApiErrors.NOT_FOUND);
+        assertThrown(() -> resource.get("no-such-trip", "d1"), 404, ApiErrors.NOT_FOUND);
+    }
+
+    /** The trip's staff read its todos without a seat; its Viewer reads and does nothing else (F24). */
+    @Test
+    public void aViewerReadsTheTodosButIsNotWriteStaff() {
+        final String tripId = UUID.randomUUID().toString();
+        tripWith(tripId, OTHER);
+        final TodoItem todo = todoItem("d1");
+        final TodoStatus status = status("d1", OTHER, null);
+        Mockito.when(todos.getTodos(tripId)).thenReturn(List.of(todo));
+        Mockito.when(todos.getTodo(ArgumentMatchers.eq(tripId), ArgumentMatchers.any())).thenReturn(todo);
+        Mockito.when(todos.getTodoStatus(todo, OTHER)).thenReturn(status);
+        final Person.Id viewerId = holderOf(PrivilegeCommands.TRIP_VIEW, tripId);
+
+        assertOk(as(viewerId).list(tripId));
+        assertOk(as(viewerId).get(tripId, "d1"));
+        assertError(as(viewerId).create(tripId, CSRF_OK, new TodoDto(null, null, "Viewer's task", null, null)),
+                403, ApiErrors.FORBIDDEN);
+        assertError(as(viewerId).update(tripId, "d1", CSRF_OK, new TodoDto(null, null, "rewritten", null, null)),
+                403, ApiErrors.FORBIDDEN);
+        assertError(as(viewerId).saveStatus(tripId, "d1", OTHER.getValue(), CSRF_OK,
+                submitted("DONE", "DELETED", null, null)), 403, ApiErrors.FORBIDDEN);
+        Assert.assertEquals(todo.getDescription(), "Send your passport scan");
+        Mockito.verify(todos, Mockito.never()).saveTodo(ArgumentMatchers.any());
+        Mockito.verify(todos, Mockito.never()).saveTodoStatus(ArgumentMatchers.any());
+    }
+
+    /** The trip's manager is write staff: assigns a task (the row is created), sets visibility and owner. */
+    @Test
+    public void aTripManagerAssignsAndEditsAnybodysStatus() {
+        final String tripId = UUID.randomUUID().toString();
+        tripWith(tripId, OTHER);
+        final TodoItem todo = todoItem("d1");
+        final TodoStatus fresh = status("d1", OTHER, null);
+        Mockito.when(todos.getTodo(ArgumentMatchers.eq(tripId), ArgumentMatchers.any())).thenReturn(todo);
+        Mockito.when(todos.createTodo(tripId)).thenReturn(todo);
+        Mockito.when(todos.saveTodo(todo)).thenReturn(true);
+        Mockito.when(todos.getOrCreateTodoStatus(todo, OTHER)).thenReturn(fresh);
+        Mockito.when(todos.saveTodoStatus(fresh)).thenReturn(true);
+        bindMock(AuditCommands.class);
+        final Person.Id manager = holderOf(PrivilegeCommands.TRIP_MGR, tripId);
+
+        assertOk(as(manager).create(tripId, CSRF_OK, new TodoDto(null, null, "Bring a coat", null, null)));
+        assertOk(as(manager).saveStatus(tripId, "d1", OTHER.getValue(), CSRF_OK, new TodoStatusDto(null, null,
+                null, null, null, "IN_PROGRESS", "HIGH", "ADMIN", "from staff", OTHER.getValue(), null, null)));
+        Assert.assertEquals(fresh.getStatusValue(), Status.StatusValue.IN_PROGRESS);
+        Assert.assertEquals(fresh.getPriority(), Status.Priority.HIGH);
+        Assert.assertEquals(fresh.getVisibility(), Status.Visibility.ADMIN);
+        Assert.assertEquals(fresh.getOwner(), OTHER);
+    }
+
+    /**
+     * F24: "it is about me" used to skip the owner rule, so a traveler marked a staff-owned task done. They
+     * move only a status they own; their note on a row they can see is still theirs to write (the page's
+     * Notes box asks no more), and urgency was never theirs to set.
+     */
+    @Test
+    public void aTravelerMovesOnlyAStatusTheyOwn() {
+        signedInAs(ME);
+        final TodoItem todo = todoItem("d1");
+        final TodoStatus staffOwned = status("d1", ME, null);       // owner null: the trip organizer's
+        Mockito.when(todos.getTodo(ArgumentMatchers.eq(TRIP), ArgumentMatchers.any())).thenReturn(todo);
+        Mockito.when(todos.getTodoStatus(todo, ME)).thenReturn(staffOwned);
+        Mockito.when(todos.saveTodoStatus(staffOwned)).thenReturn(true);
+        bindMock(AuditCommands.class);
+
+        assertError(resource.saveStatus(TRIP, "d1", ME.getValue(), CSRF_OK, submitted("DONE", null, null, null)),
+                403, ApiErrors.FORBIDDEN);
+        Assert.assertEquals(staffOwned.getStatusValue(), Status.StatusValue.TODO);
+        Mockito.verify(todos, Mockito.never()).saveTodoStatus(ArgumentMatchers.any());
+
+        // A note, and a body that merely echoes the value it read, are not a move.
+        assertOk(resource.saveStatus(TRIP, "d1", ME.getValue(), CSRF_OK,
+                new TodoStatusDto(null, null, null, null, null, "TODO", "CRITICAL", null, "on its way", null,
+                        null, null)));
+        Assert.assertEquals(staffOwned.getNotes(), "on its way");
+        Assert.assertEquals(staffOwned.getPriority(), Status.Priority.NORMAL, "priority is the staff's");
+
+        staffOwned.setOwner(ME);
+        assertOk(resource.saveStatus(TRIP, "d1", ME.getValue(), CSRF_OK, submitted("DONE", null, null, null)));
+        Assert.assertEquals(staffOwned.getStatusValue(), Status.StatusValue.DONE);
+    }
+
+    /** F24: a row a traveler cannot see, or that nobody assigned them, is not theirs to write (or to create). */
+    @Test
+    public void aTravelerCannotWriteAHiddenStatusOrMintOneThatWasNeverAssigned() {
+        signedInAs(ME);
+        final TodoItem todo = todoItem("d1");
+        final TodoStatus hidden = status("d1", ME, null);
+        hidden.setOwner(ME);
+        hidden.setVisibility(Status.Visibility.ADMIN);
+        Mockito.when(todos.getTodo(ArgumentMatchers.eq(TRIP), ArgumentMatchers.any())).thenReturn(todo);
+        Mockito.when(todos.getTodoStatus(todo, ME)).thenReturn(hidden);
+
+        assertError(resource.saveStatus(TRIP, "d1", ME.getValue(), CSRF_OK, submitted("DONE", null, "x", null)),
+                403, ApiErrors.FORBIDDEN);
+
+        Mockito.when(todos.getTodoStatus(todo, ME)).thenReturn(null);
+        assertError(resource.saveStatus(TRIP, "d1", ME.getValue(), CSRF_OK, submitted("DONE", null, null, null)),
+                403, ApiErrors.FORBIDDEN);
+        Mockito.verify(todos, Mockito.never()).getOrCreateTodoStatus(ArgumentMatchers.any(), ArgumentMatchers.any());
+        Mockito.verify(todos, Mockito.never()).saveTodoStatus(ArgumentMatchers.any());
+    }
+
+    /** A status has an OWNER who is not always its subject: the owner moves it, on somebody else's row too. */
+    @Test
+    public void theOwnerOfSomeoneElsesStatusMayMoveIt() {
+        signedInAs(ME);
+        final TodoItem todo = todoItem("d1");
+        final TodoStatus mineToDo = status("d1", OTHER, null);
+        mineToDo.setOwner(ME);
+        Mockito.when(todos.getTodo(ArgumentMatchers.eq(TRIP), ArgumentMatchers.any())).thenReturn(todo);
+        Mockito.when(todos.getTodoStatus(todo, OTHER)).thenReturn(mineToDo);
+        Mockito.when(todos.saveTodoStatus(mineToDo)).thenReturn(true);
+        bindMock(AuditCommands.class);
+
+        assertOk(resource.saveStatus(TRIP, "d1", OTHER.getValue(), CSRF_OK, submitted("DONE", null, null, null)));
+        Assert.assertEquals(mineToDo.getStatusValue(), Status.StatusValue.DONE);
     }
 
     @Test

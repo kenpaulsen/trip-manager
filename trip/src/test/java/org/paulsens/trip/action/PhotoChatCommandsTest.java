@@ -6,6 +6,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -21,6 +22,7 @@ import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.media.PhotoFixtures;
 import org.paulsens.trip.model.MediaItem;
+import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.chat.ChatChannel;
@@ -300,11 +302,13 @@ public class PhotoChatCommandsTest {
     @Test
     public void mentionSearchIsCappedMaskedAndNeverLeaksAFullAddress() throws IOException {
         final String tag = Long.toString(System.nanoTime());
-        seedNamedPerson("Zeb" + tag, "Alpha", "zeb" + tag + "@example.org");
-        seedNamedPerson("Zeb" + tag, "Beta", "zed" + tag + "@sample.org");
+        final Organization.Id org = Organization.Id.from(UUID.randomUUID().toString());
+        final Person.Id searcher = seedNamedPerson("Searcher" + tag, "Own", "s" + tag + "@example.org", org);
+        seedNamedPerson("Zeb" + tag, "Alpha", "zeb" + tag + "@example.org", org);
+        seedNamedPerson("Zeb" + tag, "Beta", "zed" + tag + "@sample.org", org);
 
-        Assert.assertTrue(photoChat.mentionSearch("Z", 8).isEmpty(), "below the 2-character minimum");
-        final List<Map<String, String>> hits = photoChat.mentionSearch("Zeb" + tag, 8);
+        Assert.assertTrue(photoChat.mentionSearch(searcher, "Z", 8).isEmpty(), "below the 2-character minimum");
+        final List<Map<String, String>> hits = photoChat.mentionSearch(searcher, "Zeb" + tag, 8);
         Assert.assertEquals(hits.size(), 2);
         for (final Map<String, String> hit : hits) {
             Assert.assertFalse(hit.get("label").contains("@example.org"), "full address must never appear");
@@ -315,6 +319,39 @@ public class PhotoChatCommandsTest {
         Assert.assertNotEquals(hits.get(0).get("label"), hits.get(1).get("label"));
         Assert.assertTrue(photoChat.mentionSearchAllowed(member));
         Assert.assertFalse(photoChat.mentionSearchAllowed(null));
+    }
+
+    /**
+     * The owner's locked rule (audit 2026-11-11, F26): a search endpoint never returns another organization's
+     * people. The typeahead was global, so any self-registered account could harvest every tenant's names
+     * and ids; now a hit is someone who shares an organization with the searcher, and nobody else.
+     */
+    @Test
+    public void mentionSearchNeverReturnsAnotherOrganizationsPeople() throws IOException {
+        final String tag = Long.toString(System.nanoTime());
+        final Organization.Id mine = Organization.Id.from(UUID.randomUUID().toString());
+        final Organization.Id theirs = Organization.Id.from(UUID.randomUUID().toString());
+        final Person.Id searcher = seedNamedPerson("Asker" + tag, "Mine", "a" + tag + "@example.org", mine);
+        final Person.Id colleague = seedNamedPerson("Quin" + tag, "Colleague", "c" + tag + "@example.org", mine);
+        final Person.Id both = seedNamedPerson("Quin" + tag, "Both", "b" + tag + "@example.org", theirs, mine);
+        final Person.Id foreign = seedNamedPerson("Quin" + tag, "Foreign", "f" + tag + "@example.org", theirs);
+        final Person.Id orgless = seedNamedPerson("Quin" + tag, "Nowhere", "n" + tag + "@example.org");
+
+        final List<String> ids = photoChat.mentionSearch(searcher, "Quin" + tag, 8).stream()
+                .map(hit -> hit.get("id")).toList();
+
+        Assert.assertTrue(ids.contains(colleague.getValue()));
+        Assert.assertTrue(ids.contains(both.getValue()), "one shared organization is enough");
+        Assert.assertFalse(ids.contains(foreign.getValue()), "another organization's person must never be offered");
+        Assert.assertFalse(ids.contains(orgless.getValue()));
+        Assert.assertEquals(ids.size(), 2);
+        // Somebody in no organization (a fresh self-registration) shares one with nobody; nor does nobody.
+        Assert.assertTrue(photoChat.mentionSearch(orgless, "Quin" + tag, 8).isEmpty());
+        Assert.assertTrue(photoChat.mentionSearch(null, "Quin" + tag, 8).isEmpty());
+        Assert.assertTrue(photoChat.mentionSearch(Person.Id.newInstance(), "Quin" + tag, 8).isEmpty(),
+                "an id with no person behind it");
+        // The cap counts the people RETURNED, after the filter.
+        Assert.assertEquals(photoChat.mentionSearch(searcher, "Quin" + tag, 1).size(), 1);
     }
 
     // --- guard tails (each of these is a real refusal path, not ceremony) ---
@@ -374,7 +411,7 @@ public class PhotoChatCommandsTest {
     }
 
     @Test
-    public void theMentionSearchBrakeTripsAfterThirtyLookups() {
+    public void theMentionSearchBrakeTripsAfterThirtyLookups() throws IOException {
         final Person.Id heavy = Person.Id.from("pc-heavy-" + System.nanoTime());
         boolean refused = false;
         for (int i = 0; i < 35; i++) {
@@ -384,16 +421,20 @@ public class PhotoChatCommandsTest {
         // A zero cap is clamped to one result, not rejected: it must not throw and must not hand back a
         // page. Asserting emptiness instead would depend on nobody in the shared fake store matching "ab",
         // which is a hostage to whichever suite seeded people first.
-        Assert.assertTrue(photoChat.mentionSearch("ab", 0).size() <= 1, "a zero cap still behaves");
-        Assert.assertTrue(photoChat.mentionSearch("zz-nobody-" + System.nanoTime(), 8).isEmpty(),
+        final Organization.Id org = Organization.Id.from(UUID.randomUUID().toString());
+        final Person.Id searcher = seedNamedPerson("Abby" + System.nanoTime(), "Cap", "abby@example.org", org);
+        Assert.assertTrue(photoChat.mentionSearch(searcher, "ab", 0).size() <= 1, "a zero cap still behaves");
+        Assert.assertTrue(photoChat.mentionSearch(searcher, "zz-nobody-" + System.nanoTime(), 8).isEmpty(),
                 "a query matching no one is still empty");
     }
 
     @Test
     public void aUniqueNameNeedsNoMasking() throws IOException {
         final String name = "Solo" + System.nanoTime();
-        seedNamedPerson(name, "Only", "solo@example.org");
-        final List<Map<String, String>> hits = photoChat.mentionSearch(name, 8);
+        final Organization.Id org = Organization.Id.from(UUID.randomUUID().toString());
+        final Person.Id searcher = seedNamedPerson("Seeker", "Other", "seeker@example.org", org);
+        seedNamedPerson(name, "Only", "solo@example.org", org);
+        final List<Map<String, String>> hits = photoChat.mentionSearch(searcher, name, 8);
         Assert.assertEquals(hits.size(), 1);
         Assert.assertFalse(hits.get(0).get("label").contains("•••"),
                 "no collision, no masked address — addresses appear only when needed");
@@ -471,14 +512,16 @@ public class PhotoChatCommandsTest {
         return person.getId();
     }
 
-    private void seedNamedPerson(final String first, final String last, final String email)
-            throws IOException {
+    private Person.Id seedNamedPerson(final String first, final String last, final String email,
+            final Organization.Id... orgs) throws IOException {
         final Person person = new Person();
         person.setFirst(first);
         person.setLast(last);
         person.setNickname(first);
         person.setEmail(email);
+        person.setOrgIds(List.of(orgs));
         Assert.assertTrue(DAO.getInstance().savePerson(person));
+        return person.getId();
     }
 
     private static Caller callerFor(final Person.Id id) {

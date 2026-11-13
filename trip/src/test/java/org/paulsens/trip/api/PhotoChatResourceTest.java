@@ -304,7 +304,8 @@ public class PhotoChatResourceTest extends ResourceTestSupport {
         assertError(fresh.mentionSearch("pat"), 429, ChatErrors.RATE_LIMITED);
 
         Mockito.when(photoChat.mentionSearchAllowed(ME)).thenReturn(true);
-        Mockito.when(photoChat.mentionSearch("pat", 8))
+        // The caller rides along: the bean scopes the answer to the organizations THEY belong to.
+        Mockito.when(photoChat.mentionSearch(ME, "pat", 8))
                 .thenReturn(List.of(Map.of("id", "p1", "label", "Pat")));
         final Response ok = fresh.mentionSearch("pat");
         assertOk(ok);

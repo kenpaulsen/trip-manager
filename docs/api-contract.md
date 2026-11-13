@@ -33,7 +33,10 @@ LocalDateTime `2026-09-12T17:31:30.025` (no zone), LocalDate `2026-09-12`.
 - `GET me` also carries `defaultOrgId` (top level, nullable).
 - `PUT /api/people/{id}/default-org` `{orgId}` (self only) → `{id, defaultOrgId}`; joins the organization.
 - `GET /api/orgs/directory?q=` → `[{id, name, abbreviation, slug, siteUrl}]` for any signed-in person.
-- `GET /api/trips?filter=open` → the host's publicly listed, joinable trips without a membership check.
+- `GET /api/trips?filter=open` → the host's publicly listed, joinable trips without a membership check. An
+  entry the caller could not otherwise read (not on it, no trip role, managing nobody on it) carries in `people`
+  only the caller's own id and the ids of the people they manage (2026-11-12; it was the whole roster): enough
+  for "am I, or is my family, on this trip?", and nothing about anyone else. A trip the caller IS on is unchanged.
 
 ## Trips
 
@@ -42,6 +45,9 @@ LocalDateTime `2026-09-12T17:31:30.025` (no zone), LocalDate `2026-09-12`.
 - `GET /api/trips/{id}/events[?personId=]`, `GET .../events/{eid}[?personId=]`,
   `GET .../events/{eid}/lodging[?personId=]` → `{arrival, departure, nights}`.
 - `PUT /api/trips/{id}/events/participation?personId=` `{eventIds:[...]}` → `[TripEventDto]` — **replaces** the set.
+  The caller must be able to READ the trip, exactly as for the GETs above (on its roster, a trip role, or managing
+  someone on it), else 403 `FORBIDDEN` "Not a member of this trip." (2026-11-12: acting for yourself used to be
+  enough, on any trip). The same gate applies to the private note below.
 - `PUT /api/trips/{id}/events/{eid}` (trip manager) `{type?, title?, notes?, start?, end?}` → `TripEventDto`; absent
   fields are left alone, participants and private notes are never touched (2026-10-16; the review seed re-dates the
   demo itinerary with it).
@@ -66,9 +72,20 @@ orgId, language, estimatedPrice, director, localGuide, facilitators, flyerUrl, n
 nonHostedRegNumber, regOptions[{id, shortDesc, longDesc, show}], people[ids], tripEvents[],
 paymentConfig{processorConfigId, feesPaidBy (ORGANIZATION|PAYER), donationEnabled, donationLabel,
 confirmationTemplateId, mailFrom, replyTo, bcc, extraTokens{}} (2026-11: the trip's OWN payment settings,
-the trip rung of the ladder in `docs/payments.md`; present on a single-trip GET for a trip manager only,
-absent from lists; on `POST`/`PUT` an absent field is left alone and `""` clears it back to inherit;
-`processorConfigId` must name one of the trip's organization's configurations, else 400 `VALIDATION_FAILED`).
+the trip rung of the ladder in `docs/payments.md`; absent from lists; on `POST`/`PUT` an absent field is left
+alone and `""` clears it back to inherit; `processorConfigId` must name one of the trip's organization's
+configurations, else 400 `VALIDATION_FAILED`). Since 2026-11-12 it is read AND written only by a payments admin
+of the trip's organization (`paymentsAdmin@org`, or a site admin), the trip editor's own Payment Settings rule:
+a single-trip GET omits it for anyone else, a trip manager included, and a `POST`/`PUT` whose `paymentConfig`
+would CHANGE a value answers 403 `FORBIDDEN` without that grant. A body that omits it, sends it empty, or echoes
+the stored values unchanged is not a payment write and is saved as before. `page` (the trip page's look) is still
+read by the trip's managers.
+
+`PUT /api/trips/{id}` and the trip's organization (2026-11-12): an `orgId` different from the trip's own moves the
+trip to another organization, which a trip manager may not do: 403 `FORBIDDEN` unless the caller is a site admin or
+an administrator of BOTH organizations (`orgId` equal to the trip's own is not a move). On a move, `paymentConfig`
+and `people` are checked against the organization the trip ends up in, and a processor override left over from the
+old organization is a 400 `VALIDATION_FAILED` until the same body clears or replaces it.
 `TripEventDto`: id, type (EVENT|FLIGHT|GROUND|LODGING), title, notes, start, end, participants[ids],
 participating, privNote, details{from,to,flightNumber,duration,carrier} (backend phase).
 
@@ -100,7 +117,16 @@ Sample:
 
 `GET /api/trips/{tripId}/registrations/{personId}` → `{tripId, userId, created, status:
 NOT_REGISTERED|PENDING|CONFIRMED, options{"<optId>":"answer"}}` (never 404s for self).
-`PUT` writes `options` for the traveler; `status` is staff-only.
+`PUT` writes `options` for the traveler; `status` is for the trip's registration admins only.
+
+**Who administers registrations (2026-11-12).** Reading stays as it was: the roster list, the pending count and
+another person's registration are for trip staff (`tripMgr`, `tripView`, `registrationAdmin`, site admin). WRITING
+is narrower, the pair the website's Registrations page admits: a site admin or `registrationAdmin@trip`. Only they
+may send `status` on `PUT .../registrations/{personId}`, write somebody ELSE's registration at all, change an
+answer that was paid for (a traveler's own PUT keeps theirs, `docs/checkout.md`), or `PUT .../{personId}/room`;
+everyone else gets 403 `FORBIDDEN` (a Viewer or an Editor Admin used to be let through). A traveler, or their
+family manager, still writes their own `options` as before. `GET .../registrations/pricing` hands the discount
+`codes` to the trip's managers and registration admins only (a Viewer no longer receives them).
 
 Self-registration: `POST /api/trips/{tripId}/registrations/party`
 `{travelers:[{personId, options{"<optId>":"answer"}, dailyDigest?}]}` → 200
@@ -224,6 +250,13 @@ their shared itinerary; absent on a PUT = unchanged. `PUT` absent = unchanged, `
 `PUT` also writes `address` (contact-gated), `passport` (travel-gated) and `sex` (`Male|Female`; anything
 else is 400 `VALIDATION_FAILED`). `GET /api/people?q=` needs `peopleAdmin`.
 
+`?trip=` on the single read asks for the caller's ROLE on that trip to decide the redaction (`tripMgr`: the
+trip-admin view; `tripView`: the roster view). Since 2026-11-12 it counts only when the trip exists on this site
+AND the person asked about is on it: on its roster, or holding a registration there that is not `NOT_REGISTERED`
+(a Pending registrant counts). Otherwise the answer is exactly what it would be without `trip` (the peer view,
+unless the caller is the person, their manager or a people admin); it is never an error. The apps pass `trip`
+when opening someone from that trip's roster, which is unchanged.
+
 Profile photos (all URLs absolute): `GET /api/people/{id}/photo` → `{hasPhoto, url, selectedSlot,
 slots:[{slot, url}]}`; `POST /api/people/{id}/photo?slot=&cropX=&cropY=&cropW=&cropH=` with a raw
 `image/*` (or `application/octet-stream`) body ≤16 MB, crop in source pixels (all four or none), `slot`
@@ -284,6 +317,33 @@ or a non-member -- the review seed uses it to take the reviewer accounts back ou
   binding), normally one. The app fetches the person's whole ledger once (`GET /api/transactions/people/{id}`
   without `trip`) and filters by this on the device. `POST`/`PUT /api/transactions/people/{id}?trip=` now
   write that binding too (they saved the row without one before), as the website's transaction page does.
+- **A finance role reaches one trip's books (2026-11-12).** `tripFinView` / `tripFinAdmin` are roles on the trip
+  named by `?trip=` (or the path's `{tripId}`), and since this date they reach only the rows BOUND to that trip
+  (`tripIds` contains it) plus the trip's own ledger; the role alone used to open every person's whole ledger.
+  Nothing changes for a person reading their own ledger or a managed family member's (the apps' only use): all
+  rows, whatever `trip` says. For staff: `GET people/{id}?trip=` lists only that trip's rows of the person;
+  `GET people/{id}/{txId}`, `PUT` and `DELETE` answer 404 `NOT_FOUND` for a row on another trip's books (or on
+  none); `GET trips/{tripId}` lists the roster's rows on that trip's books only; `POST people/{id}?trip=` needs
+  the person to be on the trip (roster, or a registration that is not `NOT_REGISTERED`), else 403 `FORBIDDEN`;
+  `POST groups?trip=` needs every member on the trip and every existing row of the group on its books (403), and
+  `GET groups/{gid}/people/{pid}` answers 404 for another trip's group. A missing or unknown `trip` is 403 for
+  anyone but a site admin, who reads and writes every ledger. A `PUT` never moves a row to another trip: it binds
+  a row that has no trip yet and otherwise leaves the binding alone.
+- **Trip to-do's** (`/api/trips/{tripId}/todos`, not used by the apps; gates since 2026-11-12, following
+  `trip/todo.xhtml`). `GET` (the list, one todo) needs the caller to be able to read the trip (roster, `tripMgr` /
+  `tripView`, or managing someone on it), else 403; an unknown trip is 404. Creating and editing a todo, and editing
+  anybody's status with its `priority`, `visibility` and `owner`, are for the trip's managers (`tripMgr`, site
+  admin): a Viewer (`tripView`) reads everything and writes nothing. A traveler's
+  `PUT {dataId}/statuses/{personId}` works only on a status that already exists (staff assign tasks), is
+  USER-visible, and is theirs, a managed family member's, or one they own; on it they may write `notes`, and move
+  `statusValue` only when the status's owner is them (or the family member they act for). Anything else is 403.
+- **Mail** (`POST /api/mail`, 2026-11-12): `from` must be a mailbox on one of the caller's sending domains (their
+  organization's allow-list; every verified domain for a site admin), the website's mail-merge rule; otherwise
+  422 `VALIDATION_FAILED` "The From address must use one of your verified sending domains." A missing `from` is
+  refused the same way.
+- **Photo mention search** (`GET /api/photo-chat/mention-search?q=`, 2026-11-12): returns only people who share an
+  organization with the caller (it searched every account before); a caller in no organization gets an empty
+  list. Shape, limits and the 429 brake are unchanged.
 
 See the plan and the backend docs; wired in the next phases. Chat: `GET /api/chat/my-channels` (`unread` is a boolean);
 `/api/chat/channels/trip:{tripId}/messages?since&before&order=newest&wait≤25&limit&rver&mver`;
@@ -321,7 +381,16 @@ int, ABSENT when 0) = how many times it was rotated, and the URL rule for every 
 `MediaItemDto` (the album, `GET /api/media/...`) likewise carries `rev` (0 when never) and `thumbUrl` (the small
 rendition, else the object), and its `url` and `thumbUrl` already end in `?r={rev}` when `rev` > 0. For that, a trip's own members get
 the whole `tripChat-` album from `GET /api/media/slots/{slot}`, hidden rows included (the website's trip media
-page shows them too); other viewers still get the public filter. `GET .../invite` also answers `canAdminister`,
+page shows them too); other viewers still get the public filter. Media administrators (2026-11-12): the whole
+album, hidden rows included, also goes to whoever manages THAT album (a global media admin, the media editor of
+the trip's own organization, the trip's manager); a media editor of another organization is an ordinary viewer
+there (the public filter, or 404 when the trip is not listed on the site). A library slot (`home-docs`, ...)
+answers an admin with the items of the site the request is for, hidden included, never another organization's;
+`GET /api/media/{id}` shows an admin a hidden item only when it is theirs to manage on that site (otherwise
+hidden reads as 404, as for everyone). `POST /api/media` and `PUT /api/media/{id}` answer 422 `VALIDATION_FAILED`
+for a `slot` that belongs to another feature (`tripChat-...`, `lodging-...`, `receipts-...`) unless a PUT leaves
+the item's own slot unchanged: photos enter an album only through the chat upload.
+`GET .../invite` also answers `canAdminister`,
 the chat-admin signal the apps use for moderator-only items. Refusals: 429 `RATE_LIMITED` + `Retry-After` (40 uploads / 10 min per person, shared with
 the website), 403 with the send codes (`MUTED`, `FORBIDDEN`, `CHANNEL_ARCHIVED`), 400 `BAD_ATTACHMENT`
 (photos off, bad crop, empty body), 413 `ATTACHMENT_TOO_LARGE` (the channel's `maxAttachmentBytes`), 422

@@ -164,6 +164,51 @@ public class PeopleResourceTest extends ResourceTestSupport {
         Assert.assertNull(dto.privacy(), "A peer must not receive the privacy choices themselves");
     }
 
+    /**
+     * Audit 2026-11-11, F5. {@code ?trip=} is the CALLER's choice, so a manager of any trip at all used to get
+     * the trip-admin view (notes, private contact detail, travel documents) of anybody in any organization by
+     * naming their own trip. The role now raises the view only of someone who is ON that trip.
+     */
+    @Test
+    public void aTripRoleRaisesTheViewOnlyOfSomeoneOnThatTrip() throws java.io.IOException {
+        final org.paulsens.trip.action.TripCommands trips = bindMock(org.paulsens.trip.action.TripCommands.class);
+        final org.paulsens.trip.action.PrivilegeCommands priv = new org.paulsens.trip.action.PrivilegeCommands();
+        final String myTrip = tripOf(trips);
+        final String theirTrip = tripOf(trips, OTHER);
+        final String pendingTrip = tripOf(trips);
+        Assert.assertTrue(org.paulsens.trip.dynamo.DAO.getInstance().saveRegistration(
+                new org.paulsens.trip.model.Registration(pendingTrip, OTHER, null,
+                        org.paulsens.trip.model.Registration.Status.PENDING, new java.util.HashMap<>())));
+        for (final String tripId : List.of(myTrip, theirTrip, pendingTrip)) {
+            Assert.assertTrue(priv.savePrivilege(priv.getOrCreate("tripMgr", tripId, "m").withNewPerson(ME), null));
+        }
+        signedInAs(ME);
+        exists(person(ME, "Ken"));
+        final Person sam = person(OTHER, "Sam");
+        sam.getPrivacy().setCell(PrivacySettings.Visibility.PRIVATE);
+        exists(sam);
+
+        final PersonDto stranger = (PersonDto) resource.get(OTHER.getValue(), myTrip).getEntity();
+        Assert.assertNull(stranger.notes(), "my trip says nothing about someone who is not on it");
+        Assert.assertNull(stranger.cell(), "and their privacy choices still hold");
+        final PersonDto unknownTrip = (PersonDto) resource.get(OTHER.getValue(), "no-such-trip").getEntity();
+        Assert.assertNull(unknownTrip.notes());
+
+        final PersonDto onRoster = (PersonDto) resource.get(OTHER.getValue(), theirTrip).getEntity();
+        Assert.assertEquals(onRoster.notes(), "staff note", "the manager of a trip they ARE on reads the dossier");
+        Assert.assertEquals(onRoster.cell(), "555-0100");
+        final PersonDto registrant = (PersonDto) resource.get(OTHER.getValue(), pendingTrip).getEntity();
+        Assert.assertEquals(registrant.notes(), "staff note", "a Pending registrant is on the trip for its staff");
+    }
+
+    /** A stored-nowhere trip the mocked bean answers by id, with this roster. */
+    private static String tripOf(final org.paulsens.trip.action.TripCommands trips, final Person.Id... roster) {
+        final org.paulsens.trip.model.Trip trip = org.paulsens.trip.model.Trip.builder()
+                .id(java.util.UUID.randomUUID().toString()).title("Trip").people(List.of(roster)).build();
+        Mockito.when(trips.getTrip(trip.getId())).thenReturn(trip);
+        return trip.getId();
+    }
+
     /** The default knobs share email/cell/city with signed-in users -- the audience the subject opted into. */
     @Test
     public void aPeerReceivesWhatTheDefaultKnobsShare() {

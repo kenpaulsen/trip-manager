@@ -31,6 +31,7 @@ import org.paulsens.trip.model.Language;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.SharedSiteRegisterTarget;
+import org.paulsens.trip.model.Registration;
 import org.paulsens.trip.model.RegistrationOption;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripEvent;
@@ -1602,6 +1603,26 @@ public class TripCommands {
             }
         }
         return false;
+    }
+
+    /**
+     * Whether a trip-scoped privilege on {@code trip} reaches this person: they are on its roster, or hold a
+     * registration there that is not NOT_REGISTERED (a Pending traveler is not on the roster yet, and they
+     * are exactly whom the trip's staff work on). Without this bound a role on ONE trip read as a role over
+     * everybody: any trip id the caller managed raised their view of a stranger's record, and their finance
+     * role wrote charges on people who had nothing to do with the trip (audit 2026-11-11). The registration
+     * is read fresh because the answer authorizes.
+     */
+    public static boolean isOnTrip(final Trip trip, final Person.Id personId) {
+        if (trip == null || trip.getId() == null || personId == null) {
+            return false;
+        }
+        if (trip.getPeople().contains(personId)) {
+            return true;
+        }
+        return DAO.getInstance().getRegistration(trip.getId(), personId, Cached.NO)
+                .map(reg -> reg.getStatus() != Registration.Status.NOT_REGISTERED)
+                .orElse(false);
     }
 
     public BindingCommands getBind() {

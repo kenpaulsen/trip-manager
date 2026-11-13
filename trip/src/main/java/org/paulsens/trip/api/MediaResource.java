@@ -103,6 +103,12 @@ public class MediaResource extends BaseResource {
      * members get its whole chat album, hidden rows included, as the website's trip media page shows them:
      * "hidden" means kept off the PUBLIC site, and the uploader must be able to find the photo to change
      * their mind.
+     *
+     * <p>An administrator's listing is still a TENANT's listing. A library slot is a shared name
+     * ({@code home-docs} exists on every site), so the admin gets this site's items in it, hidden included
+     * ({@code MediaCommands.getDiscoverableInSlot}), never every organization's. A chat slot is one trip's
+     * album: being a media admin of the site the request came to opens it only for whoever manages THAT
+     * album ({@link #managesSlotAlbum}); anyone else is an ordinary caller there.
      */
     @GET
     @Path("slots/{slot}")
@@ -112,18 +118,32 @@ public class MediaResource extends BaseResource {
             return error(400, ApiErrors.BAD_REQUEST, "A slot name is required.");
         }
         final MediaCommands media = Beans.get(MediaCommands.class);
-        final boolean admin = mediaAdminHere();
+        // Membership first: it is the apps' ordinary case and already answers "everything" for an album, so
+        // only a non-member's request pays for the album-manager question.
+        final boolean member = isMemberOfSlotTrip(slot);
+        final boolean admin = ChatPhotos.isChatSlot(slot) ? (!member && managesSlotAlbum(slot)) : mediaAdminHere();
         // A receipt slot is no one's to browse here, admins included: receipts go out only through the
         // expense report's own gated servlet. Same answer as an unknown slot.
-        if (ExpenseReceipts.isReceiptSlot(slot) || (!admin && !mayBrowseSlot(slot))) {
+        if (ExpenseReceipts.isReceiptSlot(slot) || (!admin && !member && !mayBrowseSlot(slot))) {
             // Same answer as an unknown slot: a slot name is guessable (tripChat-{tripId}), and "exists but
             // not yours" would confirm another tenant's trip.
             return error(404, ApiErrors.NOT_FOUND, "No such slot.");
         }
-        final boolean everything = admin || isMemberOfSlotTrip(slot);
-        return ok((everything ? media.getInSlot(slot) : media.getVisibleInSlot(slot, 0)).stream()
+        final boolean everything = admin || member;
+        return ok((everything ? media.getDiscoverableInSlot(slot) : media.getVisibleInSlot(slot, 0)).stream()
                 .map(item -> toDto(media, item))
                 .toList());
+    }
+
+    /**
+     * Whether the caller administers the album a chat slot names ({@code MediaCommands.managesAlbum}: a
+     * global media admin, the media editor of the trip's OWN organization, or the trip's manager). Read
+     * fresh: the answer opens another tenant's hidden photos.
+     */
+    boolean managesSlotAlbum(final String slot) {
+        final String tripId = ChatPhotos.tripOfSlot(slot);
+        return tripId != null && MediaCommands.managesAlbum(caller(),
+                DAO.getInstance().getTrip(tripId, Cached.NO).orElse(null));
     }
 
     /**
@@ -171,14 +191,19 @@ public class MediaResource extends BaseResource {
         return Boolean.TRUE.equals(trip.getOpenToPublic()) && ListingScope.forSite().shows(trip.getOrgId());
     }
 
-    /** One item by row id. A non-admin sees it only if a public page would (hidden reads as absent). */
+    /**
+     * One item by row id. An admin sees the items that are theirs to manage here, hidden or not
+     * ({@code getManageable}: the ownership rule every write re-checks, so a known id does not reach
+     * another tenant's hidden row); everything else, for everyone, is what a public page would show
+     * (hidden reads as absent).
+     */
     @GET
     @Path("{id}")
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response get(@PathParam("id") final String id) {
         final MediaCommands media = Beans.get(MediaCommands.class);
-        final MediaItem item = mediaAdminHere()
-                ? media.get(id) : media.getVisible(id);
+        final MediaItem managed = mediaAdminHere() ? media.getManageable(id) : null;
+        final MediaItem item = managed != null ? managed : media.getVisible(id);
         // A receipt's DTO would carry its CDN URL: it reads as absent here (see inSlot).
         if (item == null || ExpenseReceipts.isReceiptSlot(item.getSlot())) {
             return error(404, ApiErrors.NOT_FOUND, "No such media item.");
@@ -275,6 +300,10 @@ public class MediaResource extends BaseResource {
         if (keyProblem != null) {
             return keyProblem;
         }
+        final String slotProblem = MediaCommands.slotRefusal(body.slot(), null);
+        if (slotProblem != null) {
+            return error(422, ApiErrors.VALIDATION_FAILED, slotProblem);
+        }
         final MediaCommands media = Beans.get(MediaCommands.class);
         if (!media.isUploadEnabled()) {
             return error(503, ApiErrors.STORE_FAILED, "Uploads are not available in this deployment.");
@@ -323,6 +352,11 @@ public class MediaResource extends BaseResource {
         final MediaItem existing = media.getManageable(id);
         if (existing == null) {
             return error(404, ApiErrors.NOT_FOUND, "No such media item.");
+        }
+        // A library edit cannot MOVE a row into a trip's album (or a hotel's, or a report's): see slotRefusal.
+        final String slotProblem = MediaCommands.slotRefusal(body.slot(), existing.getSlot());
+        if (slotProblem != null) {
+            return error(422, ApiErrors.VALIDATION_FAILED, slotProblem);
         }
         // The rename target as the commands will store it: an org's file stays in the org's namespace.
         final String target = MediaCommands.keyForOwner(existing.getOrgId(), body.key());

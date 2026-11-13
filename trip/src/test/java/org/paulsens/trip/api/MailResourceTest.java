@@ -6,8 +6,12 @@ import java.util.Map;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
 import org.paulsens.trip.action.MailCommands;
+import org.paulsens.trip.action.OrgCommands;
 import org.paulsens.trip.action.PersonCommands;
+import org.paulsens.trip.action.PrivilegeCommands;
 import org.paulsens.trip.audit.AuditActor;
+import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
 import org.testng.Assert;
 import org.testng.annotations.BeforeMethod;
@@ -35,7 +39,8 @@ public class MailResourceTest extends ResourceTestSupport {
     }
 
     private static MailResource.SendRequest send(final List<String> to) {
-        return new MailResource.SendRequest("from@x.org", to, null, null, "A subject", "A body");
+        // example.com is one of local mode's verified sending domains (MailCommands.LOCAL_SENDING_DOMAINS).
+        return new MailResource.SendRequest("from@example.com", to, null, null, "A subject", "A body");
     }
 
     private void person(final Person.Id id) {
@@ -121,6 +126,43 @@ public class MailResourceTest extends ResourceTestSupport {
                 new MailResource.SendRequest("f@x", List.of("a@x.org"), null, null, "subject", null)),
                 400, ApiErrors.BAD_REQUEST);
         Mockito.verifyNoInteractions(mail);
+    }
+
+    /**
+     * Audit 2026-11-11, F9: every organization's domain is verified in the one SES account, so SES accepts
+     * any of them from anybody. The page refuses a From outside the caller's sending domains
+     * ({@code OrgCommands.sendMerge}); this door forwarded whatever it was given.
+     */
+    @Test
+    public void aFromOutsideTheCallersSendingDomainsIs422AndNothingIsSent() throws java.io.IOException {
+        // An org narrowed to one domain, and its email admin: the other verified domains are other tenants'.
+        final Organization narrowed = new Organization(null,
+                "Mail org " + System.nanoTime(), null, null, null, null, null, 0L);
+        narrowed.setMailDomains(List.of("example.com"));
+        Assert.assertTrue(DAO.getInstance().saveOrganization(narrowed));
+        final Person.Id emailAdmin = Person.Id.newInstance();
+        final PrivilegeCommands priv = new PrivilegeCommands();
+        Assert.assertTrue(priv.savePrivilege(priv.getOrCreate("emailAdmin", narrowed.getId().getValue(), "mail")
+                .withNewPerson(emailAdmin), null));
+        signedInAs(emailAdmin);
+        final MailResource scoped = resource(new MailResource());
+
+        for (final String forged : List.of("Treasurer <treasurer@unitetrip.com>", "x@not-verified.example",
+                "no-at-sign", " ")) {
+            final Response refused = scoped.send(CSRF_OK, new MailResource.SendRequest(forged,
+                    List.of("a@x.org"), null, null, "A subject", "A body"));
+            assertError(refused, 422, ApiErrors.VALIDATION_FAILED);
+            Assert.assertEquals(((Map<?, ?>) refused.getEntity()).get("message"),
+                    OrgCommands.INVALID_MERGE_FROM, "the page's wording");
+        }
+        assertError(scoped.send(CSRF_OK, new MailResource.SendRequest(null, List.of("a@x.org"), null, null,
+                "A subject", "A body")), 422, ApiErrors.VALIDATION_FAILED);
+        Mockito.verifyNoInteractions(mail);
+
+        // Their own domain passes the guard (and then finds nobody it may mail, which is a different refusal).
+        Mockito.when(mail.validateEmail("a@x.org")).thenReturn("a@x.org");
+        final Response own = scoped.send(CSRF_OK, send(List.of("a@x.org")));
+        Assert.assertEquals(((Map<?, ?>) own.getEntity()).get("message"), "No usable recipient addresses.");
     }
 
     /** The blast-radius cap: 201 addresses is a mistake, not a bigger campaign. */

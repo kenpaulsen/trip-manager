@@ -795,4 +795,75 @@ public class RegistrationsResourceTest extends ResourceTestSupport {
                 .save(TRIP_ID, ME.getValue(), CSRF_OK, posted).getEntity();
         Assert.assertEquals(staffSaved.options().get(key), "full", "staff change a paid choice");
     }
+    // ------------------------------------------------------------------ audit 2026-11-11, F21
+
+    private static Person.Id holderOf(final String base, final String tripId) {
+        final Person.Id who = Person.Id.newInstance();
+        final PrivilegeCommands priv = new PrivilegeCommands();
+        Assert.assertTrue(priv.savePrivilege(priv.getOrCreate(base, tripId, base).withNewPerson(who), null));
+        return who;
+    }
+
+    private RegistrationsResource as(final Person.Id who) {
+        signedInAs(who);
+        return resource(new RegistrationsResource());
+    }
+
+    /**
+     * {@code isTripStaff} was the READ gate and gated the writes too, so the read-only Viewer and the Editor
+     * Admin approved registrations, switched an answer somebody had paid for, assigned rooms and (the Viewer)
+     * read every discount code. Administering registrations is the registration admins' (and site admins'),
+     * the pair the Registrations page admits; the other trip roles still read.
+     */
+    @Test
+    public void onlyARegistrationAdminAdministersRegistrations() {
+        final String tripId = java.util.UUID.randomUUID().toString();
+        final org.paulsens.trip.model.RegistrationOption admission =
+                new org.paulsens.trip.model.RegistrationOption(1, "Admission", "Which?", true);
+        admission.setType(org.paulsens.trip.model.RegistrationOption.QuestionType.CHOICE);
+        admission.setChoices(List.of(new org.paulsens.trip.model.OptionChoice("fri", "Friday", 6000L, null, null,
+                null, null), new org.paulsens.trip.model.OptionChoice("full", "Full", 15000L, null, null, null,
+                null)));
+        final Trip trip = Trip.builder().id(tripId).regOptions(List.of(admission)).build();
+        trip.setCheckout(new org.paulsens.trip.model.CheckoutConfig(Boolean.TRUE, null, null, null, List.of(),
+                List.of(new org.paulsens.trip.model.DiscountCode("SPEAKER", null, null, null, null, null, null))));
+        Mockito.when(trips.getTrip(tripId)).thenReturn(trip);
+        final String key = admission.getKey();
+        Mockito.when(registrations.getRegistration(tripId, OTHER)).thenReturn(new Registration(tripId, OTHER, null,
+                Registration.Status.PENDING, Map.of(key, "fri")));
+        Mockito.when(registrations.getRegistrations(tripId)).thenReturn(List.of());
+        Mockito.when(registrations.saveRegistration(ArgumentMatchers.any())).thenReturn(true);
+        Mockito.when(registrations.saveRoom(tripId, OTHER, "101")).thenReturn(true);
+        final Person.Id viewer = holderOf(PrivilegeCommands.TRIP_VIEW, tripId);
+        final Person.Id editor = holderOf(PrivilegeCommands.TRIP_MGR, tripId);
+        final Person.Id registrar = holderOf(PrivilegeCommands.REGISTRATION_ADMIN, tripId);
+
+        for (final Person.Id reader : List.of(viewer, editor)) {
+            assertOk(as(reader).list(tripId));      // reading the roster is still theirs
+            assertError(as(reader).save(tripId, OTHER.getValue(), CSRF_OK, body("CONFIRMED", null)),
+                    403, ApiErrors.FORBIDDEN);
+            assertError(as(reader).save(tripId, OTHER.getValue(), CSRF_OK, body(null, Map.of(key, "full"))),
+                    403, ApiErrors.FORBIDDEN);
+            assertError(as(reader).saveRoom(tripId, OTHER.getValue(), CSRF_OK, Map.of("room", "101")),
+                    403, ApiErrors.FORBIDDEN);
+        }
+        Mockito.verify(registrations, Mockito.never()).saveRegistration(ArgumentMatchers.any());
+        Mockito.verify(registrations, Mockito.never()).saveRoom(ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any());
+
+        // Discount codes: the pricing manager and the registration admin, not the Viewer.
+        Assert.assertTrue(((org.paulsens.trip.model.CheckoutConfig) as(viewer).pricing(tripId).getEntity())
+                .getCodes().isEmpty(), "a Viewer is handed no codes");
+        Assert.assertEquals(((org.paulsens.trip.model.CheckoutConfig) as(editor).pricing(tripId).getEntity())
+                .getCodes().size(), 1);
+        Assert.assertEquals(((org.paulsens.trip.model.CheckoutConfig) as(registrar).pricing(tripId).getEntity())
+                .getCodes().size(), 1);
+
+        // The registration admin approves, changes a paid answer and rooms: the Registrations page's powers.
+        final RegistrationDto approved = (RegistrationDto) as(registrar).save(tripId, OTHER.getValue(), CSRF_OK,
+                body("CONFIRMED", Map.of(key, "full"))).getEntity();
+        Assert.assertEquals(approved.status(), "CONFIRMED");
+        Assert.assertEquals(approved.options().get(key), "full");
+        assertOk(as(registrar).saveRoom(tripId, OTHER.getValue(), CSRF_OK, Map.of("room", "101")));
+    }
 }

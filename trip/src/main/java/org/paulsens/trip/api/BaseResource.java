@@ -238,6 +238,22 @@ public abstract class BaseResource {
     }
 
     /**
+     * Whether the caller may READ this trip: on its roster, holding a trip role there ({@code tripView},
+     * {@code tripMgr}; a site admin holds both), or managing someone on the roster -- the website's
+     * {@code canSeeTrip} rule, which lets the app's "acting as" read a member's trip without a seat of its
+     * own. The one spelling for every resource hanging off a trip (the trip itself, its itinerary, its
+     * to-do's): a signed-in stranger is not a reader, and a write the caller makes "for themselves" is no
+     * exception to that.
+     */
+    protected boolean canReadTrip(final Trip trip) {
+        final Person.Id me = personId();
+        return trip.getPeople().contains(me)
+                || privileges().has(ApiPrivileges.TRIP_VIEW, trip.getId())
+                || privileges().has(ApiPrivileges.TRIP_MGR, trip.getId())
+                || Beans.get(TripCommands.class).managesSomeoneOn(trip, me);
+    }
+
+    /**
      * The trip with this id, or a 404 out of the whole request.
      *
      * <p>For endpoints whose path names a trip that simply must exist: instead of every method carrying its own

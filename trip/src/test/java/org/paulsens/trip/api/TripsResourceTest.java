@@ -1,10 +1,12 @@
 package org.paulsens.trip.api;
 
 import jakarta.ws.rs.core.Response;
+import java.io.IOException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
 import org.paulsens.trip.action.PersonCommands;
@@ -12,7 +14,13 @@ import org.paulsens.trip.action.PrivilegeCommands;
 import org.paulsens.trip.action.TripCommands;
 import org.paulsens.trip.api.dto.TripDto;
 import org.paulsens.trip.api.dto.TripEventDto;
+import org.paulsens.trip.api.dto.TripPaymentConfigDto;
+import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.model.FeesPaidBy;
+import org.paulsens.trip.model.Organization;
+import org.paulsens.trip.model.PaymentProcessorConfig;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.model.ProcessorType;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripEvent;
 import org.testng.Assert;
@@ -109,7 +117,7 @@ public class TripsResourceTest extends ResourceTestSupport {
 
         final TripDto one = (TripDto) resource.get(TRIP_ID, null).getEntity();
         Assert.assertEquals(one.detailsUrl(), "https://unitetrip.com/trip/tripPage.jsf?trip=" + TRIP_ID);
-        Assert.assertEquals(one.withoutPaymentConfig().detailsUrl(), one.detailsUrl(), "kept for a plain member");
+        Assert.assertEquals(one.redactedFor(false, false).detailsUrl(), one.detailsUrl(), "kept for a plain member");
         Assert.assertEquals(one.withoutEvents().detailsUrl(), one.detailsUrl());
     }
 
@@ -987,6 +995,234 @@ public class TripsResourceTest extends ResourceTestSupport {
                 ArgumentMatchers.anyString())).thenReturn(false);
 
         assertError(resource.saveNote(TRIP_ID, "evt-1", CSRF_OK, null, null), 500, ApiErrors.STORE_FAILED);
+    }
+
+    // ------------------------------------------------------------------ audit 2026-11-11: F6, F7, F22, F23
+
+    private static String orgAdministeredBy(final Person.Id... admins) throws IOException {
+        final Organization org = new Organization(null, "Org " + System.nanoTime(), null, null, List.of(admins),
+                null, null, 0L);
+        Assert.assertTrue(DAO.getInstance().saveOrganization(org));
+        return org.getId().getValue();
+    }
+
+    private static Person.Id holderOf(final String base, final String scope) {
+        final Person.Id who = Person.Id.newInstance();
+        grant(base, scope, who);
+        return who;
+    }
+
+    private static void grant(final String base, final String scope, final Person.Id who) {
+        final PrivilegeCommands priv = new PrivilegeCommands();
+        Assert.assertTrue(priv.savePrivilege(priv.getOrCreate(base, scope, base).withNewPerson(who), null));
+    }
+
+    private TripsResource as(final Person.Id who) {
+        signedInAs(who);
+        return resource(new TripsResource());
+    }
+
+    private static TripDto orgBody(final String orgId) {
+        return new TripDto(null, null, null, null, false, null, null, null, null, orgId, null, null, null, null,
+                null, null, null, null, null, null, null, null);
+    }
+
+    private static String processorOf(final String orgId) throws IOException {
+        final PaymentProcessorConfig config = PaymentProcessorConfig.builder()
+                .orgId(Organization.Id.from(orgId)).label("Stripe").type(ProcessorType.STRIPE)
+                .mode(PaymentProcessorConfig.ProcessorMode.LIVE).enabled(true)
+                .publicConfig(Map.of("clientId", "pk_live_x")).createdBy(ME).created(LocalDateTime.now()).build();
+        Assert.assertTrue(DAO.getInstance().savePaymentProcessorConfig(config));
+        return config.getId().getValue();
+    }
+
+    /**
+     * F6: a trip manager manages the trip, not which organization owns it. The update used to copy the
+     * body's orgId onto the trip for anyone holding tripMgr there, moving the trip (and a roster the caller
+     * then picks from the new org) across the tenancy boundary.
+     */
+    @Test
+    public void aTripManagerCannotMoveATripToAnotherOrganization() throws IOException {
+        final String home = orgAdministeredBy();
+        final String away = orgAdministeredBy();
+        final String tripId = UUID.randomUUID().toString();
+        final Trip existing = trip(tripId, ME);
+        existing.setOrgId(home);
+        tripExists(existing);
+        Mockito.when(trips.saveTrip(ArgumentMatchers.eq(existing), ArgumentMatchers.any())).thenReturn(true);
+        final TripsResource manager = as(holderOf(PrivilegeCommands.TRIP_MGR, tripId));
+
+        assertError(manager.update(tripId, CSRF_OK, orgBody(away)), 403, ApiErrors.FORBIDDEN);
+        assertError(manager.update(tripId, CSRF_OK, orgBody("")), 403, ApiErrors.FORBIDDEN);
+        Assert.assertEquals(existing.getOrgId(), home, "the trip stayed where it was");
+        Mockito.verify(trips, Mockito.never()).saveTrip(ArgumentMatchers.any(), ArgumentMatchers.any());
+
+        // A body that merely names the org the trip is already in is not a move.
+        assertOk(manager.update(tripId, CSRF_OK, orgBody(home)));
+        Assert.assertEquals(existing.getOrgId(), home);
+    }
+
+    /** F6, the other side: an administrator of BOTH organizations (or a site admin) may move one. */
+    @Test
+    public void movingATripTakesAnAdministratorOfBothOrganizations() throws IOException {
+        final Person.Id ofBoth = Person.Id.newInstance();
+        final Person.Id ofHomeOnly = Person.Id.newInstance();
+        final String home = orgAdministeredBy(ofBoth, ofHomeOnly);
+        final String away = orgAdministeredBy(ofBoth);
+        final String tripId = UUID.randomUUID().toString();
+        grant(PrivilegeCommands.TRIP_MGR, tripId, ofBoth);
+        grant(PrivilegeCommands.TRIP_MGR, tripId, ofHomeOnly);
+        final Trip existing = trip(tripId, ME);
+        existing.setOrgId(home);
+        tripExists(existing);
+        Mockito.when(trips.saveTrip(ArgumentMatchers.eq(existing), ArgumentMatchers.any())).thenReturn(true);
+
+        assertError(as(ofHomeOnly).update(tripId, CSRF_OK, orgBody(away)), 403, ApiErrors.FORBIDDEN);
+        Assert.assertEquals(existing.getOrgId(), home);
+
+        assertOk(as(ofBoth).update(tripId, CSRF_OK, orgBody(away)));
+        Assert.assertEquals(existing.getOrgId(), away);
+
+        signedInAsSiteAdmin(ME);
+        assertOk(resource(new TripsResource()).update(tripId, CSRF_OK, orgBody(home)));
+        Assert.assertEquals(existing.getOrgId(), home);
+    }
+
+    /** F6: the processor override named the OLD organization's account; it does not follow the trip. */
+    @Test
+    public void aMovedTripDoesNotKeepItsOldOrganizationsProcessor() throws IOException {
+        final String home = orgAdministeredBy();
+        final String away = orgAdministeredBy();
+        final String tripId = UUID.randomUUID().toString();
+        final Trip existing = trip(tripId, ME);
+        existing.setOrgId(home);
+        existing.getPaymentConfig().setProcessorConfigId(processorOf(home));
+        tripExists(existing);
+        Mockito.when(trips.saveTrip(ArgumentMatchers.eq(existing), ArgumentMatchers.any())).thenReturn(true);
+        signedInAsSiteAdmin(ME);
+
+        assertError(resource.update(tripId, CSRF_OK, orgBody(away)), 400, ApiErrors.VALIDATION_FAILED);
+        Assert.assertEquals(existing.getOrgId(), home);
+        // A processor of the NEW organization is validated against the new organization, not the old one.
+        final String awaysProcessor = processorOf(away);
+        final TripDto moveWithNewProcessor = new TripDto(null, null, null, null, false, null, null, null, null,
+                away, null, null, null, null, null, null, null, null, null, null, null, null,
+                new TripPaymentConfigDto(awaysProcessor, null, null, null, null, null, null, null, null));
+        assertOk(resource.update(tripId, CSRF_OK, moveWithNewProcessor));
+        Assert.assertEquals(existing.getOrgId(), away);
+        Assert.assertEquals(existing.getPaymentConfig().getProcessorConfigId(), awaysProcessor);
+    }
+
+    /**
+     * F7: the trip editor shows Payment Settings only to the organization's payments admins. The API took
+     * them from any Editor Admin: one PUT made every payer pay the fee and copied every confirmation, with
+     * the payer's name and amount, to an outside address.
+     */
+    @Test
+    public void paymentSettingsNeedTheOrganizationsPaymentsGrantToWriteAndToRead() throws IOException {
+        final String orgId = orgAdministeredBy();
+        final String tripId = UUID.randomUUID().toString();
+        final Person.Id manager = holderOf(PrivilegeCommands.TRIP_MGR, tripId);
+        final Trip existing = trip(tripId, ME);
+        existing.setOrgId(orgId);
+        existing.getPaymentConfig().setFeesPaidBy(FeesPaidBy.ORGANIZATION);
+        existing.getPaymentConfig().setBcc("office@org.example");
+        tripExists(existing);
+        Mockito.when(trips.saveTrip(ArgumentMatchers.eq(existing), ArgumentMatchers.any())).thenReturn(true);
+        final TripDto hijack = paymentBody(new TripPaymentConfigDto(null, "PAYER", null, null, null, null, null,
+                "me@example.net", null));
+
+        assertError(as(manager).update(tripId, CSRF_OK, hijack), 403, ApiErrors.FORBIDDEN);
+        Assert.assertEquals(existing.getPaymentConfig().getFeesPaidBy(), FeesPaidBy.ORGANIZATION);
+        Assert.assertEquals(existing.getPaymentConfig().getBcc(), "office@org.example");
+        Mockito.verify(trips, Mockito.never()).saveTrip(ArgumentMatchers.any(), ArgumentMatchers.any());
+        Assert.assertNull(((TripDto) as(manager).get(tripId, null).getEntity()).paymentConfig(),
+                "nor is it read back to a manager without the grant");
+
+        // An unchanged value is not a payment write: a body echoing the stored settings, or an empty
+        // paymentConfig, saves the rest of the trip as before.
+        assertOk(as(manager).update(tripId, CSRF_OK, paymentBody(new TripPaymentConfigDto(null, "ORGANIZATION",
+                null, null, null, null, null, "office@org.example", Map.of()))));
+        assertOk(as(manager).update(tripId, CSRF_OK, paymentBody(new TripPaymentConfigDto(null, null, null, null,
+                null, null, null, null, null))));
+
+        // With paymentsAdmin on the trip's organization the same body goes through, and reads back.
+        grant(PrivilegeCommands.PAYMENTS_ADMIN, orgId, manager);
+        assertOk(as(manager).update(tripId, CSRF_OK, hijack));
+        Assert.assertEquals(existing.getPaymentConfig().getFeesPaidBy(), FeesPaidBy.PAYER);
+        final TripDto read = (TripDto) as(manager).get(tripId, null).getEntity();
+        Assert.assertEquals(read.paymentConfig().bcc(), "me@example.net");
+    }
+
+    /** F7 on create: addTrip@org creates the trip, but its payment settings still take the payments grant. */
+    @Test
+    public void creatingATripDoesNotCarryPaymentSettingsWithoutThePaymentsGrant() throws IOException {
+        final String orgId = orgAdministeredBy();
+        final Person.Id creator = holderOf(PrivilegeCommands.ADD_TRIP, orgId);
+        Mockito.when(trips.createTrip()).thenAnswer(call -> trip(UUID.randomUUID().toString(), ME));
+        Mockito.when(trips.saveTrip(ArgumentMatchers.any(), ArgumentMatchers.any())).thenReturn(true);
+        final TripDto withBcc = new TripDto(null, "Rome 2027", null, null, false, null, null, null, null, orgId,
+                null, null, null, null, null, null, null, null, null, null, null, null,
+                new TripPaymentConfigDto(null, null, null, null, null, null, null, "me@example.net", null));
+        final TripDto withNothingSet = new TripDto(null, "Rome 2027", null, null, false, null, null, null, null,
+                orgId, null, null, null, null, null, null, null, null, null, null, null, null,
+                new TripPaymentConfigDto(null, null, null, null, null, null, null, null, null));
+
+        assertError(as(creator).create(CSRF_OK, withBcc), 403, ApiErrors.FORBIDDEN);
+        Mockito.verify(trips, Mockito.never()).saveTrip(ArgumentMatchers.any(), ArgumentMatchers.any());
+        assertOk(as(creator).create(CSRF_OK, withNothingSet));
+
+        grant(PrivilegeCommands.PAYMENTS_ADMIN, orgId, creator);
+        assertOk(as(creator).create(CSRF_OK, withBcc));
+    }
+
+    /**
+     * F22: acting "for yourself" is always allowed, so by itself it let any signed-in account join the
+     * events of, and write notes into, a trip it is not on (each call re-saving the whole trip).
+     */
+    @Test
+    public void aStrangerCannotJoinEventsOrWriteNotesOnATripTheyAreNotOn() {
+        signedInAs(ME);
+        tripExists(trip(TRIP_ID, OTHER));
+
+        assertError(resource.setParticipation(TRIP_ID, CSRF_OK, null, Map.of("eventIds", List.of("evt-1"))),
+                403, ApiErrors.FORBIDDEN);
+        assertError(resource.saveNote(TRIP_ID, "evt-1", CSRF_OK, null, Map.of("note", "hello")),
+                403, ApiErrors.FORBIDDEN);
+        assertError(resource.saveNote(TRIP_ID, "no-such-event", CSRF_OK, null, Map.of("note", "hello")),
+                403, ApiErrors.FORBIDDEN);
+        Mockito.verify(trips, Mockito.never()).setEventParticipation(ArgumentMatchers.any(),
+                ArgumentMatchers.anyList(), ArgumentMatchers.any());
+        Mockito.verify(trips, Mockito.never()).saveEventNote(ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any(), ArgumentMatchers.anyString());
+    }
+
+    /**
+     * F23: the open listing is what the anonymous public sees, and the public never sees who is travelling.
+     * A trip the caller cannot read keeps only the caller's own people in {@code people} (what the apps'
+     * "am I on the roster" check reads); a trip they are on is unchanged.
+     */
+    @Test
+    public void anOpenListingCarriesOnlyTheCallersOwnPeopleForATripTheyCannotRead() {
+        final Person.Id kid = Person.Id.from("trips-kid");
+        final Person me = new Person();
+        me.setId(ME);
+        me.setManagedUsers(List.of(kid));
+        Mockito.when(people.getPerson(ME)).thenReturn(me);
+        signedInAs(ME);
+        Mockito.when(trips.getPublicTrips()).thenReturn(List.of(
+                trip("open-strangers", OTHER, Person.Id.from("trips-third")),
+                trip("open-kid", OTHER, kid),
+                trip("open-mine", ME, OTHER)));
+        // The kid's seat makes the second trip readable in production (managesSomeoneOn); the bean is a
+        // mock here, so it stays unreadable and shows the narrowing keeping a managed person.
+
+        final List<?> listed = (List<?>) resource.list("open", 50, null).getEntity();
+
+        Assert.assertEquals(((TripDto) listed.get(0)).people(), List.of(), "strangers' ids are not listed");
+        Assert.assertEquals(((TripDto) listed.get(1)).people(), List.of(kid.getValue()));
+        Assert.assertEquals(((TripDto) listed.get(2)).people(), List.of(ME.getValue(), OTHER.getValue()),
+                "a trip I am on still carries its roster");
     }
 
     @Test

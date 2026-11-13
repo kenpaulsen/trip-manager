@@ -27,6 +27,7 @@ import org.paulsens.trip.action.PersonDataValueCommands;
 import org.paulsens.trip.action.PhotoUploadBean;
 import org.paulsens.trip.action.ProfilePhotoCommands;
 import org.paulsens.trip.action.ProfilePhotos;
+import org.paulsens.trip.action.TripCommands;
 import org.paulsens.trip.api.dto.AddressDto;
 import org.paulsens.trip.api.dto.PassportDto;
 import org.paulsens.trip.api.dto.PersonDataValueDto;
@@ -106,7 +107,8 @@ public class PeopleResource extends BaseResource {
      * One person, redacted for whoever is asking.
      *
      * <p>{@code trip} is optional and only ever narrows or widens the answer through the caller's role on that
-     * trip -- it is not a filter, and passing a trip the caller has no role on simply yields the peer view.
+     * trip -- it is not a filter, and passing a trip the caller has no role on simply yields the peer view. So
+     * does a trip the SUBJECT is not on ({@link #tripRoleScope}): a role on a trip is a role over its travelers.
      */
     @GET
     @Path("{id}")
@@ -647,7 +649,18 @@ public class PeopleResource extends BaseResource {
         if (new OrgCommands(this::caller).canAdminPerson(subject)) {
             return AccessLevel.SITE_ADMIN;
         }
-        return privileges().levelFor(findPerson(personId()), subject, tripId);
+        return privileges().levelFor(findPerson(personId()), subject, tripRoleScope(subject, tripId));
+    }
+
+    /**
+     * The trip whose roles may raise the redaction level: the caller's {@code ?trip=} only when it names a
+     * real trip this site reaches AND the subject is on it ({@code TripCommands.isOnTrip}); otherwise none,
+     * which is the level the caller would have had without the parameter. The trip id is the CALLER's choice,
+     * so unchecked it turned "manager of some trip" into the trip-admin view (passport, birthdate, address,
+     * emergency contacts, staff notes) of any person in any organization (audit 2026-11-11).
+     */
+    private static String tripRoleScope(final Person.Id subject, final String tripId) {
+        return TripCommands.isOnTrip(findTrip(tripId), subject) ? tripId : null;
     }
 
     private static PersonDto dto(final Person person, final AccessLevel level) {

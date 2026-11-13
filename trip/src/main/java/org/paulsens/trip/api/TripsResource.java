@@ -24,6 +24,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.ConfigCommands;
 import org.paulsens.trip.action.ItineraryAccess;
 import org.paulsens.trip.action.OrgCommands;
+import org.paulsens.trip.action.PaymentCommands;
 import org.paulsens.trip.action.ProfilePhotos;
 import org.paulsens.trip.action.LodgingCommands;
 import org.paulsens.trip.action.LodgingViews;
@@ -73,6 +74,8 @@ public class TripsResource extends BaseResource {
     private static final int PAST_DAYS_STILL_ACTIVE = 3;
     private static final String NOT_THEIR_ITINERARY = "Not permitted to view this person's itinerary.";
     private static final int MAX_LIST_LIMIT = 200;
+    private static final String PAYMENTS_ADMIN_REQUIRED =
+            "Payment settings need the organization's Payments Admin privilege.";
 
     @Override
     protected String versionedType() {
@@ -82,14 +85,16 @@ public class TripsResource extends BaseResource {
     /**
      * Trips, scoped by {@code filter}: {@code mine} (default), {@code active}, {@code inactive}, {@code recent},
      * {@code open} -- the last being the publicly listed, joinable trips of this host (the landing page's list),
-     * readable by any signed-in person because it is what the anonymous public already sees.
+     * readable by any signed-in person because it is what the anonymous public already sees. The public never
+     * sees who is travelling, though, so an {@code open} entry the caller could not otherwise read carries only
+     * the caller and the people they manage in {@code people} ({@link #openListingDto}).
      *
      * <p>Itineraries are omitted from every entry here. A traveller on eight trips would otherwise pull every
      * flight, hotel and bus of all eight to render a list of titles.
      *
      * <p>{@code mine} takes an optional {@code personId}: a family manager acting as a member lists THAT
      * member's trips (yourself, someone you manage, or a site admin; 403 otherwise). The other filters are not
-     * per-user and ignore it. Every entry still passes {@link #canRead} for the CALLER.
+     * per-user and ignore it. Every entry still passes {@link #canReadTrip} for the CALLER.
      */
     @GET
     @Produces({V1, MediaType.APPLICATION_JSON})
@@ -122,15 +127,42 @@ public class TripsResource extends BaseResource {
         // this, "active" would list every trip in the system to any signed-in traveller. On an organization's
         // host the list is further that org's alone -- the site boundary holds for API clients too.
         final SiteContext site = SiteContext.current();
+        final Set<String> own = listing ? ownAndManaged(me) : Set.of();
         return ok(found.stream()
                 .filter(trip -> site.admits(trip.getOrgId()))
-                .filter(trip -> listing || canRead(trip, me))
-                .map(this::listingDto)
+                .filter(trip -> listing || canReadTrip(trip))
+                .map(trip -> listing ? openListingDto(trip, own) : listingDto(trip))
                 .toList());
     }
 
     private TripDto listingDto(final Trip trip) {
         return TripMapper.INSTANCE.toDto(trip).withoutEvents().withDetailsUrl(detailsUrl(trip));
+    }
+
+    /**
+     * An {@code open} listing's entry. The listing skips the membership check on purpose, but the roster is
+     * the one field on it that membership authorizes ({@link #roster}): sent whole it handed any signed-in
+     * account the person ids of everyone booked on every public trip, across organizations. A caller who
+     * cannot read the trip gets {@code people} narrowed to themselves and the people they manage, which is
+     * all the apps ask of it there ("am I, or is my family, on this trip?").
+     */
+    private TripDto openListingDto(final Trip trip, final Set<String> own) {
+        final TripDto dto = listingDto(trip);
+        if (canReadTrip(trip) || dto.people() == null) {
+            return dto;
+        }
+        return dto.withPeople(dto.people().stream().filter(own::contains).toList());
+    }
+
+    /** The caller's id and the ids of everyone they manage, as the wire spells them. */
+    private Set<String> ownAndManaged(final Person.Id me) {
+        final Set<String> ids = new LinkedHashSet<>();
+        ids.add(me.getValue());
+        final Person person = findPerson(me);
+        if (person != null) {
+            person.getManagedUsers().forEach(managed -> ids.add(managed.getValue()));
+        }
+        return ids;
     }
 
     /**
@@ -156,7 +188,7 @@ public class TripsResource extends BaseResource {
     /**
      * The trip with its itinerary, viewer-relative fields filled in for the SUBJECT: the caller, or the family
      * member named by {@code personId} (the app's "acting as"; the website shows the same under its "Viewing:"
-     * chip). The trip gate is the caller's ({@link #canRead}); the subject gate is {@link #canActFor}.
+     * chip). The trip gate is the caller's ({@link #canReadTrip}); the subject gate is {@link #canActFor}.
      */
     @GET
     @Path("{tripId}")
@@ -167,17 +199,23 @@ public class TripsResource extends BaseResource {
         if (trip == null) {
             return error(404, ApiErrors.NOT_FOUND, "No such trip.");
         }
-        final Person.Id me = personId();
-        if (!canRead(trip, me)) {
+        if (!canReadTrip(trip)) {
             return error(403, ApiErrors.FORBIDDEN, "Not a member of this trip.");
         }
         final Person.Id subject = subjectOf(personIdParam);
         if (!canActFor(subject, tripId)) {
             return error(403, ApiErrors.FORBIDDEN, NOT_THEIR_ITINERARY);
         }
-        final TripDto dto = withViewerEvents(trip, subject);
-        // The payment settings (processor, who pays fees, the mail addresses) are the managers' business.
-        return ok(privileges().has(ApiPrivileges.TRIP_MGR, tripId) ? dto : dto.withoutPaymentConfig());
+        // The page options are the managers' business; the payment settings (processor, who pays fees, the
+        // mail addresses) are the organization's payments admins', exactly whom the trip editor shows its
+        // Payment Settings to. A manager without that grant neither reads nor writes them.
+        return ok(withViewerEvents(trip, subject).redactedFor(payments().isPaymentsAdmin(trip),
+                privileges().has(ApiPrivileges.TRIP_MGR, tripId)));
+    }
+
+    /** The payments bean bound to THIS caller: {@code isPaymentsAdmin} is the trip editor's own rule. */
+    private PaymentCommands payments() {
+        return new PaymentCommands(this::caller);
     }
 
     /**
@@ -194,8 +232,7 @@ public class TripsResource extends BaseResource {
         if (trip == null) {
             return error(404, ApiErrors.NOT_FOUND, "No such trip.");
         }
-        final Person.Id me = personId();
-        if (!canRead(trip, me)) {
+        if (!canReadTrip(trip)) {
             return error(403, ApiErrors.FORBIDDEN, "Not a member of this trip.");
         }
         final Person.Id subject = subjectOf(personIdParam);
@@ -215,8 +252,7 @@ public class TripsResource extends BaseResource {
         if (trip == null) {
             return error(404, ApiErrors.NOT_FOUND, "No such trip.");
         }
-        final Person.Id me = personId();
-        if (!canRead(trip, me)) {
+        if (!canReadTrip(trip)) {
             return error(403, ApiErrors.FORBIDDEN, "Not a member of this trip.");
         }
         final Person.Id subject = subjectOf(personIdParam);
@@ -250,7 +286,7 @@ public class TripsResource extends BaseResource {
         if (trip == null) {
             return error(404, ApiErrors.NOT_FOUND, "No such trip.");
         }
-        if (!canRead(trip, personId())) {
+        if (!canReadTrip(trip)) {
             return error(403, ApiErrors.FORBIDDEN, "Not a member of this trip.");
         }
         final Person.Id subject = subjectOf(personIdParam);
@@ -310,7 +346,7 @@ public class TripsResource extends BaseResource {
         if (trip == null) {
             return error(404, ApiErrors.NOT_FOUND, "No such trip.");
         }
-        if (!canRead(trip, personId())) {
+        if (!canReadTrip(trip)) {
             return error(403, ApiErrors.FORBIDDEN, "Not a member of this trip.");
         }
         final List<Person.Id> directors = trip.getDirectorIds() == null ? List.of() : trip.getDirectorIds();
@@ -455,6 +491,10 @@ public class TripsResource extends BaseResource {
         }
         final TripCommands trips = Beans.get(TripCommands.class);
         final Trip trip = trips.createTrip();
+        // Creating a trip is not a license to set its payment settings: addTrip@org is not paymentsAdmin@org.
+        if (writesPaymentConfig(body, trip) && !isPaymentsAdminOf(orgId)) {
+            return error(403, ApiErrors.FORBIDDEN, PAYMENTS_ADMIN_REQUIRED);
+        }
         apply(body, trip);
         if (trip.getOpenToPublic() == null) {
             // Same default the page's create path stamps: never public until someone chooses it.
@@ -501,11 +541,34 @@ public class TripsResource extends BaseResource {
         if (badValue != null) {
             return error(400, ApiErrors.VALIDATION_FAILED, badValue);
         }
-        final String paymentProblem = paymentConfigProblem(body, trip.getOrgId());
+        final OrgCommands orgs = new OrgCommands(this::caller);
+        final String fromOrg = trip.getOrgId();
+        final boolean moved = movesOrg(body, trip);
+        // A trip manager manages the trip, not which organization owns it: the editor page never changes a
+        // trip's org, and the tenancy boundary is not theirs to move a trip (and its roster) across.
+        if (moved && !privileges().isSiteAdmin()
+                && !(orgs.canManageOrg(fromOrg) && orgs.canManageOrg(body.orgId()))) {
+            return error(403, ApiErrors.FORBIDDEN,
+                    "Moving a trip to another organization needs an administrator of both organizations.");
+        }
+        // Payment settings and people are checked against the org the trip will END UP in, not the one it
+        // is leaving (applyPeople reads the body's orgId the same way).
+        final String toOrg = moved ? body.orgId() : fromOrg;
+        final String paymentProblem = paymentConfigProblem(body, toOrg);
         if (paymentProblem != null) {
             return error(400, ApiErrors.VALIDATION_FAILED, paymentProblem);
         }
-        final OrgCommands orgs = new OrgCommands(this::caller);
+        // An echoed, unchanged paymentConfig is not a payment write: a manager's client that sends back what
+        // it read (or nothing) keeps working without the payments grant.
+        if (writesPaymentConfig(body, trip) && !isPaymentsAdminOf(toOrg)) {
+            return error(403, ApiErrors.FORBIDDEN, PAYMENTS_ADMIN_REQUIRED);
+        }
+        final String carried = moved
+                ? processorProblem(paymentConfigAfter(body, trip).getProcessorConfigId(), toOrg) : null;
+        if (carried != null) {
+            // The override named the OLD org's processor account; it does not follow the trip to a new owner.
+            return error(400, ApiErrors.VALIDATION_FAILED, carried);
+        }
         if (body.kind() != null && isConference(body.kind()) != trip.isConference()
                 && !orgs.canCreateConferenceFor(trip.getOrgId())) {
             return error(403, ApiErrors.FORBIDDEN,
@@ -521,6 +584,41 @@ public class TripsResource extends BaseResource {
             return error(500, ApiErrors.STORE_FAILED, "Could not save the trip.");
         }
         return ok(listingDto(trip));
+    }
+
+    /** Whether the body names an organization other than the one the trip belongs to. */
+    private static boolean movesOrg(final TripDto body, final Trip trip) {
+        return body != null && body.orgId() != null && !body.orgId().equals(trip.getOrgId());
+    }
+
+    /**
+     * The trip's payment settings as the body would leave them: a copy with the body applied, the trip
+     * untouched, so the answer is by definition what {@link #applyPaymentConfig} will do. Call after
+     * {@link #paymentConfigProblem} (an unknown {@code feesPaidBy} is its to refuse).
+     */
+    private static TripPaymentConfig paymentConfigAfter(final TripDto body, final Trip trip) {
+        final TripPaymentConfig after = trip.getPaymentConfig().overlayOn(null);
+        applyPaymentConfig(body == null ? null : body.paymentConfig(), after);
+        return after;
+    }
+
+    /**
+     * Whether the body would CHANGE the trip's payment settings (an absent or merely echoed one would not).
+     * Compared copy to copy, so the copy's own normalization (a blank reads as unset) is never the difference.
+     */
+    private static boolean writesPaymentConfig(final TripDto body, final Trip trip) {
+        return !paymentConfigAfter(body, trip).equals(trip.getPaymentConfig().overlayOn(null));
+    }
+
+    /**
+     * {@code PaymentCommands.isPaymentsAdmin}, the trip editor's Payment Settings rule, asked of an
+     * ORGANIZATION: the one a new trip is being created in, or the one an update leaves the trip in. The
+     * rule takes a trip, so it is handed a blank one carrying only that org.
+     */
+    private boolean isPaymentsAdminOf(final String orgId) {
+        final Trip inOrg = Trip.builder().build();
+        inOrg.setOrgId(orgId);
+        return payments().isPaymentsAdmin(inOrg);
     }
 
     private static boolean isConference(final String kind) {
@@ -618,6 +716,11 @@ public class TripsResource extends BaseResource {
         if (trip == null) {
             return error(404, ApiErrors.NOT_FOUND, "No such trip.");
         }
+        // The trip gate first, as on every itinerary read: acting "for yourself" is always allowed, so by
+        // itself it let any signed-in account join the events of a trip it has nothing to do with.
+        if (!canReadTrip(trip)) {
+            return error(403, ApiErrors.FORBIDDEN, "Not a member of this trip.");
+        }
         final Person.Id subject = subjectOf(personIdParam);
         if (!canActFor(subject, tripId)) {
             return error(403, ApiErrors.FORBIDDEN, "Not permitted to change this person's itinerary.");
@@ -654,6 +757,10 @@ public class TripsResource extends BaseResource {
         if (trip == null) {
             return error(404, ApiErrors.NOT_FOUND, "No such trip.");
         }
+        // Before the event lookup, so a stranger learns nothing about which event ids exist.
+        if (!canReadTrip(trip)) {
+            return error(403, ApiErrors.FORBIDDEN, "Not a member of this trip.");
+        }
         final TripEvent event = trip.getTripEvent(eventId);
         if (event == null) {
             return error(404, ApiErrors.NOT_FOUND, "No such event on this trip.");
@@ -667,18 +774,6 @@ public class TripsResource extends BaseResource {
             return error(500, ApiErrors.STORE_FAILED, "Could not save the note.");
         }
         return ok(eventDto(trip.getTripEvent(eventId), subject));
-    }
-
-    /**
-     * Membership is enough to read; a trip role or site admin also is; so is managing someone on the roster --
-     * the website's {@code canSeeTrip} rule, which the API lacked until the app's "acting as" needed a manager
-     * to read a member's trip without a seat of their own.
-     */
-    private boolean canRead(final Trip trip, final Person.Id me) {
-        return trip.getPeople().contains(me)
-                || privileges().has(ApiPrivileges.TRIP_VIEW, trip.getId())
-                || privileges().has(ApiPrivileges.TRIP_MGR, trip.getId())
-                || Beans.get(TripCommands.class).managesSomeoneOn(trip, me);
     }
 
     /**
@@ -754,7 +849,7 @@ public class TripsResource extends BaseResource {
             trip.setKind(parseKind(body.kind()));
         }
         applyDetails(body, trip);
-        applyPaymentConfig(body, trip);
+        applyPaymentConfig(body.paymentConfig(), trip.getPaymentConfig());
         applyPage(body, trip);
     }
 
@@ -810,7 +905,11 @@ public class TripsResource extends BaseResource {
                 && !List.of("ORGANIZATION", "PAYER").contains(config.feesPaidBy().trim())) {
             return "paymentConfig.feesPaidBy must be ORGANIZATION or PAYER.";
         }
-        final String processorId = config.processorConfigId();
+        return processorProblem(config.processorConfigId(), orgId);
+    }
+
+    /** Why a trip of {@code orgId} cannot name this processor configuration, or null (blank names none). */
+    private static String processorProblem(final String processorId, final String orgId) {
         if (processorId == null || processorId.isBlank()) {
             return null;
         }
@@ -828,12 +927,10 @@ public class TripsResource extends BaseResource {
      * clears the override back to "inherit", anything else is set. Mirrors the trip editor's dialog, whose
      * blank menu item means inherit.
      */
-    private static void applyPaymentConfig(final TripDto body, final Trip trip) {
-        final TripPaymentConfigDto config = body.paymentConfig();
+    private static void applyPaymentConfig(final TripPaymentConfigDto config, final TripPaymentConfig target) {
         if (config == null) {
             return;
         }
-        final TripPaymentConfig target = trip.getPaymentConfig();
         if (config.processorConfigId() != null) {
             target.setProcessorConfigId(blankToNull(config.processorConfigId()));
         }

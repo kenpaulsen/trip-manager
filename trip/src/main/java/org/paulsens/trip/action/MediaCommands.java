@@ -238,6 +238,39 @@ public class MediaCommands {
         return null;
     }
 
+    /**
+     * Why a LIBRARY write may not put a row into {@code requested}, or null when it may. Three slot
+     * families belong to features that scope their rows some other way than the library's site rule: a
+     * trip's chat album ({@code tripChat-{tripId}}, listed whole on the trip's pages with no org filter), a
+     * hotel's gallery and an expense report's receipts. A free-text slot on an upload or an edit was a way
+     * to drop a file into another organization's album, so a row enters those only through its own feature
+     * ({@code ChatPhotos.stage}, {@code LodgingUploadCommands}, {@code ExpenseReceipts}). A row already
+     * there may be saved with its slot unchanged ({@code current}): editing an album photo's title is fine.
+     */
+    public static String slotRefusal(final String requested, final String current) {
+        final String slot = (requested == null) ? null : requested.trim();
+        final boolean featureSlot = ChatPhotos.isChatSlot(slot) || LodgingUploadCommands.isLodgingSlot(slot)
+                || ExpenseReceipts.isReceiptSlot(slot);
+        return featureSlot && !slot.equals(current)
+                ? "That slot belongs to a trip album, a lodging gallery or an expense report." : null;
+    }
+
+    /**
+     * The admin's whole-album rule for one trip's chat slot, the slot-level form of {@link #mayManage}'s
+     * caller half: a global media admin, the media editor of the trip's own organization, or the trip's
+     * manager. A media editor of some OTHER organization is nobody here, which is the point: being a media
+     * administrator on the site a request came to says nothing about another tenant's trip.
+     */
+    public static boolean managesAlbum(final Caller caller, final Trip trip) {
+        if (caller == null || trip == null) {
+            return false;
+        }
+        final String orgId = trip.getOrgId();
+        return caller.has(PrivilegeCommands.MEDIA_ADMIN)
+                || (orgId != null && !orgId.isBlank() && caller.has(PrivilegeCommands.MEDIA_ADMIN, orgId))
+                || caller.has(PrivilegeCommands.TRIP_MGR, trip.getId());
+    }
+
     /** One item by row id for the edit page, or null when it is unknown OR not this caller's to manage. */
     public MediaItem getManageable(final String id) {
         final MediaItem item = get(id);
@@ -274,6 +307,21 @@ public class MediaCommands {
     }
 
     /**
+     * The items in a slot that THIS SITE may discover, hidden ones included: what an administrator's slot
+     * listing shows. Library slots (documents, home images) are shared names ({@code home-docs} exists on
+     * every site), so they are site-scoped per item ({@link #discoverable}); the raw {@link #getInSlot}
+     * handed a media admin every organization's rows in the slot. A chat slot is one trip's album, scoped
+     * by the trip that owns it, so its rows are not filtered here: who may open that album is the caller's
+     * question ({@link #managesAlbum}, or membership).
+     */
+    public List<MediaItem> getDiscoverableInSlot(final String slot) {
+        final boolean chatSlot = ChatPhotos.isChatSlot(slot);
+        return getInSlot(slot).stream()
+                .filter(item -> chatSlot || discoverable(item))
+                .toList();
+    }
+
+    /**
      * The publicly-visible items in a slot: {@code hidden} rows are excluded, and when {@code maxAgeDays} is
      * positive, so are rows uploaded longer ago than that (or with no upload date at all -- an age window
      * only makes sense against a known age). Used by the landing page's Documents section, where files
@@ -281,11 +329,7 @@ public class MediaCommands {
      */
     public List<MediaItem> getVisibleInSlot(final String slot, final int maxAgeDays) {
         final LocalDateTime cutoff = maxAgeDays > 0 ? LocalDateTime.now().minusDays(maxAgeDays) : null;
-        // Library slots (documents, home images) are site-scoped per item; a chat slot is one trip's album,
-        // scoped by the trip that owns it, so its rows are not filtered here.
-        final boolean chatSlot = ChatPhotos.isChatSlot(slot);
-        return getInSlot(slot).stream()
-                .filter(item -> chatSlot || discoverable(item))
+        return getDiscoverableInSlot(slot).stream()
                 .filter(item -> !item.getHidden())
                 .filter(item -> cutoff == null
                         || (item.getUploaded() != null && !item.getUploaded().isBefore(cutoff)))
@@ -319,7 +363,8 @@ public class MediaCommands {
      */
     public boolean assignToSlot(final String id, final String slot, final String actor) {
         final MediaItem existing = getForEdit(id);
-        if (existing == null || slot == null || slot.isBlank() || !mayManage(existing)) {
+        if (existing == null || slot == null || slot.isBlank() || !mayManage(existing)
+                || slotRefusal(slot, existing.getSlot()) != null) {
             return false;
         }
         final String cleanSlot = slot.trim();
@@ -717,6 +762,11 @@ public class MediaCommands {
             PageFeedback.error("Not uploaded", refusal);
             return false;
         }
+        final String slotRefusal = slotRefusal(slot, null);
+        if (slotRefusal != null) {
+            PageFeedback.error("Not uploaded", slotRefusal);
+            return false;
+        }
         final String contentType;
         try {
             final BufferedInputStream buffered = new BufferedInputStream(content);
@@ -869,7 +919,8 @@ public class MediaCommands {
     public MediaItem confirmUpload(final String key, final String title, final String description,
             final String slot, final int position, final String uploadedBy, final Boolean hidden) {
         final String cleanKey = siteKey(key);
-        if (cleanKey == null || !mayUploadHere() || claimRefusal(cleanKey) != null) {
+        if (cleanKey == null || !mayUploadHere() || claimRefusal(cleanKey) != null
+                || slotRefusal(slot, null) != null) {
             return null;
         }
         final Optional<StoredObject> stored = statObject(cleanKey);
@@ -1005,6 +1056,11 @@ public class MediaCommands {
         final MediaItem existing = getForEdit(id);
         if (existing == null || !mayManage(existing)) {
             PageFeedback.error("Not saved", "No such media item.");
+            return false;
+        }
+        final String slotRefusal = slotRefusal(slot, existing.getSlot());
+        if (slotRefusal != null) {
+            PageFeedback.error("Not saved", slotRefusal);
             return false;
         }
         // A rename stays in the OWNER's namespace whatever was typed (an org's file cannot be moved onto a

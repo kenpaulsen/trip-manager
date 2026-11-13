@@ -106,15 +106,19 @@ parameter or body field, never a path segment** — keys contain `/` and Tomcat 
 | `DELETE comments/{msgId}?key=` | session+CSRF | tombstone; author or moderation |
 | `PUT/DELETE reactions/{emoji}?key=` | session+CSRF | idempotent (photo, person, emoji); returns fresh counts |
 | `POST login-return` `{target}` | open+CSRF | stashes `Sessions.AFTER_LOGIN_URL` after `LocalRedirect.sanitizeLocalTarget` (same-site path only) |
-| `GET mention-search?q=` | session | all-users typeahead: ≥2 chars, ≤8 results, 30/min brake, masked-email disambiguation |
+| `GET mention-search?q=` | session | typeahead over the people who share an ORGANIZATION with the caller: ≥2 chars, ≤8 results, 30/min brake, masked-email disambiguation |
 
 ## Mentions (user requirement 2026-08-09)
 
 The stored token is always `@{personId}` (`ChatMentions`), rendered as a name at display time. The
 *autocomplete scope* depends on the surface: the chat lightbox hands the viewer the trip roster
-(`ChatCommands.rosterJsonForTrip` labels); the album and landing surfaces use the all-users
-`mention-search` endpoint. Guardrails on the global scope: signed-in only + 2-char minimum + 8-result cap +
-per-person rate brake (bulk directory enumeration), and colliding display names are disambiguated with
+(`ChatCommands.rosterJsonForTrip` labels); the album and landing surfaces use the `mention-search`
+endpoint, which offers only people who share an organization with the caller (`Person.orgIds`;
+`PhotoChatCommands.mentionSearch(me, ...)`). It was an all-users search as designed on 2026-08-10; the
+tenancy rule the owner locked on 2026-08-24 (a picker, autocomplete or search endpoint never returns another
+organization's people) applies to it too, enforced since 2026-11-12 by filtering the global people search's
+hits, so someone in no organization is offered nobody. The older guardrails stay: signed-in only + 2-char
+minimum + 8-result cap + per-person rate brake (bulk enumeration), and colliding display names are disambiguated with
 MASKED addresses only (`j•••h@e…`, `PhotoChatCommands.maskedEmail`) — the full address never leaves the
 server, and the picked label is swapped for the id token at send anyway.
 

@@ -14,8 +14,8 @@ import java.util.List;
  * <p>{@code tripEvents} is absent unless the caller asked for the itinerary, so the common "list my trips" call
  * does not drag every event of every trip across the wire.
  *
- * <p>{@code paymentConfig} (2026-11) is the trip's own payment settings: writable by a trip manager on
- * {@code POST}/{@code PUT}, read back on a single-trip {@code GET} by a trip manager only, absent from lists.
+ * <p>{@code paymentConfig} (2026-11) is the trip's own payment settings: written on {@code POST}/{@code PUT} and
+ * read back on a single-trip {@code GET} by the organization's payments admins only, absent from lists.
  *
  * <p>{@code detailsUrl} (2026-11) is read-only: the absolute address of the trip's page as the apps embed it
  * ({@link #withDetailsUrl}); {@code description} is the legacy single-field details, rendered read-only until a
@@ -110,11 +110,24 @@ public record TripDto(
                 nonHostedTripUrl, nonHostedRegNumber, regOptions, people, null, kind, null, null, detailsUrl);
     }
 
-    /** The same trip without its payment settings or page options, for a reader who is not one of its managers. */
-    public TripDto withoutPaymentConfig() {
+    /**
+     * The same trip with its two staff-only parts kept only for a reader entitled to each: the payment settings
+     * for the organization's payments admins (whom the trip editor shows its Payment Settings to), the page
+     * options for the trip's managers. A plain member gets neither.
+     */
+    public TripDto redactedFor(final boolean paymentsAdmin, final boolean manager) {
         return new TripDto(id, title, description, openToPublic, chatEnabled, startDate, endDate, regLimit,
                 provider, orgId, language, estimatedPrice, director, localGuide, facilitators, flyerUrl,
-                nonHostedTripUrl, nonHostedRegNumber, regOptions, people, tripEvents, kind, null, null, detailsUrl);
+                nonHostedTripUrl, nonHostedRegNumber, regOptions, people, tripEvents, kind,
+                paymentsAdmin ? paymentConfig : null, manager ? page : null, detailsUrl);
+    }
+
+    /** The same trip with this roster in place of its own (an {@code open} listing narrows it to the caller's). */
+    public TripDto withPeople(final List<String> narrowed) {
+        return new TripDto(id, title, description, openToPublic, chatEnabled, startDate, endDate, regLimit,
+                provider, orgId, language, estimatedPrice, director, localGuide, facilitators, flyerUrl,
+                nonHostedTripUrl, nonHostedRegNumber, regOptions, narrowed, tripEvents, kind, paymentConfig, page,
+                detailsUrl);
     }
 
     /**

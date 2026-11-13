@@ -16,6 +16,8 @@ import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.model.MediaItem;
 import org.paulsens.trip.model.Organization;
+import org.paulsens.trip.model.Person;
+import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.site.SiteContext;
 import org.testng.Assert;
 import org.testng.annotations.AfterClass;
@@ -275,6 +277,95 @@ public class MediaTenancyTest {
         Assert.assertFalse(media.mayManage(receipt));
         Assert.assertTrue(media.getAll().stream().noneMatch(item -> "receipt-x".equals(item.getId())));
         Assert.assertTrue(DAO.getInstance().deleteMedia("receipt-x"));
+    }
+
+    /**
+     * Audit 2026-11-11, F25: no library write puts a row into a trip album, a hotel gallery or a report's
+     * receipts. Those slots are listed by their own features with no org filter, so a free-text slot on an
+     * upload or an edit was a door into another organization's album. An unchanged slot is not a move.
+     */
+    @Test
+    public void libraryWritesNeverLandInAnotherFeaturesSlot() throws Exception {
+        final String album = "tripChat-" + FakeData.ACME_TRIP_ID;
+        for (final String slot : List.of(album, "lodging-acc-1", "receipts-" + FakeData.ACME_TRIP_ID)) {
+            Assert.assertNotNull(MediaCommands.slotRefusal(slot, null), slot);
+            Assert.assertNotNull(MediaCommands.slotRefusal(" " + slot + " ", "home-docs"), "trimmed: " + slot);
+            Assert.assertNull(MediaCommands.slotRefusal(slot, slot), "unchanged is not a move: " + slot);
+        }
+        Assert.assertNull(MediaCommands.slotRefusal("home-docs", null));
+        Assert.assertNull(MediaCommands.slotRefusal(null, album), "clearing a slot is not entering one");
+
+        final byte[] bytes = "bytes".getBytes(StandardCharsets.UTF_8);
+        Assert.assertFalse(media.upload("downloads/into-album-" + System.nanoTime() + ".jpg",
+                new ByteArrayInputStream(bytes), bytes.length, "image/jpeg", "T", null, album, 0, "x"));
+        Assert.assertTrue(putKeys().isEmpty(), "refused before any bytes are stored");
+        Assert.assertNull(media.confirmUpload("downloads/confirm-album-" + System.nanoTime() + ".jpg", "T", null,
+                album, 0, "x", null));
+
+        final MediaItem library = seed("downloads/lib-" + System.nanoTime() + ".jpg", null);
+        Assert.assertFalse(media.update(library.getId(), null, "T", null, album, null, false, "x"));
+        Assert.assertFalse(media.assignToSlot(library.getId(), album, "x"));
+        Assert.assertEquals(DAO.getInstance().getMedia(library.getId(), Cached.NO).orElseThrow().getSlot(),
+                "homepage", "still where it was");
+        Assert.assertTrue(DAO.getInstance().getMediaInSlot(album, Cached.NO).stream()
+                .noneMatch(item -> item.getId().equals(library.getId())));
+        drop(library);
+
+        // An album photo keeps its slot through an ordinary edit.
+        final MediaItem photo = new MediaItem("tenancy-" + UUID.randomUUID(), "chat/t/p-" + System.nanoTime()
+                + ".jpg", "p", null, "image/jpeg", 1L, album, 0, LocalDateTime.now(), "x", null, null,
+                FakeData.ACME_ORG_ID);
+        Assert.assertTrue(DAO.getInstance().saveMedia(photo));
+        Assert.assertTrue(media.update(photo.getId(), null, "Retitled", null, album, null, false, "x"));
+        drop(photo);
+    }
+
+    /**
+     * F10: the administrator's slot listing is this SITE's items, hidden ones included; and a trip album is
+     * managed by whoever manages THAT album, not by a media editor of some other organization.
+     */
+    @Test
+    public void anAdminsSlotListingIsSiteScopedAndAnAlbumHasItsOwnManagers() throws Exception {
+        final String slot = "tenancy-docs-" + System.nanoTime();
+        final MediaItem shared = new MediaItem("tenancy-" + UUID.randomUUID(), "downloads/s-" + System.nanoTime()
+                + ".pdf", "S", null, "application/pdf", 1L, slot, 0, LocalDateTime.now(), "x", null, Boolean.TRUE,
+                null);
+        final MediaItem acmes = new MediaItem("tenancy-" + UUID.randomUUID(), ACME_PREFIX + "a-" + System.nanoTime()
+                + ".pdf", "A", null, "application/pdf", 1L, slot, 1, LocalDateTime.now(), "x", null, Boolean.TRUE,
+                FakeData.ACME_ORG_ID);
+        Assert.assertTrue(DAO.getInstance().saveMedia(shared));
+        Assert.assertTrue(DAO.getInstance().saveMedia(acmes));
+
+        Assert.assertEquals(media.getInSlot(slot).size(), 2, "the raw slot read knows no tenant");
+        Assert.assertEquals(media.getDiscoverableInSlot(slot), List.of(shared), "shared site: site-level only");
+        Assert.assertEquals(onSite(ACME_SITE, () -> media.getDiscoverableInSlot(slot)), List.of(acmes));
+        Assert.assertTrue(onSite(BETA_SITE, () -> media.getDiscoverableInSlot(slot)).isEmpty());
+        Assert.assertTrue(media.getVisibleInSlot(slot, 0).isEmpty(), "hidden stays off the public listing");
+        drop(shared);
+        drop(acmes);
+
+        // A trip of its own rather than the seeded Acme one: other suites delete that from the shared store.
+        final Trip acmeTrip = Trip.builder().id(UUID.randomUUID().toString()).title("Album").build();
+        acmeTrip.setOrgId(FakeData.ACME_ORG_ID);
+        Assert.assertTrue(DAO.getInstance().saveTrip(acmeTrip));
+        final PrivilegeCommands priv = new PrivilegeCommands();
+        final Person.Id acmeEditor = Person.Id.newInstance();
+        final Person.Id betaEditor = Person.Id.newInstance();
+        final Person.Id tripManager = Person.Id.newInstance();
+        Assert.assertTrue(priv.savePrivilege(priv.getOrCreate(PrivilegeCommands.MEDIA_ADMIN, FakeData.ACME_ORG_ID,
+                "m").withNewPerson(acmeEditor), null));
+        Assert.assertTrue(priv.savePrivilege(priv.getOrCreate(PrivilegeCommands.MEDIA_ADMIN, FakeData.BETA_ORG_ID,
+                "m").withNewPerson(betaEditor), null));
+        Assert.assertTrue(priv.savePrivilege(priv.getOrCreate(PrivilegeCommands.TRIP_MGR, acmeTrip.getId(), "m")
+                .withNewPerson(tripManager), null));
+        Assert.assertTrue(MediaCommands.managesAlbum(TestCallers.siteAdmin(), acmeTrip));
+        Assert.assertTrue(MediaCommands.managesAlbum(TestCallers.person(acmeEditor), acmeTrip));
+        Assert.assertTrue(MediaCommands.managesAlbum(TestCallers.person(tripManager), acmeTrip));
+        Assert.assertFalse(MediaCommands.managesAlbum(TestCallers.person(betaEditor), acmeTrip),
+                "another organization's media editor is nobody on this trip's album");
+        Assert.assertFalse(MediaCommands.managesAlbum(TestCallers.person(Person.Id.newInstance()), acmeTrip));
+        Assert.assertFalse(MediaCommands.managesAlbum(null, acmeTrip));
+        Assert.assertFalse(MediaCommands.managesAlbum(TestCallers.siteAdmin(), null));
     }
 
     @Test

@@ -15,11 +15,14 @@ import jakarta.ws.rs.core.Response;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Stream;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.AuditCommands;
 import org.paulsens.trip.action.BindingCommands;
 import org.paulsens.trip.action.TransactionsCommands;
+import org.paulsens.trip.action.TripFinanceGate;
 import org.paulsens.trip.api.dto.TransactionDto;
 import org.paulsens.trip.api.mapper.TransactionMapper;
 import org.paulsens.trip.model.BindingType;
@@ -33,6 +36,11 @@ import org.paulsens.trip.model.Transaction;
  * any privilege -- being shown what you owe is the point. Reading anybody else's, or the trip's books as a
  * whole, needs {@code tripFinView}; writing needs {@code tripFinAdmin}. Nothing here lets a traveller write their
  * own balance, which would be the obvious symmetry and an obviously bad idea.
+ *
+ * <p>A finance role is a role on ONE trip, named by {@code ?trip=}, and it reaches only the rows on that
+ * trip's books: every staff read and write asks {@link TripFinanceGate}, which binds the row (or, for a new
+ * one, its person) to the trip the privilege is on. The role alone used to be the whole check, so a finance
+ * admin of any trip could read, rewrite and delete every person's rows on every other.
  */
 @Slf4j
 @Path("transactions")
@@ -41,24 +49,31 @@ public class TransactionsResource extends BaseResource {
 
     private static final String V1 = ApiMediaTypes.TRANSACTIONS_V1;
 
+    private TripFinanceGate cachedGate;
+
     @Override
     protected String versionedType() {
         return V1;
     }
 
-    /** One person's ledger. Theirs, their manager's, or trip finance staff's to read. */
+    /**
+     * One person's ledger. Theirs or their manager's to read whole; trip finance staff get the rows on the
+     * books of the trip their role is on ({@code ?trip=}), and nothing of the person's other trips.
+     */
     @GET
     @Path("people/{personId}")
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response forPerson(
             @PathParam("personId") final String personIdParam, @QueryParam("trip") final String tripId) {
         final Person.Id subject = Person.Id.from(personIdParam);
-        if (!canReadFinances(subject, tripId)) {
+        final boolean own = actsFor(subject);
+        final boolean staff = gate().canReadLedgers(tripId);
+        if (!own && !staff) {
             return error(403, ApiErrors.FORBIDDEN, "Not permitted to read these finances.");
         }
-        final boolean staff = isFinanceStaff(tripId);
         return ok(Beans.get(TransactionsCommands.class).getTransactions(subject).stream()
-                .map(tx -> dto(tx, staff))
+                .filter(tx -> own || gate().mayReadRow(tripId, tx))
+                .map(tx -> dto(tx, staff && (!own || gate().mayReadRow(tripId, tx))))
                 .toList());
     }
 
@@ -70,25 +85,34 @@ public class TransactionsResource extends BaseResource {
             @PathParam("txId") final String txId,
             @QueryParam("trip") final String tripId) {
         final Person.Id subject = Person.Id.from(personIdParam);
-        if (!canReadFinances(subject, tripId)) {
+        final boolean own = actsFor(subject);
+        final boolean staff = gate().canReadLedgers(tripId);
+        if (!own && !staff) {
             return error(403, ApiErrors.FORBIDDEN, "Not permitted to read these finances.");
         }
         final Transaction tx = Beans.get(TransactionsCommands.class).getTransaction(subject, txId);
-        if (tx == null) {
+        // A row on another trip's books reads as absent to staff: "exists, but not yours" would confirm it.
+        final boolean onBooks = tx != null && staff && gate().mayReadRow(tripId, tx);
+        if (tx == null || !(own || onBooks)) {
             return error(404, ApiErrors.NOT_FOUND, "No such transaction.");
         }
-        return ok(dto(tx, isFinanceStaff(tripId)));
+        return ok(dto(tx, onBooks));
     }
 
-    /** The trip's books. Finance staff only, and the single most sensitive read on this resource. */
+    /**
+     * The trip's books. Finance staff only, and the single most sensitive read on this resource. The roster's
+     * rows on THIS trip's books, as the website's trip ledger lists them: a traveler's rows from another trip
+     * (another organization's, even) are not this trip's staff's to read.
+     */
     @GET
     @Path("trips/{tripId}")
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response forTrip(@PathParam("tripId") final String tripId) {
-        if (!isFinanceStaff(tripId)) {
+        if (!gate().canReadLedgers(tripId)) {
             return error(403, ApiErrors.FORBIDDEN, "Trip finance access required.");
         }
         return ok(Beans.get(TransactionsCommands.class).getTripTransactions(tripId).stream()
+                .filter(tx -> gate().mayReadRow(tripId, tx))
                 .map(tx -> dto(tx, true))
                 .toList());
     }
@@ -101,11 +125,12 @@ public class TransactionsResource extends BaseResource {
             @PathParam("groupId") final String groupId,
             @PathParam("personId") final String personIdParam,
             @QueryParam("trip") final String tripId) {
-        if (!isFinanceStaff(tripId)) {
+        if (!gate().canReadLedgers(tripId)) {
             return error(403, ApiErrors.FORBIDDEN, "Trip finance access required.");
         }
         final TransactionsCommands transactions = Beans.get(TransactionsCommands.class);
         return transactions.getGroupTransactionForUser(Person.Id.from(personIdParam), groupId)
+                .filter(tx -> gate().mayReadRow(tripId, tx))
                 .map(tx -> ok(Map.of(
                         "groupId", groupId,
                         "people", transactions.getUserIdsForGroup(tx).stream().map(Person.Id::getValue).toList())))
@@ -124,11 +149,14 @@ public class TransactionsResource extends BaseResource {
         if (csrfMissing(csrf)) {
             return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
         }
-        if (!isFinanceAdmin(tripId)) {
+        if (!gate().canWriteLedgers(tripId)) {
             return error(403, ApiErrors.FORBIDDEN, "Trip finance administrator required.");
         }
         final TransactionsCommands transactions = Beans.get(TransactionsCommands.class);
         final Person.Id subject = Person.Id.from(personIdParam);
+        if (!gate().mayCharge(tripId, subject)) {
+            return error(403, ApiErrors.FORBIDDEN, "That person is not on this trip.");
+        }
         final Transaction tx = transactions.createTransaction(subject);
         apply(body, tx);
         // The trip-carrying save stamps the tenancy boundary (Transaction.orgId) from ?trip=, as the page
@@ -145,9 +173,13 @@ public class TransactionsResource extends BaseResource {
     /**
      * The TRANSACTION→TRIP binding the page's Save writes: it is what the website's ledger (and a client's
      * trip filter) scope rows by, so a row recorded through the API without it belonged to no trip at all.
+     *
+     * <p>Only ever GIVEN, never moved: {@code setBindings} replaces, so binding an update's {@code ?trip=}
+     * unconditionally lifted a row off the books it was on and onto the caller's. A row that already
+     * belongs to a trip stays there, whatever {@code ?trip=} a site admin's save names.
      */
     private static void bindToTrip(final Transaction tx, final String tripId) {
-        if (tripId == null || tripId.isBlank() || tx.getUserId() == null) {
+        if (tripId == null || tripId.isBlank() || tx.getUserId() == null || !boundTrips(tx).isEmpty()) {
             return;
         }
         final BindingCommands bind = Beans.get(BindingCommands.class);
@@ -168,7 +200,7 @@ public class TransactionsResource extends BaseResource {
         if (csrfMissing(csrf)) {
             return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
         }
-        if (!isFinanceAdmin(tripId)) {
+        if (!gate().canWriteLedgers(tripId)) {
             return error(403, ApiErrors.FORBIDDEN, "Trip finance administrator required.");
         }
         final TransactionsCommands transactions = Beans.get(TransactionsCommands.class);
@@ -179,7 +211,7 @@ public class TransactionsResource extends BaseResource {
             return error(400, ApiErrors.BAD_REQUEST, "A transaction id is required.");
         }
         final Transaction tx = transactions.getTransaction(subject, txId);
-        if (tx == null) {
+        if (tx == null || !gate().mayWriteRow(tripId, tx)) {
             return error(404, ApiErrors.NOT_FOUND, "No such transaction.");
         }
         apply(body, tx);
@@ -209,11 +241,15 @@ public class TransactionsResource extends BaseResource {
         if (csrfMissing(csrf)) {
             return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
         }
-        if (!isFinanceAdmin(tripId)) {
+        if (!gate().canWriteLedgers(tripId)) {
             return error(403, ApiErrors.FORBIDDEN, "Trip finance administrator required.");
         }
         if (body == null || body.people() == null) {
             return error(400, ApiErrors.BAD_REQUEST, "A member list is required.");
+        }
+        if (!groupIsOnTheBooks(body, tripId)) {
+            return error(403, ApiErrors.FORBIDDEN,
+                    "Every member must be on this trip, and the group on this trip's books.");
         }
         // An EMPTY list is how a group is deleted: 0 members is no transaction (a Batch is a set of identical
         // charges and an empty set is legitimate; a Shared amount has nobody to divide between). It is only
@@ -267,7 +303,7 @@ public class TransactionsResource extends BaseResource {
         if (csrfMissing(csrf)) {
             return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
         }
-        if (!isFinanceAdmin(tripId)) {
+        if (!gate().canWriteLedgers(tripId)) {
             return error(403, ApiErrors.FORBIDDEN, "Trip finance administrator required.");
         }
         if (txId == null || txId.isBlank()) {
@@ -277,7 +313,7 @@ public class TransactionsResource extends BaseResource {
         final TransactionsCommands transactions = Beans.get(TransactionsCommands.class);
         final Person.Id subject = Person.Id.from(personIdParam);
         final Transaction tx = transactions.getTransaction(subject, txId);
-        if (tx == null) {
+        if (tx == null || !gate().mayWriteRow(tripId, tx)) {
             return error(404, ApiErrors.NOT_FOUND, "No such transaction.");
         }
         if (tx.isShared() && !confirmUndo && transactions.getUserIdsForGroup(tx).size() == 1) {
@@ -358,18 +394,32 @@ public class TransactionsResource extends BaseResource {
         }
     }
 
-    private boolean isFinanceStaff(final String tripId) {
-        final ApiPrivileges privileges = privileges();
-        return privileges.has(ApiPrivileges.TRIP_FIN_VIEW, tripId)
-                || privileges.has(ApiPrivileges.TRIP_FIN_ADMIN, tripId);
+    /**
+     * The group save's half of the books rule: every member it would charge is on the trip, and every row
+     * the group already has (a member being amended, or one being dropped and so deleted) is on this trip's
+     * books. A group id is all it takes to name somebody else's shared transaction.
+     */
+    private boolean groupIsOnTheBooks(final GroupTransactionRequest body, final String tripId) {
+        final List<Person.Id> members = ids(body.people());
+        if (!members.stream().allMatch(member -> gate().mayCharge(tripId, member))) {
+            return false;
+        }
+        if (body.groupId() == null || body.groupId().isBlank()) {
+            return true;
+        }
+        final TransactionsCommands transactions = Beans.get(TransactionsCommands.class);
+        return Stream.concat(members.stream(), ids(body.originalPeople()).stream())
+                .distinct()
+                .map(member -> transactions.getGroupTransactionForUser(member, body.groupId()))
+                .flatMap(Optional::stream)
+                .allMatch(row -> gate().mayWriteRow(tripId, row));
     }
 
-    private boolean isFinanceAdmin(final String tripId) {
-        return privileges().has(ApiPrivileges.TRIP_FIN_ADMIN, tripId);
-    }
-
-    /** Your own ledger, one you manage, or trip finance staff. */
-    private boolean canReadFinances(final Person.Id subject, final String tripId) {
-        return actsFor(subject) || isFinanceStaff(tripId);
+    /** The ledger gate for this request's caller; one per request, like {@link #privileges()}. */
+    private TripFinanceGate gate() {
+        if (cachedGate == null) {
+            cachedGate = TripFinanceGate.forCaller(this::caller);
+        }
+        return cachedGate;
     }
 }

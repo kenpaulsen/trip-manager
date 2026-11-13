@@ -22,7 +22,8 @@ import org.paulsens.trip.util.TripThreads;
  *
  * <p>The only resource on this API whose effect leaves the building and cannot be undone. A wrong trip id
  * writes a row somebody can fix; a wrong recipient list is in people's inboxes. So: {@code emailAdmin} only,
- * recipients resolved and validated before anything is sent, and a hard cap on how many go out per call.
+ * recipients resolved and validated before anything is sent, a From the caller's organization may send as,
+ * and a hard cap on how many go out per call.
  *
  * <p>Preview is a separate, side-effect-free endpoint precisely so a client can render a merge and show it to
  * a human before the send exists as a possibility.
@@ -110,6 +111,11 @@ public class MailResource extends BaseResource {
         final Response invalid = validate(body);
         if (invalid != null) {
             return invalid;
+        }
+        // The page's forged-post guard (OrgCommands.sendMerge), which this door lacked: every organization's
+        // domain is verified in the one SES account, so an unchecked From let one tenant mail as another.
+        if (!orgs.isMergeFromSendable(body.from())) {
+            return error(422, ApiErrors.VALIDATION_FAILED, OrgCommands.INVALID_MERGE_FROM);
         }
         final MailCommands mail = Beans.get(MailCommands.class);
         final AuditActor actor = actor();

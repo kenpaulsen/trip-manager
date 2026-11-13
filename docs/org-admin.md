@@ -147,6 +147,20 @@ whole `admin/tripRegistrations.jsf` page — approve, move, rooms, approval mail
 (user decision 2026-08-24: visibility means full page use). The tab gate (`tripTabs.xhtml`), the page's
 `reqPriv` door, and the REST roster (`RegistrationsResource.isTripStaff`) all honor it; it deliberately
 does NOT light up the other trip tabs, the way an invited chat guest gets exactly the Chat tab.
+Over REST the same pair (site admin, `registrationAdmin@trip`; `CheckoutCommands.canAdminister`) is the
+only one that WRITES registrations it does not own: status changes, another traveler's answers, a paid
+answer, a room (`RegistrationsResource.mayAdministerRegistrations`, 2026-11-12). `isTripStaff` there is a
+read gate; it used to gate those writes, which let a Viewer or an Editor Admin approve registrations.
+
+**What a trip role does NOT reach over REST** (2026-11-12, audit fixes; each is one rule in one place):
+- A role on a trip is a role over ITS travelers. `GET /api/people/{id}?trip=` raises the redaction level
+  for `tripMgr` / `tripView` only when the person is on that trip (`TripCommands.isOnTrip`).
+- `tripMgr` does not move a trip between organizations: `PUT /api/trips/{id}` refuses a different `orgId`
+  unless the caller is a site admin or administers both organizations (`OrgCommands.canManageOrg`).
+- `tripMgr` does not read or write the trip's payment settings; that is `paymentsAdmin@org`
+  (`PaymentCommands.isPaymentsAdmin`, `docs/payments.md`).
+- Viewer (`tripView`) is a READ role everywhere on the API: it no longer creates or edits to-do's, edits
+  other people's to-do statuses, changes registrations, assigns rooms or receives discount codes.
 
 `checkinStaff@trip` (display name "Check-in Staff", 2026-11, `docs/conference.md`) is the event check-in role:
 looking up registrants and tickets and checking people in, nothing else. An org whose allow-list is set must tick

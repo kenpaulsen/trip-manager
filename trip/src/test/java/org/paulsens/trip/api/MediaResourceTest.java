@@ -133,13 +133,18 @@ public class MediaResourceTest extends ResourceTestSupport {
 
         assertOk(response);
         Assert.assertEquals(((List<?>) response.getEntity()).size(), 1);
-        Mockito.verify(media, Mockito.never()).getInSlot(ArgumentMatchers.anyString());
+        Mockito.verify(media, Mockito.never()).getDiscoverableInSlot(ArgumentMatchers.anyString());
     }
 
+    /**
+     * An admin gets the hidden rows too -- of THIS site. The listing goes through the media tenancy rule
+     * ({@code getDiscoverableInSlot}), never the raw slot read: a slot name like {@code home-docs} is shared
+     * by every organization, and the raw read handed an admin all of theirs (audit 2026-11-11, F10).
+     */
     @Test
-    public void slotListingServesAdminsEverythingInTheSlot() {
+    public void slotListingServesAdminsThisSitesItemsHiddenIncluded() {
         signedInAsSiteAdmin(ADMIN);
-        Mockito.when(media.getInSlot("home-docs"))
+        Mockito.when(media.getDiscoverableInSlot("home-docs"))
                 .thenReturn(List.of(item("m1", "downloads/a.pdf", true)));
 
         final Response response = resource.inSlot("home-docs");
@@ -148,6 +153,65 @@ public class MediaResourceTest extends ResourceTestSupport {
         Assert.assertEquals(((List<?>) response.getEntity()).size(), 1);
         Mockito.verify(media, Mockito.never()).getVisibleInSlot(ArgumentMatchers.anyString(),
                 ArgumentMatchers.anyInt());
+        Mockito.verify(media, Mockito.never()).getInSlot(ArgumentMatchers.anyString());
+    }
+
+    /**
+     * F10, the album half: being a media admin on the site a request came to says nothing about another
+     * organization's trip. An org's media editor asking for a foreign trip's album is an ordinary caller
+     * there (absent, since they are not on it), and gets the whole album only for a trip of their own org.
+     */
+    @Test
+    public void anOrgsMediaEditorDoesNotGetAnotherOrganizationsTripAlbum() throws Exception {
+        org.paulsens.trip.dynamo.DAO.getInstance();
+        org.paulsens.trip.dynamo.FakeData.addFakeData();
+        final Person.Id editor = Person.Id.newInstance();
+        final org.paulsens.trip.action.PrivilegeCommands priv = new org.paulsens.trip.action.PrivilegeCommands();
+        Assert.assertTrue(priv.savePrivilege(priv.getOrCreate("mediaAdmin",
+                org.paulsens.trip.dynamo.FakeData.ACME_ORG_ID, "acme media").withNewPerson(editor), null));
+        final org.paulsens.trip.model.Trip theirs = albumTrip(org.paulsens.trip.dynamo.FakeData.BETA_ORG_ID);
+        final org.paulsens.trip.model.Trip ours = albumTrip(org.paulsens.trip.dynamo.FakeData.ACME_ORG_ID);
+        final MediaItem hiddenPhoto = item("m-h", "chat/t/a.jpg", true);
+        Mockito.when(media.getDiscoverableInSlot(ArgumentMatchers.anyString())).thenReturn(List.of(hiddenPhoto));
+        Mockito.when(media.getVisibleInSlot(ArgumentMatchers.anyString(), ArgumentMatchers.anyInt()))
+                .thenReturn(List.of());
+        signedInAs(editor);
+        final org.paulsens.trip.site.SiteContext acme = org.paulsens.trip.site.SiteContext.org(
+                org.paulsens.trip.model.Organization.Id.from(org.paulsens.trip.dynamo.FakeData.ACME_ORG_ID),
+                "acme", "acme.localhost");
+
+        final MediaResource onAcme = resource(new MediaResource());
+        final Response foreign = ScopedValue.where(org.paulsens.trip.audit.RequestContext.SCOPE,
+                org.paulsens.trip.audit.RequestContext.of(null, null, acme))
+                .call(() -> onAcme.inSlot("tripChat-" + theirs.getId()));
+        assertError(foreign, 404, ApiErrors.NOT_FOUND);
+        Mockito.verify(media, Mockito.never()).getDiscoverableInSlot("tripChat-" + theirs.getId());
+        Assert.assertFalse(onAcme.managesSlotAlbum("tripChat-" + theirs.getId()));
+        Assert.assertFalse(onAcme.managesSlotAlbum("tripChat-no-such-trip"));
+        Assert.assertFalse(onAcme.managesSlotAlbum("home-docs"), "only a chat slot is an album");
+
+        final Response own = ScopedValue.where(org.paulsens.trip.audit.RequestContext.SCOPE,
+                org.paulsens.trip.audit.RequestContext.of(null, null, acme))
+                .call(() -> onAcme.inSlot("tripChat-" + ours.getId()));
+        assertOk(own);
+        Assert.assertEquals(((List<?>) own.getEntity()).size(), 1, "their own org's album, hidden rows included");
+
+        // The trip's own manager moderates its album whoever owns the rows (MediaCommands.mayManage).
+        final Person.Id manager = Person.Id.newInstance();
+        Assert.assertTrue(priv.savePrivilege(priv.getOrCreate("tripMgr", theirs.getId(), "mgr")
+                .withNewPerson(manager), null));
+        signedInAs(manager);
+        assertOk(resource(new MediaResource()).inSlot("tripChat-" + theirs.getId()));
+    }
+
+    /** A private trip of {@code orgId} nobody in these tests is on: its album is members' and managers' only. */
+    private static org.paulsens.trip.model.Trip albumTrip(final String orgId) throws java.io.IOException {
+        final org.paulsens.trip.model.Trip trip = org.paulsens.trip.model.Trip.builder()
+                .id(java.util.UUID.randomUUID().toString()).title("Album").build();
+        trip.setOrgId(orgId);
+        trip.setOpenToPublic(false);
+        Assert.assertTrue(org.paulsens.trip.dynamo.DAO.getInstance().saveTrip(trip));
+        return trip;
     }
 
     @Test
@@ -207,7 +271,7 @@ public class MediaResourceTest extends ResourceTestSupport {
         Assert.assertTrue(resource.mayBrowseSlot("tripChat-" + mine.getId()), "member gate");
         // A member gets the WHOLE album, hidden rows included (the website's trip media page shows them
         // too): the uploader must be able to find a photo they kept off the public site to change their mind.
-        Mockito.when(media.getInSlot("tripChat-" + mine.getId()))
+        Mockito.when(media.getDiscoverableInSlot("tripChat-" + mine.getId()))
                 .thenReturn(List.of(item("m-mine", "chat/" + mine.getId() + "/a.jpg", true)));
         final Response mineResponse = resource.inSlot("tripChat-" + mine.getId());
         assertOk(mineResponse);
@@ -217,12 +281,15 @@ public class MediaResourceTest extends ResourceTestSupport {
         Assert.assertFalse(resource.isMemberOfSlotTrip("tripChat-" + open.getId()), "a public viewer is not a member");
         Assert.assertFalse(resource.isMemberOfSlotTrip("home-docs"), "only chat slots have a roster");
 
-        // Admins browse everything (the admin branch never consults the gate). A resource memoizes its
-        // caller, so the second identity needs its own resource.
+        // A site admin (a global media admin) manages every album. A resource memoizes its caller, so the
+        // second identity needs its own resource.
         signedInAsSiteAdmin(ADMIN);
         final MediaResource adminResource = resource(new MediaResource());
-        Mockito.when(media.getInSlot(ArgumentMatchers.anyString())).thenReturn(List.of());
-        assertOk(adminResource.inSlot("tripChat-" + org.paulsens.trip.dynamo.FakeData.ACME_TRIP_ID));
+        Mockito.when(media.getDiscoverableInSlot(ArgumentMatchers.anyString())).thenReturn(List.of());
+        // A trip of its own rather than the seeded Acme one: other suites delete that from the shared store.
+        assertOk(adminResource.inSlot("tripChat-"
+                + albumTrip(org.paulsens.trip.dynamo.FakeData.ACME_ORG_ID).getId()));
+        assertError(adminResource.inSlot("tripChat-no-such-trip"), 404, ApiErrors.NOT_FOUND);
     }
 
     /**
@@ -258,9 +325,10 @@ public class MediaResourceTest extends ResourceTestSupport {
         assertError(adminResource.inSlot("receipts-trip-1"), 404, ApiErrors.NOT_FOUND);
         final MediaItem receipt = new MediaItem("r1", "receipts/trip-1/r.pdf", "r", null, "application/pdf", 9L,
                 "receipts-trip-1", 0, LocalDateTime.of(2026, 8, 1, 12, 0), "who@example.com", null, true);
-        Mockito.when(media.get("r1")).thenReturn(receipt);
+        // Not manageable as library media (mayManage refuses a receipt), and absent even if it were visible.
+        Mockito.when(media.getVisible("r1")).thenReturn(receipt);
         assertError(adminResource.get("r1"), 404, ApiErrors.NOT_FOUND);
-        Mockito.verify(media, Mockito.never()).getInSlot(ArgumentMatchers.anyString());
+        Mockito.verify(media, Mockito.never()).getDiscoverableInSlot(ArgumentMatchers.anyString());
     }
 
     /** Hidden reads as absent for a non-admin: 404, not a redacted body. */
@@ -273,13 +341,68 @@ public class MediaResourceTest extends ResourceTestSupport {
         signedInAsSiteAdmin(ADMIN);
         final MediaResource adminResource = resource(new MediaResource());
         final MediaItem hidden = item("m1", "downloads/a.pdf", true);
-        Mockito.when(media.get("m1")).thenReturn(hidden);
+        Mockito.when(media.getManageable("m1")).thenReturn(hidden);
         Mockito.when(media.getUrl(hidden)).thenReturn("https://cdn.example/downloads/a.pdf");
 
         final Response response = adminResource.get("m1");
 
         assertOk(response);
         Assert.assertTrue(((MediaItemDto) response.getEntity()).hidden());
+    }
+
+    /**
+     * F10, by id: an admin reads hidden rows only where they could WRITE them (the ownership rule). A row
+     * that is not theirs to manage here is what it is to everybody else: visible or absent.
+     */
+    @Test
+    public void anAdminGetsAForeignItemOnlyAsThePublicWould() {
+        signedInAsSiteAdmin(ADMIN);
+        final MediaItem foreignVisible = item("m-v", "org/other/a.pdf", null);
+        Mockito.when(media.getManageable(ArgumentMatchers.anyString())).thenReturn(null);
+        Mockito.when(media.getVisible("m-v")).thenReturn(foreignVisible);
+        Mockito.when(media.getVisible("m-hidden")).thenReturn(null);
+        Mockito.when(media.getUrl(foreignVisible)).thenReturn("https://cdn.example/org/other/a.pdf");
+
+        assertOk(resource.get("m-v"));
+        assertError(resource.get("m-hidden"), 404, ApiErrors.NOT_FOUND);
+        Mockito.verify(media, Mockito.never()).get(ArgumentMatchers.anyString());
+    }
+
+    /**
+     * F25: a library confirm or edit cannot put a file into a trip's album, a hotel's gallery or a report's
+     * receipts. Those slots are listed by their own features with no org filter, so a free-text slot was a
+     * way into another organization's album.
+     */
+    @Test
+    public void libraryWritesCannotTargetAnotherFeaturesSlot() {
+        signedInAsSiteAdmin(ADMIN);
+        Mockito.when(media.isUploadEnabled()).thenReturn(true);
+        for (final String slot : List.of("tripChat-11111111-2222-3333-4444-555555555555", "lodging-acc-1",
+                "receipts-trip-1")) {
+            assertError(resource.confirm(CSRF_OK, new MediaResource.ConfirmRequest("downloads/a.jpg", "T", null,
+                    slot, null, null)), 422, ApiErrors.VALIDATION_FAILED);
+        }
+        Mockito.verify(media, Mockito.never()).confirmUpload(ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.anyInt(),
+                ArgumentMatchers.any(), ArgumentMatchers.any());
+
+        final MediaItem library = item("m1", "downloads/a.jpg", null);
+        Mockito.when(media.getManageable("m1")).thenReturn(library);
+        assertError(resource.update(CSRF_OK, "m1", new MediaResource.UpdateRequest(null, "T", null,
+                "tripChat-11111111-2222-3333-4444-555555555555", null, null)), 422, ApiErrors.VALIDATION_FAILED);
+        Mockito.verify(media, Mockito.never()).update(ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.anyBoolean(), ArgumentMatchers.any());
+
+        // An album photo edited in place keeps its slot: unchanged is not a move.
+        final MediaItem albumPhoto = new MediaItem("m2", "chat/t/a.jpg", "T", null, "image/jpeg", 9L, "tripChat-t",
+                0, LocalDateTime.of(2026, 8, 1, 12, 0), "who", null, null, null);
+        Mockito.when(media.getManageable("m2")).thenReturn(albumPhoto);
+        Mockito.when(media.update(ArgumentMatchers.eq("m2"), ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any(), ArgumentMatchers.eq("tripChat-t"), ArgumentMatchers.any(),
+                ArgumentMatchers.anyBoolean(), ArgumentMatchers.any())).thenReturn(true);
+        assertOk(resource.update(CSRF_OK, "m2", new MediaResource.UpdateRequest(null, "New title", null,
+                "tripChat-t", null, null)));
     }
 
     @Test

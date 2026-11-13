@@ -1328,6 +1328,9 @@ public class OrgCommands {
 
     // ------------------------------------------------------------------ org-bounded mail merge
 
+    /** What a refused From is told, on the page and over the API alike. */
+    public static final String INVALID_MERGE_FROM = "The From address must use one of your verified sending domains.";
+
     /** Whether the signed-in user may use the mail-merge surface at all. */
     public boolean canMail() {
         return caller().isSiteAdmin() || holdsAnywhere(PrivilegeCommands.EMAIL_ADMIN);
@@ -1424,8 +1427,8 @@ public class OrgCommands {
         }
         // The composer can only produce an allowed domain, so this is the forged-post guard: a From on a
         // domain SES has not verified for this tenant is refused HERE rather than silently at SES.
-        if (!mailAddr().isSendable(from, mergeMailDomains())) {
-            return fail("Invalid From", "The From address must use one of your verified sending domains.");
+        if (!isMergeFromSendable(from)) {
+            return fail("Invalid From", INVALID_MERGE_FROM);
         }
         final String boundedBcc = boundBcc(bcc, allowed);
         final MailCommands mail = mailSource.get();
@@ -1832,6 +1835,17 @@ public class OrgCommands {
     /** The domains the mail-merge From composer offers: the caller's org allow-list, or all verified. */
     public List<String> mergeMailDomains() {
         return allowedDomains(mailingOrg());
+    }
+
+    /**
+     * Whether the caller may send a merge as this From: a well-formed mailbox on one of {@link
+     * #mergeMailDomains}. Every domain is SES-verified in the ONE account, so SES accepts any tenant's
+     * domain from anybody; this is the only thing keeping one organization from mailing as another. Public
+     * because each edge that assembles its own send (the page through {@link #sendMerge}, the REST mail
+     * resource) must ask the same question.
+     */
+    public boolean isMergeFromSendable(final String from) {
+        return mailAddr().isSendable(from, mergeMailDomains());
     }
 
     /** The org's preferred domain for the merge composer, or "" when none applies. */

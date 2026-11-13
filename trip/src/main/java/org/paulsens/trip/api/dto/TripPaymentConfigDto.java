@@ -7,8 +7,9 @@ import java.util.Map;
  * A trip's OWN payment settings (the trip rung of the ladder trip &rarr; organization defaults &rarr; site
  * settings; {@code docs/payments.md}). Every field is nullable and null means "inherit"; on a write, an
  * absent field is left alone and an empty string clears the override. {@code feesPaidBy} is
- * {@code ORGANIZATION} or {@code PAYER}. Read back only by the trip's managers: the mail settings are the
- * organization's business, not the roster's.
+ * {@code ORGANIZATION} or {@code PAYER}. Read and written only by the organization's payments admins (the
+ * trip editor's Payment Settings rule): who pays the fees and where confirmations are copied are the
+ * organization's decisions, not a trip manager's.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record TripPaymentConfigDto(

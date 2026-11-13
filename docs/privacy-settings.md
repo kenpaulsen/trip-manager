@@ -49,6 +49,10 @@ email to signed-in viewers -- unless the person set that field PRIVATE, which wi
   reveal in the view and re-renders that one value (owner decision 2026-11-12, reversing the earlier UI-only
   blur, whose real value sat in the HTML source for anyone to read). No audit of reveals. `tripFinView` keeps
   its `account/person.xhtml?trip=` access (they mail checks / validate identity).
+  A trip admin is the admin of a trip the PERSON is on: over REST (`GET /api/people/{id}?trip=`) the role
+  counts only when the person is on that trip's roster or holds a registration there that is not
+  NOT_REGISTERED (`TripCommands.isOnTrip`, 2026-11-12); naming a trip of one's own that the person has
+  nothing to do with yields the peer view.
 - **Everyone else signed-in** (peers, `tripView` holders): exactly what the knobs share. `tripView` is
   roster access and does NOT override a privacy choice.
 - **Admin reports and exports** (`admin/reports/*`, the emergency list, the emails page, TSV/XLSX):

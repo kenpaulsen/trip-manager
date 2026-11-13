@@ -90,7 +90,7 @@ public class RegistrationsResource extends BaseResource {
     public Response pricing(@PathParam("tripId") final String tripId) {
         final Trip trip = requireTrip(tripId);
         final org.paulsens.trip.model.CheckoutConfig policy = trip.getCheckout();
-        if (mayManagePricing(tripId) || isTripStaff(tripId)) {
+        if (mayManagePricing(tripId) || mayAdministerRegistrations(trip)) {
             return ok(policy);
         }
         return ok(new org.paulsens.trip.model.CheckoutConfig(policy.getEnabled(), policy.getAutoConfirmPaid(),
@@ -135,6 +135,20 @@ public class RegistrationsResource extends BaseResource {
 
     private boolean mayManagePricing(final String tripId) {
         return privileges().has(ApiPrivileges.TRIP_MGR, tripId);
+    }
+
+    /**
+     * Who may ADMINISTER this trip's registrations: site admins and the trip's registration admins, the
+     * pair {@code admin/tripRegistrations.jsf} admits ({@code CheckoutCommands.canAdminister}, so the page's
+     * rule and this one cannot drift). Approving, moving or removing a registration, rewriting answers
+     * somebody paid for, editing another traveler's answers and assigning rooms are theirs alone.
+     * {@link #isTripStaff} is wider on purpose and is for READS: it admits the read-only Viewer and the
+     * Editor Admin, who once approved registrations and switched paid choices through this API.
+     */
+    private boolean mayAdministerRegistrations(final Trip trip) {
+        // Not through the callerBoundCheckout seam: a test that substitutes the checkout bean must not also
+        // be substituting who is allowed to administer.
+        return new CheckoutCommands(this::caller).canAdminister(trip);
     }
 
     /** How many registrations are awaiting approval. Trip staff only. */
@@ -302,9 +316,11 @@ public class RegistrationsResource extends BaseResource {
     /**
      * Creates or updates a registration.
      *
-     * <p>Status is only writable by trip staff. A traveller may edit their own ANSWERS at any time, but letting
-     * them post a status would let anyone approve their own registration, which is the one decision this whole
-     * workflow exists to put in a human's hands.
+     * <p>Status is only writable by the trip's registration admins ({@link #mayAdministerRegistrations}). A
+     * traveler may edit their own ANSWERS at any time, but letting them post a status would let anyone approve
+     * their own registration, which is the one decision this whole workflow exists to put in a human's hands.
+     * The same admins are the only ones who write somebody ELSE's registration, or change an answer that was
+     * paid for; reading a registration (trip staff) is not a license to write it.
      */
     @PUT
     @Path("{personId}")
@@ -319,16 +335,17 @@ public class RegistrationsResource extends BaseResource {
             return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
         }
         final Person.Id subject = Person.Id.from(personIdParam);
-        if (!canSeeAnswers(tripId, subject)) {
-            return error(403, ApiErrors.FORBIDDEN, "Not permitted to edit this registration.");
-        }
-        final boolean staff = isTripStaff(tripId);
-        if (body != null && body.status() != null && !staff) {
-            return error(403, ApiErrors.FORBIDDEN, "Only trip staff may change a registration's status.");
-        }
         // getRegistration invents a record keyed to whatever was asked for, so without these checks a PUT to a
         // trip nobody created -- or a staff PUT with a mistyped person id -- saves a junk row under that key.
         final Trip trip = requireTrip(tripId);
+        final boolean staff = mayAdministerRegistrations(trip);
+        if (!staff && !actsFor(subject)) {
+            return error(403, ApiErrors.FORBIDDEN, "Not permitted to edit this registration.");
+        }
+        if (body != null && body.status() != null && !staff) {
+            return error(403, ApiErrors.FORBIDDEN,
+                    "Only a registration admin may change a registration's status.");
+        }
         final Person person = requireSubject(subject);
         final RegistrationCommands registrations = Beans.get(RegistrationCommands.class);
         final Registration existing = registrations.getRegistration(tripId, subject);
@@ -706,7 +723,7 @@ public class RegistrationsResource extends BaseResource {
         return ok(result);
     }
 
-    /** Assigns a room. Trip staff only -- travellers do not room themselves. */
+    /** Assigns a room. Registration admins only -- travelers do not room themselves, and Viewers only read. */
     @PUT
     @Path("{personId}/room")
     @Consumes({V1, MediaType.APPLICATION_JSON})
@@ -719,10 +736,9 @@ public class RegistrationsResource extends BaseResource {
         if (csrfMissing(csrf)) {
             return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
         }
-        if (!isTripStaff(tripId)) {
-            return error(403, ApiErrors.FORBIDDEN, "Trip staff required.");
+        if (!mayAdministerRegistrations(requireTrip(tripId))) {
+            return error(403, ApiErrors.FORBIDDEN, "Registration admin required.");
         }
-        requireTrip(tripId);
         requireSubject(Person.Id.from(personIdParam));
         final Object room = body == null ? null : body.get("room");
         // The value is passed in rather than read back out of the PDV on purpose: saveRoom documents that a
@@ -757,7 +773,10 @@ public class RegistrationsResource extends BaseResource {
         return body == null ? null : body.options();
     }
 
-    /** A traveler's PUT never changes what they paid for (docs/checkout.md); staff edits go through as posted. */
+    /**
+     * A traveler's PUT never changes what they paid for (docs/checkout.md); a registration admin's edit goes
+     * through as posted.
+     */
     private static Map<String, String> withPaidAnswersKept(final Trip trip, final Registration existing,
             final Map<String, String> posted) {
         return posted == null ? null : CheckoutCommands.keepPaidAnswers(trip, existing.getOptions(), posted);
@@ -805,7 +824,10 @@ public class RegistrationsResource extends BaseResource {
         }
     }
 
-    /** Staff on this trip: a manager, a viewer, a registration admin, or a site admin. */
+    /**
+     * Staff on this trip, for READS: a manager, a viewer, a registration admin, or a site admin. Never a
+     * write gate ({@link #mayAdministerRegistrations}).
+     */
     private boolean isTripStaff(final String tripId) {
         final ApiPrivileges privileges = privileges();
         return privileges.has(ApiPrivileges.TRIP_MGR, tripId) || privileges.has(ApiPrivileges.TRIP_VIEW, tripId)

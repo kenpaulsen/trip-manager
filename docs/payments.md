@@ -54,6 +54,17 @@ on acme.unitetrip.com showing up on visitqueenofpeace.com; now:
   helpers (`getGroupTransactionForUser`, `saveGroupTransaction`) and the delete guards read the store
   directly. Scoping is a READ concern. `POST/PUT /api/transactions/people/{id}?trip=` now stamps the org
   from the trip like the page does (`saveTransaction(tx, tripId)`), so an API-created row is tenanted.
+- **A trip finance role reaches that trip's books only** (2026-11-12, `action/TripFinanceGate`, the ledger
+  half). The site scoping above decides which rows a HOST lists; it does not decide whose rows a
+  `tripFinView` / `tripFinAdmin` holder may touch, and over REST the role alone used to be the whole check, so
+  a finance admin of any trip could read, rewrite and delete every person's rows on every other trip. The
+  transactions API now binds the row to the trip the privilege is on: staff read, update and delete only rows
+  whose TRANSACTION→TRIP binding names `?trip=` (or the trip's own ledger rows), create a row only for
+  someone on that trip (`TripCommands.isOnTrip`: roster, or a registration that is not NOT_REGISTERED), and a
+  group save is held to the same two rules. A person (or their family manager) still reads their whole
+  ledger; a site admin reaches every row. An update never re-binds a row to another trip. The website's
+  `trip/transaction.xhtml` and `trip/transactions.xhtml` do NOT apply the row rule yet (their finance view of
+  a roster member still shows that member's whole ledger).
 
 ## Processor configs and secrets
 
@@ -266,7 +277,10 @@ tasks and the webhook, the return page and an admin's Finish can hit different o
 The ORG-scoped `paymentsAdmin` privilege — `paymentsAdmin@the-trip's-org`, granted on the org People page;
 site admins implicitly qualify, and the retired global variant grants nothing — shows a toggle on the
 payment page (`PaymentCommands.isSandboxAllowed(trip)`, which is `isPaymentsAdmin(trip)`; an org-less legacy
-trip offers sandbox to site admins only). The same grant opens the trip editor's Payment Settings row (2026-11-02).
+trip offers sandbox to site admins only). The same grant opens the trip editor's Payment Settings row (2026-11-02),
+and since 2026-11-12 it is also what `POST`/`PUT /api/trips` require to change a trip's `paymentConfig` and what a
+`GET /api/trips/{id}` requires to read it back (a trip manager or an `addTrip` creator without the grant gets 403
+on a changing write and no `paymentConfig` on the read; an unchanged or empty one passes).
 Sandbox runs the SAME pipeline against the config's sandbox credential set, but the recorder **dry-runs** —
 no ledger rows, no mail, and the would-have-written rows render in the result panel. Sandbox payments are
 excluded from balances and the reconciliation list.

@@ -82,6 +82,10 @@ public final class ApiPrivileges {
      *
      * <p>Ordered most-specific first. Self before manager, and both before the trip roles, so that a trip
      * manager looking at their own record is not quietly demoted to what a trip manager sees of a stranger.
+     *
+     * <p>{@code tripId} must be a trip the SUBJECT is on, or null: this method only asks what role the caller
+     * holds there. A resource that takes the trip from its request establishes that first
+     * ({@code PeopleResource.tripRoleScope}).
      */
     public AccessLevel levelFor(final Person viewerPerson, final Person.Id subject, final String tripId) {
         final Person.Id viewer = caller.personId();

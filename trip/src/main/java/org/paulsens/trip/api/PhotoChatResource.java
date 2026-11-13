@@ -310,9 +310,9 @@ public class PhotoChatResource extends BaseResource {
     }
 
     /**
-     * All-users mention typeahead for the album/landing composers (chat's own composer stays roster-scoped).
-     * Signed-in only, two-character minimum, few results, rate-limited — see
-     * {@code PhotoChatCommands.mentionSearch} for why each guard exists.
+     * Mention typeahead for the album/landing composers (chat's own composer stays roster-scoped): people who
+     * share an organization with the caller, never another organization's. Signed-in only, two-character
+     * minimum, few results, rate-limited -- see {@code PhotoChatCommands.mentionSearch} for why each guard exists.
      */
     @GET
     @Path("mention-search")
@@ -331,7 +331,7 @@ public class PhotoChatResource extends BaseResource {
         if (!photoChat.mentionSearchAllowed(me)) {
             return error(429, ChatErrors.RATE_LIMITED, "Too many lookups. Slow down.");
         }
-        return ok(Map.of("people", photoChat.mentionSearch(q, MAX_MENTION_RESULTS)));
+        return ok(Map.of("people", photoChat.mentionSearch(me, q, MAX_MENTION_RESULTS)));
     }
 
     // --- helpers ---
