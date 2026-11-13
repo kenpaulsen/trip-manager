@@ -148,15 +148,15 @@ public class PaymentsResourceTest extends ResourceTestSupport {
         final Map<String, Object> outcome = (Map<String, Object>) completed.getEntity();
         Assert.assertEquals(outcome.get("status"), "recorded");
 
-        // Cancelling a RECORDED payment is a no-op false, and the answer says where the payment stands, so a
+        // Canceling a RECORDED payment is a no-op false, and the answer says where the payment stands, so a
         // phone that asked to cancel learns it went through instead of waiting on it forever.
-        final Response notCancelled = resource.cancel(paymentId, CSRF_OK);
-        assertOk(notCancelled);
+        final Response notCanceled = resource.cancel(paymentId, CSRF_OK);
+        assertOk(notCanceled);
         @SuppressWarnings("unchecked")
-        final Map<String, Object> cancelBody = (Map<String, Object>) notCancelled.getEntity();
+        final Map<String, Object> cancelBody = (Map<String, Object>) notCanceled.getEntity();
         Assert.assertEquals(cancelBody.get("cancelled"), Boolean.FALSE);
         Assert.assertEquals(cancelBody.get("state"), "RECORDED");
-        // Someone else's payment is invisible: not cancelled, and no state to read either.
+        // Someone else's payment is invisible: not canceled, and no state to read either.
         signedInAs(savedPerson().getId());
         // The caller is memoized per request/resource; a new identity means a new resource instance.
         final PaymentsResource stranger = resource(new PaymentsResource());

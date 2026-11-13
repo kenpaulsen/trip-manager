@@ -71,13 +71,46 @@ public class GroupTransactionTypedEntryTest {
     }
 
     private boolean save(final String groupId, final Object members) {
-        return transactions.saveGroupTx(groupId, List.of(), Transaction.Type.Shared,
-                Transaction.TransactionType.Bill, LocalDateTime.now(), 90.0f, "cat", "note", null, null, members);
+        return transactions.saveGroupTxAs(TripFinanceGate.forCaller(TenancyFixtures::siteAdminCaller), groupId,
+                List.of(), Transaction.Type.Shared, Transaction.TransactionType.Bill, LocalDateTime.now(), 90.0f,
+                "cat", "note", null, null, members);
     }
 
     private List<Person.Id> membersOf(final String groupId, final Person.Id member) {
         return transactions.getGroupTransactionForUser(member, groupId)
                 .map(transactions::getUserIdsForGroup)
                 .orElse(List.of());
+    }
+
+    /**
+     * The page's save asks the rule the API asks: a trip's Finance Admin charges the people ON the trip. The
+     * picker beside it is a convenience and was once the only thing between them and anybody's ledger.
+     */
+    @Test
+    public void thePageRefusesAMemberTheCallerMayNotChargeOnThisTrip() {
+        final Person financeAdmin = TenancyFixtures.savedPerson("Fin");
+        final Person traveler = TenancyFixtures.savedPerson("Traveler");
+        final Person stranger = TenancyFixtures.savedPerson("Stranger");
+        final org.paulsens.trip.model.Trip trip =
+                TenancyFixtures.tripOwnedBy(TenancyFixtures.org("BatchOwner", traveler), traveler);
+        TenancyFixtures.org("BatchOther", financeAdmin, stranger);
+        final PrivilegeCommands privileges = new PrivilegeCommands();
+        Assert.assertTrue(privileges.savePrivilege(privileges.getOrCreate(PrivilegeCommands.TRIP_FIN_ADMIN,
+                trip.getId(), "Finance Admin").withNewPerson(financeAdmin.getId())));
+        final TripFinanceGate gate = TripFinanceGate.forCaller(() -> TenancyFixtures.callerFor(financeAdmin));
+        final String refused = "grp-refused-" + System.nanoTime();
+        final String allowed = "grp-allowed-" + System.nanoTime();
+
+        Assert.assertFalse(transactions.saveGroupTxAs(gate, refused, List.of(), Transaction.Type.Batch,
+                Transaction.TransactionType.Bill, LocalDateTime.now(), 25.0f, "cat", "note", trip.getId(), null,
+                (Object) List.of(traveler.getId(), stranger.getId())));
+        Assert.assertTrue(transactions.getGroupTransactionForUser(traveler.getId(), refused).isEmpty(),
+                "a refused save writes for nobody, the traveler included");
+        Assert.assertTrue(transactions.getGroupTransactionForUser(stranger.getId(), refused).isEmpty());
+
+        Assert.assertTrue(transactions.saveGroupTxAs(gate, allowed, List.of(), Transaction.Type.Batch,
+                Transaction.TransactionType.Bill, LocalDateTime.now(), 25.0f, "cat", "note", trip.getId(), null,
+                (Object) List.of(traveler.getId())));
+        Assert.assertTrue(transactions.getGroupTransactionForUser(traveler.getId(), allowed).isPresent());
     }
 }

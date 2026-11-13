@@ -347,6 +347,10 @@ public class RegistrationsResource extends BaseResource {
                     "Only a registration admin may change a registration's status.");
         }
         final Person person = requireSubject(subject);
+        if (!actsFor(subject) && !new RegistrationCommands(this::caller).withinStaffReach(trip, subject)) {
+            // Staff reach stops at the trip's own people: a registration is what makes someone "on the trip".
+            return error(403, ApiErrors.FORBIDDEN, RegistrationCommands.OUT_OF_REACH);
+        }
         final RegistrationCommands registrations = Beans.get(RegistrationCommands.class);
         final Registration existing = registrations.getRegistration(tripId, subject);
         final Registration toSave = merge(existing, body, staff ? optionsOf(body)
@@ -599,6 +603,7 @@ public class RegistrationsResource extends BaseResource {
                     "This trip does not register through checkout; use POST .../registrations/party."));
         }
         final boolean admin = checkout.canAdminister(trip);
+        final RegistrationCommands reach = new RegistrationCommands(this::caller);
         final RegistrationDraft draft = new RegistrationDraft();
         final List<Person> people = new ArrayList<>();
         final Map<String, List<WaiverCommands.Agreement>> agreements = new LinkedHashMap<>();
@@ -614,7 +619,7 @@ public class RegistrationsResource extends BaseResource {
             }
             final Person.Id id = Person.Id.from(key);
             final Person person = requireSubject(id);
-            if (!admin && !actsFor(id)) {
+            if (!actsFor(id) && !(admin && reach.withinStaffReach(trip, id))) {
                 throw new WebApplicationException(error(403, ApiErrors.FORBIDDEN,
                         "You cannot register " + key + "."));
             }

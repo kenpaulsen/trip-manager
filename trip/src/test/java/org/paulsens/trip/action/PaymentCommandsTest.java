@@ -654,7 +654,7 @@ public class PaymentCommandsTest {
      * days later, and a CANCELLED row would leave that money with no ledger credit and nothing to reconcile.
      */
     @Test
-    public void aPaymentTheBankIsSettlingCannotBeCancelledOrAbandoned() {
+    public void aPaymentTheBankIsSettlingCannotBeCanceledOrAbandoned() {
         final Person payer = savedPerson();
         final PaymentCommands commands = commandsFor(payer, false);
         final String paymentId = commands.startPayment(inlineTrip(), Map.of(payer.getId().getValue(), "20"), null,
@@ -672,9 +672,9 @@ public class PaymentCommandsTest {
         assertFalse(txCmds.getTransactions(payer.getId()).isEmpty());
     }
 
-    /** A payment the processor already HAS is finished, not cancelled. */
+    /** A payment the processor already HAS is finished, not canceled. */
     @Test
-    public void cancellingAPaymentTheProcessorAlreadyHoldsRecordsItInstead() {
+    public void cancelingAPaymentTheProcessorAlreadyHoldsRecordsItInstead() {
         final Person payer = savedPerson();
         final PaymentProcessor processor = Mockito.mock(PaymentProcessor.class);
         final org.mockito.ArgumentCaptor<Payment> started = org.mockito.ArgumentCaptor.forClass(Payment.class);
@@ -688,7 +688,7 @@ public class PaymentCommandsTest {
         Mockito.when(processor.capture("pi_paid")).thenReturn(new PaymentProcessor.CaptureResult(
                 PaymentProcessor.CaptureResult.Status.COMPLETED, "pi_paid", total, OptionalLong.empty()));
 
-        assertFalse(commands.cancelPayment(paymentId), "not cancelled");
+        assertFalse(commands.cancelPayment(paymentId), "not canceled");
         assertEquals(DAO.getInstance().getPayment(paymentId).orElseThrow().getStatus(), Payment.Status.RECORDED);
         assertFalse(txCmds.getTransactions(payer.getId()).isEmpty(), "the money that moved is on the ledger");
     }
@@ -704,15 +704,15 @@ public class PaymentCommandsTest {
         final PaymentCommands commands = commandsFor(payer, false);
         final String paymentId = commands.startPayment(inlineTrip(), Map.of(payer.getId().getValue(), "20"), null,
                 false, "http://localhost/trip/payment.jsf").getPaymentId();
-        // Cancelled on our side only: the fake's order is still payable, as an un-released intent would be.
+        // Canceled on our side only: the fake's order is still payable, as an un-released intent would be.
         assertTrue(commands.cancelFromWebhook(paymentId));
         assertEquals(commands.completePayment(paymentId, null).getStatus(), "cancelled",
-                "the payer's own page never resurrects a cancelled payment");
+                "the payer's own page never resurrects a canceled payment");
 
         assertEquals(commands.completeFromWebhook(paymentId).getStatus(), "mismatch");
         final Payment back = DAO.getInstance().getPayment(paymentId).orElseThrow();
         assertEquals(back.getStatus(), Payment.Status.CAPTURED);
-        assertEquals(back.getHeldReason(), "paid at the processor after the payment was cancelled here");
+        assertEquals(back.getHeldReason(), "paid at the processor after the payment was canceled here");
         assertEquals(back.getCapturedGrossCents(), back.getTotalChargedCents());
         assertTrue(txCmds.getTransactions(payer.getId()).isEmpty(), "held: nothing is recorded by itself");
         assertEquals(commands.completeFromWebhook(paymentId).getStatus(), "mismatch", "a redelivery changes nothing");
@@ -729,12 +729,57 @@ public class PaymentCommandsTest {
         assertTrue(commands.failFromWebhook(failed, "returned"));
         assertEquals(commands.completeFromWebhook(failed).getStatus(), "mismatch");
         assertEquals(DAO.getInstance().getPayment(failed).orElseThrow().getHeldReason(),
-                "paid at the processor after the payment was failed here");
+                "paid at the processor after the payment failed here");
         final String gone = commands.startPayment(inlineTrip(), Map.of(payer.getId().getValue(), "20"), null,
                 false, "http://localhost/trip/payment.jsf").getPaymentId();
         assertTrue(commands.cancelPayment(gone), "released at the processor too");
         assertEquals(commands.completeFromWebhook(gone).getStatus(), "cancelled");
         assertEquals(DAO.getInstance().getPayment(gone).orElseThrow().getStatus(), Payment.Status.CANCELLED);
+    }
+
+    /**
+     * "Paid" for a payment given up here must be VERIFIED before the row comes back. When the processor cannot be
+     * asked, or says "not settled yet", the answer is "pending" (the webhook's 503, so the event is redelivered),
+     * never "cancelled", which would be a 200 and the last anyone heard of the money.
+     */
+    @Test
+    public void aPaidEventThatCannotBeVerifiedAsksForARedelivery() {
+        final Person payer = savedPerson();
+        final PaymentProcessor processor = Mockito.mock(PaymentProcessor.class);
+        Mockito.when(processor.createOrder(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any())).thenReturn(PaymentProcessor.CreatedOrder.inline("pi_late", "pk", "sec"));
+        final PaymentCommands commands = commandsFor(payer, false, (config, sandbox) -> processor);
+        final String paymentId = commands.startPayment(trip(), Map.of(payer.getId().getValue(), "10"), null,
+                false, "http://localhost/pay").getPaymentId();
+        assertTrue(commands.cancelFromWebhook(paymentId));
+
+        Mockito.when(processor.capture("pi_late")).thenReturn(PaymentProcessor.CaptureResult.pending(null));
+        assertEquals(commands.completeFromWebhook(paymentId).getStatus(), "pending", "unreachable or throttled");
+        Mockito.when(processor.capture("pi_late")).thenThrow(new IllegalStateException("no processor"));
+        assertEquals(commands.completeFromWebhook(paymentId).getStatus(), "pending", "could not be asked at all");
+        assertEquals(DAO.getInstance().getPayment(paymentId).orElseThrow().getStatus(), Payment.Status.CANCELLED,
+                "nothing changes until the processor confirms");
+
+        // A definite "not paid" is the one answer that leaves it given up.
+        Mockito.doReturn(new PaymentProcessor.CaptureResult(PaymentProcessor.CaptureResult.Status.FAILED,
+                "pi_late", 0L, OptionalLong.empty())).when(processor).capture("pi_late");
+        assertEquals(commands.completeFromWebhook(paymentId).getStatus(), "cancelled");
+    }
+
+    /** A cancel that finds the money already taken says "recorded" only when it reached the ledger. */
+    @Test
+    public void aCancelThatFindsThePaymentPaidSaysWhatActuallyHappened() {
+        assertTrue(PaymentCommands.paidInsteadNote(PaymentCommands.Completion.of("recorded", "Thanks."))
+                .contains("recorded instead of canceled"));
+        assertTrue(PaymentCommands.paidInsteadNote(PaymentCommands.Completion.of("sandbox", "Test."))
+                .contains("recorded instead of canceled"));
+        final String held = PaymentCommands.paidInsteadNote(
+                PaymentCommands.Completion.of("mismatch", "Held for an administrator to review."));
+        assertFalse(held.contains("recorded instead"), "a held payment is not on the ledger");
+        assertTrue(held.endsWith("Held for an administrator to review."));
+        assertTrue(PaymentCommands.paidInsteadNote(null).endsWith("It has not been recorded yet."));
+        assertTrue(PaymentCommands.paidInsteadNote(PaymentCommands.Completion.of("pending", null))
+                .endsWith("It has not been recorded yet."));
     }
 
     /**

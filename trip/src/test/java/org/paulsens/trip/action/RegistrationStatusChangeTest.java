@@ -44,7 +44,7 @@ public class RegistrationStatusChangeTest {
         mail = Mockito.mock(MailCommands.class);
         audit = Mockito.mock(AuditCommands.class);
         addresses = Mockito.mock(MailAddressCommands.class);
-        reg = new RegistrationCommands(() -> null, TripCommands::new, () -> audit, () -> mail,
+        reg = new RegistrationCommands(TenancyFixtures::siteAdminCaller, TripCommands::new, () -> audit, () -> mail,
                 () -> addresses);
         pushes = Mockito.mock(org.paulsens.trip.push.PushNotifications.class);
         org.paulsens.trip.push.PushNotifications.setInstance(pushes);

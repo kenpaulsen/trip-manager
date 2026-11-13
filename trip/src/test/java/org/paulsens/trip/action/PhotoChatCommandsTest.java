@@ -521,6 +521,11 @@ public class PhotoChatCommandsTest {
         person.setEmail(email);
         person.setOrgIds(List.of(orgs));
         Assert.assertTrue(DAO.getInstance().savePerson(person));
+        // The membership rows are the source of truth the typeahead searches; orgIds is their back-pointer.
+        for (final Organization.Id org : orgs) {
+            Assert.assertTrue(DAO.getInstance().saveOrgMember(new org.paulsens.trip.model.OrgMember(org,
+                    person.getId(), java.time.LocalDateTime.now())));
+        }
         return person.getId();
     }
 

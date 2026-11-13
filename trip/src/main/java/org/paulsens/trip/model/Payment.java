@@ -79,7 +79,7 @@ public final class Payment implements Serializable {
     private OfflineReceipt offline;
     /**
      * Why a CAPTURED payment is HELD for an administrator instead of being recorded: the processor reported a
-     * different amount than expected, or reported the money as paid after the payment was cancelled or failed
+     * different amount than expected, or reported the money as paid after the payment was canceled or failed
      * here. Null when it is not held. Persisted (2026-11) because the hold used to live only in the answer to
      * the request that found it, and the next completion door (the webhook, a reload of the return page)
      * recorded the payment anyway. Only an administrator's Finish records a held payment. Set through the

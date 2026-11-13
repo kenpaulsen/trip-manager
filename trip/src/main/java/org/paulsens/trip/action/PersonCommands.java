@@ -186,17 +186,7 @@ public class PersonCommands {
     }
 
     private static boolean mayEndAccount(final Person stored, final Supplier<OrgCommands> reach) {
-        return !hasOwnLogin(stored) || reach.get().canChangeSignInOf(stored.getId());
-    }
-
-    /** A login that could not be read counts as one: an outage must not be what lets an account be ended. */
-    private static boolean hasOwnLogin(final Person stored) {
-        try {
-            return PassCommands.storedLoginOf(stored) != null;
-        } catch (final RuntimeException ex) {
-            log.error("Could not read the login of {}; treating them as having one.", stored.getId(), ex);
-            return true;
-        }
+        return !PassCommands.hasOwnLogin(stored) || reach.get().canChangeSignInOf(stored.getId());
     }
 
     /** Addresses compare the way the email index stores them: trimmed, case-folded, blank the same as none. */
@@ -585,10 +575,19 @@ public class PersonCommands {
      * 1,000-member org and 45 ms at 10,000, against 25 ms for the old window search that missed them.</p>
      */
     public PeopleResult adminSearch(final String query, final int limit) {
+        return adminSearch(query, limit, orgSource);
+    }
+
+    /**
+     * {@link #adminSearch(String, int)} for an edge that resolves its own caller (a REST resource hands in org
+     * commands built over the request's session or token, as {@link #savePerson(Person, Supplier)} takes them),
+     * so the website's People search and {@code GET /api/people} are one search.
+     */
+    public PeopleResult adminSearch(final String query, final int limit, final Supplier<OrgCommands> reach) {
         if (PersonMatch.queryWords(query).isEmpty()) {
             return PeopleResult.NEEDS_QUERY;
         }
-        final OrgCommands orgs = orgSource.get();
+        final OrgCommands orgs = reach.get();
         if (!orgs.isSiteAdmin()) {
             return listOrSearch(orgs.peopleAdminScope(), query, PersonMatch.EVERY_FIELD, limit);
         }
@@ -691,29 +690,40 @@ public class PersonCommands {
      * {@link Person.Id} or their string values.
      */
     public List<Person> searchCandidates(final Object selected, final String query) {
+        return searchCandidatesOnTrip(selected, query, null);
+    }
+
+    /**
+     * {@link #searchCandidates} for a picker on a page that belongs to one trip (Batch Transactions, the trip's
+     * to-do's): the search half stays inside that trip's organization ({@code OrgCommands.pickerScope}). A null
+     * or unknown trip searches the caller's own organizations.
+     */
+    public List<Person> searchCandidatesOnTrip(final Object selected, final String query, final String tripId) {
         final List<Person> result = new ArrayList<>();
         selectedIds(selected).map(this::getPerson).filter(Objects::nonNull)
                 .filter(p -> !result.contains(p)).forEach(result::add);
-        pickerSearch(query).stream().filter(p -> !result.contains(p)).forEach(result::add);
+        pickerSearch(query, tripId).stream().filter(p -> !result.contains(p)).forEach(result::add);
         return result;
     }
 
     /**
-     * The search half of {@link #searchCandidates}, bounded to the organizations the caller belongs to (a site
-     * admin: everyone). The picker is on pages a non-site-admin reaches -- a trip's Finance Admin on Batch
-     * Transactions -- and the global search matches email and cell across every account, so unbounded it
-     * mapped any tenant's address or phone number to a name and let that person be selected. Over-fetched
-     * before the filter, like {@link #adminSearchPeople}, so out-of-org hits cannot crowd out permitted ones.
+     * The search half of {@link #searchCandidatesOnTrip}. The picker is on pages a non-site-admin reaches (a
+     * trip's Finance Admin on Batch Transactions), and the site-wide search matches email and cell across every
+     * account: unbounded, it mapped any tenant's address or phone number to a name and let that person be
+     * selected. So anyone but a site admin searches, in memory, exactly the people the page may offer them
+     * ({@code OrgCommands.pickerScope}), by name and by what each person shares with everyone -- the way
+     * {@link #adminSearch} searches an org people admin's members, and for the same reason: filtering a window of
+     * the site-wide index down to those people can miss every one of them.
      */
-    private List<Person> pickerSearch(final String query) {
+    private List<Person> pickerSearch(final String query, final String tripId) {
         if (PersonMatch.queryWords(query).isEmpty()) {
             return List.of();
         }
         final OrgCommands orgCommands = orgSource.get();
-        return searchPeople(query, PICKER_LIMIT * 4).stream()
-                .filter(orgCommands::sharesOrgWith)
-                .limit(PICKER_LIMIT)
-                .toList();
+        if (orgCommands.isSiteAdmin()) {
+            return searchPeople(query, PICKER_LIMIT);
+        }
+        return listOrSearch(orgCommands.pickerScope(tripId), query, PersonMatch.SHARED_FIELDS, PICKER_LIMIT).rows();
     }
 
     private Stream<Person.Id> selectedIds(final Object selected) {

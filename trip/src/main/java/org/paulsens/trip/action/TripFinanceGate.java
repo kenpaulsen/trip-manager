@@ -62,6 +62,16 @@ public final class TripFinanceGate {
         return canReadLedgers(tripId) && reaches(tripId, tx);
     }
 
+    /**
+     * {@link #mayReadRow} for a LIST, whose endpoint has already asked {@link #canReadLedgers} once: only the
+     * books half, and from the cache. Per row, the full rule re-resolved the trip and read the row's binding
+     * fresh (hundreds of shared-cache round trips for one trip's ledger); a list is a read, and the single-row
+     * write gates still read fresh.
+     */
+    public boolean listsRow(final String tripId, final Transaction tx) {
+        return callerSource.get().isSiteAdmin() || onBooks(tripId, tx, Cached.YES);
+    }
+
     /** May change or delete THIS row: {@link #canWriteLedgers} and the same books rule as a read. */
     public boolean mayWriteRow(final String tripId, final Transaction tx) {
         return canWriteLedgers(tripId) && reaches(tripId, tx);

@@ -5,6 +5,7 @@ import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
 import org.testng.annotations.Test;
 
+import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertNull;
@@ -27,7 +28,7 @@ public class FamilyLinkAndDeleteTest {
 
     /** The child is in another organization only, so that org's people are not this people admin's to manage. */
     @Test
-    public void anAdminLinkNeedsReachOverEveryMemberOfTheAnchorsFamily() {
+    public void anAdminLinkNeedsAuthorityOverEveryMemberOfTheAnchorsFamily() {
         final Person parent = TenancyFixtures.savedPerson("Parent");
         final Person child = TenancyFixtures.savedPerson("Child");
         final Person deputy = TenancyFixtures.savedPerson("Deputy");
@@ -43,24 +44,77 @@ public class FamilyLinkAndDeleteTest {
                 "the refused link must not have made the deputy the child's manager");
         assertNull(TenancyFixtures.reload(deputy).getFamilyId(), "...nor a member of the family");
 
-        // The refusal is about reach, not about the link: once the child is one of the org's people it goes through.
+        // Membership the organization can impose (an address added by its admin, a registration for one of its
+        // trips) gives reach over the PROFILE. A manager decides who signs in as a member, so it is not enough.
         TenancyFixtures.addMember(orgA, child);
-        assertTrue(asDeputy.adminLink(parent.getId(), deputy.getId(), true));
-        assertTrue(TenancyFixtures.reload(deputy).getManagedUsers().contains(child.getId()));
+        assertFalse(asDeputy.adminLink(parent.getId(), deputy.getId(), true),
+                "the child still belongs to an organization the deputy is not the people admin of");
+        assertFalse(TenancyFixtures.reload(deputy).getManagedUsers().contains(child.getId()));
+        assertNull(TenancyFixtures.reload(deputy).getFamilyId());
     }
 
+    /** The ordinary case stays an org people admin's: a household that is wholly their organization's. */
     @Test
-    public void aManagerCannotDeleteACoManager() {
+    public void aPeopleAdminLinksAFamilyThatIsWhollyTheirOrganizations() {
+        final Person parent = TenancyFixtures.savedPerson("Parent");
+        final Person child = TenancyFixtures.savedPerson("Child");
+        final Person spouse = TenancyFixtures.savedPerson("Spouse");
+        final Person deputy = TenancyFixtures.savedPerson("Deputy");
+        final Organization orgA = TenancyFixtures.org("LinkOwn", parent, child, spouse, deputy);
+        TenancyFixtures.grantPeopleAdmin(orgA, deputy);
+
+        final FamilyCommands asDeputy = familyFor(deputy);
+        assertTrue(asDeputy.adminLink(parent.getId(), child.getId(), false));
+        assertTrue(asDeputy.adminLink(parent.getId(), spouse.getId(), true));
+        assertTrue(TenancyFixtures.reload(spouse).getManagedUsers().contains(child.getId()));
+    }
+
+    /**
+     * The other direction of the same takeover: the newcomer is not made a manager, they are put UNDER one. A
+     * people admin anchoring their own family must not be able to pull in somebody another organization shares.
+     */
+    @Test
+    public void anAdminLinkCannotPutAnotherOrganizationsPersonUnderAManager() {
+        final Person deputy = TenancyFixtures.savedPerson("Deputy");
+        final Person shared = TenancyFixtures.savedPerson("Shared");
+        final Organization orgA = TenancyFixtures.org("LinkPullA", deputy, shared);
+        TenancyFixtures.org("LinkPullB", shared);
+        TenancyFixtures.grantPeopleAdmin(orgA, deputy);
+
+        assertFalse(familyFor(deputy).adminLink(deputy.getId(), shared.getId(), false),
+                "a family's managers act for its members, so this would hand the deputy the shared person");
+        assertFalse(TenancyFixtures.reload(deputy).getManagedUsers().contains(shared.getId()));
+        assertNull(TenancyFixtures.reload(shared).getFamilyId());
+    }
+
+    /** The audit's case: a co-manager with an account of their own is not the other manager's to delete. */
+    @Test
+    public void aManagerCannotDeleteACoManagerWhoSignsIn() {
         final Person owner = TenancyFixtures.savedPerson("Owner");
         final FamilyCommands asOwner = familyFor(owner);
         final Person spouse = asOwner.createFamilyMember("Pat", "Spouse", LocalDate.of(1980, 1, 1),
                 Person.Sex.Female, "spouse." + TenancyFixtures.unique() + "@example.com", true);
         assertNotNull(spouse);
+        TenancyFixtures.giveLogin(spouse, "user");
 
         assertNotNull(asOwner.deleteBlockReason(spouse.getId()), "the page hides Delete on this answer");
         final FamilyCommands.FamilyResult result = asOwner.deleteFamilyMemberOutcome(spouse.getId());
-        assertFalse(result.isOk(), "a co-manager is not somebody a manager created by mistake");
+        assertFalse(result.isOk(), "a co-manager with an account is not somebody a manager created by mistake");
+        assertEquals(result.code(), FamilyCommands.FamilyResult.HAS_OWN_ACCOUNT);
         assertTrue(TenancyFixtures.reload(spouse).getFamilyId() != null, "the co-manager is untouched");
+    }
+
+    /** The login is the test, not the manager flag: a co-manager added by mistake has no account to lose. */
+    @Test
+    public void aCoManagerWhoNeverSignedInCanStillBeTakenBack() {
+        final Person owner = TenancyFixtures.savedPerson("Owner");
+        final FamilyCommands asOwner = familyFor(owner);
+        final Person typo = asOwner.createFamilyMember("Pat", "Typo", LocalDate.of(1980, 1, 1),
+                Person.Sex.Female, "typo." + TenancyFixtures.unique() + "@example.com", true);
+        assertNotNull(typo);
+
+        assertNull(asOwner.deleteBlockReason(typo.getId()));
+        assertTrue(asOwner.deleteFamilyMemberOutcome(typo.getId()).isOk());
     }
 
     @Test

@@ -157,9 +157,9 @@ public class PaymentsResource extends BaseResource {
         if (csrfMissing(csrf)) {
             return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
         }
-        final boolean cancelled = paymentCommands().cancelPayment(paymentId);
+        final boolean canceled = paymentCommands().cancelPayment(paymentId);
         final Map<String, Object> result = new LinkedHashMap<>();
-        result.put("cancelled", cancelled);
+        result.put("cancelled", canceled);
         // Null (absent) for a payment that is not the caller's to ask about.
         result.put("state", paymentCommands().stateOf(paymentId));
         return ok(result);

@@ -22,10 +22,10 @@ import org.paulsens.trip.chat.ChatNotifications;
 import org.paulsens.trip.chat.ChatRateLimiter;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.dynamo.PersonMatch;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.MediaItem;
-import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.moderation.ContentFilter;
 import org.paulsens.trip.model.Trip;
@@ -524,13 +524,6 @@ public class PhotoChatCommands {
     // --- mention search (the organization-wide typeahead) ---
 
     /**
-     * How many index hits are read before the organization filter. The search itself is global (one index
-     * for every tenant), so a page of other organizations' people must not be able to crowd out the caller's
-     * own; none of the extra hits ever leaves this method.
-     */
-    private static final int MENTION_SCAN = 60;
-
-    /**
      * The typeahead's harvest brake: 30 lookups a minute per person — generous for typing, hostile to
      * scripted directory harvesting. Fails open on cache trouble, like every other rate limiter here.
      */
@@ -549,9 +542,10 @@ public class PhotoChatCommands {
      * roster-scoped): the people who share an ORGANIZATION with {@code me}, never anyone else. It was an
      * all-users search when it was designed (2026-08-10); two weeks later the owner locked the rule that a
      * picker, autocomplete or search endpoint never returns another organization's people, and this one
-     * handed any self-registered account every tenant's names and ids eight at a time. The global search
-     * still supplies the candidates (the people search is not this class's to restructure); the filter is
-     * what decides who is returned, and somebody in no organization is offered nobody.
+     * handed any self-registered account every tenant's names and ids eight at a time. The candidates are the
+     * members of the searcher's own organizations ({@code OrgCommands.fellowMembersOf}, the one such set),
+     * matched in memory by name and by what each person shares with everyone; somebody in no organization is
+     * offered nobody. A filter over the site-wide index was tried first and could miss every colleague.
      *
      * <p>The older guardrails stay, in order of what they protect against: signed-in only and a 2-character
      * minimum (the resource enforces both) plus the result cap defeat bulk enumeration of one's own
@@ -560,29 +554,15 @@ public class PhotoChatCommands {
      */
     public List<Map<String, String>> mentionSearch(final Person.Id me, final String query, final int maxResults) {
         final String q = query == null ? "" : query.strip();
-        final Set<Organization.Id> mine = organizationsOf(me);
-        if (q.length() < 2 || mine.isEmpty()) {
+        final List<String> words = PersonMatch.queryWords(q);
+        if (q.length() < 2 || words.isEmpty()) {
             return List.of();
         }
-        final List<Person> matches = new ArrayList<>();
-        for (final Person person : dao().searchPeople(q, MENTION_SCAN, Cached.NO)) {
-            if (matches.size() < Math.max(1, maxResults) && sharesOrganization(person, mine)) {
-                matches.add(person);
-            }
-        }
-        return labeled(matches);
-    }
-
-    /** The organizations {@code me} belongs to, read fresh (the answer is a tenancy decision); none for nobody. */
-    private Set<Organization.Id> organizationsOf(final Person.Id me) {
-        if (me == null) {
-            return Set.of();
-        }
-        return dao().getPerson(me, Cached.NO).map(person -> Set.copyOf(person.getOrgIds())).orElse(Set.of());
-    }
-
-    private static boolean sharesOrganization(final Person person, final Set<Organization.Id> mine) {
-        return person != null && person.getId() != null && person.getOrgIds().stream().anyMatch(mine::contains);
+        return labeled(OrgCommands.fellowMembersOf(dao(), me).stream()
+                .filter(person -> PersonMatch.matchesAll(person, words, PersonMatch.SHARED_FIELDS))
+                .sorted(Person.PEOPLE_SORTER)
+                .limit(Math.max(1, maxResults))
+                .toList());
     }
 
     /** Labels for a result page: display name, plus a masked address only where two names collide. */

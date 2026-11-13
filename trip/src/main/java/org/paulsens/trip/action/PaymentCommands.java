@@ -128,14 +128,19 @@ public class PaymentCommands {
      * org-less legacy trip has no org to hold the grant, so only site admins pass there.
      */
     public boolean isPaymentsAdmin(final Trip trip) {
+        return isPaymentsAdminOf(trip == null ? null : trip.getOrgId());
+    }
+
+    /**
+     * {@link #isPaymentsAdmin(Trip)} asked of an ORGANIZATION: the rule itself, for a caller that has an org and
+     * no trip yet (the trips API creating one, or moving one). A site admin, or the org's {@code paymentsAdmin}.
+     */
+    public boolean isPaymentsAdminOf(final String orgId) {
         final Caller current = caller();
         if (current.isSiteAdmin()) {
             return true;
         }
-        if (trip == null || trip.getOrgId() == null || trip.getOrgId().isBlank()) {
-            return false;
-        }
-        return current.has(PrivilegeCommands.PAYMENTS_ADMIN, trip.getOrgId());
+        return orgId != null && !orgId.isBlank() && current.has(PrivilegeCommands.PAYMENTS_ADMIN, orgId);
     }
 
     /**
@@ -408,7 +413,7 @@ public class PaymentCommands {
 
     private static Completion givenUpOutcome(final Payment payment) {
         return payment.getStatus() == Payment.Status.CANCELLED
-                ? Completion.of("cancelled", "This payment was cancelled; nothing was charged.")
+                ? Completion.of("cancelled", "This payment was canceled; nothing was charged.")
                 : Completion.of("failed", "This payment failed; nothing was charged.");
     }
 
@@ -456,13 +461,18 @@ public class PaymentCommands {
     private Completion paidAfterGivenUp(final Payment payment, final Caller current) {
         final Payment.Status was = payment.getStatus();
         final PaymentProcessor.CaptureResult result = readCapture(payment);
-        if (result == null || (result.status() != PaymentProcessor.CaptureResult.Status.COMPLETED
-                && result.status() != PaymentProcessor.CaptureResult.Status.ALREADY_CAPTURED)) {
+        if (result == null || result.status() == PaymentProcessor.CaptureResult.Status.PENDING) {
+            // Not a "no": the processor could not be asked, or has not settled. "pending" is the one answer
+            // the webhook turns into a redelivery; "canceled" here would be a 200 and the event's last word.
+            return Completion.of("pending", "The processor could not confirm this payment yet; try again.");
+        }
+        if (result.status() != PaymentProcessor.CaptureResult.Status.COMPLETED
+                && result.status() != PaymentProcessor.CaptureResult.Status.ALREADY_CAPTURED) {
             return givenUpOutcome(payment);
         }
         applyCapture(payment, result);
-        payment.setHeldReason("paid at the processor after the payment was "
-                + was.name().toLowerCase(java.util.Locale.ROOT) + " here");
+        payment.setHeldReason("paid at the processor after the payment "
+                + (was == Payment.Status.CANCELLED ? "was canceled" : "failed") + " here");
         payment.setStatus(Payment.Status.CAPTURED);
         try {
             DAO.getInstance().transitionPayment(payment, was);
@@ -680,13 +690,13 @@ public class PaymentCommands {
         if (payment == null || payment.getStatus() != Payment.Status.CREATED || !mayComplete(current, payment)) {
             return false;
         }
-        return giveUp(payment, current, "Payment cancelled by the payer");
+        return giveUp(payment, current, "Payment canceled by the payer");
     }
 
     /**
      * Where a payment stands, for whoever may act on it ({@link #mayComplete}): the stored status name, or null
      * for an unknown payment or someone else's. The REST cancel answers it beside {@code cancelled}, because
-     * "not cancelled" alone cannot tell a client whether the payment is still open, was already cancelled (a
+     * "not canceled" alone cannot tell a client whether the payment is still open, was already canceled (a
      * replayed cancel), or went through.
      */
     public String stateOf(final String paymentId) {
@@ -699,28 +709,41 @@ public class PaymentCommands {
      * held or in flight. The order used to be the other way round with a processor cancel that could not fail,
      * so a bank debit abandoned while it settled (it looks exactly like a walked-away payment here) cleared
      * days later into a CANCELLED row: money in, no ledger credit, nothing left to reconcile. A payment the
-     * processor already has is finished instead of cancelled. False, with the reason growled, when it was not
-     * cancelled.
+     * processor already has is finished instead of canceled. False, with the reason growled, when it was not
+     * canceled.
      */
     private boolean giveUp(final Payment payment, final Caller current, final String note) {
         return switch (releaseAtProcessor(payment)) {
-            case OPEN -> markCancelled(payment, current, note);
+            case OPEN -> markCanceled(payment, current, note);
             case PAID -> finishInstead(payment, current);
-            case SETTLING -> fail("Not cancelled", "This payment is already processing at the bank and can no "
-                    + "longer be cancelled. It will be recorded when it clears.");
-            case UNKNOWN -> fail("Not cancelled", "The payment processor could not be reached to cancel this "
+            case SETTLING -> fail("Not canceled", "This payment is already processing at the bank and can no "
+                    + "longer be canceled. It will be recorded when it clears.");
+            case UNKNOWN -> fail("Not canceled", "The payment processor could not be reached to cancel this "
                     + "payment. Try again in a moment.");
         };
     }
 
     private boolean finishInstead(final Payment payment, final Caller current) {
-        complete(payment, null, current, Door.PAYER);
-        return fail("Not cancelled", "This payment had already gone through, so it was recorded instead of "
-                + "cancelled.");
+        return fail("Not canceled", paidInsteadNote(complete(payment, null, current, Door.PAYER)));
+    }
+
+    /**
+     * What somebody who asked to cancel is told when the processor already had the money. Only a completion that
+     * reached the ledger may say "recorded": a paid payment can also come back held for review (the captured
+     * amount differs) or still settling, and it then waits for an administrator.
+     */
+    static String paidInsteadNote(final Completion outcome) {
+        final String status = outcome == null ? null : outcome.getStatus();
+        if ("recorded".equals(status) || "sandbox".equals(status)) {
+            return "This payment had already gone through, so it was recorded instead of canceled.";
+        }
+        return "This payment had already gone through at the processor, so it was not canceled. "
+                + (outcome == null || outcome.getMessage() == null ? "It has not been recorded yet."
+                : outcome.getMessage());
     }
 
     /** CREATED -> CANCELLED, once the processor holds nothing for it (or said so itself, by webhook). */
-    private boolean markCancelled(final Payment payment, final Caller current, final String note) {
+    private boolean markCanceled(final Payment payment, final Caller current, final String note) {
         payment.setStatus(Payment.Status.CANCELLED);
         try {
             DAO.getInstance().transitionPayment(payment, Payment.Status.CREATED);
@@ -820,7 +843,7 @@ public class PaymentCommands {
         if (payment == null || payment.getStatus() != Payment.Status.CREATED) {
             return false;
         }
-        return markCancelled(payment, systemCaller(), "Payment cancelled at the processor (via webhook)");
+        return markCanceled(payment, systemCaller(), "Payment canceled at the processor (via webhook)");
     }
 
     /**

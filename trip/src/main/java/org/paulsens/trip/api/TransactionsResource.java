@@ -72,8 +72,8 @@ public class TransactionsResource extends BaseResource {
             return error(403, ApiErrors.FORBIDDEN, "Not permitted to read these finances.");
         }
         return ok(Beans.get(TransactionsCommands.class).getTransactions(subject).stream()
-                .filter(tx -> own || gate().mayReadRow(tripId, tx))
-                .map(tx -> dto(tx, staff && (!own || gate().mayReadRow(tripId, tx))))
+                .filter(tx -> own || gate().listsRow(tripId, tx))
+                .map(tx -> dto(tx, staff && (!own || gate().listsRow(tripId, tx))))
                 .toList());
     }
 
@@ -112,7 +112,7 @@ public class TransactionsResource extends BaseResource {
             return error(403, ApiErrors.FORBIDDEN, "Trip finance access required.");
         }
         return ok(Beans.get(TransactionsCommands.class).getTripTransactions(tripId).stream()
-                .filter(tx -> gate().mayReadRow(tripId, tx))
+                .filter(tx -> gate().listsRow(tripId, tx))
                 .map(tx -> dto(tx, true))
                 .toList());
     }

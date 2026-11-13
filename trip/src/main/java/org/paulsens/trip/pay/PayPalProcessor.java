@@ -154,7 +154,7 @@ public final class PayPalProcessor implements PaymentProcessor {
 
     /**
      * PayPal has nothing to release (an unapproved order simply expires), but the row being given up may be
-     * one whose capture answer was lost: a COMPLETED order means the money is in, so it must not be cancelled.
+     * one whose capture answer was lost: a COMPLETED order means the money is in, so it must not be canceled.
      */
     @Override
     public OrderState cancel(final String orderRef) {

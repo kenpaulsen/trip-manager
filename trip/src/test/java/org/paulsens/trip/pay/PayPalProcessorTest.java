@@ -202,7 +202,7 @@ public class PayPalProcessorTest {
                 .capture("O").status(), PaymentProcessor.CaptureResult.Status.FAILED);
     }
 
-    /** Giving an order up asks PayPal first: a COMPLETED order is money in hand and must not be cancelled. */
+    /** Giving an order up asks PayPal first: a COMPLETED order is money in hand and must not be canceled. */
     @Test
     public void cancelAnswersWhereTheOrderStands() throws Exception {
         final ApiResponse<Order> paid = response(new Order.Builder().id("O").status(OrderStatus.COMPLETED).build());

@@ -131,6 +131,15 @@ everyone else gets 403 `FORBIDDEN` (a Viewer or an Editor Admin used to be let t
 family manager, still writes their own `options` as before. `GET .../registrations/pricing` hands the discount
 `codes` to the trip's managers and registration admins only (a Viewer no longer receives them).
 
+**Whom staff may register (2026-11-12).** A registration admin's reach stops at the trip's own people: someone
+already on the trip (its roster, or a registration that is not `NOT_REGISTERED`) or a member of the trip's
+organization. A `PUT .../registrations/{personId}` for anyone else is 403 `FORBIDDEN` ("That person is not on
+this trip and is not one of its organization's people. Add them to the organization first."), and the checkout
+calls below refuse such a traveler the same way (403 "You cannot register ..."). A site admin is not bounded,
+and people still register themselves and the family they manage on any trip they may join. The reason: a
+registration is what makes someone "on the trip", and a trip's staff read the profiles and ledgers of the
+people on it.
+
 Self-registration: `POST /api/trips/{tripId}/registrations/party`
 `{travelers:[{personId, options{"<optId>":"answer"}, dailyDigest?}]}` → 200
 `{registered:[RegistrationDto], updated:[RegistrationDto], refused:{personId: NOT_ALLOWED|ALREADY_REGISTERED|
@@ -251,7 +260,9 @@ deleted, privacy{email,cell,city,street: PRIVATE|LOGGED_IN, shareItinerary: bool
 (2026-11-01) is the person's one switch for every trip: true (the default) lets the people on their trips see
 their shared itinerary; absent on a PUT = unchanged. `PUT` absent = unchanged, `""` = clear.
 `PUT` also writes `address` (contact-gated), `passport` (travel-gated) and `sex` (`Male|Female`; anything
-else is 400 `VALIDATION_FAILED`). `GET /api/people?q=` needs `peopleAdmin`.
+else is 400 `VALIDATION_FAILED`). `GET /api/people?q=` needs `peopleAdmin` and is the website's admin People
+search (2026-11-12): a site admin searches the directory, anyone else exactly the members of the organizations
+where they hold `peopleAdmin`; a blank `q` answers an empty list.
 A `PUT` that changes SOMEBODY ELSE's `email` is 403 `FORBIDDEN` ("Changing how this person signs in takes a
 site administrator.") unless the caller may change that person's sign-in (2026-11-12, `docs/org-admin.md`):
 a family manager may still add a first address to a member who has none, but not change or clear one; a
@@ -301,7 +312,7 @@ must be someone the caller manages (or the caller is a site admin): 403 else, 40
 `EMAIL_IN_USE`/`FAMILY_CHANGED` (409), and 422 `NAME_REQUIRED, SEX_REQUIRED, BIRTHDATE_REQUIRED,
 BIRTHDATE_FUTURE, MANAGER_NEEDS_EMAIL, FAMILY_FULL, LAST_MANAGER, CANNOT_DELETE_SELF, HAS_HISTORY,
 HAS_OWN_ACCOUNT`; an unparseable `sex` is 422 `VALIDATION_FAILED`. `HAS_OWN_ACCOUNT` (2026-11-12) refuses the
-`DELETE` of a member who is a family manager or signs in with their own login; like `HAS_HISTORY`, the member's
+`DELETE` of a member who signs in with their own login (a co-manager included); like `HAS_HISTORY`, the member's
 `deleteBlockReason` already says so, so an app that hides Delete on that field never sees it.
 
 ## Orgs
@@ -350,9 +361,10 @@ or a non-member -- the review seed uses it to take the reviewer accounts back ou
   organization's allow-list; every verified domain for a site admin), the website's mail-merge rule; otherwise
   422 `VALIDATION_FAILED` "The From address must use one of your verified sending domains." A missing `from` is
   refused the same way.
-- **Photo mention search** (`GET /api/photo-chat/mention-search?q=`, 2026-11-12): returns only people who share an
-  organization with the caller (it searched every account before); a caller in no organization gets an empty
-  list. Shape, limits and the 429 brake are unchanged.
+- **Photo mention search** (`GET /api/photo-chat/mention-search?q=`, 2026-11-12): returns only people who share
+  an organization with the caller (it searched every account before), matched by name and by what each person
+  shares with everyone, in last-name order; a caller in no organization gets an empty list. Shape, limits and
+  the 429 brake are unchanged.
 
 See the plan and the backend docs; wired in the next phases. Chat: `GET /api/chat/my-channels` (`unread` is a boolean);
 `/api/chat/channels/trip:{tripId}/messages?since&before&order=newest&wait≤25&limit&rver&mver`;
@@ -414,11 +426,12 @@ URL; `clientSecret` + `publishableKey` set = a Stripe PaymentIntent: present the
 the server will email when it clears, `mismatch` = the money was received but the payment is held for an
 administrator, `failed`, `cancelled`), or `POST /api/payments/{id}/cancel` when the sheet is dismissed. The cancel
 answers 200 `{cancelled, state}`: `cancelled: false` means THIS call did not cancel it -- the payment was already
-finished or already cancelled (a replayed cancel), the processor is still settling it (a bank debit in flight
-cannot be cancelled, 2026-11) or already holds the money (it is then recorded instead), or the processor could
+finished or already canceled (a replayed cancel), the processor is still settling it (a bank debit in flight
+cannot be canceled, 2026-11) or already holds the money (it is then recorded instead), or the processor could
 not be reached. `state` (2026-11; null for a payment that is not the caller's) is the payment's stored status
-after the call and is what settles the client's attempt: `CANCELLED` or `FAILED` = cancelled, `RECORDED` =
-completed, `CREATED` or `CAPTURED` = still open, keep showing it as awaiting confirmation. A transport failure of the PayPal capture answers `pending`, never `failed` (2026-11): the money
+after the call and is what settles the client's attempt: `CANCELLED` or `FAILED` = canceled, `RECORDED` =
+completed, `CREATED` or `CAPTURED` = still open, keep showing it as awaiting confirmation. A transport failure of the
+PayPal capture answers `pending`, never `failed` (2026-11): the money
 may have moved, and a later `complete` converges. `POST /api/payments/{paymentId}/method {type}` (2026-11;
 `type` is the processor's payment method type, `us_bank_account` or `card`) → `{paymentId, creditFeeCents,
 totalCents, totalFormatted, changed, methodLocked}`: re-prices a payer-pays Stripe payment for the picked method

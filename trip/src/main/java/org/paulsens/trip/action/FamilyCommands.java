@@ -182,8 +182,8 @@ public class FamilyCommands {
      * person-side index, so trip membership is the proxy (a registration is only created for a trip the person
      * is on); soft-deleted transactions still block -- financial history must survive.
      *
-     * <p>Before either: the delete is for a member somebody created by mistake, so it never reaches a family
-     * manager or anyone who signs in for themselves ({@link #ownAccountBlock}). The family page and the REST
+     * <p>Before either: the delete is for a member somebody created by mistake, so it never reaches anyone who
+     * signs in for themselves ({@link #ownAccountBlock}). The family page and the REST
      * family resource both hide Delete on this answer, so one rule covers the button and the write.
      */
     public String deleteBlockReason(final Person.Id memberId) {
@@ -195,32 +195,20 @@ public class FamilyCommands {
     }
 
     /**
-     * Why this member is somebody a manager may not delete whatever their history: they are a manager of the
-     * family themselves, or they have a login of their own. Deleting the profile ends that person's account,
-     * and one adult deleting another's -- a spouse who signed up and was linked in by an admin, with no trip
-     * yet -- is not what "remove a family member" means. Those go to an admin, who UNLINKS and deletes nothing.
+     * Why this member is somebody a manager may not delete whatever their history: they have a login of their
+     * own. Deleting the profile ends that person's account, and one adult deleting another's -- a spouse who
+     * signed up and was linked in by an admin, with no trip yet -- is not what "remove a family member" means.
+     * Those go to an admin, who UNLINKS and deletes nothing. The LOGIN is the test, not the manager flag: a
+     * co-manager added a moment ago with a mistyped address has never signed in, has no account to lose, and
+     * the manager who added them must be able to take that back.
      */
     private String ownAccountBlock(final Person.Id memberId) {
         final Person member = memberId == null ? null : DAO.getInstance().getPerson(memberId, Cached.NO).orElse(null);
         if (member == null) {
             return null;
         }
-        final Family family = familyOf(member);
-        if (family != null && family.isManager(memberId)) {
-            return "This person is a family manager. Ask an administrator to remove them instead.";
-        }
-        return hasOwnLogin(member)
+        return PassCommands.hasOwnLogin(member)
                 ? "This person signs in with their own account. Ask an administrator to remove them instead." : null;
-    }
-
-    /** A login that could not be read counts as one: an outage must not be what lets an account be deleted. */
-    private static boolean hasOwnLogin(final Person member) {
-        try {
-            return PassCommands.storedLoginOf(member) != null;
-        } catch (final RuntimeException ex) {
-            log.error("Could not read the login of {}; treating them as having one.", member.getId(), ex);
-            return true;
-        }
     }
 
     private String historyBlock(final Person.Id memberId) {
@@ -444,7 +432,7 @@ public class FamilyCommands {
 
     /**
      * Delete (soft) a member a manager created by mistake -- allowed only while the member has no history at
-     * all, is not a family manager, and has no login of their own ({@link #deleteBlockReason}). Anyone else
+     * all and no login of their own ({@link #deleteBlockReason}). Anyone else
      * goes through an admin unlink instead.
      */
     public boolean deleteFamilyMember(final Person.Id memberId) {
@@ -470,8 +458,8 @@ public class FamilyCommands {
             return FamilyResult.refused(FamilyResult.CANNOT_DELETE_SELF, "Cannot delete yourself",
                     "You cannot delete your own profile.");
         }
-        // Site admins included: for a manager or somebody with their own login the admin path is the UNLINK
-        // on Manage People, which removes them from the family and deletes nothing.
+        // Site admins included: for somebody with their own login the admin path is the UNLINK on Manage
+        // People, which removes them from the family and deletes nothing.
         final String ownAccount = ownAccountBlock(memberId);
         if (ownAccount != null) {
             return FamilyResult.refused(FamilyResult.HAS_OWN_ACCOUNT, "Cannot delete", ownAccount);
@@ -554,9 +542,9 @@ public class FamilyCommands {
      * construction.
      */
     public boolean adminLink(final Person.Id anchorId, final Person.Id personId, final boolean manager) {
-        // Reach is required over BOTH ends: linking pulls the person into the anchor's household, so an
-        // org-scoped people admin needs authority over each of them, not just one.
-        if (!requirePeopleAdminFor(anchorId) || !requirePeopleAdminFor(personId)) {
+        // Authority is required over BOTH ends, and it is the sign-in rule, not profile reach: a link hands
+        // people to managers (requireLinkAuthorityOver).
+        if (!requireLinkAuthorityOver(anchorId) || !requireLinkAuthorityOver(personId)) {
             return false;
         }
         final Person anchor = DAO.getInstance().getPerson(anchorId, Cached.NO).orElse(null);
@@ -564,11 +552,10 @@ public class FamilyCommands {
         if (anchor == null || person == null) {
             return fail("Unknown person", "Both people must exist to link a family.");
         }
-        // ...and over everyone ALREADY in the anchor's family, as resyncFamily requires: the link changes who
-        // manages whom across the whole household (a new manager gains every member, every manager gains the
-        // newcomer), and a member may belong to another organization only. Checked before ensureFamilyFor so
-        // a refusal writes nothing.
-        if (!hasReachOverFamilyOf(anchor)) {
+        // ...and over everyone ALREADY in the anchor's family: the link changes who manages whom across the
+        // whole household (a new manager gains every member, every manager gains the newcomer), and a member
+        // may belong to another organization as well. Checked before ensureFamilyFor so a refusal writes nothing.
+        if (!hasLinkAuthorityOverFamilyOf(anchor)) {
             return false;
         }
         final Family anchorFamily = ensureFamilyFor(anchor);
@@ -841,14 +828,30 @@ public class FamilyCommands {
         return fail("Not authorized", "Managing family links requires people-admin access to this person.");
     }
 
-    /** {@link #requirePeopleAdminFor} over each member of this person's family; true when they have none yet. */
-    private boolean hasReachOverFamilyOf(final Person anchor) {
+    /**
+     * What an admin link takes over ONE person: {@code OrgCommands.canChangeSignInOf}, not the profile reach of
+     * {@link #requirePeopleAdminFor}. A link makes somebody a manager of somebody else, and a manager acts for
+     * their members everywhere and may set a member's first email address, which decides who signs in as them.
+     * Profile reach follows membership, and an organization can impose membership (an address added by its
+     * admin, a registration for one of its trips), so on that footing one tenant's people admin could have
+     * linked themselves in as the manager of another tenant's family.
+     */
+    private boolean requireLinkAuthorityOver(final Person.Id subjectId) {
+        if (orgSource.get().canChangeSignInOf(subjectId)) {
+            return true;
+        }
+        return fail("Not authorized", "Linking these people into a family takes a site administrator: one of them"
+                + " belongs to an organization you are not the people admin of, or holds an administrator role.");
+    }
+
+    /** {@link #requireLinkAuthorityOver} each member of this person's family; true when they have none yet. */
+    private boolean hasLinkAuthorityOverFamilyOf(final Person anchor) {
         final Family family = familyOf(anchor);
         if (family == null) {
             return true;
         }
         for (final Person.Id memberId : family.getMemberIds()) {
-            if (!requirePeopleAdminFor(memberId)) {
+            if (!requireLinkAuthorityOver(memberId)) {
                 return false;
             }
         }

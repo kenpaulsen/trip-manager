@@ -31,12 +31,19 @@ non-admin can never link an id they did not just create. Linking an EXISTING per
 own login) is `adminLink`, on the Manage People page (the Person-2 compare column, or its "Link Family
 Member" search dialog). Admin family operations are gated per SUBJECT since the org migration (2026-08):
 `requirePeopleAdminFor` asks `OrgCommands.canAdminPerson` -- site admin, or `peopleAdmin` scoped to an org
-the subject belongs to -- and `adminLink` requires reach over BOTH ends **and over every member already in the
-anchor's family** (2026-11-12, as `resyncFamily` always has), so an org's people admin can never relink
-another tenant's people. The family half matters because a link changes who manages whom across the whole
-household: a person linked as manager gains every member, and a member may belong to another organization
-only (a child in org B whose parent later registered for an org A trip). The check runs before the family is
-created or anything is written. Everything is audited (`AuditAction.FAMILY`).
+the subject belongs to. That profile reach is enough to UNLINK someone or resync a family, which hand
+nobody to anybody.
+
+**`adminLink` takes the sign-in rule, not profile reach (2026-11-12).** A link hands people to managers: a
+person linked as manager gains every member, and every manager gains the newcomer, whichever way the link
+runs. A manager acts for their members everywhere and may set a member's first email address, which decides
+who signs in as them. Profile reach follows membership, and an organization can impose membership (an address
+its admin adds, a registration for one of its trips), so on that footing one tenant's people admin could link
+themselves in as the manager of another tenant's family, or pull another tenant's person into their own.
+`adminLink` therefore asks `OrgCommands.canChangeSignInOf` (`docs/org-admin.md`, "Changing how someone signs
+in") over BOTH ends **and over every member already in the anchor's family**: a site admin, or the people
+admin of EVERY organization each of them belongs to. The check runs before the family is created or anything
+is written. Everything is audited (`AuditAction.FAMILY`).
 
 Write order everywhere: person row that must exist → versioned family put → derived `managedUsers`
 sync computed from the IN-MEMORY objects just saved (a re-read can be stale in production) → audit.
@@ -83,9 +90,11 @@ Guard rails:
   zero transactions (soft-deleted ones count). Anything with history needs an admin **unlink**
   (Manage People, type-"remove" challenge validated server-side), blocked when the remaining family
   would keep no manager (2+ members) or no member with a valid email.
-- **The delete never reaches somebody with an account of their own** (2026-11-12): a member who is a
-  family manager, or who has a login row of their own (`PassCommands.storedLoginOf`), is refused with
-  `HAS_OWN_ACCOUNT` for managers and site admins alike, and goes to the same admin unlink. The delete
+- **The delete never reaches somebody with an account of their own** (2026-11-12): a member who has a
+  login row of their own (`PassCommands.storedLoginOf`), co-manager or not, is refused with
+  `HAS_OWN_ACCOUNT` for managers and site admins alike, and goes to the same admin unlink. The login is
+  the test, not the manager flag: a co-manager added with a mistyped address has never signed in, and the
+  manager who added them can still take that back. The delete
   exists for a member created by mistake; without this rule one co-manager could delete the other (a
   spouse who signed up and was linked in by an admin, with no trip yet), and that person's own account
   stopped resolving. A member who was given an address but never signed in has no login and stays
@@ -294,7 +303,8 @@ once.
 Refusal codes travel as the wire `error` when a client's remedy depends on them — `NOT_MANAGER` (403),
 `EMAIL_IN_USE` and `FAMILY_CHANGED` (409), and the 422 family: `NAME_REQUIRED`, `SEX_REQUIRED`,
 `BIRTHDATE_REQUIRED`, `BIRTHDATE_FUTURE`, `MANAGER_NEEDS_EMAIL`, `FAMILY_FULL`, `LAST_MANAGER`,
-`CANNOT_DELETE_SELF`, `HAS_HISTORY`, `HAS_OWN_ACCOUNT`. The generic ones map onto the API's generic codes (`NOT_AUTHENTICATED`,
+`CANNOT_DELETE_SELF`, `HAS_HISTORY`, `HAS_OWN_ACCOUNT`. The generic ones map onto the API's generic codes
+(`NOT_AUTHENTICATED`,
 `FORBIDDEN`, `NOT_FOUND`, `STORE_FAILED`). Admin linking of EXISTING people (`adminLink`) is deliberately not
 exposed — it is the one write that accepts an arbitrary person id.
 

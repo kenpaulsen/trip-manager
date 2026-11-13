@@ -643,7 +643,9 @@ public class OrgCommands {
     private void revokeTripRolesOf(final Organization org, final Person.Id personId) {
         final PrivilegeCommands priv = privCommands();
         final String orgId = org.getId().getValue();
-        for (final Trip trip : DAO.getInstance().getRecentTrips(0, Cached.YES)) {
+        // Fresh, like every sweep that takes a person's standing away (AccountDeletionCommands.leaveTrips): a trip
+        // this JVM's near cache has not heard of yet would otherwise keep the role this exists to strip.
+        for (final Trip trip : DAO.getInstance().getRecentTrips(0, Cached.NO)) {
             if (orgId.equals(trip.getOrgId())) {
                 revokeTripRolesOn(priv, trip, personId);
             }
@@ -951,9 +953,10 @@ public class OrgCommands {
      * reach follows membership and membership can be imposed: an org admin adds any account by its address and
      * may grant themselves {@code peopleAdmin}. Editing a profile on that footing is accepted (owner decision,
      * 2026-11); deciding where the person's sign-in codes are mailed is taking the account. So, all of: reach
-     * over the person; the person is not a site admin; {@code peopleAdmin} in EVERY organization they belong
-     * to, so another tenant's member is never one org's to re-key; and for each organization they administer,
-     * the caller may manage that organization, so a people admin cannot take over their own org's admin.
+     * over the person; the person is not a site admin and holds no site-wide privilege; {@code peopleAdmin} in
+     * EVERY organization they belong to, so another tenant's member is never one org's to re-key; and for each
+     * organization they administer, the caller may manage that organization, so a people admin cannot take over
+     * their own org's admin.
      */
     public boolean canChangeSignInOf(final Person.Id subjectId) {
         final Caller current = caller();
@@ -969,8 +972,27 @@ public class OrgCommands {
                 && canAdminPerson(subjectId)
                 && subject.getOrgIds().stream()
                         .allMatch(orgId -> current.has(PrivilegeCommands.PEOPLE_ADMIN, orgId.getValue()))
-                && !holdsSiteAdminLogin(subject)
+                && !PassCommands.isSiteAdminLogin(subject)
+                && !holdsSiteWidePrivilege(subjectId)
                 && managesEveryOrgAdministeredBy(subjectId);
+    }
+
+    /**
+     * Whether this person holds a privilege that is not tied to one organization or trip ({@code privilegeAdmin},
+     * {@code configAdmin}, the site deployer, ...). Such a login is an ordinary "user" row, so the site-admin
+     * check does not see it, yet {@code privilegeAdmin} alone can grant anything on the platform. Read fresh,
+     * and a read that fails counts as "yes": this decides whether an account may be re-keyed.
+     */
+    private boolean holdsSiteWidePrivilege(final Person.Id subjectId) {
+        try {
+            return privCommands().getGlobalPrivileges().stream()
+                    .filter(Privilege::isGlobal)
+                    .anyMatch(privilege -> privilege.getPeople().contains(subjectId));
+        } catch (final RuntimeException ex) {
+            log.error("Could not read the site-wide privileges while deciding a sign-in change for {}",
+                    subjectId, ex);
+            return true;
+        }
     }
 
     /**
@@ -992,21 +1014,6 @@ public class OrgCommands {
                 .orElse(false);
     }
 
-    /**
-     * The stored role on the person's own login. A read that fails answers "yes": the rule this feeds must
-     * refuse when it cannot tell, never allow.
-     */
-    private static boolean holdsSiteAdminLogin(final Person subject) {
-        try {
-            final org.paulsens.trip.model.Creds login = PassCommands.storedLoginOf(subject);
-            return login != null && login.getPriv() != null && login.getPriv().contains("admin");
-        } catch (final RuntimeException ex) {
-            log.error("Could not read the login of {} to check its role; treating it as a site admin's.",
-                    subject.getId(), ex);
-            return true;
-        }
-    }
-
     /** Every org row, not just the person's derived {@code orgIds}: an admin missing from that list is still one. */
     private boolean managesEveryOrgAdministeredBy(final Person.Id subjectId) {
         return getOrganizations().stream()
@@ -1015,21 +1022,59 @@ public class OrgCommands {
     }
 
     /**
-     * Whether this person belongs to an organization the signed-in user belongs to (a site admin: always). The
-     * bound for a people picker on a page whose viewer has no people-admin standing, such as a trip's Finance
-     * Admin on Batch Transactions: their own organizations' members, never another tenant's.
+     * Everyone who shares an organization with {@code me}, once each: the members of every organization that
+     * person belongs to. THE one "shares an organization with the caller" set, for a picker, typeahead or search
+     * whose user has no people-admin standing (their own organizations' members, never another tenant's). The
+     * person's organizations are read once and fresh, because the answer is a tenancy decision; the member rows
+     * and the people come from the caches. Nobody for nobody, and for somebody in no organization.
+     *
+     * <p>It is a SET to search in memory, deliberately not a filter over the site-wide people index: that index
+     * is read as a window in token order, so other tenants' matches can fill it and the caller's own colleague
+     * is never handed to the filter (review finding, 2026-11-12; {@code PersonCommands.adminSearch}).
      */
-    public boolean sharesOrgWith(final Person person) {
+    public static List<Person> fellowMembersOf(final DAO dao, final Person.Id me) {
+        if (me == null) {
+            return List.of();
+        }
+        return membersOfOrganizations(dao,
+                dao.getPerson(me, Cached.NO).map(Person::getOrgIds).orElse(List.of()));
+    }
+
+    private static List<Person> membersOfOrganizations(final DAO dao, final Collection<Organization.Id> orgIds) {
+        final Map<Person.Id, Person> byId = new LinkedHashMap<>();
+        for (final Organization.Id orgId : orgIds) {
+            for (final OrgMember member : dao.getOrgMembers(orgId, Cached.YES)) {
+                if (!byId.containsKey(member.getPersonId())) {
+                    dao.getPerson(member.getPersonId(), Cached.YES)
+                            .ifPresent(person -> byId.put(person.getId(), person));
+                }
+            }
+        }
+        return new ArrayList<>(byId.values());
+    }
+
+    /**
+     * The people a picker on a page may search, for a signed-in user who is not a site admin. On a page that
+     * belongs to ONE trip where the caller holds a role, that is the trip's organization's members: the
+     * organization that owns the page's data, as the trip-manager picker has always been bounded. A Finance Admin
+     * of an org A trip who also traveled with org B is not offered B's people there. Anywhere else, and for a
+     * trip the caller has no role on, it is {@link #fellowMembersOf}.
+     */
+    public List<Person> pickerScope(final String tripId) {
         final Caller current = caller();
-        if (person == null || !current.isAuthenticated()) {
-            return false;
+        if (!current.isAuthenticated()) {
+            return List.of();
         }
-        if (current.isSiteAdmin()) {
-            return true;
+        final Trip trip = tripId == null || tripId.isBlank() ? null
+                : DAO.getInstance().getTrip(tripId, Cached.YES).orElse(null);
+        if (trip != null && trip.getOrgId() != null && holdsARoleOn(current, trip)) {
+            return membersOfOrganizations(DAO.getInstance(), List.of(Organization.Id.from(trip.getOrgId())));
         }
-        final List<Organization.Id> mine = DAO.getInstance().getPerson(current.personId(), Cached.YES)
-                .map(Person::getOrgIds).orElse(List.of());
-        return person.getOrgIds().stream().anyMatch(mine::contains);
+        return fellowMembersOf(DAO.getInstance(), current.personId());
+    }
+
+    private static boolean holdsARoleOn(final Caller current, final Trip trip) {
+        return PrivilegeCommands.TRIP_SCOPED_BASES.stream().anyMatch(base -> current.has(base, trip.getId()));
     }
 
     /**

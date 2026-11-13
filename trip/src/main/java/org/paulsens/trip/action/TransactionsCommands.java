@@ -162,8 +162,26 @@ public class TransactionsCommands {
                 final Transaction.TransactionType txType, final LocalDateTime date, final Float amount,
                 final String cat, final String note, final String tripId, final String eventId,
                 final Object... objArr) {
+        return saveGroupTxAs(TripFinanceGate.forCaller(Caller::current), gid, origPeople, type, txType, date,
+                amount, cat, note, tripId, eventId, objArr);
+    }
+
+    /**
+     * {@link #saveGroupTx} as this gate's caller (the seam: {@code Caller.current()} needs a session). The page's
+     * picker is a convenience, not the rule: everyone charged must be someone this caller may charge on this
+     * trip ({@code TripFinanceGate.mayCharge}), exactly what {@code POST /api/transactions/groups} requires, so
+     * the page and the API cannot disagree about whose ledger a trip's Finance Admin may write to.
+     */
+    boolean saveGroupTxAs(final TripFinanceGate gate, final String gid, final List<Person.Id> origPeople,
+                final Type type, final Transaction.TransactionType txType, final LocalDateTime date,
+                final Float amount, final String cat, final String note, final String tripId, final String eventId,
+                final Object... objArr) {
         final List<Person.Id> txPeople = (objArr == null) ? Collections.emptyList()
                 : Arrays.stream(objArr).flatMap(this::castToPersonId).toList();
+        if (!txPeople.stream().allMatch(member -> gate.mayCharge(tripId, member))) {
+            return PageFeedback.refuse("Not saved",
+                    "Everyone on a batch or shared transaction must be on this trip. Remove anyone who is not.");
+        }
         return saveGroupTransaction(gid, origPeople, type, txType, date, amount, cat, note, tripId, eventId,
                 txPeople);
     }

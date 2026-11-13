@@ -33,10 +33,10 @@ public interface PaymentProcessor {
      * Gives up an order the payer walked away from (page Cancel, "Change amounts", the admin's Abandon), and
      * answers where the order stands afterwards. The caller marks its row CANCELLED only on
      * {@link OrderState#OPEN}: the processor released the order, or never held anything for it. Every other
-     * answer means it was NOT cancelled, because the processor already has the payer's money
+     * answer means it was NOT canceled, because the processor already has the payer's money
      * ({@link OrderState#PAID}), is moving it ({@link OrderState#SETTLING}, a bank debit in flight cannot be
      * recalled), or could not be asked ({@link OrderState#UNKNOWN}). Until 2026-11 this answered nothing and
-     * the row was cancelled first, so an abandoned bank debit that later cleared left money with no ledger row.
+     * the row was canceled first, so an abandoned bank debit that later cleared left money with no ledger row.
      * Never throws. The default is the answer of a kind with nothing to release and nothing in flight.
      */
     default OrderState cancel(final String orderRef) {

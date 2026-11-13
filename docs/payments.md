@@ -79,7 +79,10 @@ tenancy check; a foreign config id simply misses). Types: PAYPAL, STRIPE (stagea
 **Secrets never touch DynamoDB.** ONE Secrets Manager secret (`trip/payment-processors`, env
 `TRIP_PAYMENT_SECRET`, both task definitions) holds a JSON object keyed by config id —
 `security/ProcessorSecrets` (Pepper-style resolution; in-memory in local mode; the task role has Get+Put
-because org admins paste credentials through the UI, write-only fields with set/unset badges). A write replaces the WHOLE secret, so `put` merges into a fresh read of the store and is REFUSED when that read fails or the body is not the expected JSON (2026-11: merging into a cache that never loaded erased every other organization's credentials); the cache is one immutable map swapped whole.
+because org admins paste credentials through the UI, write-only fields with set/unset badges). A write replaces the
+WHOLE secret, so `put` merges into a fresh read of the store and is REFUSED when that read fails or the body is not
+the expected JSON (2026-11: merging into a cache that never loaded erased every other organization's credentials); the
+cache is one immutable map swapped whole.
 
 ## Configuration ladder
 
@@ -210,7 +213,9 @@ is FAILED.
 
 **Held payments (`Payment.heldReason`, 2026-11).** A CAPTURED payment may be HELD: the processor captured a
 different amount than expected, or the webhook reported money for a payment that was CANCELLED or FAILED here
-(`paidAfterGivenUp`: the payer's saved form completed it after a cancel; the row comes back as CAPTURED). The
+(`paidAfterGivenUp`: the payer's saved form completed it after a cancel; the row comes back as CAPTURED, but
+only once the processor CONFIRMS the money; a read that fails or says "not settled yet" answers `pending`, the
+webhook's 503, so the event is redelivered instead of being answered "cancelled" for good). The
 reason is stored WITH the capture, because every completion door reaches the same `complete()`: the payer's
 return page and REST call and the webhook answer `mismatch` for a held payment and record nothing; ONLY a site
 admin's Finish (`adminComplete`) records it, and the reconciliation page's Status column shows the reason
@@ -347,7 +352,8 @@ Zeffy: a future record-only kind.
   donation. A $153.20 charge ($100 credit, $3.20 fee, $50 donation) fully refunded writes -$100.00, and the
   description says so ("Refund of $153.20 from CFPW ($100.00 of it had been credited to this account; the
   processing fee and the donation never were)"). A second partial refund or a redelivery rewrites that same row;
-  the original credit rows are never touched (money rows are never destroyed). Only a RECORDED payment is refundable against the ledger;
+  the original credit rows are never touched (money rows are never destroyed). Only a RECORDED payment is refundable
+  against the ledger;
   anything else is audited and answered `unchanged`. An unreadable Stripe answers 503 so Stripe redelivers.
   Sandbox computes and writes nothing. No mail: Stripe's own refund receipt covers it, and the org knows.
   PayPal refunds stay a hand entry (no refund read; the SPI default is "unknown").
@@ -355,8 +361,9 @@ Zeffy: a future record-only kind.
   `change` event names the picked method and `trip-js/payElement.js` posts it to
   `POST /api/payments/{id}/method`; `PaymentCommands.selectMethod` recomputes the gross-up for a
   `us_bank_account` at `ProcessorType.STRIPE`'s bank pricing (80 bps, $5.00 cap:
-  `MoneyMath.bankCreditFeeCents`), re-prices the PaymentIntent (`PaymentProcessor.updateAmount`) and only then
-  the `Payment` row, and the page rewrites every `[data-pay-total]` and calls `elements.fetchUpdates()`. A
+  `MoneyMath.bankCreditFeeCents`), re-prices the PaymentIntent (`PaymentProcessor.reprice`, which also narrows
+  the intent to that method while it is bank-priced) and only then the `Payment` row, and the page rewrites
+  every `[data-pay-total]` and calls `elements.fetchUpdates()` unless the answer says `methodLocked` (below). A
   card (or Link, or anything else) prices it back to the card estimate. Whoever may act on the payment
   (`PaymentCommands.mayComplete`: its payer, a site admin, a checkout's registration admins), CREATED
   only, payer-pays only, processors with bank pricing only; a processor refusal keeps the quoted total (the

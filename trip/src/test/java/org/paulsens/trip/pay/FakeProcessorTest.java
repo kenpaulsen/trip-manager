@@ -117,7 +117,7 @@ public class FakeProcessorTest {
         assertFalse(card.isSettling());
 
         assertTrue(FakeProcessor.markAsync(ref));
-        assertEquals(fake.cancel(ref), PaymentProcessor.OrderState.SETTLING, "a debit in flight cannot be cancelled");
+        assertEquals(fake.cancel(ref), PaymentProcessor.OrderState.SETTLING, "a debit in flight cannot be canceled");
         assertTrue(fake.capture(ref).isSettling());
         assertEquals(FakeProcessor.settle(ref), payment.getPaymentId());
         final PaymentProcessor.CaptureResult bank = fake.capture(ref);

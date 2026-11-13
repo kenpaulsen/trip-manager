@@ -1198,7 +1198,7 @@ public class TripsResourceTest extends ResourceTestSupport {
     }
 
     /**
-     * F23: the open listing is what the anonymous public sees, and the public never sees who is travelling.
+     * F23: the open listing is what the anonymous public sees, and the public never sees who is traveling.
      * A trip the caller cannot read keeps only the caller's own people in {@code people} (what the apps'
      * "am I on the roster" check reads); a trip they are on is unchanged.
      */

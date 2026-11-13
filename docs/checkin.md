@@ -78,7 +78,8 @@ action shows it).
   Enter, no search as you type since 2026-11-12); `checkin.find` matches a whole ticket code EXACTLY (never a
   prefix), else the people-search rule every list uses (`PersonMatch`: names and cell digits anywhere, email from
   its start; cell and email only where this viewer may see them, a trip manager having the admin view);
-  CONFIRMED and PENDING, at most `PersonCommands.PEOPLE_LIST_LIMIT` (60) by name, flagged when cut. Rows are `RegistrationCommands.RegRow` (the
+  CONFIRMED and PENDING, at most `PersonCommands.PEOPLE_LIST_LIMIT` (60) by name, flagged when cut. Rows are
+  `RegistrationCommands.RegRow` (the
   registrations table's scalar row, plus `name`, `registrationType`, `checkedInAt`; never the ticket). A row's
   "Check in" is an ajax button carrying the person in an `f:param`; picking a name is a plain GET (`?id=`).
 - **Buttons hide by `style`, never by a state-dependent `rendered=`.** `rendered` is evaluated again when the click

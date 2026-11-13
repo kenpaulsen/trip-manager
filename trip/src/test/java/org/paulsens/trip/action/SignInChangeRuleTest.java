@@ -86,6 +86,25 @@ public class SignInChangeRuleTest {
                 "...but never the site admin's sign-in, even for the org's own admin");
     }
 
+    /**
+     * A site-wide privilege sits on an ordinary "user" login, so the site-admin check does not see it; yet whoever
+     * signs in as a privilege admin can grant themselves anything on the platform.
+     */
+    @Test
+    public void notAHolderOfASiteWidePrivilege() {
+        final Scene scene = new Scene();
+        final Person helper = scene.memberOfA("Helper");
+        TenancyFixtures.giveLogin(helper, "user");
+        assertTrue(scene.asDeputy().canChangeSignInOf(helper.getId()), "an ordinary member, before the grant");
+
+        final PrivilegeCommands privileges = new PrivilegeCommands();
+        assertTrue(privileges.savePrivilege(privileges.getOrCreate(PrivilegeCommands.PRIVILEGE_ADMIN, null,
+                "See and edit privileges").withNewPerson(helper.getId())));
+        assertTrue(scene.asDeputy().canAdminPerson(helper.getId()), "the profile is still theirs to edit");
+        assertFalse(scene.asDeputy().canChangeSignInOf(helper.getId()),
+                "re-keying this login would hand over every privilege on the site");
+    }
+
     @Test
     public void notAnAdminOfTheOrgWhenTheCallerIsOnlyAPeopleAdminThere() {
         final Scene scene = new Scene();

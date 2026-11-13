@@ -59,6 +59,32 @@ public class PassCommands {
         return (person == null) ? null : storedLogin(person.getEmail(), person.getId());
     }
 
+    /**
+     * Whether this person signs in for themselves (has a stored login row of their own). A login that could
+     * not be read counts as one: an outage must not be what lets an account be deleted or re-keyed. The ONE
+     * fail-closed reader, for every rule that protects somebody's own account.
+     */
+    static boolean hasOwnLogin(final Person person) {
+        try {
+            return storedLoginOf(person) != null;
+        } catch (final RuntimeException ex) {
+            log.error("Could not read the login of {}; treating them as having one.", person.getId(), ex);
+            return true;
+        }
+    }
+
+    /** Whether this person's own login is a site administrator's. Unreadable counts as one, as above. */
+    static boolean isSiteAdminLogin(final Person person) {
+        try {
+            final Creds login = storedLoginOf(person);
+            return login != null && login.getPriv() != null && login.getPriv().contains("admin");
+        } catch (final RuntimeException ex) {
+            log.error("Could not read the login of {} to check its role; treating it as a site admin's.",
+                    person.getId(), ex);
+            return true;
+        }
+    }
+
     /** {@link #storedLoginOf} by the address the login is keyed under, for a caller that already holds it. */
     private static Creds storedLogin(final String email, final Person.Id owner) {
         if (Util.isBlank(email) || owner == null) {

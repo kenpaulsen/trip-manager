@@ -50,7 +50,8 @@ public class TransactionsCommandsTest {
         final String note = RandomData.genAlpha(15);
         final float amount = -103.5f;
         final Person.Id p1 = createPerson();
-        txCmds.saveGroupTx(sharedGroup, List.of(), Transaction.Type.Shared, Transaction.TransactionType.Bill,
+        txCmds.saveGroupTxAs(TripFinanceGate.forCaller(TenancyFixtures::siteAdminCaller), sharedGroup, List.of(),
+                Transaction.Type.Shared, Transaction.TransactionType.Bill,
                 LocalDateTime.now(), amount, cat, note, null /* tripId */, null /* eventId */,
                 p1, createPerson(), createPerson(), createPerson());
         // Membership is stamped on each row -- read it off any member's tx

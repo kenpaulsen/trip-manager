@@ -739,6 +739,8 @@ public class RegistrationsResourceTest extends ResourceTestSupport {
     @Test
     public void anOfflinePaymentIsForRegistrationAdminsAndAnswersItsCompletion() {
         signedInAs(ME);
+        // The traveler is on the trip: an admin's reach stops at the trip's own people.
+        Mockito.when(trips.getTrip(TRIP_ID)).thenReturn(Trip.builder().id(TRIP_ID).people(List.of(OTHER)).build());
         final RegistrationsResource party = checkoutResource();
         final org.paulsens.trip.api.dto.CheckoutRequest.Offline check =
                 new org.paulsens.trip.api.dto.CheckoutRequest.Offline("CHECK", "1042", 15000L, null, null);
@@ -824,7 +826,8 @@ public class RegistrationsResourceTest extends ResourceTestSupport {
         admission.setChoices(List.of(new org.paulsens.trip.model.OptionChoice("fri", "Friday", 6000L, null, null,
                 null, null), new org.paulsens.trip.model.OptionChoice("full", "Full", 15000L, null, null, null,
                 null)));
-        final Trip trip = Trip.builder().id(tripId).regOptions(List.of(admission)).build();
+        final Trip trip = Trip.builder().id(tripId).regOptions(List.of(admission)).people(List.of(OTHER))
+                .build();
         trip.setCheckout(new org.paulsens.trip.model.CheckoutConfig(Boolean.TRUE, null, null, null, List.of(),
                 List.of(new org.paulsens.trip.model.DiscountCode("SPEAKER", null, null, null, null, null, null))));
         Mockito.when(trips.getTrip(tripId)).thenReturn(trip);
@@ -865,5 +868,42 @@ public class RegistrationsResourceTest extends ResourceTestSupport {
         Assert.assertEquals(approved.status(), "CONFIRMED");
         Assert.assertEquals(approved.options().get(key), "full");
         assertOk(as(registrar).saveRoom(tripId, OTHER.getValue(), CSRF_OK, Map.of("room", "101")));
+    }
+
+    /**
+     * A registration is what makes someone "on the trip", and a trip's staff read the profiles and ledgers of
+     * the people on it. So staff may file one only for the trip's own people: someone already on it, or one of
+     * its organization's members. Anyone else took a single request to turn into a traveler.
+     */
+    @Test
+    public void aRegistrationAdminCannotRegisterSomeoneOutsideTheTripsPeople() {
+        final String tripId = java.util.UUID.randomUUID().toString();
+        Mockito.when(trips.getTrip(tripId)).thenReturn(Trip.builder().id(tripId).build());
+        Mockito.when(registrations.getRegistration(tripId, OTHER)).thenReturn(new Registration(tripId, OTHER));
+        Mockito.when(registrations.saveRegistration(ArgumentMatchers.any())).thenReturn(true);
+        final Person.Id registrar = holderOf(PrivilegeCommands.REGISTRATION_ADMIN, tripId);
+
+        assertError(as(registrar).save(tripId, OTHER.getValue(), CSRF_OK, body("PENDING", null)),
+                403, ApiErrors.FORBIDDEN);
+        Mockito.verify(registrations, Mockito.never()).saveRegistration(ArgumentMatchers.any());
+
+        // The same stranger in a checkout party: the admin's exemption from "someone you act for" ends there too.
+        Mockito.when(checkout.canAdminister(ArgumentMatchers.any())).thenReturn(true);
+        signedInAs(registrar);
+        final org.paulsens.trip.api.dto.CheckoutRequest party = new org.paulsens.trip.api.dto.CheckoutRequest(
+                null, List.of(buyer(OTHER, null, null, null, null)), null, null, null, null);
+        try {
+            checkoutResource().quoteCheckout(tripId, party);
+            Assert.fail("a stranger must not be priced (the price reveals their age band) or registered");
+        } catch (final jakarta.ws.rs.WebApplicationException refused) {
+            Assert.assertEquals(refused.getResponse().getStatus(), 403);
+        }
+
+        // A site admin is not bounded, and the trip's own traveler is the registrar's to administer.
+        signedInAsSiteAdmin(ME);
+        assertOk(resource(new RegistrationsResource()).save(tripId, OTHER.getValue(), CSRF_OK,
+                body("PENDING", null)));
+        Mockito.when(trips.getTrip(tripId)).thenReturn(Trip.builder().id(tripId).people(List.of(OTHER)).build());
+        assertOk(as(registrar).save(tripId, OTHER.getValue(), CSRF_OK, body("PENDING", null)));
     }
 }

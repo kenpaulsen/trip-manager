@@ -86,7 +86,7 @@ public class TripsResource extends BaseResource {
      * Trips, scoped by {@code filter}: {@code mine} (default), {@code active}, {@code inactive}, {@code recent},
      * {@code open} -- the last being the publicly listed, joinable trips of this host (the landing page's list),
      * readable by any signed-in person because it is what the anonymous public already sees. The public never
-     * sees who is travelling, though, so an {@code open} entry the caller could not otherwise read carries only
+     * sees who is traveling, though, so an {@code open} entry the caller could not otherwise read carries only
      * the caller and the people they manage in {@code people} ({@link #openListingDto}).
      *
      * <p>Itineraries are omitted from every entry here. A traveller on eight trips would otherwise pull every
@@ -611,14 +611,11 @@ public class TripsResource extends BaseResource {
     }
 
     /**
-     * {@code PaymentCommands.isPaymentsAdmin}, the trip editor's Payment Settings rule, asked of an
-     * ORGANIZATION: the one a new trip is being created in, or the one an update leaves the trip in. The
-     * rule takes a trip, so it is handed a blank one carrying only that org.
+     * The trip editor's Payment Settings rule asked of an ORGANIZATION: the one a new trip is being created
+     * in, or the one an update leaves the trip in.
      */
     private boolean isPaymentsAdminOf(final String orgId) {
-        final Trip inOrg = Trip.builder().build();
-        inOrg.setOrgId(orgId);
-        return payments().isPaymentsAdmin(inOrg);
+        return payments().isPaymentsAdminOf(orgId);
     }
 
     private static boolean isConference(final String kind) {

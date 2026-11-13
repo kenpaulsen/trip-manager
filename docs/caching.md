@@ -90,11 +90,13 @@ eviction, not a shorter TTL.
 
 `PersonDAO` searches through one `SearchIndex` (`t1:idx:people:v2`): a sorted set of `token|personId` entries that
 `SearchIndex` can only look up by PREFIX. Since 2026-11-12 the tokens are `PersonMatch.indexTokens`: every SUFFIX of
-the first name, last name, nickname and the cell's digits, plus the whole email. A prefix lookup over suffixes is a contains lookup, so "ulse" finds Paulsen and "5309" finds (555) 867-5309, while email stays
+the first name, last name, nickname and the cell's digits, plus the whole email. A prefix lookup over suffixes is a
+contains lookup, so "ulse" finds Paulsen and "5309" finds (555) 867-5309, while email stays
 prefix-only by owner decision ("gmail" would match half the site). `PersonMatch` also holds the matcher the results are
 filtered through and that every in-memory people list uses (`PersonCommands.listOrSearch`), so the directory search and
 the pages agree. The index window is read in token order (`limit * 3` ids), so a short word common across the site
-can fill it; `PersonDAO.Search.cut` says so, and the admin People page then asks for a narrower search. The key carries `:v2` because the token shape changed: the first search after the deploy builds the
+can fill it; `PersonDAO.Search.cut` says so, and the admin People page then asks for a narrower search. The key
+carries `:v2` because the token shape changed: the first search after the deploy builds the
 suffix index (one table scan) rather than answering from the old prefix-only one until its daily rebuild; the old key
 ages out on `GC_TTL`. Size is roughly 30 extra entries per person, a few MB.
 

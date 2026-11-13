@@ -39,6 +39,11 @@ public class RegistrationCommands {
     /** The required-documents gate ({@code WAIVERS_REQUIRED}), bound to this bean's caller. */
     private final java.util.function.Supplier<WaiverCommands> waiverSource;
 
+    /** The refusal for a staff filing outside {@link #withinStaffReach}; the REST doors answer it too. */
+    public static final String OUT_OF_REACH =
+            "That person is not on this trip and is not one of its organization's people. Add them to the"
+            + " organization first.";
+
     public RegistrationCommands() {
         this(Caller::current);
     }
@@ -730,6 +735,24 @@ public class RegistrationCommands {
         return traveler != null && canRegisterFor(currentPerson(), traveler.getId());
     }
 
+    /**
+     * Whether a trip's registration staff may file a registration for this person at all: someone already on
+     * the trip (its roster, or a registration that is not Not Registered) or one of the trip's organization's
+     * people. A site admin is unbounded. The role is the caller's to check; this is only the REACH, the same
+     * bound the roster editor and the trip-role picker apply.
+     *
+     * <p>Without it "on the trip" was the staff's to assert: registering a stranger made them a traveler, and
+     * a traveler's profile and ledger open to the trip's staff (the 2026-11-12 review of the audit fixes).
+     */
+    public boolean withinStaffReach(final org.paulsens.trip.model.Trip trip, final Person.Id personId) {
+        if (trip == null || personId == null) {
+            return false;
+        }
+        return callerSource.get().isSiteAdmin()
+                || TripCommands.isOnTrip(trip, personId)
+                || orgSource.get().isMember(trip.getOrgId(), personId);
+    }
+
     private boolean canRegisterFor(final Person me, final Person.Id travelerId) {
         if (me == null || travelerId == null) {
             return false;
@@ -842,6 +865,12 @@ public class RegistrationCommands {
         }
         if (!allowedStatuses(current.getStatus().getDescription()).contains(newStatus)) {
             PageFeedback.warn("Cannot change " + current.getStatus().getDescription() + " to " + newStatus + ".");
+            return false;
+        }
+        if (current.getStatus() == Registration.Status.NOT_REGISTERED && !withinStaffReach(
+                DAO.getInstance().getTrip(tripId, Cached.YES).orElse(null), userId)) {
+            // A crafted row id must not turn a stranger into a traveler (withinStaffReach).
+            PageFeedback.warn(OUT_OF_REACH);
             return false;
         }
         return switch (to) {

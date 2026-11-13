@@ -550,7 +550,10 @@ public class CheckoutCommands {
             final List<Registration> existing) {
         final List<CheckoutProblem> problems = new ArrayList<>();
         final String pid = person.getId().getValue();
-        if (!canAdminister(trip) && !new RegistrationCommands(callerSource).canRegister(person)) {
+        final RegistrationCommands registrations = new RegistrationCommands(callerSource);
+        // An admin's reach is the trip's own people; anyone else registers only whom they act for.
+        if (!(canAdminister(trip) && registrations.withinStaffReach(trip, person.getId()))
+                && !registrations.canRegister(person)) {
             problems.add(new CheckoutProblem("NOT_ALLOWED", pid, null,
                     "You cannot register " + person.getPreferredName() + "."));
         }

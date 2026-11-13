@@ -98,7 +98,7 @@ public final class FakeProcessor implements PaymentProcessor {
                 order.cents(), OptionalLong.of(fee), order.methodType());
     }
 
-    /** Like Stripe: a debit in flight cannot be cancelled; anything else is released. */
+    /** Like Stripe: a debit in flight cannot be canceled; anything else is released. */
     @Override
     public OrderState cancel(final String orderRef) {
         final Order order = (orderRef == null) ? null : ORDERS.get(orderRef);

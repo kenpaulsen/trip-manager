@@ -257,7 +257,7 @@ public class StripeProcessorTest {
 
     /**
      * Money Stripe has, or is moving, is never cancelled: a bank debit in flight ({@code processing}) cannot be
-     * recalled, and cancelling our row for it left the cleared debit with no ledger credit.
+     * recalled, and canceling our row for it left the cleared debit with no ledger credit.
      */
     @Test
     public void cancelRefusesAnIntentStripeHoldsOrIsSettling() {

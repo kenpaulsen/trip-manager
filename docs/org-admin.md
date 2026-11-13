@@ -142,10 +142,19 @@ pinned `viewScope.theTripId`, and empty for callers who may not manage the trip'
 endpoint is POSTable without the dialog, so authorization lives on the data source). Never wire a
 people picker on an org-owned page to the global `people.searchPeople`. The shared multi-select picker
 (`WEB-INF/selectPeople.xhtml`: Batch Transactions, the To do editor, the privilege editors) searches through
-`people.searchCandidates`, which since 2026-11-12 is bounded for anyone but a site admin to the organizations
-the caller belongs to (`OrgCommands.sharesOrgWith`): a trip's Finance Admin on Batch Transactions could type
-any tenant's email or cell number, get the name back, and bind a money row to that person. People already
-selected stay offered whatever their org; the page's own rule put them there. `setTripRole` enforces the same
+`people.searchCandidatesOnTrip`, which since 2026-11-12 is bounded for anyone but a site admin: a trip's
+Finance Admin on Batch Transactions could type any tenant's email or cell number, get the name back, and bind
+a money row to that person. The bound is `OrgCommands.pickerScope(tripId)`: on a page that belongs to one trip
+where the caller holds a role, the members of that trip's organization (the organization that owns the page's
+data); anywhere else the members of the caller's own organizations (`OrgCommands.fellowMembersOf`, THE one
+"shares an organization with me" set, which the photo mention typeahead searches too). That set is searched
+IN MEMORY, by name and by what each person shares with everyone. Never filter a window of the site-wide people
+index down to an organization instead: the index is read in token order across every tenant, so other
+organizations' matches fill the window and the caller's own colleague is never found (`people.adminSearch`
+dropped that shape for the same reason, and `GET /api/people?q=` is that search). People already selected stay
+offered whatever their org; the page's own rule put them there. The picker is a convenience, not the rule:
+Batch Transactions' save (`txCmds.saveGroupTx`) refuses anyone the caller may not charge on that trip
+(`TripFinanceGate.mayCharge`), exactly as `POST /api/transactions/groups` does. `setTripRole` enforces the same
 boundary server-side: grants require membership in the trip's org (site admins included, the
 `grantOrgPrivilege` stance); revokes stay open so a departed member's stale role remains removable.
 Org-less trips are site-admin-only and keep the global search.
@@ -263,6 +272,9 @@ themselves and for a site admin. For anyone else, ALL of:
 - `canAdminPerson(subject)`;
 - the subject is not a site admin (the role on their own stored login row; a login that cannot be read counts
   as one);
+- the subject holds no site-wide privilege (a GLOBAL row such as `privilegeAdmin`, `configAdmin` or the site
+  deployer; rows that cannot be read count as held). Those sit on an ordinary "user" login, and whoever signs
+  in as a privilege admin can grant themselves anything;
 - the caller holds `peopleAdmin` in EVERY organization the subject belongs to, so another tenant's member is
   never one organization's to re-key;
 - for every organization the subject administers (`Organization.adminIds`), the caller may manage that
