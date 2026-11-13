@@ -318,4 +318,42 @@ public class PayPalProcessorTest {
         assertEquals(paypal.reprice("ORDER-1", 100L, null), PaymentProcessor.Repriced.UNSUPPORTED);
         assertEquals(paypal.reprice("ORDER-1", 100L, "us_bank_account"), PaymentProcessor.Repriced.UNSUPPORTED);
     }
+
+    /**
+     * What a processor kind gets without writing anything: nothing to release and nothing in flight (so a cancel
+     * may go ahead), no refund read ("ask again", never zero), no re-pricing.
+     */
+    @Test
+    public void theSpiDefaultsAreTheAnswersOfAKindWithNothingToAsk() {
+        final PaymentProcessor bare = new PaymentProcessor() {
+            @Override
+            public ProcessorType type() {
+                return ProcessorType.ZEFFY;
+            }
+
+            @Override
+            public CreatedOrder createOrder(final Payment payment, final String description, final String returnUrl,
+                    final String cancelUrl) {
+                return CreatedOrder.redirect("REF", "http://processor/approve");
+            }
+
+            @Override
+            public CaptureResult capture(final String orderRef) {
+                return CaptureResult.failed();
+            }
+        };
+        assertEquals(bare.cancel("REF"), PaymentProcessor.OrderState.OPEN);
+        assertTrue(bare.refundedCents("REF").isEmpty());
+        assertEquals(bare.reprice("REF", 100L, "us_bank_account"), PaymentProcessor.Repriced.UNSUPPORTED);
+        assertEquals(bare.type().getLabel(), "Zeffy");
+        assertFalse(bare.createOrder(payment(), "d", "http://r", "http://c").isInline());
+        assertTrue(PaymentProcessor.CreatedOrder.inline("REF", "pk", "secret").isInline());
+        assertEquals(PaymentProcessor.CreatedOrder.inline("REF", "pk", "secret").inline().scriptUrl(),
+                PaymentProcessor.CreatedOrder.Inline.STRIPE_JS);
+        assertFalse(bare.capture("REF").isSettling());
+        assertTrue(PaymentProcessor.CaptureResult.pending("pi_1").isSettling());
+        assertEquals(new PaymentProcessor.ProcessorException("refused").getMessage(), "refused");
+        assertEquals(new PaymentProcessor.ProcessorException("refused", new IllegalStateException("x")).getCause()
+                .getMessage(), "x");
+    }
 }
