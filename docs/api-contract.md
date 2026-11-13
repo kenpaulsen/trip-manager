@@ -335,10 +335,12 @@ URL; `clientSecret` + `publishableKey` set = a Stripe PaymentIntent: present the
 (`token` null for Stripe) and read `status` (`recorded`, `sandbox`, `pending` = a bank debit is processing and
 the server will email when it clears, `mismatch` = the money was received but the payment is held for an
 administrator, `failed`, `cancelled`), or `POST /api/payments/{id}/cancel` when the sheet is dismissed. The cancel
-answers 200 `{cancelled}`: `false` means it was NOT cancelled and the attempt must keep showing as awaiting
-confirmation -- the payment was already finished, the processor is still settling it (a bank debit in flight
+answers 200 `{cancelled, state}`: `cancelled: false` means THIS call did not cancel it -- the payment was already
+finished or already cancelled (a replayed cancel), the processor is still settling it (a bank debit in flight
 cannot be cancelled, 2026-11) or already holds the money (it is then recorded instead), or the processor could
-not be reached. A transport failure of the PayPal capture answers `pending`, never `failed` (2026-11): the money
+not be reached. `state` (2026-11; null for a payment that is not the caller's) is the payment's stored status
+after the call and is what settles the client's attempt: `CANCELLED` or `FAILED` = cancelled, `RECORDED` =
+completed, `CREATED` or `CAPTURED` = still open, keep showing it as awaiting confirmation. A transport failure of the PayPal capture answers `pending`, never `failed` (2026-11): the money
 may have moved, and a later `complete` converges. `POST /api/payments/{paymentId}/method {type}` (2026-11;
 `type` is the processor's payment method type, `us_bank_account` or `card`) → `{paymentId, creditFeeCents,
 totalCents, totalFormatted, changed, methodLocked}`: re-prices a payer-pays Stripe payment for the picked method

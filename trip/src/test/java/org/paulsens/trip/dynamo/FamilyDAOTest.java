@@ -2,6 +2,7 @@ package org.paulsens.trip.dynamo;
 
 import java.io.IOException;
 import java.util.List;
+import org.paulsens.trip.cache.InMemoryCacheClient;
 import org.paulsens.trip.model.Family;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.util.RandomData;
@@ -10,6 +11,7 @@ import org.testng.annotations.Test;
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
 
 import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertThrows;
 import static org.testng.Assert.assertTrue;
 import org.paulsens.trip.cache.Cached;
 
@@ -112,6 +114,28 @@ public class FamilyDAOTest {
         persistence.putItem(b -> b.tableName(FamilyDAO.FAMILY_TABLE).item(item));
         assertTrue(familyDao.getFamily(Family.Id.from(id)).isEmpty(),
                 "Unparseable content answers empty, never throws");
+    }
+
+    /**
+     * A second writer's cache can hold the losing version (its write-through SET failed, or another task
+     * saved). The refused save tells the person to reload and try again, and that reload reads the cache: it
+     * must now hold what the STORE holds, or every retry loses the same way until the soft TTL.
+     */
+    @Test
+    public void aLostVersionCheckRefreshesTheCachedRow() throws IOException {
+        final InMemoryPersistence store = new InMemoryPersistence();
+        final FamilyDAO ours = new FamilyDAO(DAO.getInstance().getMapper(), store, new InMemoryCacheClient());
+        final FamilyDAO theirs = new FamilyDAO(DAO.getInstance().getMapper(), store, new InMemoryCacheClient());
+        final Family family = newFamily();
+        assertTrue(theirs.saveFamily(family));
+        assertEquals(ours.getFamily(family.getId()).orElseThrow().getVersion(), 1L, "our cache holds v1");
+        assertTrue(theirs.saveFamily(theirs.getFamily(family.getId()).orElseThrow()));
+
+        final Family stale = ours.getFamily(family.getId()).orElseThrow();
+        assertEquals(stale.getVersion(), 1L, "the store is at v2; our cache still answers v1");
+        assertThrows(ConditionalCheckFailedException.class, () -> ours.saveFamily(stale));
+        assertEquals(ours.getFamily(family.getId()).orElseThrow().getVersion(), 2L,
+                "the reload after the refusal reads the stored version");
     }
 
     private static Family newFamily() {

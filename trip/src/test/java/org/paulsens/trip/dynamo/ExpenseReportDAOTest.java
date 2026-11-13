@@ -114,6 +114,30 @@ public class ExpenseReportDAOTest {
         assertEquals(report.getVersion(), 0L, "Not saved: the caller keeps the version it loaded");
     }
 
+    /**
+     * A second writer's cache can hold the losing version (its write-through SET failed, or another task
+     * saved). The refused save tells the person to reload and try again, and that reload reads the cache: it
+     * must now hold what the STORE holds, or every retry loses the same way until the soft TTL.
+     */
+    @Test
+    public void aLostVersionCheckRefreshesTheCachedRow() throws IOException {
+        final InMemoryPersistence store = new InMemoryPersistence();
+        final ExpenseReportDAO ours =
+                new ExpenseReportDAO(DAO.getInstance().getMapper(), store, new InMemoryCacheClient());
+        final ExpenseReportDAO theirs =
+                new ExpenseReportDAO(DAO.getInstance().getMapper(), store, new InMemoryCacheClient());
+        final TripExpenseReport report = report();
+        assertTrue(theirs.saveReport(report));
+        assertEquals(ours.getReport(report.getTripId()).orElseThrow().getVersion(), 1L, "our cache holds v1");
+        assertTrue(theirs.saveReport(theirs.getReport(report.getTripId()).orElseThrow()));
+
+        final TripExpenseReport stale = ours.getReport(report.getTripId()).orElseThrow();
+        assertEquals(stale.getVersion(), 1L, "the store is at v2; our cache still answers v1");
+        assertThrows(ConditionalCheckFailedException.class, () -> ours.saveReport(stale));
+        assertEquals(ours.getReport(report.getTripId()).orElseThrow().getVersion(), 2L,
+                "the reload after the refusal reads the stored version");
+    }
+
     private static TripExpenseReport report() {
         return TripExpenseReport.builder().tripId("trip-" + RandomData.genAlpha(10)).orgId("org-1")
                 .advances(List.of(ExpenseOracle.advance(4_576_500L)))

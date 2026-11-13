@@ -109,6 +109,29 @@ public class BudgetDAOTest {
         assertEquals(budget.getVersion(), 0L, "Not saved: the caller keeps the version it loaded");
     }
 
+    /**
+     * A second writer's cache can hold the losing version (its write-through SET failed, or another task
+     * saved). The refused save tells the person to reload and try again, and that reload reads the cache: it
+     * must now hold what the STORE holds, or every retry loses the same way until the soft TTL.
+     */
+    @Test
+    public void aLostVersionCheckRefreshesTheCachedRow() throws IOException {
+        final InMemoryPersistence store = new InMemoryPersistence();
+        final BudgetDAO ours = new BudgetDAO(DAO.getInstance().getMapper(), store, new InMemoryCacheClient());
+        final BudgetDAO theirs = new BudgetDAO(DAO.getInstance().getMapper(), store, new InMemoryCacheClient());
+        final TripBudget budget = budget();
+        assertTrue(theirs.saveBudget(budget));
+        assertEquals(ours.getBudget(budget.getTripId()).orElseThrow().getVersion(), 1L, "our cache holds v1");
+        assertTrue(theirs.saveBudget(theirs.getBudget(budget.getTripId()).orElseThrow()));
+
+        final TripBudget stale = ours.getBudget(budget.getTripId()).orElseThrow();
+        assertEquals(stale.getVersion(), 1L, "the store is at v2; our cache still answers v1");
+        assertThrows(ConditionalCheckFailedException.class, () -> ours.saveBudget(stale));
+        assertEquals(ours.getBudget(budget.getTripId()).orElseThrow().getVersion(), 2L,
+                "the reload after the refusal reads the stored version");
+        assertTrue(ours.saveBudget(ours.getBudget(budget.getTripId()).orElseThrow()), "so the retry goes through");
+    }
+
     private static TripBudget budget() {
         return TripBudget.builder().tripId("trip-" + RandomData.genAlpha(10)).orgId("org-1").people(46)
                 .tripNights(10).perPersonBudgetCents(40_000)

@@ -148,11 +148,22 @@ public class PaymentsResourceTest extends ResourceTestSupport {
         final Map<String, Object> outcome = (Map<String, Object>) completed.getEntity();
         Assert.assertEquals(outcome.get("status"), "recorded");
 
-        // Cancelling a RECORDED payment is a no-op false, and someone else's payment is invisible.
-        assertOk(resource.cancel(paymentId, CSRF_OK));
+        // Cancelling a RECORDED payment is a no-op false, and the answer says where the payment stands, so a
+        // phone that asked to cancel learns it went through instead of waiting on it forever.
+        final Response notCancelled = resource.cancel(paymentId, CSRF_OK);
+        assertOk(notCancelled);
+        @SuppressWarnings("unchecked")
+        final Map<String, Object> cancelBody = (Map<String, Object>) notCancelled.getEntity();
+        Assert.assertEquals(cancelBody.get("cancelled"), Boolean.FALSE);
+        Assert.assertEquals(cancelBody.get("state"), "RECORDED");
+        // Someone else's payment is invisible: not cancelled, and no state to read either.
         signedInAs(savedPerson().getId());
         // The caller is memoized per request/resource; a new identity means a new resource instance.
         final PaymentsResource stranger = resource(new PaymentsResource());
+        @SuppressWarnings("unchecked")
+        final Map<String, Object> strangerBody = (Map<String, Object>) stranger.cancel(paymentId, CSRF_OK).getEntity();
+        Assert.assertEquals(strangerBody.get("cancelled"), Boolean.FALSE);
+        Assert.assertNull(strangerBody.get("state"));
         assertError(stranger.complete(paymentId, CSRF_OK, null), 404, ApiErrors.NOT_FOUND);
         assertError(stranger.complete("no-such-payment", CSRF_OK, null), 404, ApiErrors.NOT_FOUND);
     }

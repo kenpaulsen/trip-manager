@@ -25,8 +25,16 @@ import lombok.extern.slf4j.Slf4j;
  * partition. Write-through ({@link #put}) keeps partitions current between scans; point lookups
  * ({@link #getOne}) fall back to a supplied loader (a database key lookup) on a miss.</p>
  *
- * <p>Deletion is not reconciled (this template's users never delete entities in-app); out-of-band deletes are
- * healed only by {@link CacheKeys#GC_TTL} expiry or an explicit {@link #invalidate()}.</p>
+ * <p><b>A rebuild is a compare-and-set against a snapshot taken BEFORE the scan</b> (2026-11; the same shape as
+ * {@link PartitionCache}'s reload and {@code TripIndex.rebuildIndexes}). The scan is eventually consistent and
+ * takes time, and a write-through or a {@link #removeOne} can land while it runs: the scan's copy of that row is
+ * then OLDER than the cache's. So a rebuild writes a scanned row only when the cached field is still what the
+ * snapshot saw, and removes a cached field the scan no longer returns only under the same condition. Before
+ * this, every rebuild overwrote unconditionally (a revoked privilege came back for a day, and the next grant
+ * read the stale holders and wrote the revoked person back into the table) and never removed anything (a
+ * deleted content block a racing rebuild had put back was served until someone cleared the caches). The
+ * snapshot needs to know which partitions exist, so each one is listed in a registry set next to the loaded
+ * marker; a partition the registry has not seen yet is overwritten as before, once.</p>
  *
  * @param <V> the cached entity type.
  */
@@ -57,6 +65,9 @@ public final class PartitionScanCache<V> {
     /** Injectable jitter source in [0,1) for tests; production uses {@link Revalidator#randomJitter()}. */
     @Builder.Default
     private final Supplier<Double> ttlJitter = Revalidator::randomJitter;
+
+    /** Suffix of the registry set (next to {@code loadedKey}) naming every partition hash that holds rows. */
+    private static final String PARTITIONS_SUFFIX = ":parts";
 
     /** In-process single-flight for the (single) background rebuild; keyed by {@code loadedKey}. */
     private final ConcurrentHashMap<String, Boolean> refreshing = new ConcurrentHashMap<>();
@@ -102,7 +113,15 @@ public final class PartitionScanCache<V> {
         }
         final boolean ok = cache.putHashField(key, fielder.apply(value), json);
         cache.expire(key, gcTtl);
+        if (softRevalidate) {
+            // So the next rebuild snapshots this partition too, even when this write is what created it.
+            cache.addSetMembers(partitionsKey(), List.of(key));
+        }
         return ok;
+    }
+
+    private String partitionsKey() {
+        return loadedKey + PARTITIONS_SUFFIX;
     }
 
     /**
@@ -116,9 +135,10 @@ public final class PartitionScanCache<V> {
         return cache.getValue(loadedKey).isPresent();
     }
 
-    /** Drops every partition and the loaded marker (next read rebuilds). Admin/test path. */
+    /** Drops every partition, the registry and the loaded marker (next read rebuilds). Admin/test path. */
     public boolean invalidate() {
         cache.clearNamespace(keyPrefix);
+        cache.removeKey(partitionsKey());
         return cache.removeKey(loadedKey);
     }
 
@@ -172,10 +192,11 @@ public final class PartitionScanCache<V> {
 
     private List<V> buildAndAnswer(final Function<List<V>, List<V>> inMemoryAnswer) {
         final String lockKey = CacheKeys.refreshLockKey(loadedKey);
+        final Map<String, Map<String, String>> before = snapshot();
         final List<V> all = loader.get();
         if (cache.tryAcquireLock(lockKey, CacheKeys.REFRESH_LOCK_TTL)) {
             try {
-                populate(all);
+                populate(all, before);
             } catch (final RuntimeException ex) {
                 logIfFailed(ex);
             } finally {
@@ -185,17 +206,75 @@ public final class PartitionScanCache<V> {
         return inMemoryAnswer.apply(all);
     }
 
-    private boolean populate(final List<V> all) {
-        final Map<String, Map<String, String>> byPartition = new HashMap<>();
+    /** The background rebuild: snapshot, scan, then merge the scan in against the snapshot. */
+    private boolean rebuild() {
+        final Map<String, Map<String, String>> before = snapshot();
+        return populate(loader.get(), before);
+    }
+
+    /** Every registered partition's hash as it stands now: what a rebuild compares against after its scan. */
+    private Map<String, Map<String, String>> snapshot() {
+        final Map<String, Map<String, String>> before = new HashMap<>();
+        for (final String key : cache.getSetMembers(partitionsKey())) {
+            before.put(key, cache.getHash(key));
+        }
+        return before;
+    }
+
+    private boolean populate(final List<V> all, final Map<String, Map<String, String>> before) {
+        final Map<String, Map<String, String>> scanned = new HashMap<>();
         for (final V v : all) {
-            byPartition.computeIfAbsent(keyPrefix + partitioner.apply(v), k -> new HashMap<>())
+            scanned.computeIfAbsent(keyPrefix + partitioner.apply(v), k -> new HashMap<>())
                     .put(fielder.apply(v), serializer.apply(v));
         }
-        for (final Map.Entry<String, Map<String, String>> e : byPartition.entrySet()) {
-            cache.putHashFields(e.getKey(), e.getValue());
-            cache.expire(e.getKey(), gcTtl);
+        // Partitions the scan no longer returns are visited too: their rows are what has to go.
+        final List<String> keys = new ArrayList<>(scanned.keySet());
+        before.keySet().stream().filter(key -> !scanned.containsKey(key)).forEach(keys::add);
+        for (final String key : keys) {
+            mergePartition(key, scanned.getOrDefault(key, Map.of()), before.get(key));
+        }
+        if (!scanned.isEmpty()) {
+            cache.addSetMembers(partitionsKey(), scanned.keySet());
+            cache.expire(partitionsKey(), gcTtl);
         }
         return markLoaded();
+    }
+
+    /**
+     * Brings one partition hash in line with the scan. {@code before} is the partition as the snapshot saw it,
+     * or null for a partition the registry did not know yet, which is overwritten outright (there is nothing to
+     * compare against, and nothing is removed from it).
+     */
+    private void mergePartition(final String key, final Map<String, String> scanned,
+            final Map<String, String> before) {
+        if (before == null) {
+            cache.putHashFields(key, scanned);
+            cache.expire(key, gcTtl);
+            return;
+        }
+        final Map<String, String> now = cache.getHash(key);
+        final Map<String, String> unchanged = new HashMap<>();
+        for (final Map.Entry<String, String> row : scanned.entrySet()) {
+            if (java.util.Objects.equals(before.get(row.getKey()), now.get(row.getKey()))) {
+                unchanged.put(row.getKey(), row.getValue());
+            }
+        }
+        if (!unchanged.isEmpty()) {
+            cache.putHashFields(key, unchanged);
+        }
+        int left = now.size();
+        for (final Map.Entry<String, String> cached : now.entrySet()) {
+            // Gone from the table, and nobody wrote it through while the scan ran: the cache drops it too.
+            if (!scanned.containsKey(cached.getKey()) && cached.getValue().equals(before.get(cached.getKey()))) {
+                cache.removeHashField(key, cached.getKey());
+                left--;
+            }
+        }
+        if (scanned.isEmpty() && left <= 0) {
+            cache.removeSetMember(partitionsKey(), key);
+        } else {
+            cache.expire(key, gcTtl);
+        }
     }
 
     private boolean markLoaded() {
@@ -207,7 +286,7 @@ public final class PartitionScanCache<V> {
         if (!softRevalidate || !revalidator.isSoftStale(loadedAtRaw)) {
             return;
         }
-        revalidator.schedule(refreshing, loadedKey, loadedKey, "partition-scan", () -> populate(loader.get()));
+        revalidator.schedule(refreshing, loadedKey, loadedKey, "partition-scan", this::rebuild);
     }
 
     private void logIfFailed(final Throwable ex) {

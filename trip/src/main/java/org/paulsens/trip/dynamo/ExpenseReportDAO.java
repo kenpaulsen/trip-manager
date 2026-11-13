@@ -79,7 +79,26 @@ public class ExpenseReportDAO {
             return saved;
         } catch (final ConditionalCheckFailedException ex) {
             report.setVersion(expected);
+            recacheStored(report.getTripId());
             throw ex;
+        }
+    }
+
+    /**
+     * After a lost version check: put the row the STORE holds into the cache. The caller is told to reload and
+     * try again, and that reload reads this cache; an entry still at the losing version (a write-through SET
+     * that failed, which the caches deliberately survive) would hand back the same stale version every time,
+     * so the record could not be edited until the soft TTL. A reload, never a removal: in local mode the cache
+     * is the datastore. Never lets its own failure hide the conflict being reported.
+     */
+    private void recacheStored(final String tripId) {
+        try {
+            final TripExpenseReport stored = loadReport(tripId);
+            if (stored != null) {
+                cache.put(tripId, stored);
+            }
+        } catch (final RuntimeException ex) {
+            log.warn("Unable to refresh the cached expense report of trip {} after a version conflict", tripId, ex);
         }
     }
 

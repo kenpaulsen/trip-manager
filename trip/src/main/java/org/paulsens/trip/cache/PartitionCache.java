@@ -192,6 +192,11 @@ public class PartitionCache<K, V> {
     private List<V> mergeLoaderResult(final String key, final List<V> list, final Map<String, String> preHash) {
         final boolean wasFullyLoaded = preHash.containsKey(CacheKeys.LOADED_SENTINEL);
         final Map<String, String> preSnapshot = wasFullyLoaded ? entitySnapshot(preHash) : Map.of();
+        // Read again AFTER the load: a field that is no longer what the pre-load snapshot saw was written
+        // through (or removed) while the eventually consistent load ran, so the cache's copy is the newer one
+        // and the loader's must not replace it. Until 2026-11 the overlay was unconditional, and a save that
+        // triggered its own reload (its Cached.NO read is the stale hit) had its write put back.
+        final Map<String, String> postHash = cache.getHash(key);
         final Map<String, String> fields = new HashMap<>();
         fields.put(CacheKeys.LOADED_SENTINEL, CacheKeys.LOADED_VALUE);
         fields.put(CacheKeys.LOADED_AT, String.valueOf(clock.get()));
@@ -200,7 +205,9 @@ public class PartitionCache<K, V> {
             final String json = serializer.apply(value);
             if (json != null) {
                 final String field = idFormatter.apply(idGetter.apply(value));
-                fields.put(field, json);
+                if (Objects.equals(preHash.get(field), postHash.get(field))) {
+                    fields.put(field, json);
+                }
                 loaderFields.put(field, json);
             }
         }

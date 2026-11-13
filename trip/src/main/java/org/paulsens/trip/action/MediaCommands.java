@@ -2,6 +2,8 @@ package org.paulsens.trip.action;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Named;
+import java.io.BufferedInputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.Serial;
 import java.io.Serializable;
@@ -21,6 +23,7 @@ import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.audit.AuditEventBuilder;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.media.UploadType;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.ContentInstance;
@@ -684,9 +687,15 @@ public class MediaCommands {
         return upload(key, content, size, contentType, title, description, slot, position, uploadedBy, null);
     }
 
-    /** As {@link #upload(String, InputStream, long, String, String, String, String, int, String)}, with the
-     *  uploader's public-visibility choice ({@code null} = visible). */
-    public boolean upload(final String key, final InputStream content, final long size, final String contentType,
+    /**
+     * As {@link #upload(String, InputStream, long, String, String, String, String, int, String)}, with the
+     * uploader's public-visibility choice ({@code null} = visible).
+     *
+     * <p>{@code claimedType} is what the browser SAID the file is. It is logged and otherwise ignored: the type
+     * the object is stored and served with comes from the file's own bytes ({@link UploadType}), because a
+     * claimed {@code text/html} on the shared media host is stored script.
+     */
+    public boolean upload(final String key, final InputStream content, final long size, final String claimedType,
             final String title, final String description, final String slot, final int position,
             final String uploadedBy, final Boolean hidden) {
         // The two entry points (the admin page and the upload servlet) gate media administration for the
@@ -708,19 +717,28 @@ public class MediaCommands {
             PageFeedback.error("Not uploaded", refusal);
             return false;
         }
+        final String contentType;
         try {
+            final BufferedInputStream buffered = new BufferedInputStream(content);
+            final UploadType type = UploadType.of(cleanKey, head(buffered));
+            contentType = type.contentType();
+            if (!contentType.equals(claimedType)) {
+                log.info("Storing {} as {} (the browser called it {})", cleanKey, contentType, claimedType);
+            }
             s3().putObject(PutObjectRequest.builder()
                             .bucket(bucket)
                             .key(cleanKey)
                             .contentType(contentType)
+                            // A file that is not a recognized image, PDF, video or audio is download-only.
+                            .contentDisposition(type.attachment() ? "attachment" : null)
                             .contentLength(size)
                             // Set at upload time, because S3 serves object metadata as response headers and
                             // CloudFront honours them. Without this the CDN would still cache, but browsers
                             // would keep re-validating a file that almost never changes.
                             .cacheControl("public, max-age=" + CACHE_SECONDS)
                             .build(),
-                    RequestBody.fromInputStream(content, size));
-        } catch (final RuntimeException ex) {
+                    RequestBody.fromInputStream(buffered, size));
+        } catch (final IOException | RuntimeException ex) {
             log.error("Unable to store media object: " + cleanKey, ex);
             PageFeedback.failure("Not uploaded");
             return false;
@@ -753,6 +771,14 @@ public class MediaCommands {
         return true;
     }
 
+    /** The first bytes of {@code in}, which is left positioned at its start. */
+    private static byte[] head(final BufferedInputStream in) throws IOException {
+        in.mark(UploadType.HEAD_BYTES);
+        final byte[] head = in.readNBytes(UploadType.HEAD_BYTES);
+        in.reset();
+        return head;
+    }
+
     /** What S3 reports about a stored object, for confirming a direct upload without trusting the caller. */
     public record StoredObject(long size, String contentType) implements Serializable {
         @Serial
@@ -767,7 +793,8 @@ public class MediaCommands {
      * <p>This is the API's upload path (issue #37): the container never carries the file's bytes -- it issues
      * the URL, the client PUTs straight to S3, and {@link #confirmUpload} records the row afterwards. The
      * content type, exact content length and the standard cache policy are all part of the SIGNATURE, so the
-     * URL is permission to put that one object shape at that one key and nothing else.
+     * URL is permission to put that one object shape at that one key and nothing else. Null too for a declared
+     * type {@link UploadType#mayDeclare} does not allow.
      */
     public String presignUpload(final String key, final String contentType, final long size) {
         final String bucket = bucket();
@@ -776,6 +803,12 @@ public class MediaCommands {
         final String cleanKey = siteKey(key);
         if (bucket == null || cleanKey == null || contentType == null || contentType.isBlank() || size <= 0
                 || isReservedKey(cleanKey)) {
+            return null;
+        }
+        if (!UploadType.mayDeclare(contentType)) {
+            // The bytes go straight to S3, so they cannot be looked at here: only a type that is inert whatever
+            // the bytes are may be signed (never text/html, SVG, XML or script on the shared media host).
+            log.warn("Refused to presign an upload of {} declared as {}", cleanKey, contentType);
             return null;
         }
         try {

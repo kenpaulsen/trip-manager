@@ -12,9 +12,11 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.Iterator;
+import java.util.function.Supplier;
 import javax.imageio.IIOImage;
 import javax.imageio.ImageIO;
 import javax.imageio.ImageReader;
+import javax.imageio.ImageTypeSpecifier;
 import javax.imageio.ImageWriteParam;
 import javax.imageio.ImageWriter;
 import javax.imageio.stream.ImageInputStream;
@@ -54,7 +56,9 @@ public final class PhotoProcessor {
     /**
      * Decode-bomb guard, checked from the header BEFORE allocating pixel buffers: a 10 MB upload cap does
      * not bound decoded size (a tiny PNG can claim absurd dimensions and the decoder will faithfully
-     * allocate them). 100 MP clears every phone and stitched panorama by a wide margin.
+     * allocate them). 100 MP clears every phone and stitched panorama by a wide margin. Pixels alone do not
+     * bound memory either (a 16-bit RGBA pixel is eight bytes), so {@link DecodeBudget#MAX_DECODED_BYTES} is
+     * checked beside it, and {@link DecodeBudget} bounds what concurrent uploads hold together.
      */
     static final long MAX_PIXELS = 100_000_000L;
 
@@ -84,6 +88,10 @@ public final class PhotoProcessor {
      *         claim absurd dimensions, or are HEIC on a host with no working libheif.
      */
     public ProcessedPhoto process(final byte[] original) {
+        return budgeted(original, () -> processNow(original));
+    }
+
+    private ProcessedPhoto processNow(final byte[] original) {
         final ImageFormat format = ImageFormat.detect(original).orElseThrow(PhotoProcessor::notAnImage);
         return switch (format) {
             case JPEG -> processJpeg(original);
@@ -104,10 +112,20 @@ public final class PhotoProcessor {
      * @throws PhotoRejectedException as {@link #process(byte[])} does.
      */
     public ProcessedPhoto processWithin(final byte[] original, final int maxSide) {
+        return budgeted(original, () -> processWithinNow(original, maxSide));
+    }
+
+    private ProcessedPhoto processWithinNow(final byte[] original, final int maxSide) {
         final ImageFormat format = ImageFormat.detect(original).orElseThrow(PhotoProcessor::notAnImage);
+        // Read from the header: decoding here only to learn the size meant an image within the cap (the common
+        // case) was decoded a second time by process(), with both rasters alive at once.
+        final Header header = headerOf(original);
+        if (header != null && header.width() <= maxSide && header.height() <= maxSide) {
+            return processNow(original);
+        }
         final BufferedImage oriented = decodeOriented(original, format);
         if (oriented.getWidth() <= maxSide && oriented.getHeight() <= maxSide) {
-            return process(original);
+            return processNow(original);
         }
         final BufferedImage bounded = fitWithin(oriented, maxSide, maxSide);
         return (format == ImageFormat.PNG || format == ImageFormat.GIF)
@@ -135,6 +153,10 @@ public final class PhotoProcessor {
      * @throws PhotoRejectedException as {@link #process(byte[])} — same validation, no storage side effects.
      */
     public PreviewImage preview(final byte[] original) {
+        return budgeted(original, () -> previewNow(original));
+    }
+
+    private PreviewImage previewNow(final byte[] original) {
         final ImageFormat format = ImageFormat.detect(original).orElseThrow(PhotoProcessor::notAnImage);
         final BufferedImage oriented = decodeOriented(original, format);
         final BufferedImage display = (oriented.getWidth() <= MAX_SMALL_WIDTH)
@@ -158,6 +180,10 @@ public final class PhotoProcessor {
      * as JPEG. Badge pictures use it at print resolution.
      */
     public byte[] processSquare(final byte[] original, final CropRect rect, final int size) {
+        return budgeted(original, () -> processSquareNow(original, rect, size));
+    }
+
+    private byte[] processSquareNow(final byte[] original, final CropRect rect, final int size) {
         final ImageFormat format = ImageFormat.detect(original).orElseThrow(PhotoProcessor::notAnImage);
         final BufferedImage oriented = decodeOriented(original, format);
         final CropRect square = squareRect(rect, oriented.getWidth(), oriented.getHeight());
@@ -175,7 +201,7 @@ public final class PhotoProcessor {
      */
     public byte[] cropToPng(final byte[] original, final CropRect rect, final int maxWidth,
             final int maxHeight) {
-        return encodePng(fitWithin(cutOut(original, rect, 0), maxWidth, maxHeight));
+        return budgeted(original, () -> encodePng(fitWithin(cutOut(original, rect, 0), maxWidth, maxHeight)));
     }
 
     /**
@@ -183,7 +209,7 @@ public final class PhotoProcessor {
      * and which this codebase can neither decode nor write as ICO or SVG. Alpha survives.
      */
     public byte[] cropToSquarePng(final byte[] original, final CropRect rect, final int size) {
-        return encodePng(scaleToExact(cutOut(original, rect, 1.0d), size, size));
+        return budgeted(original, () -> encodePng(scaleToExact(cutOut(original, rect, 1.0d), size, size)));
     }
 
     /**
@@ -195,7 +221,10 @@ public final class PhotoProcessor {
      */
     public byte[] cropToBoundedJpeg(final byte[] original, final CropRect rect, final double aspect,
             final int maxWidth, final long maxBytes) {
-        final BufferedImage cut = cutOut(original, rect, aspect);
+        return budgeted(original, () -> boundedJpeg(cutOut(original, rect, aspect), maxWidth, maxBytes));
+    }
+
+    private static byte[] boundedJpeg(final BufferedImage cut, final int maxWidth, final long maxBytes) {
         return encodeJpegWithin(fitWithin(cut, Math.min(maxWidth, cut.getWidth()), Integer.MAX_VALUE),
                 maxBytes);
     }
@@ -217,6 +246,10 @@ public final class PhotoProcessor {
      *         turning only its first frame would silently throw the animation away.
      */
     public RotatedImage rotate(final byte[] original, final QuarterTurn turn) {
+        return budgeted(original, () -> rotateNow(original, turn));
+    }
+
+    private RotatedImage rotateNow(final byte[] original, final QuarterTurn turn) {
         final ImageFormat format = ImageFormat.detect(original).orElseThrow(PhotoProcessor::notAnImage);
         final BufferedImage turned = turned(original, format, turn);
         return switch (format) {
@@ -234,6 +267,10 @@ public final class PhotoProcessor {
      * @throws PhotoRejectedException as {@link #rotate}, or when even a shrunk encode cannot fit the budget.
      */
     public byte[] rotateJpegWithin(final byte[] original, final QuarterTurn turn, final long maxBytes) {
+        return budgeted(original, () -> rotateJpegWithinNow(original, turn, maxBytes));
+    }
+
+    private byte[] rotateJpegWithinNow(final byte[] original, final QuarterTurn turn, final long maxBytes) {
         final ImageFormat format = ImageFormat.detect(original).orElseThrow(PhotoProcessor::notAnImage);
         return encodeJpegWithin(turned(original, format, turn), maxBytes);
     }
@@ -265,12 +302,16 @@ public final class PhotoProcessor {
      * as PNG (alpha survives), everything else as JPEG.
      */
     public ProcessedPhoto process(final byte[] original, final CropRect rect) {
+        return budgeted(original, () -> processCroppedNow(original, rect));
+    }
+
+    private ProcessedPhoto processCroppedNow(final byte[] original, final CropRect rect) {
         if (rect == null) {
-            return process(original);
+            return processNow(original);
         }
         final ImageFormat format = ImageFormat.detect(original).orElseThrow(PhotoProcessor::notAnImage);
         if (format == ImageFormat.GIF && isAnimatedGif(original)) {
-            return process(original);
+            return processNow(original);
         }
         final BufferedImage oriented = decodeOriented(original, format);
         final BufferedImage cropped = crop(oriented, clamp(rect, oriented.getWidth(), oriented.getHeight()));
@@ -509,8 +550,8 @@ public final class PhotoProcessor {
             final ImageReader reader = readers.next();
             try {
                 reader.setInput(in, true, true);
-                final long pixels = (long) reader.getWidth(0) * reader.getHeight(0);
-                if (pixels > MAX_PIXELS) {
+                final Header header = header(reader);
+                if (header.pixels() > MAX_PIXELS || header.decodedBytes() > DecodeBudget.MAX_DECODED_BYTES) {
                     throw new PhotoRejectedException("That image's dimensions are too large to process.");
                 }
                 return reader.read(0);
@@ -526,6 +567,61 @@ public final class PhotoProcessor {
             throw new PhotoRejectedException("That file could not be read as an image. It may be corrupted.",
                     ex);
         }
+    }
+
+    /** What an image's header says before anything is decoded. */
+    record Header(int width, int height, int bytesPerPixel) {
+        long pixels() {
+            return (long) width * height;
+        }
+
+        /** The size of the raster a decode will allocate. */
+        long decodedBytes() {
+            return pixels() * bytesPerPixel;
+        }
+    }
+
+    private static Header header(final ImageReader reader) throws IOException {
+        return new Header(reader.getWidth(0), reader.getHeight(0), bytesPerPixel(reader));
+    }
+
+    /** The bytes one pixel takes in the type the reader decodes to; four when the reader will not say. */
+    private static int bytesPerPixel(final ImageReader reader) {
+        try {
+            final Iterator<ImageTypeSpecifier> types = reader.getImageTypes(0);
+            final int bits = (types != null && types.hasNext()) ? types.next().getColorModel().getPixelSize() : 32;
+            return Math.max(1, (bits + 7) / 8);
+        } catch (final IOException | RuntimeException ex) {
+            return 4;
+        }
+    }
+
+    /** The header of {@code bytes}, or null when no reader can make sense of them (the decode says why). */
+    static Header headerOf(final byte[] bytes) {
+        try (ImageInputStream in = ImageIO.createImageInputStream(new ByteArrayInputStream(bytes))) {
+            final Iterator<ImageReader> readers = ImageIO.getImageReaders(in);
+            if (!readers.hasNext()) {
+                return null;
+            }
+            final ImageReader reader = readers.next();
+            try {
+                reader.setInput(in, true, true);
+                return header(reader);
+            } finally {
+                reader.dispose();
+            }
+        } catch (final IOException | RuntimeException ex) {
+            return null;
+        }
+    }
+
+    /**
+     * Runs one image operation inside the process-wide {@link DecodeBudget}, reserving for the raster the
+     * header promises. An unreadable header reserves the minimum: the decode inside rejects it properly.
+     */
+    private static <T> T budgeted(final byte[] original, final Supplier<T> work) {
+        final Header header = (original == null) ? null : headerOf(original);
+        return DecodeBudget.shared().run(header == null ? 0L : header.decodedBytes(), work);
     }
 
     /** @return true when the GIF has more than one frame. */

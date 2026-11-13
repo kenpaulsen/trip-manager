@@ -68,6 +68,37 @@ public class MediaCommandsS3Test {
         Assert.assertNotNull(media.get(id));
     }
 
+    /**
+     * The stored type comes from the file's bytes, never from the browser: an organization's media editor
+     * uploading guide.html as text/html used to publish a live page on the media host all tenants share.
+     */
+    @Test
+    public void theStoredTypeComesFromTheBytesNotFromTheBrowser() {
+        final org.mockito.ArgumentCaptor<PutObjectRequest> put =
+                org.mockito.ArgumentCaptor.forClass(PutObjectRequest.class);
+        final byte[] page = "<!doctype html><script>alert(1)</script>".getBytes(
+                java.nio.charset.StandardCharsets.UTF_8);
+        final String htmlKey = "downloads/guide-" + System.nanoTime() + ".html";
+        Assert.assertTrue(media.upload(htmlKey, new ByteArrayInputStream(page), page.length, "text/html", "Guide",
+                null, "downloads", 1, "editor@example.org"));
+        Mockito.verify(s3, Mockito.atLeastOnce()).putObject(put.capture(),
+                ArgumentMatchers.any(software.amazon.awssdk.core.sync.RequestBody.class));
+        Assert.assertEquals(put.getValue().contentType(), "application/octet-stream");
+        Assert.assertEquals(put.getValue().contentDisposition(), "attachment", "downloaded, never rendered");
+        Assert.assertEquals(media.getByKey(htmlKey).getContentType(), "application/octet-stream",
+                "the row says what is actually served");
+
+        final byte[] pdf = "%PDF-1.7 the real thing".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        final String pdfKey = "downloads/real-" + System.nanoTime() + ".pdf";
+        Assert.assertTrue(media.upload(pdfKey, new ByteArrayInputStream(pdf), pdf.length, "text/html", "Real",
+                null, "downloads", 1, "editor@example.org"));
+        Mockito.verify(s3, Mockito.atLeastOnce()).putObject(put.capture(),
+                ArgumentMatchers.any(software.amazon.awssdk.core.sync.RequestBody.class));
+        Assert.assertEquals(put.getValue().contentType(), "application/pdf", "a real PDF is one whatever was claimed");
+        Assert.assertNull(put.getValue().contentDisposition(), "and still opens in the browser");
+        Assert.assertEquals(put.getValue().contentLength(), Long.valueOf(pdf.length), "sniffing consumed nothing");
+    }
+
     @Test
     public void uploadRefusesABlankKeyOrAMissingBucket() {
         Assert.assertFalse(media.upload("   ", new ByteArrayInputStream(new byte[0]), 0,

@@ -225,6 +225,50 @@ public class PartitionCacheTest {
         assertEquals(cache.getOne("p1", "c", loader), Optional.of("c-written"));
     }
 
+    /**
+     * The audit's case: a save's own Cached.NO read is the stale hit that starts the reload, and the reload's
+     * eventually consistent query reads the row BEFORE the save commits. The unconditional overlay then put the
+     * pre-save value back over the save's write-through (and a removal came back the same way).
+     */
+    @Test
+    public void revalidateKeepsAWriteThatLandedOnAnExistingRowDuringTheReload() throws Exception {
+        final AtomicLong clock = new AtomicLong(1_000_000L);
+        final CountDownLatch enteredSecondLoad = new CountDownLatch(1);
+        final CountDownLatch releaseSecondLoad = new CountDownLatch(1);
+        final AtomicInteger loads = new AtomicInteger();
+        final PartitionCache<String, String> cache = partition(clock);
+        final Supplier<List<String>> loader = () -> {
+            if (loads.incrementAndGet() == 2) {
+                enteredSecondLoad.countDown();
+                try {
+                    assertTrue(releaseSecondLoad.await(3, TimeUnit.SECONDS));
+                } catch (final InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+            // What the table held when the reload read it: before either write below.
+            return List.of("a-db", "b-db", "c-db");
+        };
+
+        cache.getAll("p1", loader);
+        clock.addAndGet(Duration.ofMinutes(2).toMillis());
+        cache.getAll("p1", loader); // start background refresh
+        assertTrue(enteredSecondLoad.await(3, TimeUnit.SECONDS));
+        assertTrue(cache.put("p1", "a-edited"));
+        assertTrue(cache.remove("p1", "b"));
+        releaseSecondLoad.countDown();
+        // The reload stamps a fresh LOADED_AT when it lands; rewind so the polls below are not stale reads.
+        clock.addAndGet(-Duration.ofMinutes(2).toMillis());
+        for (int i = 0; i < 100 && loads.get() < 2; i++) {
+            Thread.sleep(20);
+        }
+        Thread.sleep(150);
+
+        assertEquals(cache.getOne("p1", "a", loader), Optional.of("a-edited"), "the edit survives the reload");
+        assertEquals(cache.getOne("p1", "b", loader), Optional.empty(), "the removal survives the reload");
+        assertEquals(cache.getOne("p1", "c", loader), Optional.of("c-db"), "an untouched row is still refreshed");
+    }
+
     private static PartitionCache<String, String> partition(final AtomicLong clock) {
         return PartitionCache.<String, String>builder()
                 .cache(new InMemoryCacheClient())

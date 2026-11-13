@@ -49,6 +49,27 @@ through `Revalidator`: per-key dedup, the global `RefreshPermits` cap (8), a dis
 reload — gates first, spawn last, always. `CacheKeys.SOFT_TTL` is 6h (indexes 24h, content 5m); it only
 heals what tier 1 missed.
 
+**A background reload is a compare-and-set, never an overwrite (2026-11).** The stale hit that schedules a
+reload is very often the `Cached.NO` read a save makes just before it writes, so the reload's eventually
+consistent query or scan races that save's own write-through and reads the row from BEFORE it. Every template
+therefore applies what it loaded only where the cache is still what it was when the reload began:
+`PointCache.applyBackgroundLoad` writes (or removes) only if the raw entry is still the stale one that scheduled
+it (every put stamps a new envelope); `PartitionCache.mergeLoaderResult` overlays a loader row only onto a field
+that still equals the pre-load snapshot; `PartitionScanCache` snapshots every registered partition before the
+scan (the registry set `<loadedKey>:parts` names them) and then, per field, writes the scanned row or removes a
+row the scan no longer returns only if the field is unchanged since the snapshot. Before this an unconditional
+overlay put a revoked privilege back for a day (and the next grant, reading the stale holders, wrote the revoked
+person into the table), and a scan-cache rebuild never removed anything, so a deleted content block a racing
+rebuild had put back was served until someone cleared the caches. The compare and the write are two commands,
+not one atomic step; the window left is the microseconds between them, not the length of a table scan.
+
+**A lost version check refreshes the cached row (2026-11).** The versioned DAOs (family, budget, expense
+report, organization, the five lodging rows) answer a `ConditionalCheckFailedException` with "reload and try
+again", and that reload reads the cache. A cache entry still at the losing version (a write-through SET that
+failed, which `PointCache.put` and `PartitionScanCache.put` deliberately survive) made every retry lose the
+same way until the soft TTL, so each conflict handler now re-reads the stored row and puts it into the cache
+before rethrowing (`recacheStored`): a reload, never a removal, because in local mode the cache is the store.
+
 **Tier 3 (hygiene): `GC_TTL`** (7 days) bounds abandoned keys. Never the coherence mechanism.
 
 The envelope is why the 2026-08-18 incident cannot recur in kind: the old `PointCache` probed a sibling

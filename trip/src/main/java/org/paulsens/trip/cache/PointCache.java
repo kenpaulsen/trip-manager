@@ -56,7 +56,7 @@ public class PointCache<V> {
             final Envelope env = Envelope.decode(cached.get());
             final V value = deserializer.apply(env.json());
             if (value != null) {
-                maybeScheduleRefresh(id, key, env, loader);
+                maybeScheduleRefresh(id, key, cached.get(), env, loader);
                 return Optional.of(value);
             }
         }
@@ -68,11 +68,12 @@ public class PointCache<V> {
         return Optional.of(value);
     }
 
-    private void maybeScheduleRefresh(
-            final String id, final String key, final Envelope env, final Function<String, V> loader) {
+    private void maybeScheduleRefresh(final String id, final String key, final String staleRaw,
+            final Envelope env, final Function<String, V> loader) {
         final Revalidator revalidator = revalidator();
         if (softRevalidate && revalidator.isSoftStale(env.loadedAt())) {
-            revalidator.schedule(refreshing, id, key, "point", () -> applyBackgroundLoad(id, loader.apply(id)));
+            revalidator.schedule(refreshing, id, key, "point",
+                    () -> applyBackgroundLoad(id, key, staleRaw, loader.apply(id)));
         }
     }
 
@@ -100,7 +101,18 @@ public class PointCache<V> {
         return true;
     }
 
-    private void applyBackgroundLoad(final String id, final V value) {
+    /**
+     * Applies a background reload only if the entry is STILL the stale one that scheduled it. The stale hit that
+     * schedules a reload is very often the read a save makes just before it writes, so the eventually consistent
+     * load races that save's own write-through; applying it unconditionally put the pre-save value back for a
+     * whole soft TTL. Every put stamps a new envelope, so any write (or a removal) since the stale read shows
+     * as a different, or missing, raw value.
+     */
+    private void applyBackgroundLoad(final String id, final String key, final String staleRaw, final V value) {
+        final Optional<String> now = cache.getValue(key);
+        if (now.isEmpty() || !now.get().equals(staleRaw)) {
+            return;
+        }
         if (value == null) {
             remove(id);
         } else {

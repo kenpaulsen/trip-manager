@@ -276,6 +276,132 @@ public class PartitionScanCacheTest {
                 "a failed rescan must leave the cached data untouched");
     }
 
+    // --- a rebuild is a compare-and-set against a pre-scan snapshot (2026-11) ---
+
+    /** Versioned rows, {@code partition:field=version}, so an edit of a row is a different value in the same field. */
+    private PartitionScanCache<String> versioned(final java.util.function.Supplier<List<String>> loader) {
+        return PartitionScanCache.<String>builder()
+                .cache(cache)
+                .keyPrefix("scan-test:")
+                .loadedKey("scan-test-loaded")
+                .softTtl(Duration.ofMinutes(1))
+                .clock(clock::get)
+                .ttlJitter(() -> 0.5)
+                .loader(loader)
+                .partitioner(v -> v.substring(0, v.indexOf(':')))
+                .fielder(v -> v.substring(v.indexOf(':') + 1, v.indexOf('=')))
+                .serializer(v -> v)
+                .deserializer(json -> json)
+                .build();
+    }
+
+    /**
+     * The audit's privilege case: the revoke's own read starts the daily rebuild, the scan reads the row before
+     * the revoke commits, and the rebuild then put the old holders back over the revoke's write-through, where
+     * the next grant read them and wrote the revoked person into the table for good.
+     */
+    @Test
+    public void aRescanNeverOverwritesOrRevivesWhatWasWrittenWhileItScanned() throws Exception {
+        final java.util.concurrent.CountDownLatch entered = new java.util.concurrent.CountDownLatch(1);
+        final java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
+        final PartitionScanCache<String> scan = versioned(() -> {
+            if (loads.incrementAndGet() == 2) {
+                entered.countDown();
+                try {
+                    Assert.assertTrue(release.await(3, java.util.concurrent.TimeUnit.SECONDS));
+                } catch (final InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+            // What the table held when the scan read it: before any of the writes below.
+            return List.of("pa:edited=v1", "pa:removed=v1", "pa:quiet=v1");
+        });
+        scan.getPartition("pa");
+        clock.addAndGet(Duration.ofMinutes(2).toMillis());
+        scan.getPartition("pa");                                   // stale: starts the background rescan
+        Assert.assertTrue(entered.await(3, java.util.concurrent.TimeUnit.SECONDS));
+        scan.put("pa:edited=v2");
+        scan.removeOne("pa", "removed");
+        scan.put("pc:born=v1");                                    // a brand-new partition, by write-through
+        release.countDown();
+        clock.addAndGet(-Duration.ofMinutes(2).toMillis());
+        awaitTrue(() -> loads.get() >= 2 && Long.parseLong(cache.getValue("scan-test-loaded").orElse("0"))
+                >= clock.get(), "the rescan never finished");
+        Thread.sleep(100);
+
+        Assert.assertEquals(scan.getOne("pa", "edited", Optional::empty), Optional.of("pa:edited=v2"));
+        Assert.assertEquals(scan.getOne("pa", "removed", Optional::empty), Optional.empty(),
+                "a row removed during the scan is not put back");
+        Assert.assertEquals(scan.getOne("pa", "quiet", Optional::empty), Optional.of("pa:quiet=v1"));
+        Assert.assertEquals(scan.getPartition("pc"), List.of("pc:born=v1"),
+                "a partition created during the scan is not emptied for being absent from it");
+    }
+
+    /**
+     * A row deleted out of band (or one a racing rebuild had put back) used to live forever: every rebuild only
+     * added fields and kept the hash alive. A rebuild now drops what the scan no longer returns.
+     */
+    @Test
+    public void aRescanDropsRowsAndWholePartitionsTheTableNoLongerHas() throws Exception {
+        final java.util.concurrent.atomic.AtomicReference<List<String>> db =
+                new java.util.concurrent.atomic.AtomicReference<>(
+                        List.of("pa:one=v1", "pa:two=v1", "pb:only=v1"));
+        final PartitionScanCache<String> scan = versioned(() -> {
+            loads.incrementAndGet();
+            return db.get();
+        });
+        Assert.assertEquals(scan.getPartition("pa").size(), 2);
+        db.set(List.of("pa:one=v2"));                              // two deleted, pb emptied, one edited
+        clock.addAndGet(Duration.ofMinutes(2).toMillis());
+        scan.getPartition("pa");
+        clock.addAndGet(-Duration.ofMinutes(2).toMillis());
+        awaitTrue(() -> scan.getPartition("pa").equals(List.of("pa:one=v2")), "the deleted row was never dropped");
+        awaitTrue(() -> scan.getPartition("pb").isEmpty(), "the emptied partition was never dropped");
+        Assert.assertFalse(cache.getSetMembers("scan-test-loaded:parts").contains("scan-test:pb"),
+                "and it leaves the registry");
+        Assert.assertTrue(cache.getSetMembers("scan-test-loaded:parts").contains("scan-test:pa"));
+    }
+
+    /**
+     * A partition cached before the registry existed (the first rebuild after this ships) has no snapshot to
+     * compare against: it is overwritten outright, exactly as before, and registered for the next rebuild.
+     */
+    @Test
+    public void aPartitionTheRegistryHasNotSeenIsOverwrittenOnceAndThenTracked() throws Exception {
+        final java.util.concurrent.atomic.AtomicReference<List<String>> db =
+                new java.util.concurrent.atomic.AtomicReference<>(List.of("pa:one=v1", "pa:gone=v1"));
+        final PartitionScanCache<String> scan = versioned(() -> {
+            loads.incrementAndGet();
+            return db.get();
+        });
+        scan.getPartition("pa");
+        cache.removeKey("scan-test-loaded:parts");                 // as a cache filled by an older build looks
+        db.set(List.of("pa:one=v2"));
+        clock.addAndGet(Duration.ofMinutes(2).toMillis());
+        scan.getPartition("pa");
+        clock.addAndGet(-Duration.ofMinutes(2).toMillis());
+        awaitTrue(() -> scan.getOne("pa", "one", Optional::empty).equals(Optional.of("pa:one=v2")),
+                "an unregistered partition must still be refreshed");
+        Assert.assertTrue(scan.getOne("pa", "gone", Optional::empty).isPresent(),
+                "nothing is removed without a snapshot to prove it was not just written");
+        awaitTrue(() -> cache.getSetMembers("scan-test-loaded:parts").contains("scan-test:pa"),
+                "the rebuild registers it");
+
+        clock.addAndGet(Duration.ofMinutes(2).toMillis());
+        scan.getPartition("pa");
+        clock.addAndGet(-Duration.ofMinutes(2).toMillis());
+        awaitTrue(() -> scan.getOne("pa", "gone", Optional::empty).isEmpty(), "the NEXT rebuild reconciles it");
+    }
+
+    @Test
+    public void invalidateAlsoForgetsTheRegistry() {
+        final PartitionScanCache<String> scan = scanCache();
+        scan.getPartition("pa");
+        Assert.assertFalse(cache.getSetMembers("scan-test-loaded:parts").isEmpty());
+        scan.invalidate();
+        Assert.assertTrue(cache.getSetMembers("scan-test-loaded:parts").isEmpty());
+    }
+
     private static void awaitTrue(final java.util.function.BooleanSupplier condition, final String message)
             throws InterruptedException {
         final long deadline = System.currentTimeMillis() + 5_000;

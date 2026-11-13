@@ -5,6 +5,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import org.paulsens.trip.cache.Cached;
+import org.paulsens.trip.cache.InMemoryCacheClient;
 import org.paulsens.trip.model.Accommodation;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.RatePlan;
@@ -276,6 +277,59 @@ public class LodgingDAOTest {
         assertTrue(dao.getPlans("x").isEmpty());
         assertEquals(dao.deleteAllForTrip("trip"), 4, "The raw sweep deletes by id whatever the content is");
         dao.clearCache();
+    }
+
+    /**
+     * A second writer's cache can hold the losing version (its write-through SET failed, or another task
+     * saved). The refused save tells the person to reload and try again, and that reload reads the cache: it
+     * must now hold what the STORE holds, or every retry loses the same way until the soft TTL.
+     */
+    @Test
+    public void aLostVersionCheckRefreshesTheCachedRow() throws IOException {
+        final InMemoryPersistence store = new InMemoryPersistence();
+        final LodgingDAO ours = new LodgingDAO(DAO.getInstance().getMapper(), store, new InMemoryCacheClient());
+        final LodgingDAO theirs = new LodgingDAO(DAO.getInstance().getMapper(), store, new InMemoryCacheClient());
+        final String tripId = "trip-" + RandomData.genAlpha(8);
+
+        final Accommodation acc = accommodation("Conflict " + RandomData.genAlpha(6));
+        assertTrue(theirs.saveAccommodation(acc));
+        assertEquals(ours.getAccommodation(acc.getId()).orElseThrow().getVersion(), 1L);
+        assertTrue(theirs.saveAccommodation(theirs.getAccommodation(acc.getId()).orElseThrow()));
+        final Accommodation staleAcc = ours.getAccommodation(acc.getId()).orElseThrow();
+        assertThrows(ConditionalCheckFailedException.class, () -> ours.saveAccommodation(staleAcc));
+        assertEquals(ours.getAccommodation(acc.getId()).orElseThrow().getVersion(), 2L, "the hotel");
+
+        final ReservationOffer offer = offer(tripId, "Double");
+        assertTrue(theirs.saveOffer(offer));
+        assertEquals(ours.getOffer(tripId, offer.getId()).orElseThrow().getVersion(), 1L);
+        assertTrue(theirs.saveOffer(theirs.getOffer(tripId, offer.getId()).orElseThrow()));
+        final ReservationOffer staleOffer = ours.getOffer(tripId, offer.getId()).orElseThrow();
+        assertThrows(ConditionalCheckFailedException.class, () -> ours.saveOffer(staleOffer));
+        assertEquals(ours.getOffer(tripId, offer.getId()).orElseThrow().getVersion(), 2L, "the option");
+
+        final Reservation res = atHotel(tripId, acc.getId(), AT, AT.plusDays(2));
+        assertTrue(theirs.saveReservation(res));
+        assertEquals(ours.getReservation(tripId, res.getId()).orElseThrow().getVersion(), 1L);
+        assertTrue(theirs.saveReservation(theirs.getReservation(tripId, res.getId()).orElseThrow()));
+        final Reservation staleRes = ours.getReservation(tripId, res.getId()).orElseThrow();
+        assertThrows(ConditionalCheckFailedException.class, () -> ours.saveReservation(staleRes));
+        assertEquals(ours.getReservation(tripId, res.getId()).orElseThrow().getVersion(), 2L, "the stay");
+
+        final RoomBlock block = block(acc.getId(), "room-1");
+        assertTrue(theirs.saveBlock(block));
+        assertEquals(ours.getBlock(acc.getId(), block.getId()).orElseThrow().getVersion(), 1L);
+        assertTrue(theirs.saveBlock(theirs.getBlock(acc.getId(), block.getId()).orElseThrow()));
+        final RoomBlock staleBlock = ours.getBlock(acc.getId(), block.getId()).orElseThrow();
+        assertThrows(ConditionalCheckFailedException.class, () -> ours.saveBlock(staleBlock));
+        assertEquals(ours.getBlock(acc.getId(), block.getId()).orElseThrow().getVersion(), 2L, "the block");
+
+        final RatePlan plan = plan(acc.getId(), "Summer");
+        assertTrue(theirs.savePlan(plan));
+        assertEquals(ours.getPlan(acc.getId().getValue(), plan.getId()).orElseThrow().getVersion(), 1L);
+        assertTrue(theirs.savePlan(theirs.getPlan(acc.getId().getValue(), plan.getId()).orElseThrow()));
+        final RatePlan stalePlan = ours.getPlan(acc.getId().getValue(), plan.getId()).orElseThrow();
+        assertThrows(ConditionalCheckFailedException.class, () -> ours.savePlan(stalePlan));
+        assertEquals(ours.getPlan(acc.getId().getValue(), plan.getId()).orElseThrow().getVersion(), 2L, "the plan");
     }
 
     private static Accommodation accommodation(final String name) {

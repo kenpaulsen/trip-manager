@@ -160,7 +160,8 @@ public class LodgingDAO {
         final Map<String, AttributeValue> map = new HashMap<>();
         map.put(ID, AttributeValue.builder().s(acc.getId().getValue()).build());
         return versionedPut(acc, acc.getVersion(), acc::setVersion, map, ACCOMMODATIONS_TABLE,
-                () -> accommodations.put(acc));
+                () -> accommodations.put(acc),
+                () -> recacheStored(ACCOMMODATIONS_TABLE, Map.copyOf(map), Accommodation.class, accommodations::put));
     }
 
     protected Optional<Accommodation> getAccommodation(final Accommodation.Id id) {
@@ -182,7 +183,9 @@ public class LodgingDAO {
         map.put(TRIP_ID, AttributeValue.builder().s(offer.getTripId()).build());
         map.put(ID, AttributeValue.builder().s(offer.getId().getValue()).build());
         return versionedPut(offer, offer.getVersion(), offer::setVersion, map, OFFERS_TABLE,
-                () -> offers.put(offer.getTripId(), offer));
+                () -> offers.put(offer.getTripId(), offer),
+                () -> recacheStored(OFFERS_TABLE, Map.copyOf(map), ReservationOffer.class,
+                        stored -> offers.put(offer.getTripId(), stored)));
     }
 
     protected List<ReservationOffer> getOffers(final String tripId) {
@@ -210,6 +213,7 @@ public class LodgingDAO {
         final Map<String, AttributeValue> map = new HashMap<>();
         map.put(TRIP_ID, AttributeValue.builder().s(res.getTripId()).build());
         map.put(ID, AttributeValue.builder().s(res.getId().getValue()).build());
+        final Map<String, AttributeValue> key = Map.copyOf(map);
         // The by-accommodation index keys, promoted out of the content JSON. Both or neither: a row missing
         // one of them stays out of a sparse index, which is what we want for a reservation with no hotel.
         if (res.getAccommodationId() != null && res.getEnd() != null) {
@@ -217,7 +221,9 @@ public class LodgingDAO {
             map.put(STAY_END, AttributeValue.builder().s(res.getEnd().format(STAY_KEY)).build());
         }
         return versionedPut(res, res.getVersion(), res::setVersion, map, RESERVATIONS_TABLE,
-                () -> reservations.put(res.getTripId(), res));
+                () -> reservations.put(res.getTripId(), res),
+                () -> recacheStored(RESERVATIONS_TABLE, key, Reservation.class,
+                        stored -> reservations.put(res.getTripId(), stored)));
     }
 
     /**
@@ -269,7 +275,9 @@ public class LodgingDAO {
         map.put(ACC_ID, AttributeValue.builder().s(block.getAccommodationId().getValue()).build());
         map.put(ID, AttributeValue.builder().s(block.getId().getValue()).build());
         return versionedPut(block, block.getVersion(), block::setVersion, map, BLOCKS_TABLE,
-                () -> blocks.put(block.getAccommodationId().getValue(), block));
+                () -> blocks.put(block.getAccommodationId().getValue(), block),
+                () -> recacheStored(BLOCKS_TABLE, Map.copyOf(map), RoomBlock.class,
+                        stored -> blocks.put(block.getAccommodationId().getValue(), stored)));
     }
 
     protected List<RoomBlock> getBlocks(final Accommodation.Id accId) {
@@ -312,7 +320,9 @@ public class LodgingDAO {
         map.put(ACC_ID, AttributeValue.builder().s(plan.getAccommodationId().getValue()).build());
         map.put(ID, AttributeValue.builder().s(plan.getId().getValue()).build());
         return versionedPut(plan, plan.getVersion(), plan::setVersion, map, RATE_PLANS_TABLE,
-                () -> plans.put(plan.getAccommodationId().getValue(), plan));
+                () -> plans.put(plan.getAccommodationId().getValue(), plan),
+                () -> recacheStored(RATE_PLANS_TABLE, Map.copyOf(map), RatePlan.class,
+                        stored -> plans.put(plan.getAccommodationId().getValue(), stored)));
     }
 
     protected List<RatePlan> getPlans(final String accId) {
@@ -385,11 +395,12 @@ public class LodgingDAO {
     /**
      * The shared conditional put: bump the object's version, serialize it AT that version, create only at
      * version 0 else replace that exact stored version; on success write through the cache, on a lost race
-     * restore the version and rethrow (the {@link FamilyDAO} contract).
+     * restore the version, put the STORED row into the cache ({@code recache}) and rethrow (the
+     * {@link FamilyDAO} contract).
      */
     private Boolean versionedPut(final Object row, final long expected, final Consumer<Long> versionSetter,
-            final Map<String, AttributeValue> keyAttrs, final String table, final Runnable cachePut)
-            throws IOException {
+            final Map<String, AttributeValue> keyAttrs, final String table, final Runnable cachePut,
+            final Runnable recache) throws IOException {
         versionSetter.accept(expected + 1);
         final Map<String, AttributeValue> map = new HashMap<>(keyAttrs);
         map.put(VERSION_ATTR, AttributeValue.builder().n(Long.toString(expected + 1)).build());
@@ -405,7 +416,29 @@ public class LodgingDAO {
             return saved;
         } catch (final ConditionalCheckFailedException ex) {
             versionSetter.accept(expected);
+            recache.run();
             throw ex;
+        }
+    }
+
+    /**
+     * After a lost version check: put the row the STORE holds into the cache. The caller is told to reload and
+     * try again, and that reload reads this cache; an entry still at the losing version (a write-through SET
+     * that failed, which the caches deliberately survive) would hand back the same stale version every time,
+     * so the record could not be edited until the soft TTL. A reload, never a removal: in local mode the cache
+     * is the datastore. Never lets its own failure hide the conflict being reported.
+     */
+    private <T> void recacheStored(final String table, final Map<String, AttributeValue> key, final Class<T> type,
+            final Consumer<T> cachePut) {
+        try {
+            final AttributeValue content =
+                    persistence.getItem(b -> b.key(key).tableName(table).build()).item().get(CONTENT);
+            final T stored = (content == null) ? null : parse(content.s(), type);
+            if (stored != null) {
+                cachePut.accept(stored);
+            }
+        } catch (final RuntimeException ex) {
+            log.warn("Unable to refresh a cached {} row after a version conflict", table, ex);
         }
     }
 

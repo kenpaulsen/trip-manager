@@ -684,6 +684,17 @@ public class PaymentCommands {
     }
 
     /**
+     * Where a payment stands, for whoever may act on it ({@link #mayComplete}): the stored status name, or null
+     * for an unknown payment or someone else's. The REST cancel answers it beside {@code cancelled}, because
+     * "not cancelled" alone cannot tell a client whether the payment is still open, was already cancelled (a
+     * replayed cancel), or went through.
+     */
+    public String stateOf(final String paymentId) {
+        final Payment payment = DAO.getInstance().getPayment(paymentId).orElse(null);
+        return (payment == null || !mayComplete(caller(), payment)) ? null : payment.getStatus().name();
+    }
+
+    /**
      * Gives a CREATED payment up: the PROCESSOR first, and our row only once it says nothing of the payer's is
      * held or in flight. The order used to be the other way round with a processor cancel that could not fail,
      * so a bank debit abandoned while it settled (it looks exactly like a walked-away payment here) cleared

@@ -157,7 +157,12 @@ public class PaymentsResource extends BaseResource {
         if (csrfMissing(csrf)) {
             return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
         }
-        return ok(Map.of("cancelled", paymentCommands().cancelPayment(paymentId)));
+        final boolean cancelled = paymentCommands().cancelPayment(paymentId);
+        final Map<String, Object> result = new LinkedHashMap<>();
+        result.put("cancelled", cancelled);
+        // Null (absent) for a payment that is not the caller's to ask about.
+        result.put("state", paymentCommands().stateOf(paymentId));
+        return ok(result);
     }
 
     private org.paulsens.trip.action.PaymentCommands paymentCommands() {

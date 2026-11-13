@@ -2,6 +2,7 @@ package org.paulsens.trip.dynamo;
 
 import java.io.IOException;
 import org.paulsens.trip.cache.Cached;
+import org.paulsens.trip.cache.InMemoryCacheClient;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.util.RandomData;
 import org.testng.annotations.Test;
@@ -68,6 +69,30 @@ public class OrganizationDAOTest {
         assertTrue(DAO.getInstance()
                 .getOrganization(Organization.Id.newInstance(), Cached.NO).isEmpty());
         assertTrue(DAO.getInstance().getOrganization(null, Cached.NO).isEmpty());
+    }
+
+    /**
+     * A second writer's cache can hold the losing version (its write-through SET failed, or another task
+     * saved). The refused save tells the person to reload and try again, and that reload reads the cache: it
+     * must now hold what the STORE holds, or every retry loses the same way until the soft TTL.
+     */
+    @Test
+    public void aLostVersionCheckRefreshesTheCachedRow() throws IOException {
+        final InMemoryPersistence store = new InMemoryPersistence();
+        final OrganizationDAO ours =
+                new OrganizationDAO(DAO.getInstance().getMapper(), store, new InMemoryCacheClient());
+        final OrganizationDAO theirs =
+                new OrganizationDAO(DAO.getInstance().getMapper(), store, new InMemoryCacheClient());
+        final Organization org = newOrg("Conflict " + RandomData.genAlpha(6));
+        assertTrue(theirs.saveOrganization(org));
+        assertEquals(ours.getOrganization(org.getId()).orElseThrow().getVersion(), 1L, "our cache holds v1");
+        assertTrue(theirs.saveOrganization(theirs.getOrganization(org.getId()).orElseThrow()));
+
+        final Organization stale = ours.getOrganization(org.getId()).orElseThrow();
+        assertEquals(stale.getVersion(), 1L, "the store is at v2; our cache still answers v1");
+        assertThrows(ConditionalCheckFailedException.class, () -> ours.saveOrganization(stale));
+        assertEquals(ours.getOrganization(org.getId()).orElseThrow().getVersion(), 2L,
+                "the reload after the refusal reads the stored version");
     }
 
     private static Organization newOrg(final String name) {

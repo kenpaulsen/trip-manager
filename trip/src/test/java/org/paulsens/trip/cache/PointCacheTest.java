@@ -249,6 +249,46 @@ public class PointCacheTest {
         }
     }
 
+    /**
+     * A write that lands while the background reload is reading must not be overwritten by it: the reload's
+     * read is older than the write. Likewise a removal must not be undone.
+     */
+    @Test
+    public void aBackgroundReloadNeverOverwritesAWriteThatLandedWhileItLoaded() throws Exception {
+        final AtomicInteger loads = new AtomicInteger();
+        final AtomicLong clock = new AtomicLong(1_000_000L);
+        final CountDownLatch entered = new CountDownLatch(2);
+        final CountDownLatch release = new CountDownLatch(1);
+        final InMemoryCacheClient client = new InMemoryCacheClient();
+        final PointCache<String> cache = point(clock, client);
+        final Function<String, String> loader = id -> {
+            if (loads.incrementAndGet() <= 2) {
+                return "v1";
+            }
+            entered.countDown();
+            try {
+                assertTrue(release.await(3, TimeUnit.SECONDS));
+            } catch (final InterruptedException ex) {
+                Thread.currentThread().interrupt();
+            }
+            return "v1";   // what the store held when the reload read it: before the writes below
+        };
+
+        assertEquals(cache.get("edited", loader), Optional.of("v1"));
+        assertEquals(cache.get("removed", loader), Optional.of("v1"));
+        clock.addAndGet(Duration.ofMinutes(2).toMillis());
+        assertEquals(cache.get("edited", loader), Optional.of("v1"));   // stale hit: schedules the reload
+        assertEquals(cache.get("removed", loader), Optional.of("v1"));
+        assertTrue(entered.await(3, TimeUnit.SECONDS), "both reloads are reading");
+        cache.put("edited", "v2");
+        cache.remove("removed");
+        release.countDown();
+        Thread.sleep(200);
+
+        assertTrue(client.getValue("te:edited").orElseThrow().endsWith("|v2"), "the write survives the reload");
+        assertTrue(client.getValue("te:removed").isEmpty(), "the removal survives the reload");
+    }
+
     private static PointCache<String> point(final AtomicLong clock) {
         return point(clock, new InMemoryCacheClient());
     }

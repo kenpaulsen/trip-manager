@@ -81,7 +81,26 @@ public class FamilyDAO {
             return saved;
         } catch (final ConditionalCheckFailedException ex) {
             family.setVersion(expected);
+            recacheStored(family.getId().getValue());
             throw ex;
+        }
+    }
+
+    /**
+     * After a lost version check: put the row the STORE holds into the cache. The caller is told to reload and
+     * try again, and that reload reads this cache; an entry still at the losing version (a write-through SET
+     * that failed, which the caches deliberately survive) would hand back the same stale version every time,
+     * so the record could not be edited until the soft TTL. A reload, never a removal: in local mode the cache
+     * is the datastore. Never lets its own failure hide the conflict being reported.
+     */
+    private void recacheStored(final String id) {
+        try {
+            final Family stored = loadFamilyById(id);
+            if (stored != null) {
+                cache.put(id, stored);
+            }
+        } catch (final RuntimeException ex) {
+            log.warn("Unable to refresh the cached family {} after a version conflict", id, ex);
         }
     }
 

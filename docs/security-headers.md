@@ -69,6 +69,19 @@ photos, PDFs, branding and lodging images go to S3 with their `contentType` (`Me
 `ExpenseReceipts`) and CloudFront serves them from there, checked 2026-11-08 (`image/jpeg` for a photo,
 `application/pdf` for a guide). The one upload the server itself serves, an expense receipt, already sent `nosniff`.
 
+**The stored type of a library upload is the server's decision, never the browser's (2026-11,
+`media/UploadType`).** The media host (`files.` under the main domain) is same-site with the main site and shared
+by every organization, and the Documents dialog (`/media-upload`) and the media library take files from an
+organization's own media editors. Storing the claimed type let one of them publish `guide.html` as `text/html`
+there: stored script on a shared host, able to set parent-domain cookies and to pose as the platform. So
+`MediaCommands.upload` reads the file's first bytes: an image (`ImageFormat`) or a PDF is stored as what it IS;
+video and audio are stored by extension (a browser plays them or fails); everything else, SVG included, is
+stored as `application/octet-stream` with `Content-Disposition: attachment`, so it downloads and never renders.
+Nothing is refused. The direct (presigned) upload cannot be looked at, so `presignUpload` signs only an inert
+declared type (`UploadType.mayDeclare`; the API answers 422 otherwise). Objects stored BEFORE this change keep
+the type they were given; the media distribution's `nosniff` response-headers policy (`../medjugorje/infra`) is the
+backstop for those, and a file already stored as `text/html` or `image/svg+xml` has to be re-uploaded or removed.
+
 ### `X-Frame-Options: SAMEORIGIN` and `frame-ancestors 'self'`
 
 SAMEORIGIN rather than DENY because two pages frame their own origin: `mainTemplate.xhtml` and the mission page

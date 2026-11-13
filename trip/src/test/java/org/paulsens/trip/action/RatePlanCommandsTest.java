@@ -657,7 +657,9 @@ public class RatePlanCommandsTest {
 
     /**
      * A plan whose row another writer moved: every plan write is refused with the reload message and nothing is
-     * written -- the dialog's save and retire, the attach's link, the trip-delete cascade's unlink.
+     * written -- the dialog's save and retire, the attach's link, the trip-delete cascade's unlink. Each refusal
+     * also puts the STORED row back into the cache (so "reload and try again" works), which is why the stale
+     * copy is staged again before each write.
      */
     @Test
     public void planWritesLostToAnotherWriterAreRefused() throws IOException {
@@ -674,12 +676,16 @@ public class RatePlanCommandsTest {
         form.setCostNightlyPrice(41.0);
         assertFalse(plans.savePlan(form));
         assertEquals(form.getProblem(), "Saved by someone else: reload the page and try again.");
+        assertEquals(DAO.getInstance().getCacheClient().getHashFields(key, List.of(planId)).get(planId), cached,
+                "the refusal refreshed the cached row from the store: a reload now reads the real version");
+        ageInCache(key, planId, before.getVersion());
         assertFalse(plans.retirePlan(accId, planId, true));
+        ageInCache(key, planId, before.getVersion());
         assertFalse(plans.attach(other.getId(), accId, planId), "the link is a plan write too");
         assertTrue(admin.getOffers(other.getId()).isEmpty(), "no option without its link");
+        ageInCache(key, planId, before.getVersion());
         assertFalse(plans.unlink(accId, planId, trip.getId()));
 
-        restoreInCache(key, planId, cached);
         final RatePlan after = plan(accId, planId);
         assertEquals(after.getVersion(), before.getVersion(), "nothing was written");
         assertEquals(after.getCost().getNightlyCents(), 4000L);
@@ -702,7 +708,7 @@ public class RatePlanCommandsTest {
         assertTrue(plans.attach(trip.getId(), accId, planId));
         final ReservationOffer offer = linkedOffer(trip, planId);
         final String key = CacheKeys.LODGING_OFFER_PREFIX + trip.getId();
-        final String cached = ageInCache(key, offer.getId().getValue(), offer.getVersion());
+        ageInCache(key, offer.getId().getValue(), offer.getVersion());
 
         final RatePlanForm form = plans.planFormFor(accId, planId);
         form.setCostNightlyPrice(75.0);
@@ -712,13 +718,15 @@ public class RatePlanCommandsTest {
         assertEquals(plan(accId, planId).getCost().getNightlyCents(), 7500L);
         assertEquals(linkedOffer(trip, planId).getCost().getNightlyCents(), 4000L, "the option kept its copy");
         assertTrue(offerRow(trip, offer).isPlanDrift(), "...and reads as drifted");
+        // Each lost save refreshes the cached option from the store, so the stale copy is staged again.
+        ageInCache(key, offer.getId().getValue(), offer.getVersion());
         assertTrue(plans.retirePlan(accId, planId, true), "retiring reports the loss and still retires");
         assertTrue(plan(accId, planId).isRetired());
+        ageInCache(key, offer.getId().getValue(), offer.getVersion());
         assertFalse(plans.detach(trip.getId(), offer.getId().getValue()));
         assertTrue(linkedOffer(trip, planId).isLinked());
 
-        restoreInCache(key, offer.getId().getValue(), cached);
-        assertTrue(plans.detach(trip.getId(), offer.getId().getValue()));
+        assertTrue(plans.detach(trip.getId(), offer.getId().getValue()), "the refusal left the row current");
         assertFalse(admin.findOffer(trip.getId(), offer.getId().getValue()).isLinked());
     }
 
@@ -746,7 +754,7 @@ public class RatePlanCommandsTest {
     /**
      * Makes the shared cache's copy of a row claim a version the table never reached -- what a conditional put
      * lost to another writer looks like to the next reader: the store refuses the versioned save that follows.
-     * Returns the cache's original entry for {@link #restoreInCache}.
+     * Returns the cache's original entry. The refused save itself refreshes the cached row from the store.
      */
     private static String ageInCache(final String key, final String field, final long version) {
         final CacheClient cache = DAO.getInstance().getCacheClient();
@@ -756,10 +764,6 @@ public class RatePlanCommandsTest {
         assertNotEquals(aged, json, "the cached copy carries the version");
         assertTrue(cache.putHashField(key, field, aged));
         return json;
-    }
-
-    private static void restoreInCache(final String key, final String field, final String json) {
-        assertTrue(DAO.getInstance().getCacheClient().putHashField(key, field, json));
     }
 
     /**

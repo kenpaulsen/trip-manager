@@ -99,6 +99,9 @@ public class MediaCommandsPresignTest {
         Assert.assertNull(media.presignUpload("  ", "application/pdf", 9L));
         Assert.assertNull(media.presignUpload("downloads/a.pdf", " ", 9L));
         Assert.assertNull(media.presignUpload("downloads/a.pdf", "application/pdf", 0L));
+        // The bytes go straight to S3, so the declared type is all there is: nothing that can run is signed.
+        Assert.assertNull(media.presignUpload("downloads/a.html", "text/html", 9L));
+        Assert.assertNull(media.presignUpload("downloads/a.svg", "image/svg+xml", 9L));
         Mockito.verifyNoInteractions(presigner);
     }
 
