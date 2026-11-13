@@ -10,10 +10,17 @@ import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
 import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertFalse;
+import static org.testng.Assert.assertNotEquals;
+import static org.testng.Assert.assertSame;
 import static org.testng.Assert.assertTrue;
 
-/** The trip Contacts page's rule: everyone up to the limit, a search beyond it, never more than the limit. */
+/**
+ * The people-list rule every list page shares ({@link PersonCommands#listOrSearch}), and the trip Contacts page's
+ * use of it: everyone up to the limit, a search beyond it, never more than the limit, always last-name order.
+ */
 public class PersonContactsRosterTest {
+    private static final int LIMIT = PersonCommands.PEOPLE_LIST_LIMIT;
     private final PersonCommands people = new PersonCommands();
     private final String marker = "Zqcap" + RandomData.genAlpha(6);
     private final List<Person.Id> big = new ArrayList<>();
@@ -21,20 +28,22 @@ public class PersonContactsRosterTest {
 
     @BeforeClass
     void seed() throws IOException {
-        for (int i = 0; i <= PersonCommands.CONTACTS_AUTO_LIMIT; i++) {
-            big.add(saved("Member" + RandomData.genAlpha(5), marker, null).getId());
+        for (int i = 0; i <= LIMIT; i++) {
+            big.add(saved("Member" + RandomData.genAlpha(5), marker, null, null).getId());
         }
-        needle = saved("Needle", "Unique" + RandomData.genAlpha(6), "nick" + RandomData.genAlpha(5));
+        needle = saved("Needle", "Unique" + RandomData.genAlpha(6), "nick" + RandomData.genAlpha(5),
+                "(555) 210-" + RandomData.genSecureDigits(4));
         big.add(needle.getId());
     }
 
     @Test
-    public void aRosterThatFitsIsListedWhole() {
+    public void aRosterThatFitsIsListedWholeInNameOrder() {
         final List<Person.Id> small = big.subList(0, 3);
-        assertEquals(people.contactsRoster(small, null), small);
-        assertEquals(people.contactsRoster(small, "  "), small, "A blank query is no query");
+        final List<Person.Id> listed = people.contactsRoster(small, null);
+        assertEquals(listed, people.sortedIds(small));
+        assertEquals(people.contactsRoster(small, "  "), listed, "A blank query is no query");
         assertTrue(people.contactsRoster(null, "x").isEmpty());
-        assertEquals(people.getContactsAutoLimit(), PersonCommands.CONTACTS_AUTO_LIMIT);
+        assertEquals(people.getPeopleListLimit(), LIMIT);
     }
 
     @Test
@@ -43,25 +52,67 @@ public class PersonContactsRosterTest {
     }
 
     @Test
-    public void aSearchNarrowsByEveryToken() {
-        assertEquals(people.contactsRoster(big, needle.getLast()), List.of(needle.getId()));
-        assertEquals(people.contactsRoster(big, "needle " + needle.getLast().toUpperCase()),
-                List.of(needle.getId()), "Every token, any case");
-        assertEquals(people.contactsRoster(big, needle.getNickname()), List.of(needle.getId()));
-        assertEquals(people.contactsRoster(big, needle.getEmail()), List.of(needle.getId()));
+    public void aSearchNarrowsByEveryWordEachMatchingAnywhere() {
+        final List<Person.Id> just = List.of(needle.getId());
+        assertEquals(people.contactsRoster(big, needle.getLast()), just);
+        assertEquals(people.contactsRoster(big, needle.getLast().substring(2, 7)), just, "inside the last name");
+        assertEquals(people.contactsRoster(big, "eedl " + needle.getLast().toUpperCase()), just,
+                "Every word, any case");
+        assertEquals(people.contactsRoster(big, needle.getNickname()), just);
+        assertEquals(people.contactsRoster(big, needle.getEmail()), just, "the email from its start");
+        assertEquals(people.contactsRoster(big, needle.getCell().substring(10)), just, "cell digits anywhere");
         assertTrue(people.contactsRoster(big, "needle nobody-has-this").isEmpty());
     }
 
     @Test
-    public void aBroadSearchIsCappedAndSortable() {
+    public void aBroadSearchIsCappedSortedAndMutable() {
         final List<Person.Id> hits = people.contactsRoster(big, marker);
-        assertEquals(hits.size(), PersonCommands.CONTACTS_AUTO_LIMIT);
-        hits.sort(null);
+        assertEquals(hits.size(), LIMIT);
+        assertEquals(hits, people.sortedIds(hits), "last, first order");
         hits.add(needle.getId());
     }
 
-    private static Person saved(final String first, final String last, final String nickname) throws IOException {
-        final Person person = Person.builder().first(first).last(last).nickname(nickname)
+    @Test
+    public void listOrSearchFlagsAQueryNeededAndATruncation() {
+        final List<Person> everyone = big.stream().map(people::getPerson).toList();
+        assertSame(people.listOrSearch(everyone, null), PeopleResult.NEEDS_QUERY);
+        assertSame(people.listOrSearch(List.of(), "x"), PeopleResult.NONE);
+        assertSame(people.listOrSearch(null, null), PeopleResult.NONE);
+
+        final PeopleResult broad = people.listOrSearch(everyone, marker);
+        assertEquals(broad.rows().size(), LIMIT);
+        assertTrue(broad.truncated(), "more matched than are shown");
+        assertFalse(broad.needsQuery());
+
+        final PeopleResult one = people.listOrSearch(everyone, "needle");
+        assertEquals(one.rows(), List.of(people.getPerson(needle.getId())));
+        assertFalse(one.truncated());
+
+        final PeopleResult few = people.listOrSearch(everyone.subList(0, 5), "");
+        assertEquals(few.rows().size(), 5, "a list that fits shows whole with no query");
+        final List<Person> resorted = new ArrayList<>(few.rows());
+        resorted.sort(Person.PEOPLE_SORTER);
+        assertEquals(few.rows(), resorted);
+    }
+
+    @Test
+    public void sortedIdsSkipsIdsThatNameNobody() {
+        final Person.Id ghost = Person.Id.newInstance();
+        final List<Person.Id> ids = people.sortedIds(List.of(ghost, needle.getId()));
+        assertEquals(ids, List.of(needle.getId()));
+        assertNotEquals(people.sortedIds(null), null);
+        assertTrue(people.sortedIds(null).isEmpty());
+    }
+
+    @Test
+    public void theAdminSearchAsksForAQueryWhenBlank() {
+        assertSame(people.adminSearch(null), PeopleResult.NEEDS_QUERY);
+        assertSame(people.adminSearch("  "), PeopleResult.NEEDS_QUERY);
+    }
+
+    private static Person saved(final String first, final String last, final String nickname, final String cell)
+            throws IOException {
+        final Person person = Person.builder().first(first).last(last).nickname(nickname).cell(cell)
                 .email("contacts." + RandomData.genAlpha(10) + "@example.com").build();
         assertTrue(DAO.getInstance().savePerson(person));
         return person;

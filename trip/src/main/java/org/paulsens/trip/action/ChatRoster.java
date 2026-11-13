@@ -36,12 +36,19 @@ public final class ChatRoster {
     static List<ChatRoster.RosterRow> view(final List<ChatMembership> rows) {
         final PersonCommands people = PersonCommands.getPersonCommands();
         final Instant now = Instant.now();
+        // Last, first order (Person.PEOPLE_SORTER) like every people list; the table has no sortBy, because a
+        // list rebuilt on every request cannot hold a PrimeFaces in-place sort. Mutable all the same, so a
+        // future sortable column cannot 500 the page.
         final List<RosterRow> out = new ArrayList<>();
-        for (final ChatMembership row : rows) {
-            out.add(rowFor(row, people.getPerson(row.getPersonId()), now));
-        }
-        // Mutable on purpose: a PrimeFaces dataTable sorts its value list in place.
+        rows.stream()
+                .map(row -> new Joined(row, people.getPerson(row.getPersonId())))
+                .sorted(Comparator.comparing(Joined::person, Person.PEOPLE_SORTER))
+                .forEach(joined -> out.add(rowFor(joined.row(), joined.person(), now)));
         return out;
+    }
+
+    /** A membership row with the person it names, resolved once for both the sort and the row. */
+    private record Joined(ChatMembership row, Person person) {
     }
 
     /**

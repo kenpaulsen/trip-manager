@@ -139,4 +139,25 @@ public class PersonTest {
         Assert.assertEquals(people.get(6).getPreferredName(), "Matt");
         Assert.assertEquals(people.get(6).getFirst(), "Matthew");
     }
+
+    @Test
+    public void peopleSortByLastThenFirstWithBlankNamesLast() {
+        final Person adamsZed = Person.builder().first("Zed").last("adams").build();
+        final Person adamsAmy = Person.builder().first("Amy").last("Adams").build();
+        final Person noLast = Person.builder().first("Aaron").build();
+        final Person nullName = Person.builder().first("Nate").last("Null").build();
+        final List<Person> sorted = new java.util.ArrayList<>(List.of(noLast, nullName, adamsZed, adamsAmy));
+        sorted.sort(Person.PEOPLE_SORTER);
+        Assert.assertEquals(sorted, List.of(adamsAmy, adamsZed, nullName, noLast),
+                "case-insensitive last, then first; no last name files after everyone, not under 'null'");
+    }
+
+    @Test
+    public void equalNamesStillOrderTheSameWayEveryTime() {
+        final Person one = Person.builder().first("Sam").last("Same").build();
+        final Person two = Person.builder().first("Sam").last("Same").build();
+        final int forward = Person.PEOPLE_SORTER.compare(one, two);
+        Assert.assertNotEquals(forward, 0, "the id breaks the tie");
+        Assert.assertEquals(Integer.signum(Person.PEOPLE_SORTER.compare(two, one)), -Integer.signum(forward));
+    }
 }

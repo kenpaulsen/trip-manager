@@ -4,13 +4,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Stream;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.cache.CacheClient;
 import org.paulsens.trip.cache.CacheKeys;
@@ -23,8 +21,8 @@ import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 
 /**
  * People are point entries -- there is deliberately no "load all people" path. Lookups are by id (point cache in
- * front of a Dynamo point read), by email (cached hash in front of the {@code email-index} GSI), or by prefix
- * search ({@link SearchIndex} over name/nickname/email/cell tokens).
+ * front of a Dynamo point read), by email (cached hash in front of the {@code email-index} GSI), or by search
+ * ({@link SearchIndex} over the {@link PersonMatch} tokens: name and cell-digit suffixes, whole email and cell).
  */
 @Slf4j
 public class PersonDAO {
@@ -129,44 +127,28 @@ public class PersonDAO {
     }
 
     /**
-     * Prefix search over name/nickname/email/cell. The first (longest) query word drives the index lookup; every
-     * word must then match the resolved person, which also filters out entries stale since the last index rebuild.
+     * People search ({@link PersonMatch} is the rule: names and cell digits match anywhere, email by prefix). The
+     * longest query word drives the index lookup -- the index holds suffixes, so a prefix lookup there is a
+     * contains lookup -- and every word must then match the resolved person, which also filters out entries
+     * stale since the last index rebuild.
      */
     protected List<Person> searchPeople(final String query, final int limit) {
-        final List<String> words = queryWords(query);
-        if (words.isEmpty() || limit <= 0) {
+        final List<String> words = PersonMatch.queryWords(query);
+        final String lookup = PersonMatch.lookupWord(words);
+        if (lookup.isEmpty() || limit <= 0) {
             return List.of();
         }
-        final String prefix = words.stream().reduce((a, b) -> b.length() > a.length() ? b : a).get();
-        try {
-            return
-                    resolvePeople(searchIndex.searchIds(prefix, limit * 3)).stream()
-                            .filter(person -> matchesAllWords(person, words))
-                            .sorted()
-                            .limit(limit)
-                            .toList();
-        } catch (final RuntimeException ex) {
-            throw ex;
-        }
+        return resolvePeople(searchIndex.searchIds(lookup, limit * 3)).stream()
+                .filter(person -> PersonMatch.matchesAll(person, words))
+                .sorted()
+                .limit(limit)
+                .toList();
     }
 
     public void clearCache() {
         cacheClient.clearNamespace(CacheKeys.PERSON_PREFIX);
         cacheClient.removeKey(CacheKeys.EMAIL_IDX);
         searchIndex.invalidate();
-    }
-
-    /** The (normalized, non-empty) search tokens for one person. */
-    static Set<String> searchTokens(final Person person) {
-        if (person == null) {
-            return Set.of();
-        }
-        final Set<String> tokens = new HashSet<>();
-        Stream.of(person.getFirst(), person.getLast(), person.getNickname(), person.getEmail(), person.getCell())
-                .map(SearchIndex::normalizeToken)
-                .filter(token -> !token.isEmpty())
-                .forEach(tokens::add);
-        return tokens;
     }
 
     private boolean updateCachesForPerson(final Person prev, final Person person) {
@@ -176,8 +158,8 @@ public class PersonDAO {
         updateEmailMapping(id, prevEmail, email, person.getDeleted() != null);
         final boolean entityUpdate = (person.getDeleted() == null)
                 ? cache.put(id, person) : cache.remove(id);
-        final Set<String> newTokens = (person.getDeleted() == null) ? searchTokens(person) : Set.of();
-        searchIndex.update(id, searchTokens(prev), newTokens);
+        final Set<String> newTokens = (person.getDeleted() == null) ? PersonMatch.indexTokens(person) : Set.of();
+        searchIndex.update(id, PersonMatch.indexTokens(prev), newTokens);
         return entityUpdate;
     }
 
@@ -241,25 +223,13 @@ public class PersonDAO {
         return people;
     }
 
-    private static List<String> queryWords(final String query) {
-        final String normalized = SearchIndex.normalizeToken(query);
-        return Stream.of(normalized.split("[\\s,]+"))
-                .filter(word -> !word.isEmpty())
-                .toList();
-    }
-
-    private static boolean matchesAllWords(final Person person, final List<String> words) {
-        final Set<String> tokens = searchTokens(person);
-        return words.stream().allMatch(word -> tokens.stream().anyMatch(token -> token.contains(word)));
-    }
-
     private Map<String, Set<String>> loadAllSearchTokens() {
         final Map<String, Set<String>> tokens = new HashMap<>();
         persistence.scanAll(b -> b.consistentRead(false).limit(2000).tableName(PERSON_TABLE).build())
                 .stream()
                 .map(it -> toPerson(it.get(CONTENT)))
                 .filter(p -> p != null && p.getDeleted() == null)
-                .forEach(p -> tokens.put(p.getId().getValue(), searchTokens(p)));
+                .forEach(p -> tokens.put(p.getId().getValue(), PersonMatch.indexTokens(p)));
         return tokens;
     }
 

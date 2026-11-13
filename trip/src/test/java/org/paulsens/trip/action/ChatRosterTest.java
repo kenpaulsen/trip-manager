@@ -179,6 +179,21 @@ public class ChatRosterTest {
         Assert.assertEquals(ChatRoster.displayName(null, null), "");
     }
 
+    /** The roster table has no sortBy (a list rebuilt per request cannot hold one), so its order is the server's. */
+    @Test
+    public void theRosterReadsInLastThenFirstOrder() {
+        final Person.Id zed = person("Zed", "Adams", uniqueEmail("zed"));
+        final Person.Id amy = person("Amy", "Adams", uniqueEmail("amy"));
+        for (final Person.Id who : List.of(member, zed, amy)) {
+            Assert.assertTrue(DAO.getInstance().saveChatMembership(
+                    ChatMembership.joining(channelId, who, Instant.now())));
+        }
+        final List<ChatRoster.RosterRow> rows =
+                ChatRoster.view(DAO.getInstance().listChatMembers(channelId, Cached.NO));
+        Assert.assertEquals(rows.stream().map(ChatRoster.RosterRow::personId).toList(),
+                List.of(amy.getValue(), zed.getValue(), member.getValue()), "Adams Amy, Adams Zed, Paulsen");
+    }
+
     // --- the moderation picker ---
 
     /**

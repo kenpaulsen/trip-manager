@@ -175,6 +175,43 @@ public class OrgCommands {
         return caller().isSiteAdmin() ? matching(getOrganizations(), query) : List.of();
     }
 
+    /**
+     * The Org People page's members table: {@link PersonCommands#listOrSearch} over this org's members (every
+     * member when they fit the limit and there is no query, else those matching it, last-name order). Empty
+     * for anyone who may not view this org's people.
+     */
+    public PeopleResult searchMembers(final String orgId, final String query) {
+        if (!canViewOrgPeople(orgId)) {
+            return PeopleResult.NONE;
+        }
+        return PersonCommands.getPersonCommands().listOrSearch(getMembers(findOrganization(orgId)), query);
+    }
+
+    /**
+     * The admin People page's read-only Privileges column for these rows, keyed by person id value: site-wide
+     * privileges (site admins only) and, for each organization the caller may view people in, org admin and
+     * the org privileges held there. See {@link PrivilegeSummaries} for the batching and the tenancy rule.
+     */
+    public java.util.Map<String, PrivilegeSummaries.PrivSummary> privilegeSummaries(final PeopleResult result) {
+        return PrivilegeSummaries.of(result == null ? List.of() : result.rows(), caller().isSiteAdmin(),
+                this::canViewOrgPeople);
+    }
+
+    /**
+     * The admin People page's Trips column: this person's trips that the viewer may see. A site admin sees them
+     * all; anyone else (an org people admin) only trips of an organization whose people they may view, so a
+     * person's trips in ANOTHER tenant never show. A trip with no organization is site admins' only.
+     */
+    public List<Trip> visibleTripsOf(final Person person) {
+        if (person == null) {
+            return List.of();
+        }
+        final boolean siteAdmin = caller().isSiteAdmin();
+        return person.getTrips().stream()
+                .filter(trip -> siteAdmin || (trip.getOrgId() != null && canViewOrgPeople(trip.getOrgId())))
+                .toList();
+    }
+
     /** Membership rows resolved to people, org-roster order (by person id -- stable, not name-sorted). */
     public List<Person> getMembers(final Organization org) {
         final List<Person> result = new ArrayList<>();
@@ -1153,6 +1190,11 @@ public class OrgCommands {
             PrivilegeCommands.MEDIA_ADMIN, "Site Media Editor",
             PrivilegeCommands.AUDIT_ADMIN, "Audit Viewer",
             PrivilegeCommands.LODGING_ADMIN, "Lodging Admin");
+
+    /** The display name of an org-scoped privilege base ("People Admin"), or the base itself when unnamed. */
+    static String orgPrivName(final String base) {
+        return ORG_PRIV_NAMES.getOrDefault(base, base);
+    }
 
     /** One org-scoped privilege and who holds it here: a row of the settings page's Privileges tab. */
     public record OrgPrivilegeRow(String base, String name, String description, List<String> holders) {

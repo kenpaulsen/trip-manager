@@ -28,8 +28,15 @@ public final class Person implements Serializable, Comparable<Person> {
     @Serial
     private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
 
-    public static final Comparator<Person> PEOPLE_SORTER = (a, b) ->
-            getPersonSortStr(a).compareToIgnoreCase(getPersonSortStr(b));
+    /**
+     * THE display order for people lists: last name, then first name (case-insensitive, a blank name after every
+     * named one), then id so equal names still order the same way on every request. It once compared the string
+     * {@code "" + last + "," + first}, which filed a person with no last name under "null".
+     */
+    public static final Comparator<Person> PEOPLE_SORTER = Comparator
+            .comparing((Person p) -> sortKey(p.getLast()), Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER))
+            .thenComparing(p -> sortKey(p.getFirst()), Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER))
+            .thenComparing(p -> p.getId() == null ? "" : p.getId().getValue());
     private Person.Id id;
     private String nickname;
     private String first;
@@ -180,8 +187,9 @@ public final class Person implements Serializable, Comparable<Person> {
         return PEOPLE_SORTER.compare(this, other);
     }
 
-    private static String getPersonSortStr(final Person person) {
-        return "" + person.getLast() + "," + person.getFirst();
+    /** A name as a sort key: trimmed, or null (sorted last) when blank. */
+    private static String sortKey(final String name) {
+        return (name == null || name.isBlank()) ? null : name.trim();
     }
 
     private static String trim(final String str) {

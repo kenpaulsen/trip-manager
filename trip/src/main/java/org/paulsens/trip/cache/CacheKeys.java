@@ -83,8 +83,10 @@ public final class CacheKeys {
     public static final String EMAIL_IDX = FORMAT_VERSION + "email";
 
     // People search index: lexicographic sorted set of "token|personId" entries plus a sibling loaded marker
-    // (value = epoch millis of last full build). See SearchIndex.
-    public static final String PEOPLE_SEARCH = FORMAT_VERSION + "idx:people";
+    // (value = epoch millis of last full build). See SearchIndex. ":v2" since the tokens became name and cell
+    // SUFFIXES (PersonMatch, contains search, 2026-11-12): a new key makes the first search after the deploy
+    // build the suffix index instead of answering from the old prefix-only one for up to a day.
+    public static final String PEOPLE_SEARCH = FORMAT_VERSION + "idx:people:v2";
     public static final String SEARCH_LOADED_SUFFIX = ":loaded";
 
     /** Separator between a search token and the entity id in a search index entry. Stripped from tokens. */

@@ -91,11 +91,44 @@ public class PersonDAOTest {
         final Person person = Person.builder().first("Old").last("Name").build();
         dao.savePerson(person);
         assertEquals(dao.searchPeople("name", 10).size(), 1);
-        final Person renamed = Person.builder().id(person.getId()).first("Old").last("Renamed").build();
+        final Person renamed = Person.builder().id(person.getId()).first("Old").last("Changed").build();
         dao.savePerson(renamed);
-        // Old token gone ("name" is not a prefix of "renamed"), new token present
+        // Old tokens (every suffix of "name") gone, new ones present. NB "Renamed" would still match: it
+        // CONTAINS "name", which is now a match.
         assertTrue(dao.searchPeople("name", 10).isEmpty());
-        assertEquals(dao.searchPeople("renamed", 10), List.of(renamed));
+        assertEquals(dao.searchPeople("hang", 10), List.of(renamed));
+    }
+
+    @Test
+    public void namesMatchAnywhereInsideNotJustAtTheStart() throws IOException {
+        final Person person = Person.builder().first("Bernadette").last("Quixotely").nickname("Detta").build();
+        dao.savePerson(person);
+        assertEquals(dao.searchPeople("xotel", 10), List.of(person), "inside the last name");
+        assertEquals(dao.searchPeople("nadet", 10), List.of(person), "inside the first name");
+        assertEquals(dao.searchPeople("etta", 10), List.of(person), "inside the nickname");
+        assertEquals(dao.searchPeople("ely nadet", 10), List.of(person), "every word, each anywhere");
+    }
+
+    @Test
+    public void cellDigitsMatchAnywhereEmailOnlyFromItsStart() throws IOException {
+        final Person person = Person.builder().first("Cel").last("Lular")
+                .email("cel.lular@zzexample.com").cell("(555) 867-5309").build();
+        dao.savePerson(person);
+        assertEquals(dao.searchPeople("5309", 10), List.of(person));
+        assertEquals(dao.searchPeople("867-5309", 10), List.of(person));
+        assertEquals(dao.searchPeople("cel.lu", 10), List.of(person));
+        assertTrue(dao.searchPeople("zzexample", 10).isEmpty(), "no contains on email (owner decision)");
+    }
+
+    @Test
+    public void resultsComeBackInLastThenFirstOrder() throws IOException {
+        final Person b = Person.builder().first("Bo").last("Zorderly").build();
+        final Person a = Person.builder().first("Al").last("Zorderly").build();
+        final Person c = Person.builder().first("Al").last("Aorderly").build();
+        dao.savePerson(b);
+        dao.savePerson(a);
+        dao.savePerson(c);
+        assertEquals(dao.searchPeople("orderly", 10), List.of(c, a, b));
     }
 
     @Test

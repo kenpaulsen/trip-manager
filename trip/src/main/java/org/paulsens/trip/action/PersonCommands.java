@@ -18,6 +18,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.dynamo.PersonMatch;
 import org.paulsens.trip.media.PendingUploads;
 import org.paulsens.trip.model.Family;
 import org.paulsens.trip.model.Person;
@@ -382,43 +383,80 @@ public class PersonCommands {
                 : people.stream().map(Person::getId).collect(Collectors.toCollection(ArrayList::new));
     }
 
-    /** How many roster rows the trip Contacts page lists without a search (that page only; reports are uncapped). */
-    public static final int CONTACTS_AUTO_LIMIT = 60;
+    /**
+     * The most rows any people list renders (trip Contacts, Org People, the admin People search): with no query
+     * a list shows everyone only when its candidates fit; past this a page asks for a search instead of
+     * rendering a few hundred rows, each with its own privacy and balance lookups.
+     */
+    public static final int PEOPLE_LIST_LIMIT = 60;
 
-    /** {@link #CONTACTS_AUTO_LIMIT}, for the page's copy. */
-    public int getContactsAutoLimit() {
-        return CONTACTS_AUTO_LIMIT;
+    /** {@link #PEOPLE_LIST_LIMIT}, for the pages' copy. */
+    public int getPeopleListLimit() {
+        return PEOPLE_LIST_LIMIT;
     }
 
     /**
-     * The ids the trip Contacts page lists: the whole roster when it fits {@link #CONTACTS_AUTO_LIMIT} and there is
-     * no query; nobody when it does not fit and no query narrows it (the page asks for a search instead of
-     * rendering a few hundred rows, each with its own privacy and balance lookups); otherwise the roster members
-     * whose first, last or preferred name or email contains every token of the query, in roster order, capped at
-     * the same limit. Always a new mutable list: the dataTable sorts its value in place.
+     * THE people-list rule, shared by every page that lists a known set of people: a blank query lists every
+     * candidate when they fit {@link #PEOPLE_LIST_LIMIT} and nobody ({@link PeopleResult#needsQuery}) when they
+     * do not; otherwise the candidates matching every query word ({@link PersonMatch}). Rows are always in
+     * {@link Person#PEOPLE_SORTER} order (last, first) and capped at the limit, with {@code truncated} saying
+     * more matched than shown.
+     */
+    public PeopleResult listOrSearch(final Collection<Person> candidates, final String query) {
+        if (candidates == null || candidates.isEmpty()) {
+            return PeopleResult.NONE;
+        }
+        final List<String> words = PersonMatch.queryWords(query);
+        if (words.isEmpty() && candidates.size() > PEOPLE_LIST_LIMIT) {
+            return PeopleResult.NEEDS_QUERY;
+        }
+        return PeopleResult.capped(candidates.stream()
+                .filter(person -> words.isEmpty() || PersonMatch.matchesAll(person, words))
+                .sorted(Person.PEOPLE_SORTER)
+                .toList(), PEOPLE_LIST_LIMIT);
+    }
+
+    /**
+     * The admin People page's search: {@link #adminSearchPeople} (so only people the caller may administer),
+     * under the same rule as {@link #listOrSearch}. The whole directory never fits the limit, so a blank query
+     * always asks for a search.
+     */
+    public PeopleResult adminSearch(final String query) {
+        if (PersonMatch.queryWords(query).isEmpty()) {
+            return PeopleResult.NEEDS_QUERY;
+        }
+        return PeopleResult.capped(adminSearchPeople(query, PEOPLE_LIST_LIMIT + 1), PEOPLE_LIST_LIMIT);
+    }
+
+    /**
+     * The ids the trip Contacts page lists, by {@link #listOrSearch} over the trip's roster. Ids, not people,
+     * because the page freezes them in the view so its row commands decode against exactly the rendered rows.
+     * A roster too big to list is answered before resolving anyone. Always a new mutable list.
      */
     public List<Person.Id> contactsRoster(final List<Person.Id> roster, final String query) {
-        final List<Person.Id> result = new ArrayList<>();
-        if (roster == null) {
-            return result;
+        if (roster == null || (PersonMatch.queryWords(query).isEmpty() && roster.size() > PEOPLE_LIST_LIMIT)) {
+            return new ArrayList<>();
         }
-        final boolean searching = query != null && !query.isBlank();
-        if (!searching) {
-            if (roster.size() <= CONTACTS_AUTO_LIMIT) {
-                result.addAll(roster);
-            }
-            return result;
+        return toIds(listOrSearch(existingPeople(roster), query).rows());
+    }
+
+    /**
+     * The given ids as people in {@link Person#PEOPLE_SORTER} order, skipping ids that name nobody -- for the
+     * uncapped roster reports (emails, emergency contacts, pilgrims, ages), which freeze the ids in the view.
+     */
+    public List<Person.Id> sortedIds(final Collection<Person.Id> ids) {
+        if (ids == null) {
+            return new ArrayList<>();
         }
-        final List<String> tokens = CheckinCommands.tokensOf(query);
-        for (final Person.Id id : roster) {
-            if (result.size() >= CONTACTS_AUTO_LIMIT) {
-                break;
-            }
-            if (CheckinCommands.matchesTokens(getPerson(id), tokens)) {
-                result.add(id);
-            }
-        }
-        return result;
+        return toIds(existingPeople(ids).stream().sorted(Person.PEOPLE_SORTER).toList());
+    }
+
+    /** The people these ids name, skipping any that name nobody (unlike {@link #getPerson}'s blank person). */
+    private List<Person> existingPeople(final Collection<Person.Id> ids) {
+        return ids.stream()
+                .map(id -> getPersonInternal(id, () -> null))
+                .filter(Objects::nonNull)
+                .toList();
     }
 
     /**

@@ -64,6 +64,27 @@ on this page" report and the CodeMirror completion; local bytes served by `web/S
 
 Rules for these beans: `CLAUDE.md` ("Rules that apply everywhere") and `.claude/rules/page-state.md`.
 
+### People lists and people search
+
+Every page that lists or searches people follows one rule (owner decision 2026-11-12):
+
+- **Matching** is `dynamo/PersonMatch`: each query word must match; names and cell digits match anywhere inside,
+  email only from its start. The cached directory search (`PersonDAO.searchPeople`, behind `people.searchPeople`,
+  `people.adminSearchPeople` and every people picker) and in-memory lists use the same class. Its index:
+  `docs/caching.md` "The people search index".
+- **Listing** is `people.listOrSearch` (a `PeopleResult`): a blank query shows everyone when they fit
+  `PersonCommands.PEOPLE_LIST_LIMIT` (60), otherwise asks for a search; matches are capped at the same limit and
+  flagged `truncated`. Org People (`org.searchMembers`), trip Contacts (`people.contactsRoster`) and the admin People
+  page (`people.adminSearch`, which always asks first: the directory never fits) all use it.
+- **Order** is `Person.PEOPLE_SORTER` (last, first, then id), set by the SERVER. People tables carry no `sortBy` or
+  `filterBy`: a table whose value is rebuilt per request cannot hold a PrimeFaces in-place sort, and a `sortBy` naming
+  a variable set in a row `beforeEncode` never sorted at all. The uncapped roster reports freeze
+  `people.sortedIds(...)` in the view.
+- **Row commands** carry their person in an `f:param` and are ajax; a table's rows are resolved in `initPage` (before
+  decode) as well as before encode. The admin People page's Privileges column is `org.privilegeSummaries`
+  (`PrivilegeSummaries`): whole partitions read once per request, site grants for site admins only, and only the
+  orgs whose people the viewer may see.
+
 ## Conferences, trip pages, priced checkout, tickets and check-in
 
 **Conferences** (`docs/conference.md`, required reading before touching any of these): a conference is a `Trip` with
