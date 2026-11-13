@@ -60,8 +60,8 @@ import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedExce
 @Named("payment")
 @ApplicationScoped
 public class PaymentCommands {
-    /** What a payment recorded outside any processor (a check, cash, a comp, a $0 registration) is called. */
-    public static final String OFFLINE_NAME = "Offline payment";
+    /** Stripe's name for a US bank debit: the one method with its own (lower) price. */
+    private static final String BANK_METHOD = "us_bank_account";
     /** How {@link #paidWith} prints the day a payment arrived: "10/30/2026", the receipt's own format. */
     private static final java.time.format.DateTimeFormatter RECEIVED_DATE =
             java.time.format.DateTimeFormatter.ofPattern("M/d/yyyy", java.util.Locale.US);
@@ -174,12 +174,10 @@ public class PaymentCommands {
         quote.payerPays = effective.getFeesPaidBy() == FeesPaidBy.PAYER;
         quote.creditCents = sumAmounts(rawAmounts);
         quote.donationCents = effective.isDonationOn() ? parseLenient(rawDonation) : 0L;
-        final int rateBps = (config == null) ? 0 : config.getEffectiveFeeBps();
-        final int fixedCents = (config == null) ? 0 : config.getEffectiveFeeFixedCents();
-        quote.creditFeeCents = MoneyMath.creditFeeCents(quote.creditCents, rateBps, fixedCents);
-        quote.donationFeeCents = MoneyMath.donationFeeCents(quote.donationCents, rateBps);
-        quote.totalCents = MoneyMath.totalChargedCents(quote.creditCents, quote.creditFeeCents,
-                quote.donationCents, quote.payerPays);
+        final Fees fees = feesFor(config, quote.payerPays, quote.creditCents, quote.donationCents, false);
+        quote.creditFeeCents = fees.creditFeeCents();
+        quote.donationFeeCents = fees.donationFeeCents();
+        quote.totalCents = fees.totalCents();
         quote.processorLabel = (config == null) ? "" : displayNameOf(config);
         return quote;
     }
@@ -224,17 +222,42 @@ public class PaymentCommands {
         return startPrepared(trip, payment, config, payer, pageUrl, trip.getTitle() + " - payment");
     }
 
+    /** A payment's fee shares and the total to charge. */
+    record Fees(long creditFeeCents, long donationFeeCents, long totalCents) {
+    }
+
     /**
-     * A CREATED payment for these credits and donation, its fees per the effective config: the one place a
-     * payment's money fields are computed, for the payment page and priced checkout alike.
+     * The ONE computation of a payment's fees and total: the live quote, the stored payment, a method re-price
+     * and the checkout quote all read it, so the figure a payer agrees to is the figure the capture's
+     * gross check expects. {@code bank} prices a US bank debit at the processor type's bank rate and cap; the
+     * card rate is the config's. A null config (the trip takes no payments) carries no fee.
+     */
+    static Fees feesFor(final PaymentProcessorConfig config, final boolean payerPays, final long creditCents,
+            final long donationCents, final boolean bank) {
+        if (config == null) {
+            return new Fees(0L, 0L, MoneyMath.totalChargedCents(creditCents, 0L, donationCents, payerPays));
+        }
+        final ProcessorType type = config.getType();
+        final long creditFee = bank
+                ? MoneyMath.bankCreditFeeCents(creditCents, type.getBankFeeBps(), type.getBankFeeCapCents())
+                : MoneyMath.creditFeeCents(creditCents, config.getEffectiveFeeBps(),
+                        config.getEffectiveFeeFixedCents());
+        final long donationFee = bank
+                ? MoneyMath.bankDonationFeeCents(donationCents, type.getBankFeeBps(), type.getBankFeeCapCents())
+                : MoneyMath.donationFeeCents(donationCents, config.getEffectiveFeeBps());
+        return new Fees(creditFee, donationFee,
+                MoneyMath.totalChargedCents(creditCents, creditFee, donationCents, payerPays));
+    }
+
+    /**
+     * A CREATED payment for these credits and donation, its fees per the effective config ({@link #feesFor}),
+     * for the payment page and priced checkout alike.
      */
     Payment newPayment(final Trip trip, final Person payer, final PaymentProcessorConfig config,
             final TripPaymentConfig effective, final List<Payment.Allocation> allocations, final long donation,
             final boolean sandbox) {
         final long credits = allocations.stream().mapToLong(Payment.Allocation::getAmountCents).sum();
-        final boolean payerPays = effective.getFeesPaidBy() == FeesPaidBy.PAYER;
-        final long creditFee = MoneyMath.creditFeeCents(credits, config.getEffectiveFeeBps(),
-                config.getEffectiveFeeFixedCents());
+        final Fees fees = feesFor(config, effective.getFeesPaidBy() == FeesPaidBy.PAYER, credits, donation, false);
         return Payment.builder()
                 .tripId(trip.getId())
                 .orgId(trip.getOrgId())
@@ -246,9 +269,9 @@ public class PaymentCommands {
                 .feesPaidBy(effective.getFeesPaidBy())
                 // Stored whoever pays it: the receipt and the mailer report the fee in the organization-pays case
                 // too, and totalChargedCents (below) is what takes payerPays into account.
-                .creditFeeCents(creditFee)
-                .donationFeeCents(MoneyMath.donationFeeCents(donation, config.getEffectiveFeeBps()))
-                .totalChargedCents(MoneyMath.totalChargedCents(credits, creditFee, donation, payerPays))
+                .creditFeeCents(fees.creditFeeCents())
+                .donationFeeCents(fees.donationFeeCents())
+                .totalChargedCents(fees.totalCents())
                 .sandbox(sandbox)
                 .createdAt(LocalDateTime.now())
                 .build();
@@ -299,19 +322,22 @@ public class PaymentCommands {
         if (payment == null || !mayComplete(current, payment)) {
             return Completion.of("notfound", "Unknown payment.");
         }
-        return complete(payment, token, current);
+        return complete(payment, token, current, Door.PAYER);
     }
 
     /**
-     * Who may finish a payment from a return page: its payer, a site admin, and for a registration checkout the
-     * trip's registration admins too (an admin paying on a family's behalf comes back to their own page).
+     * Who may ACT on a payment (finish it from a return page, cancel it, re-price it for a method, see whom it
+     * registers): its payer, a site admin, and for a registration checkout the trip's registration admins too
+     * (an admin paying on a family's behalf comes back to their own page). The one spelling of the rule: the
+     * re-price had its own copy without the registration admin, and charged a family the card total for a
+     * bank debit.
      */
-    private boolean mayComplete(final Caller current, final Payment payment) {
+    boolean mayComplete(final Caller current, final Payment payment) {
         if (current.isSiteAdmin()) {
             return true;
         }
-        final Person me = currentPerson();
-        if (me != null && payment.getPayerId().equals(me.getId())) {
+        if (current.isAuthenticated() && payment.getPayerId() != null
+                && payment.getPayerId().equals(current.personId())) {
             return true;
         }
         return payment.hasCheckout() && current.has(PrivilegeCommands.REGISTRATION_ADMIN, payment.getTripId());
@@ -334,10 +360,20 @@ public class PaymentCommands {
         audit.payment(payment, true, sandboxTag(payment) + "Offline payment entered: "
                 + MoneyMath.formatCents(payment.getCapturedGrossCents()) + " (" + payment.getCaptureId() + ") to trip "
                 + payment.getTripId(), current.auditActor());
-        return complete(payment, null, current).withOffline(payment);
+        return complete(payment, null, current, Door.PAYER).withOffline(payment);
     }
 
-    private Completion complete(final Payment payment, final String token, final Caller current) {
+    /** Who is finishing a payment: decides what a held payment, or one already given up here, may do. */
+    private enum Door {
+        /** The payer's return page or REST completion (and an offline entry): never records a held payment. */
+        PAYER,
+        /** The processor's webhook: also notices money arriving for a payment that was given up here. */
+        WEBHOOK,
+        /** A site administrator's Finish: the one door that records a held payment. */
+        ADMIN
+    }
+
+    private Completion complete(final Payment payment, final String token, final Caller current, final Door door) {
         switch (payment.getStatus()) {
             case RECORDED -> {
                 if (payment.hasCheckout() && payment.getCheckout().getFinalizedAt() == null && !payment.isSandbox()) {
@@ -347,20 +383,22 @@ public class PaymentCommands {
                 }
                 return recordedOutcome(payment, "Payment already recorded.");
             }
-            case CANCELLED -> {
-                return Completion.of("cancelled", "This payment was cancelled; nothing was charged.");
-            }
-            case FAILED -> {
-                return Completion.of("failed", "This payment failed; nothing was charged.");
+            case CANCELLED, FAILED -> {
+                return (door == Door.WEBHOOK) ? paidAfterGivenUp(payment, current) : givenUpOutcome(payment);
             }
             case CREATED -> {
-                final Completion captured = captureNow(payment, token, current);
+                final Completion captured = captureNow(payment, token, current, door);
                 if (captured != null) {
                     return captured;
                 }
             }
             case CAPTURED -> {
-                // Crash recovery: money moved, the ledger write is owed. Fall through to record.
+                // Crash recovery: money moved, the ledger write is owed -- unless the payment is HELD, which
+                // only an administrator's Finish releases. Until 2026-11 nothing remembered the hold, so the
+                // webhook (or a reload of the return page) recorded a mismatched payment at the expected amount.
+                if (door != Door.ADMIN && isHeld(payment)) {
+                    return heldOutcome(payment, door);
+                }
             }
             default -> {
             }
@@ -368,8 +406,104 @@ public class PaymentCommands {
         return recordNow(payment, current);
     }
 
+    private static Completion givenUpOutcome(final Payment payment) {
+        return payment.getStatus() == Payment.Status.CANCELLED
+                ? Completion.of("cancelled", "This payment was cancelled; nothing was charged.")
+                : Completion.of("failed", "This payment failed; nothing was charged.");
+    }
+
+    /**
+     * Whether a CAPTURED payment waits for an administrator. Rows captured before the reason was stored
+     * (2026-11) are told by their amounts; an offline payment's gross is whatever was received, by design.
+     */
+    private static boolean isHeld(final Payment payment) {
+        if (payment.getHeldReason() != null) {
+            return true;
+        }
+        return payment.getProcessorType() != ProcessorType.OFFLINE
+                && payment.getCapturedGrossCents() != payment.getTotalChargedCents();
+    }
+
+    /** Why the reconciliation page's row is held, for its Status column; "" when it is not. */
+    public String holdOf(final Payment payment) {
+        if (payment == null || payment.getStatus() != Payment.Status.CAPTURED || !isHeld(payment)) {
+            return "";
+        }
+        return payment.getHeldReason() != null ? payment.getHeldReason() : mismatchReason(payment);
+    }
+
+    private static String mismatchReason(final Payment payment) {
+        return "the processor captured " + MoneyMath.formatCents(payment.getCapturedGrossCents())
+                + ", not the expected " + MoneyMath.formatCents(payment.getTotalChargedCents());
+    }
+
+    private Completion heldOutcome(final Payment payment, final Door door) {
+        if (door == Door.ADMIN) {
+            return Completion.of("mismatch", "Held: " + holdOf(payment) + ". Finish it again to record it as "
+                    + "expected, or refund it at the processor.");
+        }
+        return Completion.of("mismatch", "Your payment was received and is waiting for an administrator to "
+                + "review it. You will not be charged again.");
+    }
+
+    /**
+     * The webhook says a payment that was given up here (CANCELLED or FAILED) has been PAID: the payer's saved
+     * form completed it after a cancel, or a debit cleared that was abandoned while it settled. The money is
+     * real, so the row comes back as CAPTURED and HELD (the reconciliation list shows it; an administrator
+     * finishes or refunds it) instead of answering "cancelled" and letting the processor stop redelivering.
+     * Reached only from the webhook door, whose processors' capture is a read.
+     */
+    private Completion paidAfterGivenUp(final Payment payment, final Caller current) {
+        final Payment.Status was = payment.getStatus();
+        final PaymentProcessor.CaptureResult result = readCapture(payment);
+        if (result == null || (result.status() != PaymentProcessor.CaptureResult.Status.COMPLETED
+                && result.status() != PaymentProcessor.CaptureResult.Status.ALREADY_CAPTURED)) {
+            return givenUpOutcome(payment);
+        }
+        applyCapture(payment, result);
+        payment.setHeldReason("paid at the processor after the payment was "
+                + was.name().toLowerCase(java.util.Locale.ROOT) + " here");
+        payment.setStatus(Payment.Status.CAPTURED);
+        try {
+            DAO.getInstance().transitionPayment(payment, was);
+        } catch (final ConditionalCheckFailedException ex) {
+            return adoptWinner(payment, null, current, Door.WEBHOOK);
+        } catch (final RuntimeException | IOException ex) {
+            log.error("Unable to bring paid payment {} back from {}", payment.getPaymentId(), was, ex);
+            return Completion.of("pending", "The payment could not be updated; try again.");
+        }
+        audit.payment(payment, false, sandboxTag(payment) + "The processor reports "
+                + MoneyMath.formatCents(result.grossCents()) + " PAID (capture id " + result.captureId()
+                + ") for a payment that was " + was + " here; held as CAPTURED for an administrator to finish "
+                + "or refund", current.auditActor());
+        return heldOutcome(payment, Door.WEBHOOK);
+    }
+
+    /** The processor's answer about the payment's order, or null when the processor cannot be built or asked. */
+    private PaymentProcessor.CaptureResult readCapture(final Payment payment) {
+        if (payment.getOrderRef() == null) {
+            return null;
+        }
+        try {
+            return processors.apply(configOf(payment), payment.isSandbox()).capture(payment.getOrderRef());
+        } catch (final RuntimeException ex) {
+            log.warn("The processor could not be asked about payment {}: {}", payment.getPaymentId(),
+                    ex.getMessage());
+            return null;
+        }
+    }
+
+    private static void applyCapture(final Payment payment, final PaymentProcessor.CaptureResult result) {
+        payment.setCaptureId(result.captureId());
+        payment.setCapturedGrossCents(result.grossCents());
+        payment.setActualFeeCents(result.actualFeeCents().isPresent()
+                ? result.actualFeeCents().getAsLong() : null);
+        payment.setCapturedAt(LocalDateTime.now());
+    }
+
     /** Runs the capture; null means "captured, continue to recording", anything else is the outcome. */
-    private Completion captureNow(final Payment payment, final String token, final Caller current) {
+    private Completion captureNow(final Payment payment, final String token, final Caller current,
+            final Door door) {
         final PaymentProcessorConfig config = configOf(payment);
         final PaymentProcessor processor;
         try {
@@ -400,28 +534,50 @@ public class PaymentCommands {
                 return Completion.of("failed", "The payment could not be completed; you were not charged.");
             }
         }
-        payment.setCaptureId(result.captureId());
-        payment.setCapturedGrossCents(result.grossCents());
-        payment.setActualFeeCents(result.actualFeeCents().isPresent()
-                ? result.actualFeeCents().getAsLong() : null);
-        payment.setCapturedAt(LocalDateTime.now());
+        applyCapture(payment, result);
+        final boolean mismatch = result.grossCents() != payment.getTotalChargedCents();
+        if (mismatch) {
+            // Stored WITH the capture, in the same put: the hold has to outlive this request.
+            payment.setHeldReason(mismatchReason(payment));
+        }
         payment.setStatus(Payment.Status.CAPTURED);
         try {
             DAO.getInstance().transitionPayment(payment, Payment.Status.CREATED);
         } catch (final ConditionalCheckFailedException ex) {
-            return adoptWinner(payment, token, current);
+            return adoptWinner(payment, token, current, door);
         } catch (final RuntimeException | IOException ex) {
             log.error("Unable to persist capture for payment {}", payment.getPaymentId(), ex);
         }
-        if (result.grossCents() != payment.getTotalChargedCents()) {
+        if (mismatch) {
             audit.payment(payment, false, sandboxTag(payment)
                     + "Captured amount " + MoneyMath.formatCents(result.grossCents())
                     + " does not match the expected " + MoneyMath.formatCents(payment.getTotalChargedCents())
-                    + "; NOT recorded (needs reconciliation)", current.auditActor());
-            return Completion.of("mismatch", "The processor reported a different amount than expected. "
-                    + "Your payment was received and an administrator will reconcile it.");
+                    + "; NOT recorded (held for an administrator)", current.auditActor());
+            return heldOutcome(payment, door);
         }
+        noteMethodMismatch(payment, result, config, current);
         return null;
+    }
+
+    /**
+     * A method other than the one the total was priced for paid it (a card at the bank-debit price). The
+     * processor is asked to refuse that ({@code PaymentProcessor.reprice}'s lock), so this is the case where it
+     * would not or could not: the money is in at the lower total, so the payment is recorded as paid and the
+     * shortfall is put on the audit trail for the organization (owner's decision, 2026-11-12).
+     */
+    private void noteMethodMismatch(final Payment payment, final PaymentProcessor.CaptureResult result,
+            final PaymentProcessorConfig config, final Caller current) {
+        final String pricedFor = payment.getPricedForMethod();
+        if (pricedFor == null || result.methodType() == null || pricedFor.equals(result.methodType())) {
+            return;
+        }
+        final long anyMethodTotal = feesFor(config, payment.isPayerPaysFee(), payment.getCreditTotalCents(),
+                payment.getDonationCents(), false).totalCents();
+        audit.payment(payment, false, sandboxTag(payment) + "Paid with " + result.methodType()
+                + " at the total priced for " + pricedFor + ": " + MoneyMath.formatCents(result.grossCents())
+                + " collected, " + MoneyMath.formatCents(anyMethodTotal - payment.getTotalChargedCents())
+                + " less than the " + MoneyMath.formatCents(anyMethodTotal) + " that method is charged; recorded "
+                + "as paid, the organization absorbs the difference", current.auditActor());
     }
 
     private Completion recordNow(final Payment payment, final Caller current) {
@@ -457,7 +613,7 @@ public class PaymentCommands {
             // are the same): the winner owns the mail, the push and the audit line. Answer ITS outcome and
             // do none of them again -- until 2026-11 the loser mailed the payer a second confirmation.
             log.info("Payment {} was recorded by a concurrent writer", payment.getPaymentId());
-            return adoptWinner(payment, null, current);
+            return adoptWinner(payment, null, current, Door.PAYER);
         } catch (final RuntimeException | IOException ex) {
             log.error("Unable to persist RECORDED for payment {}", payment.getPaymentId(), ex);
         }
@@ -477,7 +633,9 @@ public class PaymentCommands {
         }
         audit.payment(payment, true, sandboxTag(payment) + "Payment recorded: "
                 + MoneyMath.formatCents(payment.getCapturedGrossCents()) + " (capture id "
-                + payment.getCaptureId() + "), " + result.txIds().size() + " ledger row(s)",
+                + payment.getCaptureId() + "), " + result.txIds().size() + " ledger row(s)"
+                + (payment.getHeldReason() == null ? ""
+                        : "; it was held (" + payment.getHeldReason() + ") and an administrator finished it"),
                 current.auditActor());
         return recordedOutcome(payment, sandboxTag(payment).isEmpty()
                 ? "Payment received - thank you!"
@@ -504,12 +662,13 @@ public class PaymentCommands {
      * Finish): re-read the row and continue from wherever the winner got to. A RECORDED winner answers its
      * outcome with NO side effects, since the winner already mailed, pushed and audited.
      */
-    private Completion adoptWinner(final Payment payment, final String token, final Caller current) {
+    private Completion adoptWinner(final Payment payment, final String token, final Caller current,
+            final Door door) {
         final Payment winner = DAO.getInstance().getPayment(payment.getPaymentId()).orElse(null);
         if (winner == null) {
             return Completion.of("failed", "The payment state could not be read.");
         }
-        return complete(winner, token, current);
+        return complete(winner, token, current, door);
     }
 
     /** The cancel-URL callback: only an un-captured payment can cancel. */
@@ -521,11 +680,36 @@ public class PaymentCommands {
         if (payment == null || payment.getStatus() != Payment.Status.CREATED || !mayComplete(current, payment)) {
             return false;
         }
-        return cancelCreated(payment, current, "Payment cancelled by the payer");
+        return giveUp(payment, current, "Payment cancelled by the payer");
     }
 
-    /** CREATED -> CANCELLED plus the processor's own cancel (an inline intent must not stay confirmable). */
-    private boolean cancelCreated(final Payment payment, final Caller current, final String note) {
+    /**
+     * Gives a CREATED payment up: the PROCESSOR first, and our row only once it says nothing of the payer's is
+     * held or in flight. The order used to be the other way round with a processor cancel that could not fail,
+     * so a bank debit abandoned while it settled (it looks exactly like a walked-away payment here) cleared
+     * days later into a CANCELLED row: money in, no ledger credit, nothing left to reconcile. A payment the
+     * processor already has is finished instead of cancelled. False, with the reason growled, when it was not
+     * cancelled.
+     */
+    private boolean giveUp(final Payment payment, final Caller current, final String note) {
+        return switch (releaseAtProcessor(payment)) {
+            case OPEN -> markCancelled(payment, current, note);
+            case PAID -> finishInstead(payment, current);
+            case SETTLING -> fail("Not cancelled", "This payment is already processing at the bank and can no "
+                    + "longer be cancelled. It will be recorded when it clears.");
+            case UNKNOWN -> fail("Not cancelled", "The payment processor could not be reached to cancel this "
+                    + "payment. Try again in a moment.");
+        };
+    }
+
+    private boolean finishInstead(final Payment payment, final Caller current) {
+        complete(payment, null, current, Door.PAYER);
+        return fail("Not cancelled", "This payment had already gone through, so it was recorded instead of "
+                + "cancelled.");
+    }
+
+    /** CREATED -> CANCELLED, once the processor holds nothing for it (or said so itself, by webhook). */
+    private boolean markCancelled(final Payment payment, final Caller current, final String note) {
         payment.setStatus(Payment.Status.CANCELLED);
         try {
             DAO.getInstance().transitionPayment(payment, Payment.Status.CREATED);
@@ -533,20 +717,28 @@ public class PaymentCommands {
             log.warn("Unable to mark payment {} cancelled", payment.getPaymentId(), ex);
             return false;
         }
-        releaseAtProcessor(payment);
         audit.payment(payment, true, sandboxTag(payment) + note, current.auditActor());
         return true;
     }
 
-    private void releaseAtProcessor(final Payment payment) {
+    private PaymentProcessor.OrderState releaseAtProcessor(final Payment payment) {
         if (payment.getOrderRef() == null) {
-            return;
+            return PaymentProcessor.OrderState.OPEN;
+        }
+        final PaymentProcessor processor;
+        try {
+            processor = processors.apply(configOf(payment), payment.isSandbox());
+        } catch (final RuntimeException ex) {
+            // No usable credentials (a removed or half-entered config): the processor can never be asked, and a
+            // payment that can never complete must not stay un-cancellable forever.
+            log.warn("No processor to cancel payment {} at: {}", payment.getPaymentId(), ex.getMessage());
+            return PaymentProcessor.OrderState.OPEN;
         }
         try {
-            processors.apply(configOf(payment), payment.isSandbox()).cancel(payment.getOrderRef());
+            return processor.cancel(payment.getOrderRef());
         } catch (final RuntimeException ex) {
-            // Our row is already CANCELLED; a processor that cannot be reached just keeps a dangling intent.
             log.warn("Processor cancel failed for payment {}: {}", payment.getPaymentId(), ex.getMessage());
+            return PaymentProcessor.OrderState.UNKNOWN;
         }
     }
 
@@ -562,7 +754,7 @@ public class PaymentCommands {
         if (payment == null) {
             return Completion.of("notfound", "Unknown payment.");
         }
-        return complete(payment, null, systemCaller());
+        return complete(payment, null, systemCaller(), Door.WEBHOOK);
     }
 
     /**
@@ -617,7 +809,7 @@ public class PaymentCommands {
         if (payment == null || payment.getStatus() != Payment.Status.CREATED) {
             return false;
         }
-        return cancelCreated(payment, systemCaller(), "Payment cancelled at the processor (via webhook)");
+        return markCancelled(payment, systemCaller(), "Payment cancelled at the processor (via webhook)");
     }
 
     /**
@@ -730,17 +922,20 @@ public class PaymentCommands {
      * fees: a US bank debit costs the processor far less than a card (Stripe: 0.8% capped at $5.00 against
      * 2.9% + $0.30), so the grossed-up total is recomputed for that method, the processor's order is
      * re-priced to match, and the new total is answered for the page to show. A card (or any other method)
-     * re-prices back to the card estimate. Only the payer (or a site admin) may do this, only while the
-     * payment is CREATED, and only for a processor with bank pricing and a re-priceable order; everything
-     * else answers the CURRENT total unchanged, so the page never shows a figure the processor will not
-     * charge. The apps' native sheet has no method callback, so they keep the card estimate.
+     * re-prices back to the card estimate. Whoever may act on the payment ({@link #mayComplete}) may do this,
+     * only while the payment is CREATED, and only for a processor with bank pricing and a re-priceable order;
+     * everything else answers the CURRENT total unchanged, so the page never shows a figure the processor will
+     * not charge. The apps' native sheet has no method callback, so they keep the card estimate.
+     *
+     * <p>The page's word about the method is not proof of what pays, so the bank price is LOCKED to bank
+     * debits at the processor ({@code PaymentProcessor.reprice}) and the payment remembers what its total is
+     * priced for ({@code Payment.pricedForMethod}); a card that pays it anyway is noticed at capture
+     * ({@link #noteMethodMismatch}).
      */
     public Reprice selectMethod(final String paymentId, final String methodType) {
         final Caller current = caller();
         final Payment payment = DAO.getInstance().getPayment(paymentId).orElse(null);
-        final Person me = currentPerson();
-        if (payment == null
-                || (!current.isSiteAdmin() && (me == null || !payment.getPayerId().equals(me.getId())))) {
+        if (payment == null || !mayComplete(current, payment)) {
             return null;
         }
         final Reprice unchanged = Reprice.of(payment, false);
@@ -749,31 +944,27 @@ public class PaymentCommands {
                 || config.getType() == null || !config.getType().hasBankPricing()) {
             return unchanged;
         }
-        final boolean bank = "us_bank_account".equals(methodType);
-        final long credits = payment.getCreditTotalCents();
-        final long creditFee = bank
-                ? MoneyMath.bankCreditFeeCents(credits, config.getType().getBankFeeBps(),
-                        config.getType().getBankFeeCapCents())
-                : MoneyMath.creditFeeCents(credits, config.getEffectiveFeeBps(), config.getEffectiveFeeFixedCents());
-        final long donationFee = bank
-                ? MoneyMath.bankDonationFeeCents(payment.getDonationCents(), config.getType().getBankFeeBps(),
-                        config.getType().getBankFeeCapCents())
-                : MoneyMath.donationFeeCents(payment.getDonationCents(), config.getEffectiveFeeBps());
-        final long total = MoneyMath.totalChargedCents(credits, creditFee, payment.getDonationCents(), true);
-        if (total == payment.getTotalChargedCents()) {
+        final boolean bank = BANK_METHOD.equals(methodType);
+        final Fees fees = feesFor(config, true, payment.getCreditTotalCents(), payment.getDonationCents(), bank);
+        if (fees.totalCents() == payment.getTotalChargedCents()) {
             return unchanged;
         }
+        final PaymentProcessor.Repriced repriced;
         try {
-            if (!processors.apply(config, payment.isSandbox()).updateAmount(payment.getOrderRef(), total)) {
-                return unchanged;
-            }
+            repriced = processors.apply(config, payment.isSandbox()).reprice(payment.getOrderRef(),
+                    fees.totalCents(), bank ? BANK_METHOD : null);
         } catch (final RuntimeException ex) {
             log.warn("Re-pricing payment {} at the processor failed: {}", payment.getPaymentId(), ex.getMessage());
             return unchanged;
         }
-        payment.setCreditFeeCents(creditFee);
-        payment.setDonationFeeCents(donationFee);
-        payment.setTotalChargedCents(total);
+        if (repriced == PaymentProcessor.Repriced.UNSUPPORTED) {
+            return unchanged;
+        }
+        final boolean locked = repriced == PaymentProcessor.Repriced.REPRICED_LOCKED;
+        payment.setCreditFeeCents(fees.creditFeeCents());
+        payment.setDonationFeeCents(fees.donationFeeCents());
+        payment.setTotalChargedCents(fees.totalCents());
+        payment.setPricedForMethod(bank ? BANK_METHOD : null);
         try {
             DAO.getInstance().transitionPayment(payment, Payment.Status.CREATED);
         } catch (final RuntimeException | IOException ex) {
@@ -784,9 +975,10 @@ public class PaymentCommands {
             return null;
         }
         audit.payment(payment, true, sandboxTag(payment) + "Payment re-priced for " + (bank ? "a bank debit"
-                : "a card") + ": fee " + MoneyMath.formatCents(creditFee) + ", total "
-                + MoneyMath.formatCents(total), current.auditActor());
-        return Reprice.of(payment, true);
+                : "a card") + ": fee " + MoneyMath.formatCents(fees.creditFeeCents()) + ", total "
+                + MoneyMath.formatCents(fees.totalCents()) + (locked ? " (the processor will refuse any other "
+                        + "method at this total)" : ""), current.auditActor());
+        return Reprice.of(payment, true, locked);
     }
 
     // ------------------------------------------------------------------ local-mode fake processor hooks
@@ -845,13 +1037,14 @@ public class PaymentCommands {
         if (payment == null) {
             return Completion.of("notfound", "Unknown payment.");
         }
-        return complete(payment, null, current);
+        return complete(payment, null, current, Door.ADMIN);
     }
 
     /**
      * The reconciliation "abandon" button for a CREATED payment the payer walked away from: an inline intent
      * never expires on its own, so this cancels it at the processor and marks the row CANCELLED. Site admin
-     * only; refuses anything but CREATED (CAPTURED money is finished, never abandoned).
+     * only; refuses anything but CREATED (CAPTURED money is finished, never abandoned), and a CREATED payment
+     * the processor is settling or already holds ({@link #giveUp}).
      */
     public boolean abandon(final String paymentId) {
         final Caller current = caller();
@@ -862,7 +1055,7 @@ public class PaymentCommands {
         if (payment == null || payment.getStatus() != Payment.Status.CREATED) {
             return fail("Not abandoned", "Only a CREATED payment can be abandoned.");
         }
-        return cancelCreated(payment, current, "Payment abandoned by " + current.auditActor().email());
+        return giveUp(payment, current, "Payment abandoned by " + current.auditActor().email());
     }
 
     // ------------------------------------------------------------------ helpers
@@ -929,7 +1122,8 @@ public class PaymentCommands {
 
     /** The payment's processor as people read it: an offline payment has no config, only its type. */
     private static String processorNameOf(final Payment payment, final PaymentProcessorConfig config) {
-        return payment.getProcessorType() == ProcessorType.OFFLINE ? OFFLINE_NAME : displayNameOf(config);
+        return payment.getProcessorType() == ProcessorType.OFFLINE ? ProcessorType.OFFLINE.getLabel()
+                : displayNameOf(config);
     }
 
     /** The payment's processor as people read it, from its stored config: "Stripe", or "Offline payment". */
@@ -987,13 +1181,7 @@ public class PaymentCommands {
         if (config == null || config.getType() == null) {
             return "the payment processor";
         }
-        return switch (config.getType()) {
-            case PAYPAL -> "PayPal";
-            case STRIPE -> "Stripe";
-            case ZEFFY -> "Zeffy";
-            case FAKE -> "Test Processor";
-            case OFFLINE -> OFFLINE_NAME;
-        };
+        return config.getType().getLabel();
     }
 
     private String orgNameOf(final Payment payment) {
@@ -1171,10 +1359,19 @@ public class PaymentCommands {
      * and whether anything changed. Returned over REST only (the page's script reads it), so a record.
      */
     public record Reprice(String paymentId, long creditFeeCents, long totalCents, String totalFormatted,
-            boolean changed) {
+            boolean changed, boolean methodLocked) {
         static Reprice of(final Payment payment, final boolean changed) {
+            return of(payment, changed, false);
+        }
+
+        /**
+         * {@code methodLocked}: the processor now accepts ONLY the method this total is priced for. The page
+         * must then leave its mounted form alone (a refresh would drop the other methods' tabs and with them
+         * the payer's way back); picking another method re-prices and lifts the lock.
+         */
+        static Reprice of(final Payment payment, final boolean changed, final boolean methodLocked) {
             return new Reprice(payment.getPaymentId(), payment.getCreditFeeCents(), payment.getTotalChargedCents(),
-                    MoneyMath.formatCents(payment.getTotalChargedCents()), changed);
+                    MoneyMath.formatCents(payment.getTotalChargedCents()), changed, methodLocked);
         }
     }
 

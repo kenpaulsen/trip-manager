@@ -49,7 +49,7 @@ public class LodgingPricingTest {
         assertEquals(lines.get(0).amountCents(), 4 * 5500L);
         assertEquals(lines.get(1).amountCents(), 4 * 5500L);
         assertEquals(lines.get(0).supplementNights(), 0, "Two in the room: no supplement");
-        assertEquals(lines.get(0).description(), "Lodging: Double room — Pansion, Double, Room 114: 4 nights "
+        assertEquals(lines.get(0).description(), "Lodging: Double room -- Pansion, Double, Room 114: 4 nights "
                 + "Sep 21–Sep 25, 2026, $55.00/night per person");
     }
 
@@ -85,7 +85,7 @@ public class LodgingPricingTest {
         final Reservation unassigned = reservation(List.of(ADA), 0, 3, null);
         final LodgingPricing.Line line = LodgingPricing.price(unassigned, offer, PANSION, null, NAMES::get).get(0);
         assertEquals(line.amountCents(), 3 * 7500L, "No room yet, one person: the supplement applies");
-        assertEquals(line.description(), "Lodging: Double room — Pansion, Double: 3 nights Sep 21–Sep 24, 2026, "
+        assertEquals(line.description(), "Lodging: Double room -- Pansion, Double: 3 nights Sep 21–Sep 24, 2026, "
                 + "$55.00/night per person, + single supplement $20.00 × 3 nights");
         unassigned.setWaiveSingleSupplement(true);
         assertEquals(LodgingPricing.price(unassigned, offer, PANSION, null, NAMES::get).get(0).amountCents(),
@@ -113,7 +113,7 @@ public class LodgingPricingTest {
         // Nights 1-2: 12000/2 = 6000 each. Nights 3-5: 12000/3 = 4000 each.
         assertEquals(pairLines.get(0).amountCents(), 2 * 6000L + 3 * 4000L);
         assertEquals(pairLines.get(1).amountCents(), 2 * 6000L + 3 * 4000L);
-        assertEquals(pairLines.get(0).description(), "Lodging: Double room — Pansion, Double, Room 114: 5 nights "
+        assertEquals(pairLines.get(0).description(), "Lodging: Double room -- Pansion, Double, Room 114: 5 nights "
                 + "Sep 21–Sep 26, 2026, room rate $120.00/night split with Bob and Cy");
         final LodgingPricing.Line cyLine = LodgingPricing.price(cy, offer, PANSION, List.of(pair, cy), NAMES::get)
                 .get(0);
@@ -159,7 +159,7 @@ public class LodgingPricingTest {
         assertEquals(LodgingPricing.underOption(List.of(bob), ada), List.of(ada), "self is added when absent");
         final LodgingPricing.Line adaLine = LodgingPricing.price(ada, shared, PANSION, room, NAMES::get).get(0);
         assertEquals(adaLine.amountCents(), 2 * 6000L, "split with Cy under the same option, never with Bob");
-        assertEquals(adaLine.description(), "Lodging: Double room — Pansion, Double, Room 114: 2 nights "
+        assertEquals(adaLine.description(), "Lodging: Double room -- Pansion, Double, Room 114: 2 nights "
                 + "Sep 21–Sep 23, 2026, room rate $120.00/night split with Cy");
         final LodgingPricing.Line bobLine = LodgingPricing.price(bob, other, PANSION, room, NAMES::get).get(0);
         assertEquals(bobLine.amountCents(), 2 * 8000L, "Bob pays his own option's whole room");
@@ -224,7 +224,7 @@ public class LodgingPricingTest {
 
     @Test
     public void namesJoinAlphabeticallyAndFallBackToIds() {
-        assertEquals(LodgingPricing.joinNames(List.of(CY, ADA, BOB), NAMES::get), "Ada, Bob and Cy");
+        assertEquals(LodgingPricing.joinNames(List.of(CY, ADA, BOB), NAMES::get), "Ada, Bob, and Cy");
         assertEquals(LodgingPricing.joinNames(List.of(BOB), NAMES::get), "Bob");
         assertEquals(LodgingPricing.joinNames(List.of(BOB, ADA), id -> null), "a-ada and b-bob");
         assertEquals(LodgingPricing.joinNames(List.of(ADA), null), "a-ada");
@@ -255,7 +255,7 @@ public class LodgingPricingTest {
         assertEquals(price.get(0).amountCents(), 4 * 5500L, "Participants pay per person");
         assertEquals(cost.get(0).amountCents(), 4 * 4000L, "The hotel charges the room, split two ways");
         assertEquals(cost.get(1).amountCents(), 4 * 4000L);
-        assertEquals(cost.get(0).description(), "Lodging: Double room — Pansion, Double, Room 114: 4 nights "
+        assertEquals(cost.get(0).description(), "Lodging: Double room -- Pansion, Double, Room 114: 4 nights "
                 + "Sep 21–Sep 25, 2026, room rate $80.00/night split with Bob");
         assertEquals(LodgingPricing.lines(LodgingPricing.Side.COST, pair, offer, PANSION, List.of(pair), NAMES::get),
                 cost, "cost(...) is lines(COST, ...)");
@@ -317,7 +317,7 @@ public class LodgingPricingTest {
         assertEquals(price.get(0).concessionCents(), 333L);
         assertEquals(price.get(1).amountCents(), 3001L);
         assertEquals(price.get(2).amountCents(), 3000L, "2999.7 rounds up");
-        assertEquals(price.get(0).description(), "Lodging: Double room — Pansion, Double, Room 114: 1 night "
+        assertEquals(price.get(0).description(), "Lodging: Double room -- Pansion, Double, Room 114: 1 night "
                 + "Sep 21–Sep 22, 2026, room rate $100.01/night split with Bob and Cy, 10% discount");
         assertFalse(price.get(0).description().contains("Loyal"), "The reason never reaches a bill note");
         final List<LodgingPricing.Line> cost = LodgingPricing.cost(trio, offer, PANSION, List.of(trio), NAMES::get);
@@ -389,7 +389,7 @@ public class LodgingPricingTest {
         assertEquals(price.amountCents(), 0L, "Zero net: the biller writes no row");
         assertEquals(price.grossCents(), 2 * 7500L, "What it would have been, supplement included");
         assertEquals(price.concessionCents(), 2 * 7500L);
-        assertEquals(price.description(), "Lodging: Double room — Pansion, Double, Room 114: 2 nights "
+        assertEquals(price.description(), "Lodging: Double room -- Pansion, Double, Room 114: 2 nights "
                 + "Sep 21–Sep 23, 2026, $55.00/night per person, + single supplement $20.00 × 2 nights, "
                 + "complimentary");
         final LodgingPricing.Line cost = LodgingPricing.cost(solo, offer, PANSION, List.of(solo), NAMES::get).get(0);
@@ -405,7 +405,7 @@ public class LodgingPricingTest {
         final Reservation res = reservation(List.of(ADA, BOB), 0, 4, "r-114");
         res.setPriceConcession(null);
         final String note = LodgingPricing.price(res, offer, PANSION, List.of(res), NAMES::get).get(0).description();
-        assertEquals(note, "Lodging: Double room — Pansion, Double, Room 114: 4 nights Sep 21–Sep 25, 2026, "
+        assertEquals(note, "Lodging: Double room -- Pansion, Double, Room 114: 4 nights Sep 21–Sep 25, 2026, "
                 + "$55.00/night per person");
         assertFalse(note.contains("discount") || note.contains("complimentary"));
     }

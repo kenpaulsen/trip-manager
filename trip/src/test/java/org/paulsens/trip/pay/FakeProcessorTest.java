@@ -6,6 +6,7 @@ import org.paulsens.trip.model.ProcessorType;
 import org.testng.annotations.Test;
 
 import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertTrue;
 
 public class FakeProcessorTest {
@@ -14,7 +15,6 @@ public class FakeProcessorTest {
     public void ordersRoundTripThroughTheFakeCheckout() {
         final FakeProcessor fake = new FakeProcessor();
         assertEquals(fake.type(), ProcessorType.FAKE);
-        assertEquals(fake.displayName(), "Test Processor");
 
         final Payment payment = Payment.builder()
                 .payerId(Person.Id.newInstance()).totalChargedCents(250000L).build();
@@ -97,10 +97,41 @@ public class FakeProcessorTest {
         assertEquals(FakeProcessor.refund(ref, -1L), null);
         assertEquals(FakeProcessor.refund("FAKE-unknown", 1L), null);
 
-        assertTrue(fake.updateAmount(ref, 10017L));
-        assertEquals(fake.capture(ref).grossCents(), 10017L, "the capture answers the re-priced amount");
+        assertEquals(fake.reprice(ref, 10100L, null), PaymentProcessor.Repriced.REPRICED);
+        assertEquals(fake.capture(ref).grossCents(), 10100L, "the capture answers the re-priced amount");
+        assertEquals(fake.capture(ref).methodType(), "card");
         org.testng.Assert.assertThrows(PaymentProcessor.ProcessorException.class,
-                () -> fake.updateAmount("FAKE-unknown", 5L));
-        org.testng.Assert.assertThrows(PaymentProcessor.ProcessorException.class, () -> fake.updateAmount(ref, 0L));
+                () -> fake.reprice("FAKE-unknown", 5L, null));
+        org.testng.Assert.assertThrows(PaymentProcessor.ProcessorException.class, () -> fake.reprice(ref, 0L, null));
+    }
+
+    /** A bank price is locked to bank debits, the way Stripe refuses a card on a bank-only intent. */
+    @Test
+    public void aBankPriceIsLockedToBankDebits() {
+        final FakeProcessor fake = new FakeProcessor(true);
+        final Payment payment = Payment.builder().payerId(Person.Id.newInstance()).totalChargedCents(10349L).build();
+        final String ref = fake.createOrder(payment, "desc", "http://r", "http://c").orderRef();
+        assertEquals(fake.reprice(ref, 10081L, "us_bank_account"), PaymentProcessor.Repriced.REPRICED_LOCKED);
+        final PaymentProcessor.CaptureResult card = fake.capture(ref);
+        assertEquals(card.status(), PaymentProcessor.CaptureResult.Status.PENDING, "a card cannot pay it");
+        assertFalse(card.isSettling());
+
+        assertTrue(FakeProcessor.markAsync(ref));
+        assertEquals(fake.cancel(ref), PaymentProcessor.OrderState.SETTLING, "a debit in flight cannot be cancelled");
+        assertTrue(fake.capture(ref).isSettling());
+        assertEquals(FakeProcessor.settle(ref), payment.getPaymentId());
+        final PaymentProcessor.CaptureResult bank = fake.capture(ref);
+        assertEquals(bank.status(), PaymentProcessor.CaptureResult.Status.COMPLETED);
+        assertEquals(bank.grossCents(), 10081L);
+        assertEquals(bank.methodType(), "us_bank_account");
+
+        // Back to the card estimate lifts the lock; an open order is released by a cancel.
+        final String other = fake.createOrder(payment, "desc", "http://r", "http://c").orderRef();
+        fake.reprice(other, 10081L, "us_bank_account");
+        assertEquals(fake.reprice(other, 10349L, null), PaymentProcessor.Repriced.REPRICED);
+        assertEquals(fake.capture(other).status(), PaymentProcessor.CaptureResult.Status.COMPLETED);
+        assertEquals(fake.cancel(other), PaymentProcessor.OrderState.OPEN);
+        assertEquals(fake.capture(other).status(), PaymentProcessor.CaptureResult.Status.FAILED, "released");
+        assertEquals(fake.cancel(null), PaymentProcessor.OrderState.OPEN);
     }
 }

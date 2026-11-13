@@ -32,6 +32,7 @@ import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripEvent;
 import org.paulsens.trip.pay.LodgingPricing;
 import org.paulsens.trip.pay.MoneyMath;
+import org.paulsens.trip.util.Util;
 
 /**
  * The rows behind the trip's report pages (the Reports dashboard at {@code admin/reports/index.xhtml} and the
@@ -412,15 +413,7 @@ public class ReportCommands {
                 + " rate plans for that option."
                 : "Set the cost on the trip's Offers tab (Edit the option, tick 'Hotel cost is known'), or use a"
                         + " hotel rate plan for that option.";
-        return "No hotel cost is set for " + joinNames(missingCost) + ". " + where;
-    }
-
-    /** "A", "A and B", "A, B and C". */
-    static String joinNames(final List<String> names) {
-        if (names.size() <= 1) {
-            return names.isEmpty() ? "" : names.get(0);
-        }
-        return String.join(", ", names.subList(0, names.size() - 1)) + " and " + names.get(names.size() - 1);
+        return "No hotel cost is set for " + Util.joinNames(missingCost) + ". " + where;
     }
 
     /** The stays at the given hotels: the stay's own hotel, else its option's; a stay with neither is nobody's. */

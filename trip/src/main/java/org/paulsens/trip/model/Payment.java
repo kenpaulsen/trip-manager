@@ -77,6 +77,21 @@ public final class Payment implements Serializable {
      * {@link #getOfflineReceipt()}, which parses the label for those.
      */
     private OfflineReceipt offline;
+    /**
+     * Why a CAPTURED payment is HELD for an administrator instead of being recorded: the processor reported a
+     * different amount than expected, or reported the money as paid after the payment was cancelled or failed
+     * here. Null when it is not held. Persisted (2026-11) because the hold used to live only in the answer to
+     * the request that found it, and the next completion door (the webhook, a reload of the return page)
+     * recorded the payment anyway. Only an administrator's Finish records a held payment. Set through the
+     * setter, like {@link #checkout}.
+     */
+    private String heldReason;
+    /**
+     * The one payment method the stored total is priced FOR ("us_bank_account" after the payer picked a bank
+     * debit and the total was re-priced at the bank rate); null for the card estimate every method may pay.
+     * Set through the setter, like {@link #checkout}.
+     */
+    private String pricedForMethod;
 
     @Builder
     @JsonCreator

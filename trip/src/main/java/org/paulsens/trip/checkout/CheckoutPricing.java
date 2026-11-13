@@ -52,13 +52,13 @@ public final class CheckoutPricing {
     public static PriceBreakdown price(final Trip trip, final LocalDate birthdate, final Map<String, String> answers,
             final String codeText, final LocalDateTime now) {
         final CheckoutConfig policy = trip.getCheckout();
-        final LocalDate tripStart = (trip.getStartDate() == null) ? null : trip.getStartDate().toLocalDate();
+        final LocalDate tripStart = firstDay(trip);
         final OptionalInt age = Ages.ageAt(birthdate, tripStart);
         final List<Pick> picks = picks(trip, answers);
         final List<Line> lines = new ArrayList<>();
         // Choice id -> its price after the age band: the discount code's eligible subtotal reads it.
         final Map<String, Long> netByChoice = new LinkedHashMap<>();
-        final AgeBand band = age.isPresent() ? policy.bandFor(age.getAsInt()) : null;
+        final AgeBand band = bandAt(policy, age);
         for (final Pick pick : picks) {
             netByChoice.put(pick.choice().getId(), priceOne(pick, band, lines));
         }
@@ -75,6 +75,33 @@ public final class CheckoutPricing {
                 normalizedCode.isEmpty() ? null : normalizedCode, List.of());
         return new PriceBreakdown(inputs, lines, total,
                 (admission == null) ? null : admission.choice().getLabel(), now);
+    }
+
+    /**
+     * What one choice costs a person born on {@code birthdate}, before any discount code: the choice's price,
+     * through the person's age band when the choice answers the admission question (bands never touch an
+     * add-on). The registration form's choice labels read this, so a label can never show a price the engine
+     * above would not charge. A null trip, start date or birthdate prices as an adult.
+     */
+    public static long choiceNetCents(final Trip trip, final RegistrationOption question, final OptionChoice choice,
+            final LocalDate birthdate) {
+        if (!isAdmissionQuestion(trip, question)) {
+            return choice.getPriceCents();
+        }
+        return afterBand(choice.getPriceCents(), bandAt(trip.getCheckout(), Ages.ageAt(birthdate, firstDay(trip))));
+    }
+
+    private static LocalDate firstDay(final Trip trip) {
+        return (trip.getStartDate() == null) ? null : trip.getStartDate().toLocalDate();
+    }
+
+    /** The band for an age on the trip's first day; null when the age is unknown or no band covers it. */
+    private static AgeBand bandAt(final CheckoutConfig policy, final OptionalInt age) {
+        return age.isPresent() ? policy.bandFor(age.getAsInt()) : null;
+    }
+
+    private static long afterBand(final long priceCents, final AgeBand band) {
+        return (band == null) ? priceCents : band.getConcession().netCents(priceCents, 0);
     }
 
     /**
@@ -149,7 +176,7 @@ public final class CheckoutPricing {
         if (band == null || !pick.admission()) {
             return price;
         }
-        final long net = band.getConcession().netCents(price, 0);
+        final long net = afterBand(price, band);
         if (net != price) {
             lines.add(new Line(bandLabel(band) + " " + band.getConcession().label(), LineKind.AGE_BAND,
                     net - price, "band:" + band.getRangeText()));

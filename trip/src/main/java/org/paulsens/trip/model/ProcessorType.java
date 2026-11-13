@@ -7,44 +7,54 @@ package org.paulsens.trip.model;
  */
 public enum ProcessorType {
     /** PayPal Checkout (orders v2, redirect + capture). Cards only; no bank-debit pricing. */
-    PAYPAL(349, 49, 0, 0),
+    PAYPAL("PayPal", 349, 49, 0, 0),
     /**
      * Stripe PaymentIntents (Payment Element on the page, PaymentSheet in the apps, webhook). The card rate
      * is the default estimate; a US bank debit is 0.8% capped at $5.00, applied when the payer picks one.
      */
-    STRIPE(290, 30, 80, 500),
+    STRIPE("Stripe", 290, 30, 80, 500),
     /** Zeffy hosted forms: no capture API; record-only reconciliation. Not yet implemented. */
-    ZEFFY(0, 0, 0, 0),
+    ZEFFY("Zeffy", 0, 0, 0, 0),
     /**
      * Local-mode fake: drives the full flow in tests with no network. PayPal-like card fees so the math on
      * screen is realistic, Stripe-like bank pricing so the method-aware re-pricing can be exercised too.
      */
-    FAKE(349, 49, 80, 500),
+    FAKE("Test Processor", 349, 49, 80, 500),
     /**
      * Not a processor: a registration paid outside one (a check, cash, a comp) or costing nothing, run through the
      * same {@code Payment} pipeline so it records and registers exactly like a processor payment
      * (docs/checkout.md). Never configurable, never charged, no fees, no capture step.
      */
-    OFFLINE(0, 0, 0, 0, false);
+    OFFLINE("Offline payment", 0, 0, 0, 0, false);
 
+    private final String label;
     private final int defaultFeeBps;
     private final int defaultFeeFixedCents;
     private final int bankFeeBps;
     private final int bankFeeCapCents;
     private final boolean configurable;
 
-    ProcessorType(final int defaultFeeBps, final int defaultFeeFixedCents, final int bankFeeBps,
-            final int bankFeeCapCents) {
-        this(defaultFeeBps, defaultFeeFixedCents, bankFeeBps, bankFeeCapCents, true);
+    ProcessorType(final String label, final int defaultFeeBps, final int defaultFeeFixedCents,
+            final int bankFeeBps, final int bankFeeCapCents) {
+        this(label, defaultFeeBps, defaultFeeFixedCents, bankFeeBps, bankFeeCapCents, true);
     }
 
-    ProcessorType(final int defaultFeeBps, final int defaultFeeFixedCents, final int bankFeeBps,
-            final int bankFeeCapCents, final boolean configurable) {
+    ProcessorType(final String label, final int defaultFeeBps, final int defaultFeeFixedCents,
+            final int bankFeeBps, final int bankFeeCapCents, final boolean configurable) {
+        this.label = label;
         this.defaultFeeBps = defaultFeeBps;
         this.defaultFeeFixedCents = defaultFeeFixedCents;
         this.bankFeeBps = bankFeeBps;
         this.bankFeeCapCents = bankFeeCapCents;
         this.configurable = configurable;
+    }
+
+    /**
+     * The name people read in ledger descriptions, refund rows, mail and the audit trail ("PayPal", "Stripe",
+     * "Offline payment"): the ONE source of it, so a rename reaches every one of them.
+     */
+    public String getLabel() {
+        return label;
     }
 
     /** Whether an organization can set this type up as a processor config (everything but OFFLINE). */

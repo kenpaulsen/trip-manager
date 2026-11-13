@@ -234,11 +234,48 @@ public class PaymentCommandsTest {
                 Payment.Status.CAPTURED, "Money moved; a human finishes this one");
         assertTrue(txCmds.getTransactions(payer.getId()).isEmpty(), "No auto-recording on a mismatch");
 
+        // The hold is STORED: the next completion door (the webhook, a reload of the return page) used to find
+        // a CAPTURED row, call it crash recovery, and record the expected $50 against a $1.23 capture.
+        final Payment held = DAO.getInstance().getPayment(paymentId).orElseThrow();
+        assertEquals(held.getHeldReason(), "the processor captured $1.23, not the expected $52.32");
+        assertEquals(commands.completePayment(paymentId, null).getStatus(), "mismatch", "the payer, again");
+        assertEquals(commands.completeFromWebhook(paymentId).getStatus(), "mismatch", "the webhook");
+        assertEquals(DAO.getInstance().getPayment(paymentId).orElseThrow().getStatus(), Payment.Status.CAPTURED);
+        assertTrue(txCmds.getTransactions(payer.getId()).isEmpty(), "still nothing on the ledger");
+
         final PaymentCommands admin = commandsFor(savedPersonAsSiteAdmin(), false);
         assertTrue(admin.getOpenPayments().stream()
                 .anyMatch(payment -> payment.getPaymentId().equals(paymentId)));
+        assertEquals(admin.holdOf(held), "the processor captured $1.23, not the expected $52.32");
+        assertEquals(admin.holdOf(null), "");
         assertEquals(commandsFor(savedPerson(), false).getOpenPayments(), List.of(),
                 "Reconciliation is site-admin only");
+
+        // Only an administrator's Finish releases it.
+        assertEquals(admin.adminComplete(paymentId).getStatus(), "recorded");
+        assertFalse(txCmds.getTransactions(payer.getId()).isEmpty());
+        assertEquals(admin.holdOf(DAO.getInstance().getPayment(paymentId).orElseThrow()), "", "no longer held");
+    }
+
+    /** A CAPTURED row from before the reason was stored is told by its amounts; an offline one never is. */
+    @Test
+    public void aMismatchedRowFromAnOlderBuildIsHeldToo() throws IOException {
+        final Person payer = savedPerson();
+        final Payment legacy = Payment.builder()
+                .tripId(FakeData.FAKE_TRIP_ID).orgId(FakeData.CFPW_ORG_ID).payerId(payer.getId())
+                .processorConfigId(FakeData.CFPW_PROCESSOR_ID).processorType(ProcessorType.FAKE)
+                .allocations(List.of(new Payment.Allocation(payer.getId(), 5000L)))
+                .feesPaidBy(FeesPaidBy.ORGANIZATION).totalChargedCents(5000L)
+                .orderRef("FAKE-legacy").captureId("CAP-legacy").capturedGrossCents(123L)
+                .status(Payment.Status.CAPTURED).createdAt(java.time.LocalDateTime.now()).build();
+        DAO.getInstance().createPayment(legacy);
+        final PaymentCommands commands = commandsFor(payer, false);
+        assertEquals(commands.completePayment(legacy.getPaymentId(), null).getStatus(), "mismatch");
+        assertTrue(txCmds.getTransactions(payer.getId()).isEmpty());
+        final PaymentCommands admin = commandsFor(savedPersonAsSiteAdmin(), false);
+        assertEquals(admin.holdOf(legacy), "the processor captured $1.23, not the expected $50.00");
+        final PaymentCommands.Completion first = admin.adminComplete(legacy.getPaymentId());
+        assertEquals(first.getStatus(), "recorded", "a CAPTURED row is one Finish away for an administrator");
     }
 
     @Test
@@ -588,15 +625,203 @@ public class PaymentCommandsTest {
         final PaymentCommands commands = commandsFor(payer, false, (config, sandbox) -> processor);
         final String paymentId = commands.startPayment(trip(), Map.of(payer.getId().getValue(), "10"), null,
                 false, "http://localhost/pay").getPaymentId();
+        Mockito.when(processor.cancel("pi_1")).thenReturn(PaymentProcessor.OrderState.OPEN);
         assertTrue(commands.cancelPayment(paymentId));
         Mockito.verify(processor).cancel("pi_1");
+        assertEquals(DAO.getInstance().getPayment(paymentId).orElseThrow().getStatus(), Payment.Status.CANCELLED);
 
-        // A processor that refuses the cancel does not un-cancel our row.
+        // The processor goes first: one that cannot be asked leaves our row alone, and so does one that throws.
         final String second = commands.startPayment(trip(), Map.of(payer.getId().getValue(), "10"), null,
                 false, "http://localhost/pay").getPaymentId();
+        Mockito.when(processor.cancel("pi_1")).thenReturn(PaymentProcessor.OrderState.UNKNOWN);
+        assertFalse(commands.cancelPayment(second));
+        assertEquals(DAO.getInstance().getPayment(second).orElseThrow().getStatus(), Payment.Status.CREATED);
         Mockito.doThrow(new IllegalStateException("down")).when(processor).cancel(ArgumentMatchers.any());
-        assertTrue(commands.cancelPayment(second));
+        assertFalse(commands.cancelPayment(second));
+        assertEquals(DAO.getInstance().getPayment(second).orElseThrow().getStatus(), Payment.Status.CREATED);
+
+        // A processor that cannot even be built (credentials removed) can never be asked: the row may go.
+        final PaymentCommands orphaned = commandsFor(payer, false, (config, sandbox) -> {
+            throw new PaymentProcessor.ProcessorException("credentials missing");
+        });
+        assertTrue(orphaned.cancelPayment(second));
         assertEquals(DAO.getInstance().getPayment(second).orElseThrow().getStatus(), Payment.Status.CANCELLED);
+    }
+
+    /**
+     * A bank debit the processor is still settling looks exactly like a walked-away payment (CREATED, no
+     * capture id). Neither the payer's "Change amounts" nor an admin's Abandon may cancel it: the debit clears
+     * days later, and a CANCELLED row would leave that money with no ledger credit and nothing to reconcile.
+     */
+    @Test
+    public void aPaymentTheBankIsSettlingCannotBeCancelledOrAbandoned() {
+        final Person payer = savedPerson();
+        final PaymentCommands commands = commandsFor(payer, false);
+        final String paymentId = commands.startPayment(inlineTrip(), Map.of(payer.getId().getValue(), "20"), null,
+                false, "http://localhost/trip/payment.jsf").getPaymentId();
+        final String orderRef = DAO.getInstance().getPayment(paymentId).orElseThrow().getOrderRef();
+        assertTrue(commands.fakeMarkAsync(orderRef), "the payer paid by bank; the debit is in flight");
+        assertEquals(commands.completePayment(paymentId, null).getStatus(), "pending");
+
+        assertFalse(commands.cancelPayment(paymentId), "the payer cannot cancel it");
+        final PaymentCommands admin = commandsFor(savedPersonAsSiteAdmin(), false);
+        assertFalse(admin.abandon(paymentId), "and an administrator cannot abandon it");
+        assertEquals(DAO.getInstance().getPayment(paymentId).orElseThrow().getStatus(), Payment.Status.CREATED);
+
+        assertEquals(commands.fakeSettle(orderRef).getStatus(), "recorded", "the debit clears and is recorded");
+        assertFalse(txCmds.getTransactions(payer.getId()).isEmpty());
+    }
+
+    /** A payment the processor already HAS is finished, not cancelled. */
+    @Test
+    public void cancellingAPaymentTheProcessorAlreadyHoldsRecordsItInstead() {
+        final Person payer = savedPerson();
+        final PaymentProcessor processor = Mockito.mock(PaymentProcessor.class);
+        final org.mockito.ArgumentCaptor<Payment> started = org.mockito.ArgumentCaptor.forClass(Payment.class);
+        Mockito.when(processor.createOrder(started.capture(), ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any())).thenReturn(PaymentProcessor.CreatedOrder.inline("pi_paid", "pk", "sec"));
+        Mockito.when(processor.cancel("pi_paid")).thenReturn(PaymentProcessor.OrderState.PAID);
+        final PaymentCommands commands = commandsFor(payer, false, (config, sandbox) -> processor);
+        final String paymentId = commands.startPayment(trip(), Map.of(payer.getId().getValue(), "10"), null,
+                false, "http://localhost/pay").getPaymentId();
+        final long total = started.getValue().getTotalChargedCents();
+        Mockito.when(processor.capture("pi_paid")).thenReturn(new PaymentProcessor.CaptureResult(
+                PaymentProcessor.CaptureResult.Status.COMPLETED, "pi_paid", total, OptionalLong.empty()));
+
+        assertFalse(commands.cancelPayment(paymentId), "not cancelled");
+        assertEquals(DAO.getInstance().getPayment(paymentId).orElseThrow().getStatus(), Payment.Status.RECORDED);
+        assertFalse(txCmds.getTransactions(payer.getId()).isEmpty(), "the money that moved is on the ledger");
+    }
+
+    /**
+     * The webhook reports money for a payment that was given up here (the payer's saved form completed it after
+     * a cancel, or a debit cleared that had been abandoned before the settling check existed). Answering
+     * "cancelled" lost it; the row comes back CAPTURED and held for an administrator.
+     */
+    @Test
+    public void aPaymentPaidAfterItWasGivenUpComesBackHeld() throws IOException {
+        final Person payer = savedPerson();
+        final PaymentCommands commands = commandsFor(payer, false);
+        final String paymentId = commands.startPayment(inlineTrip(), Map.of(payer.getId().getValue(), "20"), null,
+                false, "http://localhost/trip/payment.jsf").getPaymentId();
+        // Cancelled on our side only: the fake's order is still payable, as an un-released intent would be.
+        assertTrue(commands.cancelFromWebhook(paymentId));
+        assertEquals(commands.completePayment(paymentId, null).getStatus(), "cancelled",
+                "the payer's own page never resurrects a cancelled payment");
+
+        assertEquals(commands.completeFromWebhook(paymentId).getStatus(), "mismatch");
+        final Payment back = DAO.getInstance().getPayment(paymentId).orElseThrow();
+        assertEquals(back.getStatus(), Payment.Status.CAPTURED);
+        assertEquals(back.getHeldReason(), "paid at the processor after the payment was cancelled here");
+        assertEquals(back.getCapturedGrossCents(), back.getTotalChargedCents());
+        assertTrue(txCmds.getTransactions(payer.getId()).isEmpty(), "held: nothing is recorded by itself");
+        assertEquals(commands.completeFromWebhook(paymentId).getStatus(), "mismatch", "a redelivery changes nothing");
+
+        final PaymentCommands admin = commandsFor(savedPersonAsSiteAdmin(), false);
+        assertTrue(admin.getOpenPayments().stream().anyMatch(p -> p.getPaymentId().equals(paymentId)),
+                "it is on the reconciliation list again");
+        assertEquals(admin.adminComplete(paymentId).getStatus(), "recorded");
+        assertFalse(txCmds.getTransactions(payer.getId()).isEmpty());
+
+        // The same for FAILED; and a given-up payment the processor does NOT report as paid stays given up.
+        final String failed = commands.startPayment(inlineTrip(), Map.of(payer.getId().getValue(), "20"), null,
+                false, "http://localhost/trip/payment.jsf").getPaymentId();
+        assertTrue(commands.failFromWebhook(failed, "returned"));
+        assertEquals(commands.completeFromWebhook(failed).getStatus(), "mismatch");
+        assertEquals(DAO.getInstance().getPayment(failed).orElseThrow().getHeldReason(),
+                "paid at the processor after the payment was failed here");
+        final String gone = commands.startPayment(inlineTrip(), Map.of(payer.getId().getValue(), "20"), null,
+                false, "http://localhost/trip/payment.jsf").getPaymentId();
+        assertTrue(commands.cancelPayment(gone), "released at the processor too");
+        assertEquals(commands.completeFromWebhook(gone).getStatus(), "cancelled");
+        assertEquals(DAO.getInstance().getPayment(gone).orElseThrow().getStatus(), Payment.Status.CANCELLED);
+    }
+
+    /**
+     * The lock is the processor's to enforce; when it does not (it would not narrow the order), a card can pay
+     * the bank-debit total. The money is in, so the payment is recorded, and the shortfall goes on the audit
+     * trail for the organization (owner's decision 2026-11-12).
+     */
+    @Test
+    public void aCardThatPaysABankPricedTotalIsRecordedAndFlaggedOnTheAuditTrail() {
+        final Person payer = savedPerson();
+        final PaymentProcessor processor = Mockito.mock(PaymentProcessor.class);
+        Mockito.when(processor.createOrder(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any())).thenReturn(PaymentProcessor.CreatedOrder.inline("pi_card", "pk", "sec"));
+        Mockito.when(processor.reprice("pi_card", 2017L, "us_bank_account"))
+                .thenReturn(PaymentProcessor.Repriced.REPRICED);
+        Mockito.when(processor.capture("pi_card")).thenReturn(new PaymentProcessor.CaptureResult(
+                PaymentProcessor.CaptureResult.Status.COMPLETED, "pi_card", 2017L, OptionalLong.empty(), "card"));
+        final AuditCommands audit = Mockito.spy(new AuditCommands());
+        final PaymentCommands commands = commandsFor(payer, false, false, (config, sandbox) -> processor, audit);
+        final String paymentId = commands.startPayment(inlineTrip(), Map.of(payer.getId().getValue(), "20"), null,
+                false, "http://localhost/trip/payment.jsf").getPaymentId();
+        final PaymentCommands.Reprice bank = commands.selectMethod(paymentId, "us_bank_account");
+        assertTrue(bank.changed());
+        assertFalse(bank.methodLocked(), "this processor did not lock the order");
+
+        assertEquals(commands.completePayment(paymentId, null).getStatus(), "recorded");
+        Mockito.verify(audit).payment(ArgumentMatchers.any(Payment.class), ArgumentMatchers.eq(false),
+                ArgumentMatchers.eq("Paid with card at the total priced for us_bank_account: $20.17 collected, "
+                        + "$1.07 less than the $21.24 that method is charged; recorded as paid, the organization "
+                        + "absorbs the difference"), ArgumentMatchers.any());
+        assertFalse(txCmds.getTransactions(payer.getId()).isEmpty());
+    }
+
+    /** The method the total was priced for paying it is the normal case: nothing to flag. */
+    @Test
+    public void aBankDebitThatPaysABankPricedTotalIsNotFlagged() {
+        final Person payer = savedPerson();
+        final PaymentProcessor processor = Mockito.mock(PaymentProcessor.class);
+        Mockito.when(processor.createOrder(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any())).thenReturn(PaymentProcessor.CreatedOrder.inline("pi_ach", "pk", "sec"));
+        Mockito.when(processor.reprice("pi_ach", 2017L, "us_bank_account"))
+                .thenReturn(PaymentProcessor.Repriced.REPRICED_LOCKED);
+        Mockito.when(processor.capture("pi_ach")).thenReturn(new PaymentProcessor.CaptureResult(
+                PaymentProcessor.CaptureResult.Status.COMPLETED, "pi_ach", 2017L, OptionalLong.empty(),
+                "us_bank_account"));
+        final AuditCommands audit = Mockito.spy(new AuditCommands());
+        final PaymentCommands commands = commandsFor(payer, false, false, (config, sandbox) -> processor, audit);
+        final String paymentId = commands.startPayment(inlineTrip(), Map.of(payer.getId().getValue(), "20"), null,
+                false, "http://localhost/trip/payment.jsf").getPaymentId();
+        assertTrue(commands.selectMethod(paymentId, "us_bank_account").methodLocked());
+        assertEquals(commands.completePayment(paymentId, null).getStatus(), "recorded");
+        Mockito.verify(audit, Mockito.never()).payment(ArgumentMatchers.any(Payment.class),
+                ArgumentMatchers.eq(false),
+                ArgumentMatchers.contains("Paid with"), ArgumentMatchers.any());
+    }
+
+    /**
+     * Whoever may finish a payment may re-price it: a registration admin registering a family comes back to
+     * their own page, and used to be refused the bank price (404), so the family was charged the card total.
+     */
+    @Test
+    public void aRegistrationAdminMayRePriceACheckoutPaymentTheyStartedForSomeone() throws IOException {
+        final Person family = savedPerson();
+        final Payment checkout = Payment.builder()
+                .tripId(FakeData.FAKE2_TRIP_ID).orgId(FakeData.CFPW_ORG_ID).payerId(family.getId())
+                .processorConfigId(FakeData.CFPW_INLINE_PROCESSOR_ID).processorType(ProcessorType.FAKE)
+                .allocations(List.of(new Payment.Allocation(family.getId(), 2000L)))
+                .feesPaidBy(FeesPaidBy.PAYER).creditFeeCents(124L).totalChargedCents(2124L)
+                .createdAt(java.time.LocalDateTime.now()).build();
+        checkout.setCheckout(new org.paulsens.trip.model.PendingParty());
+        checkout.setOrderRef(new FakeProcessor(true).createOrder(checkout, "d", "http://r", "http://c").orderRef());
+        DAO.getInstance().createPayment(checkout);
+
+        final Person staff = savedPerson();
+        final PaymentCommands regAdmin = commandsFor(staff, false, true, PaymentProcessors::forConfig,
+                new AuditCommands());
+        final PaymentCommands.Reprice bank = regAdmin.selectMethod(checkout.getPaymentId(), "us_bank_account");
+        assertNotNull(bank, "the registration admin acts on a checkout payment like its payer");
+        assertEquals(bank.totalCents(), 2017L);
+        assertNull(commandsFor(staff, false).selectMethod(checkout.getPaymentId(), "card"),
+                "without the role it is still someone else's payment");
+
+        // Not a checkout: the role is about registrations, so a plain payment stays its payer's.
+        final String plain = commandsFor(family, false).startPayment(inlineTrip(),
+                Map.of(family.getId().getValue(), "20"), null, false, "http://localhost/trip/payment.jsf")
+                .getPaymentId();
+        assertNull(regAdmin.selectMethod(plain, "us_bank_account"));
     }
 
     @Test
@@ -629,6 +854,8 @@ public class PaymentCommandsTest {
                 Payment.Status.CANCELLED);
         assertFalse(commands.cancelFromWebhook(cancelling));
         assertEquals(commands.completeFromWebhook("no-such-payment").getStatus(), "notfound");
+        // The processor said "canceled", so it holds nothing: the fake's order goes the way Stripe's intent did.
+        new FakeProcessor().cancel(DAO.getInstance().getPayment(cancelling).orElseThrow().getOrderRef());
         assertEquals(commands.completeFromWebhook(cancelling).getStatus(), "cancelled");
 
         // A sandbox failure mails nobody.
@@ -793,6 +1020,7 @@ public class PaymentCommandsTest {
 
         final PaymentCommands.Reprice bank = commands.selectMethod(paymentId, "us_bank_account");
         assertTrue(bank.changed());
+        assertTrue(bank.methodLocked(), "the processor now refuses anything but a bank debit at this total");
         assertEquals(bank.totalCents(), 2017L, "2000 + ceil(2000 x 80 / 9920)");
         assertEquals(bank.totalFormatted(), "$20.17");
         assertEquals(bank.creditFeeCents(), 17L);
@@ -800,16 +1028,23 @@ public class PaymentCommandsTest {
         assertEquals(stored.getTotalChargedCents(), 2017L);
         assertEquals(stored.getCreditFeeCents(), 17L);
         assertEquals(stored.getStatus(), Payment.Status.CREATED);
+        assertEquals(stored.getPricedForMethod(), "us_bank_account");
 
         assertFalse(commands.selectMethod(paymentId, "us_bank_account").changed(), "same method = nothing moves");
         final PaymentCommands.Reprice card = commands.selectMethod(paymentId, "card");
         assertTrue(card.changed());
+        assertFalse(card.methodLocked());
         assertEquals(card.totalCents(), 2124L, "back to the card estimate");
+        assertNull(DAO.getInstance().getPayment(paymentId).orElseThrow().getPricedForMethod());
         assertFalse(commands.selectMethod(paymentId, "link").changed(), "any non-bank method is the card rate");
 
-        // The capture must agree with the re-priced total, or the gross check would park the payment.
+        // Bank-priced again: a card cannot pay it (the processor refuses the confirm, so nothing completed) ...
         assertEquals(commands.selectMethod(paymentId, "us_bank_account").totalCents(), 2017L);
-        assertEquals(commands.completePayment(paymentId, null).getStatus(), "recorded");
+        assertEquals(commands.completePayment(paymentId, null).getStatus(), "pending");
+        assertEquals(DAO.getInstance().getPayment(paymentId).orElseThrow().getStatus(), Payment.Status.CREATED);
+        // ... and the bank debit it is priced for does. The capture agrees with the re-priced total.
+        assertTrue(commands.fakeMarkAsync(stored.getOrderRef()));
+        assertEquals(commands.fakeSettle(stored.getOrderRef()).getStatus(), "recorded");
         assertEquals(DAO.getInstance().getPayment(paymentId).orElseThrow().getCapturedGrossCents(), 2017L);
         assertFalse(commands.selectMethod(paymentId, "card").changed(), "a finished payment is never re-priced");
         assertTrue(txCmds.getTransactions(payer.getId()).stream()
@@ -843,12 +1078,13 @@ public class PaymentCommandsTest {
 
         // A processor whose order cannot be re-priced (the SPI default): the quoted total stands.
         final PaymentProcessor fixed = Mockito.mock(PaymentProcessor.class);
-        Mockito.when(fixed.updateAmount(ArgumentMatchers.any(), ArgumentMatchers.anyLong())).thenReturn(false);
+        Mockito.when(fixed.reprice(ArgumentMatchers.any(), ArgumentMatchers.anyLong(), ArgumentMatchers.any()))
+                .thenReturn(PaymentProcessor.Repriced.UNSUPPORTED);
         final PaymentCommands.Reprice stuck = commandsFor(payer, false, (cfg, sandbox) -> fixed)
                 .selectMethod(paymentId, "card");
         assertFalse(stuck.changed());
         final PaymentProcessor refusing = Mockito.mock(PaymentProcessor.class);
-        Mockito.when(refusing.updateAmount(ArgumentMatchers.any(), ArgumentMatchers.anyLong()))
+        Mockito.when(refusing.reprice(ArgumentMatchers.any(), ArgumentMatchers.anyLong(), ArgumentMatchers.any()))
                 .thenThrow(new PaymentProcessor.ProcessorException("no"));
         assertFalse(commandsFor(payer, false, (cfg, sandbox) -> refusing).selectMethod(paymentId, "card").changed(),
                 "a processor refusal keeps the old total rather than showing one it will not charge");
@@ -893,11 +1129,20 @@ public class PaymentCommandsTest {
 
     private PaymentCommands commandsFor(final Person person, final boolean paymentsAdmin,
             final java.util.function.BiFunction<PaymentProcessorConfig, Boolean, PaymentProcessor> procs) {
+        return commandsFor(person, paymentsAdmin, false, procs, new AuditCommands());
+    }
+
+    private PaymentCommands commandsFor(final Person person, final boolean paymentsAdmin,
+            final boolean registrationAdmin,
+            final java.util.function.BiFunction<PaymentProcessorConfig, Boolean, PaymentProcessor> procs,
+            final AuditCommands audit) {
         final PrivilegeCommands privs = Mockito.mock(PrivilegeCommands.class);
         Mockito.when(privs.check(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
                 .thenReturn(false);
         Mockito.when(privs.check(ArgumentMatchers.eq(PrivilegeCommands.PAYMENTS_ADMIN),
                 ArgumentMatchers.any(), ArgumentMatchers.any())).thenReturn(paymentsAdmin);
+        Mockito.when(privs.check(ArgumentMatchers.eq(PrivilegeCommands.REGISTRATION_ADMIN),
+                ArgumentMatchers.any(), ArgumentMatchers.any())).thenReturn(registrationAdmin);
         final java.util.function.Supplier<Caller> callerSource = () -> new Caller(person.getId(),
                 Boolean.TRUE.equals(person.getNotes() != null), // site admin rides in the notes field marker
                 new AuditActor(person.getEmail(), person.getId().getValue()), privs);
@@ -905,7 +1150,7 @@ public class PaymentCommandsTest {
         Mockito.when(mailer.sendConfirmation(ArgumentMatchers.any(), ArgumentMatchers.any(),
                 ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
                 ArgumentMatchers.any(), ArgumentMatchers.any())).thenReturn(true);
-        return new PaymentCommands(callerSource, new OrgCommands(callerSource), new AuditCommands(),
+        return new PaymentCommands(callerSource, new OrgCommands(callerSource), audit,
                 new PaymentRecorder(), procs, () -> mailer);
     }
 

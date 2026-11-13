@@ -632,8 +632,6 @@ public class RoomInvoiceReportTest {
         Assert.assertEquals(ReportCommands.blockedMessage(List.of("Double room (Pansion)"), true),
                 "No hotel cost is set for Double room (Pansion). Ask the trip's lodging admin to set it, or to"
                         + " use one of your hotel's rate plans for that option.");
-        Assert.assertEquals(ReportCommands.joinNames(List.of("A", "B", "C")), "A, B and C");
-        Assert.assertEquals(ReportCommands.joinNames(List.of()), "");
     }
 
     /**

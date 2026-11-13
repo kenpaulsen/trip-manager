@@ -144,6 +144,7 @@ public class PaymentsResource extends BaseResource {
         result.put("totalCents", outcome.totalCents());
         result.put("totalFormatted", outcome.totalFormatted());
         result.put("changed", outcome.changed());
+        result.put("methodLocked", outcome.methodLocked());
         return ok(result);
     }
 

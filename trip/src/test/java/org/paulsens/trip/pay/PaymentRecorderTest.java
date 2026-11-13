@@ -280,12 +280,19 @@ public class PaymentRecorderTest {
         assertEquals(row.getCategory(), "Refund");
         assertEquals(row.getOrgId(), FakeData.CFPW_ORG_ID, "stamped with the trip's organization, like every row");
 
-        // The rest comes back: same row, new cumulative amount, no second line.
+        // The rest comes back: same row, new cumulative amount, no second line. The charge was $984.87 but the
+        // ledger was only ever credited $950.00 (the $34.87 fee the payer covered is never a row), so the row
+        // takes back $950.00: a fully refunded payer owes exactly what they owed before paying.
         assertEquals(recorder.recordRefund(payment, 98487L, "CFPW", "Stripe"), txId);
         assertEquals(txCmds.getTransactions(joe).size(), joeRows + 1, "rewritten in place, never duplicated");
-        assertEquals(txCmds.getTransaction(joe, txId).getAmount(), -984.87f);
+        assertEquals(txCmds.getTransaction(joe, txId).getAmount(), -950.0f);
         assertEquals(recorder.refundLine(payment, 98487L, "CFPW", "Stripe").description(),
-                "Stripe (id #123447384) Refund of $984.87 from CFPW", "a full refund is not 'partial'");
+                "Stripe (id #123447384) Refund of $984.87 from CFPW ($950.00 of it had been credited to this "
+                        + "account; the processing fee never was)", "a full refund is not 'partial'");
+        assertEquals(recorder.refundLine(payment, 95000L, "CFPW", "Stripe").amountCents(), -95000L);
+        assertEquals(recorder.refundLine(payment, 95000L, "CFPW", "Stripe").description(),
+                "Stripe (id #123447384) Refund of $950.00 (partial, of the $984.87 payment) from CFPW",
+                "up to the credit, the whole refund comes off the account");
         assertEquals(txCmds.getTransactions(bob).size(), 1, "Bob's credit row is untouched");
 
         assertEquals(recorder.refundLine(payment, 0L, "CFPW", "Stripe").description(),
@@ -293,6 +300,46 @@ public class PaymentRecorderTest {
 
         payment.setSandbox(true);
         assertEquals(recorder.recordRefund(payment, 500L, "CFPW", "Stripe"), null, "sandbox writes nothing");
+    }
+
+    /**
+     * The owner's rule (2026-11-12): a refund comes off the CREDIT first and never takes back more than was
+     * credited. The donation was a balance-neutral +D / -D pair and the fee was never a row, so refunding the
+     * whole charge must not leave the payer owing either.
+     */
+    @Test
+    public void aRefundNeverTakesBackMoreThanThePaymentCredited() {
+        final Person.Id joe = person("Joe");
+        // $100.00 credited, a $3.20 fee the payer covered, a $50.00 donation: $153.20 charged.
+        final Payment both = payment(joe, List.of(new Payment.Allocation(joe, 10000L)), 5000L, FeesPaidBy.PAYER,
+                320L, 145L, 15320L);
+        both.setCapturedGrossCents(15320L);
+        final PaymentRecorder recorder = recorder();
+        final PaymentRecorder.Line full = recorder.refundLine(both, 15320L, "CFPW", "Stripe");
+        assertEquals(full.amountCents(), -10000L, "owed $100 before paying, owes $100 after a full refund");
+        assertEquals(full.description(), "Stripe (id #123447384) Refund of $153.20 from CFPW ($100.00 of it had "
+                + "been credited to this account; the processing fee and the donation never were)");
+        final PaymentRecorder.Line most = recorder.refundLine(both, 12000L, "CFPW", "Stripe");
+        assertEquals(most.amountCents(), -10000L, "credits first, then no further");
+        assertEquals(most.description(), "Stripe (id #123447384) Refund of $120.00 (partial, of the $153.20 "
+                + "payment) from CFPW ($100.00 of it had been credited to this account; the processing fee and the "
+                + "donation never were)");
+        assertEquals(recorder.refundLine(both, 4000L, "CFPW", "Stripe").amountCents(), -4000L);
+
+        // The organization absorbed the fee: only the donation was never a credit.
+        final Payment donated = payment(joe, List.of(new Payment.Allocation(joe, 10000L)), 5000L,
+                FeesPaidBy.ORGANIZATION, 320L, 145L, 15000L);
+        donated.setCapturedGrossCents(15000L);
+        assertEquals(recorder.refundLine(donated, 15000L, "CFPW", "Stripe").description(),
+                "Stripe (id #123447384) Refund of $150.00 from CFPW ($100.00 of it had been credited to this "
+                        + "account; the donation never was)");
+        // A donation-only payment credits nothing, so its refund takes nothing back.
+        final Payment gift = payment(joe, List.of(), 5000L, FeesPaidBy.ORGANIZATION, 0L, 145L, 5000L);
+        gift.setCapturedGrossCents(5000L);
+        final PaymentRecorder.Line giftBack = recorder.refundLine(gift, 5000L, "CFPW", "Stripe");
+        assertEquals(giftBack.amountCents(), 0L);
+        assertTrue(giftBack.description().endsWith("($0.00 of it had been credited to this account; the donation "
+                + "never was)"), giftBack.description());
     }
 
     // ------------------------------------------------------------------ helpers

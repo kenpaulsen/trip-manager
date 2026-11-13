@@ -384,9 +384,9 @@ final class OfferSchedules {
         nightlyLine(extras, CostExtra.Basis.PER_ROOM_NIGHT, " per room", lines);
         for (final CostExtra extra : extras) {
             if (extra.getBasis() == CostExtra.Basis.PER_STAY) {
-                lines.add(extra.getLabel() + ": " + signed(extra.getAmountCents(), "") + " per stay");
+                lines.add(extra.getLabel() + ": " + MoneyMath.formatCents(extra.getAmountCents()) + " per stay");
             } else if (extra.getBasis() == CostExtra.Basis.FIXED) {
-                lines.add(extra.getLabel() + ": " + signed(extra.getAmountCents(), "") + " once");
+                lines.add(extra.getLabel() + ": " + MoneyMath.formatCents(extra.getAmountCents()) + " once");
             }
         }
         return lines;
@@ -403,13 +403,8 @@ final class OfferSchedules {
             }
         }
         if (!names.isEmpty()) {
-            lines.add(signed(sum, "+") + "/night" + per + " (" + String.join(", ", names) + ")");
+            lines.add(MoneyMath.formatSigned(sum) + "/night" + per + " (" + String.join(", ", names) + ")");
         }
-    }
-
-    /** "$12.00" led by {@code plus}, or "-$10.00": {@code formatCents} alone would write "$-10.00". */
-    private static String signed(final long cents, final String plus) {
-        return (cents < 0) ? "-" + MoneyMath.formatCents(-cents) : plus + MoneyMath.formatCents(cents);
     }
 
     /** The plan's cost as any reader of the plan table sees it: the stated cost, else {@link #COST_NOT_SET}. */

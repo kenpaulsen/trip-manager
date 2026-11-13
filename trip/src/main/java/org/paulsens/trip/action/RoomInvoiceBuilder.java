@@ -200,7 +200,7 @@ final class RoomInvoiceBuilder {
         section.setPeopleAmount(MoneyMath.formatCents(section.getPeopleCents()));
         section.setExtrasCents(section.getOffers().stream().flatMap(group -> group.getLines().stream())
                 .filter(InvoiceLine::isExtra).mapToLong(InvoiceLine::getCents).sum());
-        section.setExtrasAmount(CostExtras.formatSigned(section.getExtrasCents()));
+        section.setExtrasAmount(MoneyMath.formatCents(section.getExtrasCents()));
     }
 
     private static LocalDate firstNightOf(final InvoiceSection section) {
@@ -458,7 +458,7 @@ final class RoomInvoiceBuilder {
         difference.accept(billed - cost);
         billedText.accept(MoneyMath.formatCents(billed));
         costText.accept(MoneyMath.formatCents(cost));
-        differenceText.accept(CostExtras.formatSigned(billed - cost));
+        differenceText.accept(MoneyMath.formatCents(billed - cost));
     }
 
     // ================================================================== the tally
@@ -576,7 +576,7 @@ final class RoomInvoiceBuilder {
             line.setUnit("");
             line.setRate("");
             line.setCents(-forgiven);
-            line.setAmount(CostExtras.formatSigned(-forgiven));
+            line.setAmount(MoneyMath.formatCents(-forgiven));
             final String reason = trimmed(concession.getReason());
             line.setNote(guestNamesOf(res) + ": " + concession.label() + (reason.isEmpty() ? "" : " -- " + reason));
             return line;
@@ -641,7 +641,7 @@ final class RoomInvoiceBuilder {
             group.setFirstNight(group.getLines().isEmpty() ? null : group.getLines().stream()
                     .map(InvoiceLine::getFirstNight).min(Comparator.naturalOrder()).orElseThrow());
             group.setCents(group.getLines().stream().mapToLong(InvoiceLine::getCents).sum());
-            group.setAmount(CostExtras.formatSigned(group.getCents()));
+            group.setAmount(MoneyMath.formatCents(group.getCents()));
             return group;
         }
 
@@ -670,7 +670,7 @@ final class RoomInvoiceBuilder {
             line.setUnit(extra.unit(quantity));
             line.setNights(1);
             line.setRateCents(extra.getAmountCents());
-            line.setRate(CostExtras.formatSigned(extra.getAmountCents()));
+            line.setRate(MoneyMath.formatCents(extra.getAmountCents()));
             finish(line, 0);
             return line;
         }
@@ -685,7 +685,7 @@ final class RoomInvoiceBuilder {
                 line.setUnit(line.getKind().unit(line.getQuantity()));
             }
             line.setCents(line.getQuantity() * line.getNights() * line.getRateCents());
-            line.setAmount(CostExtras.formatSigned(line.getCents()));
+            line.setAmount(MoneyMath.formatCents(line.getCents()));
             if (line.getKind() == LineKind.ROOMS) {
                 line.setNote(slept + (slept == 1 ? " guest" : " guests"));
             }

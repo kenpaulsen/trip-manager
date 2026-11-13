@@ -7,7 +7,9 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -38,6 +40,8 @@ public class StripeProcessorTest {
     private String baseUrl;
     /** path -> canned response (status + JSON body). */
     private final Map<String, Canned> routes = new ConcurrentHashMap<>();
+    /** "METHOD path" -> responses served once each, in order, before the path's canned one. */
+    private final Map<String, Deque<Canned>> scripted = new ConcurrentHashMap<>();
     private final List<Seen> seen = new ArrayList<>();
 
     private record Canned(int status, String body) {
@@ -63,6 +67,7 @@ public class StripeProcessorTest {
     @BeforeMethod
     public void reset() {
         routes.clear();
+        scripted.clear();
         synchronized (seen) {
             seen.clear();
         }
@@ -77,7 +82,9 @@ public class StripeProcessorTest {
                     exchange.getRequestHeaders().getFirst("Idempotency-Key"),
                     URLDecoder.decode(form, StandardCharsets.UTF_8)));
         }
-        final Canned canned = routes.getOrDefault(path, new Canned(404,
+        final Deque<Canned> queue = scripted.get(exchange.getRequestMethod() + " " + path);
+        final Canned once = (queue == null) ? null : queue.poll();
+        final Canned canned = (once != null) ? once : routes.getOrDefault(path, new Canned(404,
                 "{\"error\":{\"type\":\"invalid_request_error\",\"code\":\"resource_missing\","
                         + "\"message\":\"No such payment_intent\"}}"));
         final byte[] bytes = canned.body().getBytes(StandardCharsets.UTF_8);
@@ -91,6 +98,12 @@ public class StripeProcessorTest {
     private Seen lastSeen() {
         synchronized (seen) {
             return seen.getLast();
+        }
+    }
+
+    private List<Seen> allSeen() {
+        synchronized (seen) {
+            return List.copyOf(seen);
         }
     }
 
@@ -109,7 +122,6 @@ public class StripeProcessorTest {
         assertThrows(PaymentProcessor.ProcessorException.class,
                 () -> new StripeProcessor("pk_live_1", "not-a-key", false));
         assertEquals(new StripeProcessor("pk_live_1", "rk_live_9", false).type(), ProcessorType.STRIPE);
-        assertEquals(processor().displayName(), "Stripe");
         assertNull(StripeProcessor.keyModeProblem(null, true, "secret"));
         assertTrue(StripeProcessor.keyModeProblem("sk_live_1", true, "secret").contains("TEST-mode"));
         assertTrue(StripeProcessor.keyModeProblem("sk_test_1", false, "secret").contains("LIVE-mode"));
@@ -224,19 +236,50 @@ public class StripeProcessorTest {
     }
 
     @Test
-    public void cancelReleasesTheIntentAndSwallowsRefusals() {
+    public void cancelReleasesAnOpenIntentAndNeverThrows() {
         routes.put("/v1/payment_intents/pi_c", new Canned(200, intent("pi_c", "requires_payment_method", 0L,
                 "usd") + "}"));
         routes.put("/v1/payment_intents/pi_c/cancel", new Canned(200, intent("pi_c", "canceled", 0L, "usd")
                 + "}"));
-        processor().cancel("pi_c");
+        assertEquals(processor().cancel("pi_c"), PaymentProcessor.OrderState.OPEN);
         final Seen sent = lastSeen();
         assertEquals(sent.method(), "POST");
         assertTrue(sent.path().endsWith("/v1/payment_intents/pi_c/cancel"));
 
-        processor().cancel("pi_missing");    // 404 -> logged, not thrown
-        processor().cancel(null);
-        processor().cancel(" ");
+        assertEquals(processor().cancel("pi_missing"), PaymentProcessor.OrderState.OPEN, "nothing there to hold");
+        assertEquals(processor().cancel(null), PaymentProcessor.OrderState.OPEN);
+        assertEquals(processor().cancel(" "), PaymentProcessor.OrderState.OPEN);
+
+        routes.put("/v1/payment_intents/pi_done", new Canned(200, intent("pi_done", "canceled", 0L, "usd") + "}"));
+        assertEquals(processor().cancel("pi_done"), PaymentProcessor.OrderState.OPEN, "already canceled");
+        assertEquals(lastSeen().method(), "GET", "and not canceled a second time");
+    }
+
+    /**
+     * Money Stripe has, or is moving, is never cancelled: a bank debit in flight ({@code processing}) cannot be
+     * recalled, and cancelling our row for it left the cleared debit with no ledger credit.
+     */
+    @Test
+    public void cancelRefusesAnIntentStripeHoldsOrIsSettling() {
+        routes.put("/v1/payment_intents/pi_bank", new Canned(200, intent("pi_bank", "processing", 0L, "usd") + "}"));
+        assertEquals(processor().cancel("pi_bank"), PaymentProcessor.OrderState.SETTLING);
+        assertEquals(lastSeen().method(), "GET", "no cancel is even attempted");
+
+        routes.put("/v1/payment_intents/pi_paid", new Canned(200, intent("pi_paid", "succeeded", 500L, "usd") + "}"));
+        assertEquals(processor().cancel("pi_paid"), PaymentProcessor.OrderState.PAID);
+
+        // The payer confirmed between the read and the cancel: Stripe refuses, and nothing was released.
+        routes.put("/v1/payment_intents/pi_race", new Canned(200, intent("pi_race", "requires_payment_method", 0L,
+                "usd") + "}"));
+        routes.put("/v1/payment_intents/pi_race/cancel", new Canned(400, "{\"error\":{\"type\":"
+                + "\"invalid_request_error\",\"message\":\"You cannot cancel this PaymentIntent\"}}"));
+        assertEquals(processor().cancel("pi_race"), PaymentProcessor.OrderState.UNKNOWN);
+
+        routes.put("/v1/payment_intents/pi_down", new Canned(500, "{\"error\":{\"type\":\"api_error\","
+                + "\"message\":\"down\"}}"));
+        assertEquals(processor().cancel("pi_down"), PaymentProcessor.OrderState.UNKNOWN);
+        assertEquals(new StripeProcessor(PK, SK, true, "http://127.0.0.1:1").cancel("pi_x"),
+                PaymentProcessor.OrderState.UNKNOWN, "an unreachable Stripe is never read as released");
     }
 
     @Test
@@ -318,14 +361,85 @@ public class StripeProcessorTest {
     public void rePricingUpdatesTheIntentsAmountAndRefusalsThrow() {
         routes.put("/v1/payment_intents/pi_open", new Canned(200,
                 intent("pi_open", "requires_payment_method", 0L, "usd") + "}"));
-        assertTrue(processor().updateAmount("pi_open", 2017L));
+        assertEquals(processor().reprice("pi_open", 2124L, null), PaymentProcessor.Repriced.REPRICED);
         final Seen sent = lastSeen();
         assertEquals(sent.method(), "POST");
         assertTrue(sent.path().endsWith("/v1/payment_intents/pi_open"));
-        assertTrue(sent.form().contains("amount=2017"), sent.form());
+        assertTrue(sent.form().contains("amount=2124"), sent.form());
+        assertFalse(sent.form().contains("allowed_payment_method_types"), "an intent never locked is left open");
 
-        assertThrows(PaymentProcessor.ProcessorException.class, () -> processor().updateAmount("pi_missing", 5L));
-        assertThrows(PaymentProcessor.ProcessorException.class, () -> processor().updateAmount("pi_open", 0L));
-        assertThrows(PaymentProcessor.ProcessorException.class, () -> processor().updateAmount(null, 5L));
+        assertThrows(PaymentProcessor.ProcessorException.class, () -> processor().reprice("pi_missing", 5L, null));
+        assertThrows(PaymentProcessor.ProcessorException.class, () -> processor().reprice("pi_open", 0L, null));
+        assertThrows(PaymentProcessor.ProcessorException.class, () -> processor().reprice(null, 5L, null));
+    }
+
+    /**
+     * A bank price is locked to bank debits AT STRIPE, so a card cannot pay it whatever the page claims, and
+     * the methods the intent offered are remembered so the card estimate can put them back.
+     */
+    @Test
+    public void aBankPriceLocksTheIntentToBankDebitsAndTheCardPriceUnlocksIt() {
+        routes.put("/v1/payment_intents/pi_open", new Canned(200,
+                intent("pi_open", "requires_payment_method", 0L, "usd")
+                        + ",\"payment_method_types\":[\"card\",\"link\",\"us_bank_account\"]}"));
+        assertEquals(processor().reprice("pi_open", 2017L, "us_bank_account"),
+                PaymentProcessor.Repriced.REPRICED_LOCKED);
+        final String lock = lastSeen().form();
+        assertTrue(lock.contains("amount=2017"), lock);
+        assertTrue(lock.contains("allowed_payment_method_types[0]=us_bank_account"), lock);
+        assertFalse(lock.contains("allowed_payment_method_types[1]"), lock);
+        assertTrue(lock.contains("metadata[offeredMethods]=card,link,us_bank_account"), lock);
+
+        // Locked now (the metadata says what it offered): the card estimate restores every method.
+        routes.put("/v1/payment_intents/pi_open", new Canned(200,
+                intent("pi_open", "requires_payment_method", 0L, "usd")
+                        + ",\"payment_method_types\":[\"us_bank_account\"],"
+                        + "\"metadata\":{\"offeredMethods\":\"card,link,us_bank_account\"}}"));
+        assertEquals(processor().reprice("pi_open", 2124L, null), PaymentProcessor.Repriced.REPRICED);
+        final String unlock = lastSeen().form();
+        assertTrue(unlock.contains("amount=2124"), unlock);
+        assertTrue(unlock.contains("allowed_payment_method_types[0]=card"), unlock);
+        assertTrue(unlock.contains("allowed_payment_method_types[2]=us_bank_account"), unlock);
+        assertTrue(unlock.contains("metadata[offeredMethods]="), unlock);
+        assertFalse(unlock.contains("metadata[offeredMethods]=card"), "an empty value unsets the key: " + unlock);
+
+        // A second bank pick while locked keeps the ORIGINAL list, not the narrowed one.
+        assertEquals(processor().reprice("pi_open", 2017L, "us_bank_account"),
+                PaymentProcessor.Repriced.REPRICED_LOCKED);
+        assertTrue(lastSeen().form().contains("metadata[offeredMethods]=card,link,us_bank_account"),
+                lastSeen().form());
+    }
+
+    /** An intent Stripe will not narrow is still re-priced, unlocked: the capture's method check covers it. */
+    @Test
+    public void anIntentStripeWillNotNarrowIsRePricedUnlocked() {
+        routes.put("/v1/payment_intents/pi_open", new Canned(200,
+                intent("pi_open", "requires_payment_method", 0L, "usd")
+                        + ",\"payment_method_types\":[\"card\",\"us_bank_account\"]}"));
+        scripted.put("POST /v1/payment_intents/pi_open", new ArrayDeque<>(List.of(new Canned(400,
+                "{\"error\":{\"type\":\"invalid_request_error\",\"message\":\"not allowed here\"}}"))));
+        assertEquals(processor().reprice("pi_open", 2017L, "us_bank_account"), PaymentProcessor.Repriced.REPRICED);
+        final List<Seen> all = allSeen();
+        final Seen refused = all.get(all.size() - 2);
+        assertTrue(refused.form().contains("allowed_payment_method_types"), refused.form());
+        assertTrue(lastSeen().form().contains("amount=2017"), lastSeen().form());
+        assertFalse(lastSeen().form().contains("allowed_payment_method_types"), lastSeen().form());
+
+        // No method list to put back later means no lock either: it could never be lifted.
+        routes.put("/v1/payment_intents/pi_bare", new Canned(200,
+                intent("pi_bare", "requires_payment_method", 0L, "usd") + "}"));
+        assertEquals(processor().reprice("pi_bare", 2017L, "us_bank_account"), PaymentProcessor.Repriced.REPRICED);
+        assertFalse(lastSeen().form().contains("allowed_payment_method_types"), lastSeen().form());
+    }
+
+    @Test
+    public void theCaptureNamesTheMethodThatPaid() {
+        routes.put("/v1/payment_intents/pi_card", new Canned(200, intent("pi_card", "succeeded", 2017L, "usd")
+                + ",\"latest_charge\":{\"id\":\"ch_1\",\"object\":\"charge\","
+                + "\"payment_method_details\":{\"type\":\"card\"}}}"));
+        assertEquals(processor().capture("pi_card").methodType(), "card");
+        routes.put("/v1/payment_intents/pi_plain", new Canned(200, intent("pi_plain", "succeeded", 2017L, "usd")
+                + "}"));
+        assertNull(processor().capture("pi_plain").methodType(), "unknown is null, never a guess");
     }
 }

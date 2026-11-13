@@ -46,7 +46,6 @@ public class PayPalProcessorTest {
         assertThrows(PaymentProcessor.ProcessorException.class,
                 () -> new PayPalProcessor("id", "  ", true));
         assertEquals(new PayPalProcessor("id", "secret", true).type(), ProcessorType.PAYPAL);
-        assertEquals(new PayPalProcessor("id", "secret", false).displayName(), "PayPal");
     }
 
     @Test
@@ -171,20 +170,58 @@ public class PayPalProcessorTest {
     @Test
     public void transportFailuresAreContainedEverywhere() throws Exception {
         final java.io.IOException transport = new java.io.IOException("no route");
-        assertEquals(processorAnswering(c -> Mockito.when(c.captureOrder(ArgumentMatchers.any()))
-                        .thenThrow(transport)).capture("O").status(),
-                PaymentProcessor.CaptureResult.Status.FAILED);
+        // A lost capture ANSWER is not a failed capture: PayPal may have taken the money before the line
+        // dropped. PENDING keeps the payment retryable; FAILED is terminal and says "you were not charged".
+        final PaymentProcessor.CaptureResult lost = processorAnswering(c -> Mockito
+                .when(c.captureOrder(ArgumentMatchers.any())).thenThrow(transport)).capture("O");
+        assertEquals(lost.status(), PaymentProcessor.CaptureResult.Status.PENDING);
+        assertFalse(lost.isSettling(), "nothing is known to be in flight, so the payer may simply retry");
         final PayPalProcessor broken = processorAnswering(c -> Mockito
                 .when(c.createOrder(ArgumentMatchers.any())).thenThrow(transport));
         assertThrows(PaymentProcessor.ProcessorException.class,
                 () -> broken.createOrder(payment(), "a".repeat(300), "http://r", "http://c"));
 
-        // Already-captured whose recovery ALSO fails: FAILED, never a guess.
+        // Already-captured whose recovery ALSO fails: PayPal has said the money moved, so ask again, never FAILED.
         final ErrorException alreadyCaptured = paypalRefusal(422, "ORDER_ALREADY_CAPTURED");
         assertEquals(processorAnswering(c -> {
             Mockito.when(c.captureOrder(ArgumentMatchers.any())).thenThrow(alreadyCaptured);
             Mockito.when(c.getOrder(ArgumentMatchers.any())).thenThrow(transport);
-        }).capture("O").status(), PaymentProcessor.CaptureResult.Status.FAILED);
+        }).capture("O").status(), PaymentProcessor.CaptureResult.Status.PENDING);
+        final ApiResponse<Order> unusable = response(null);
+        assertEquals(processorAnswering(c -> {
+            Mockito.when(c.captureOrder(ArgumentMatchers.any())).thenThrow(alreadyCaptured);
+            Mockito.when(c.getOrder(ArgumentMatchers.any())).thenReturn(unusable);
+        }).capture("O").status(), PaymentProcessor.CaptureResult.Status.PENDING, "an unusable recovery read too");
+
+        // PayPal's own failure (a 5xx, a throttle) says nothing about the capture either; a refusal does.
+        final ErrorException down = paypalRefusal(503, "INTERNAL_SERVICE_ERROR");
+        assertEquals(processorAnswering(c -> Mockito.when(c.captureOrder(ArgumentMatchers.any())).thenThrow(down))
+                .capture("O").status(), PaymentProcessor.CaptureResult.Status.PENDING);
+        final ErrorException refused = paypalRefusal(422, "ORDER_NOT_APPROVED");
+        assertEquals(processorAnswering(c -> Mockito.when(c.captureOrder(ArgumentMatchers.any())).thenThrow(refused))
+                .capture("O").status(), PaymentProcessor.CaptureResult.Status.FAILED);
+    }
+
+    /** Giving an order up asks PayPal first: a COMPLETED order is money in hand and must not be cancelled. */
+    @Test
+    public void cancelAnswersWhereTheOrderStands() throws Exception {
+        final ApiResponse<Order> paid = response(new Order.Builder().id("O").status(OrderStatus.COMPLETED).build());
+        assertEquals(processorAnswering(c -> Mockito.when(c.getOrder(ArgumentMatchers.any())).thenReturn(paid))
+                .cancel("O"), PaymentProcessor.OrderState.PAID);
+        final ApiResponse<Order> approved = response(new Order.Builder().id("O").status(OrderStatus.APPROVED)
+                .build());
+        assertEquals(processorAnswering(c -> Mockito.when(c.getOrder(ArgumentMatchers.any())).thenReturn(approved))
+                .cancel("O"), PaymentProcessor.OrderState.OPEN);
+        assertEquals(processorAnswering(c -> Mockito.when(c.getOrder(ArgumentMatchers.any()))
+                .thenThrow(new java.io.IOException("no route"))).cancel("O"), PaymentProcessor.OrderState.UNKNOWN);
+        final ErrorException down = paypalRefusal(500, "INTERNAL_SERVER_ERROR");
+        assertEquals(processorAnswering(c -> Mockito.when(c.getOrder(ArgumentMatchers.any())).thenThrow(down))
+                .cancel("O"), PaymentProcessor.OrderState.UNKNOWN);
+        final ErrorException gone = paypalRefusal(404, "RESOURCE_NOT_FOUND");
+        assertEquals(processorAnswering(c -> Mockito.when(c.getOrder(ArgumentMatchers.any())).thenThrow(gone))
+                .cancel("O"), PaymentProcessor.OrderState.OPEN, "nothing is held under an unknown reference");
+        assertEquals(new PayPalProcessor("id", "secret", true).cancel(" "), PaymentProcessor.OrderState.OPEN);
+        assertEquals(new PayPalProcessor("id", "secret", true).cancel(null), PaymentProcessor.OrderState.OPEN);
     }
 
     @Test
@@ -278,7 +315,7 @@ public class PayPalProcessorTest {
     public void redirectProcessorsHaveNoRefundReadAndNoRePricing() {
         final PayPalProcessor paypal = new PayPalProcessor("id", "secret", true);
         assertTrue(paypal.refundedCents("ORDER-1").isEmpty());
-        assertEquals(paypal.updateAmount("ORDER-1", 100L), false);
-        paypal.cancel("ORDER-1");
+        assertEquals(paypal.reprice("ORDER-1", 100L, null), PaymentProcessor.Repriced.UNSUPPORTED);
+        assertEquals(paypal.reprice("ORDER-1", 100L, "us_bank_account"), PaymentProcessor.Repriced.UNSUPPORTED);
     }
 }

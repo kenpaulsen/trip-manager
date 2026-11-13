@@ -17,6 +17,7 @@ import com.stripe.param.PaymentIntentCreateParams;
 import com.stripe.param.PaymentIntentRetrieveParams;
 import com.stripe.param.PaymentIntentUpdateParams;
 import com.stripe.param.PaymentMethodDomainCreateParams;
+import java.util.List;
 import java.util.OptionalLong;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.model.Payment;
@@ -44,6 +45,10 @@ public final class StripeProcessor implements PaymentProcessor {
     private static final String USD = "usd";
     private static final String TEST_MARKER = "_test_";
     private static final String LIVE_MARKER = "_live_";
+    /** The update parameter that narrows an intent to the listed methods (API 2026-08 and later). */
+    private static final String ALLOWED_METHODS = "allowed_payment_method_types";
+    /** Intent metadata: the comma-joined methods the intent offered before a re-price locked it to one. */
+    static final String METHODS_KEY = "offeredMethods";
 
     static {
         // Identifies the integration in Stripe's logs. Global by design and credential-free.
@@ -182,11 +187,6 @@ public final class StripeProcessor implements PaymentProcessor {
         return ProcessorType.STRIPE;
     }
 
-    @Override
-    public String displayName() {
-        return "Stripe";
-    }
-
     /**
      * Creates the PaymentIntent. Payment methods are NOT pinned here: the organization chooses them in its
      * Stripe dashboard ({@code automatic_payment_methods}), which is what lets a bank debit or a wallet
@@ -257,7 +257,7 @@ public final class StripeProcessor implements PaymentProcessor {
                     return CaptureResult.failed();
                 }
                 return new CaptureResult(CaptureResult.Status.COMPLETED, intent.getId(), received,
-                        feeOf(intent));
+                        feeOf(intent), methodOf(intent));
             }
             case "processing" -> {
                 return CaptureResult.pending(intent.getId());
@@ -280,17 +280,51 @@ public final class StripeProcessor implements PaymentProcessor {
                 : OptionalLong.of(balance.getFee());
     }
 
+    /** The kind of method on the intent's charge ("card", "us_bank_account"); null when Stripe does not say. */
+    private static String methodOf(final PaymentIntent intent) {
+        final Charge charge = intent.getLatestChargeObject();
+        return (charge == null || charge.getPaymentMethodDetails() == null) ? null
+                : charge.getPaymentMethodDetails().getType();
+    }
+
+    /**
+     * Cancels the intent unless Stripe already has the money or is moving it: {@code succeeded} is PAID and
+     * {@code processing} (a bank debit in flight, which Stripe cannot cancel either) is SETTLING, and neither
+     * is touched. An intent that is already canceled, or that does not exist, is OPEN: nothing is held.
+     */
     @Override
-    public void cancel(final String orderRef) {
+    public OrderState cancel(final String orderRef) {
         if (orderRef == null || orderRef.isBlank()) {
-            return;
+            return OrderState.OPEN;
+        }
+        final PaymentIntent intent;
+        try {
+            intent = PaymentIntent.retrieve(orderRef, options(secretKey, baseUrl, null));
+        } catch (final InvalidRequestException ex) {
+            log.info("Stripe PaymentIntent {} is not there to cancel: {}", orderRef, ex.getMessage());
+            return OrderState.OPEN;
+        } catch (final StripeException ex) {
+            log.warn("Stripe could not be asked about {} before a cancel: {}", orderRef, ex.getMessage());
+            return OrderState.UNKNOWN;
+        }
+        final String status = (intent == null) ? null : intent.getStatus();
+        if ("succeeded".equals(status)) {
+            return OrderState.PAID;
+        }
+        if ("processing".equals(status) || "requires_capture".equals(status)) {
+            return OrderState.SETTLING;
+        }
+        if (intent == null || "canceled".equals(status)) {
+            return OrderState.OPEN;
         }
         try {
-            final PaymentIntent intent = PaymentIntent.retrieve(orderRef, options(secretKey, baseUrl, null));
             intent.cancel(options(secretKey, baseUrl, null));
+            return OrderState.OPEN;
         } catch (final StripeException ex) {
-            // Already canceled or already succeeded both land here; the caller's own state wins.
-            log.info("Stripe PaymentIntent {} not canceled: {}", orderRef, ex.getMessage());
+            // It moved on between the read and the cancel (the payer confirmed), or Stripe is unreachable:
+            // either way we cannot say it was released.
+            log.warn("Stripe PaymentIntent {} not canceled: {}", orderRef, ex.getMessage());
+            return OrderState.UNKNOWN;
         }
     }
 
@@ -324,21 +358,64 @@ public final class StripeProcessor implements PaymentProcessor {
      * Re-prices an unconfirmed intent (the payer picked a bank debit, whose fee is lower). Stripe only
      * accepts a new amount while the intent is still awaiting a payment method or confirmation, which is
      * exactly when the page asks; anything else surfaces as a refusal and the page keeps the old total.
+     *
+     * <p>A price that is FOR one method is locked to it ({@code allowed_payment_method_types}), so Stripe
+     * itself refuses a card on a bank-priced intent: the page's word about which method the payer picked is
+     * not proof of which one pays. The methods the intent offered before the lock are remembered in its
+     * metadata ({@link #METHODS_KEY}), because the lock replaces the dashboard's list and re-pricing back to
+     * the card estimate has to put that list back. An intent Stripe will not narrow is re-priced unlocked
+     * (the pre-2026-11 behavior) and the capture's method check is what notices a card then.
      */
     @Override
-    public boolean updateAmount(final String orderRef, final long cents) {
+    public Repriced reprice(final String orderRef, final long cents, final String onlyMethod) {
         if (orderRef == null || orderRef.isBlank() || cents <= 0) {
             throw new ProcessorException("Stripe could not re-price the payment.");
         }
         try {
             final PaymentIntent intent = PaymentIntent.retrieve(orderRef, options(secretKey, baseUrl, null));
-            intent.update(PaymentIntentUpdateParams.builder().setAmount(cents).build(),
-                    options(secretKey, baseUrl, null));
-            return true;
+            final String offered = (intent.getMetadata() == null) ? null : intent.getMetadata().get(METHODS_KEY);
+            final boolean locked = offered != null && !offered.isBlank();
+            if (onlyMethod != null) {
+                return lock(intent, cents, onlyMethod, locked ? offered : offeredBy(intent));
+            }
+            final PaymentIntentUpdateParams.Builder params = PaymentIntentUpdateParams.builder().setAmount(cents);
+            if (locked) {
+                // An empty metadata value unsets the key, so the next lock remembers the list afresh.
+                params.putExtraParam(ALLOWED_METHODS, List.of(offered.split(","))).putMetadata(METHODS_KEY, "");
+            }
+            intent.update(params.build(), options(secretKey, baseUrl, null));
+            return Repriced.REPRICED;
         } catch (final StripeException ex) {
             log.warn("Stripe PaymentIntent {} could not be re-priced to {}: {}", orderRef, cents, ex.getMessage());
             throw new ProcessorException("Stripe could not re-price the payment.", ex);
         }
+    }
+
+    private Repriced lock(final PaymentIntent intent, final long cents, final String onlyMethod,
+            final String offered) throws StripeException {
+        if (offered.isBlank()) {
+            // Nothing to put back later: a lock here could never be lifted, so the price goes unlocked.
+            intent.update(PaymentIntentUpdateParams.builder().setAmount(cents).build(),
+                    options(secretKey, baseUrl, null));
+            return Repriced.REPRICED;
+        }
+        try {
+            intent.update(PaymentIntentUpdateParams.builder().setAmount(cents)
+                    .putExtraParam(ALLOWED_METHODS, List.of(onlyMethod))
+                    .putMetadata(METHODS_KEY, offered).build(), options(secretKey, baseUrl, null));
+            return Repriced.REPRICED_LOCKED;
+        } catch (final InvalidRequestException ex) {
+            log.warn("Stripe would not restrict PaymentIntent {} to {}; re-pricing it unlocked: {}", intent.getId(),
+                    onlyMethod, ex.getMessage());
+            intent.update(PaymentIntentUpdateParams.builder().setAmount(cents).build(),
+                    options(secretKey, baseUrl, null));
+            return Repriced.REPRICED;
+        }
+    }
+
+    /** The methods the intent offers now, as Stripe resolved them from the organization's dashboard. */
+    private static String offeredBy(final PaymentIntent intent) {
+        return (intent.getPaymentMethodTypes() == null) ? "" : String.join(",", intent.getPaymentMethodTypes());
     }
 
     private static String truncate(final String text, final int max) {

@@ -137,14 +137,17 @@ problem's message is a whole sentence, because pages put it in a growl summary.
 - EL reads record COMPONENTS only: on `Quote` call `getTotal()`, `getFee()` and `isFree()` as methods.
 - A visit that comes back (a cancel at the processor) keeps each person's code and ticks
   (`RegistrationDraft.carryCheckoutFrom`, called by `loadDraft`), and whoever may complete a checkout payment may
-  cancel it, so the admin who started one for someone else can change it.
+  cancel it and re-price it for a bank debit (`PaymentCommands.mayComplete`, the ONE spelling of that rule), so
+  the admin who started one for someone else can change it.
 
 ## Idempotency and failure
 
 - Everything is re-runnable: rows are written only if absent, Bill ids are deterministic, ticket codes are minted
   once on the pending row, the roster is a set, `joinOnRegistration` is idempotent.
 - A failed finalize leaves the payment CAPTURED: `admin/payments.jsf`'s Finish re-runs record and finalize.
-- A gross mismatch parks the payment in CAPTURED before recording, so NO registration exists until an admin reconciles.
+- A gross mismatch HOLDS the payment in CAPTURED before recording (`Payment.heldReason`, stored with the capture),
+  so NO registration exists until an admin's Finish on `admin/payments.jsf`. The webhook and a reload of the return
+  page both answer `mismatch` and record nothing; until 2026-11 the hold was not stored and they recorded it.
 - A payment RECORDED with an unfinalized party (written by a build that predates checkout) is finalized on its next
   completion visit, without a second mail.
 - A bank debit that is still settling keeps the payment CREATED: no registration exists until Stripe's webhook

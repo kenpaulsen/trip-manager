@@ -4,7 +4,6 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import lombok.extern.slf4j.Slf4j;
@@ -31,6 +30,12 @@ import software.amazon.awssdk.services.secretsmanager.model.PutSecretValueReques
  * restart. Writes are read-merge-write; concurrent admin writes are last-write-wins, acceptable for a rare
  * hand-operated action (deliberately NOT guarded with a cache lock: {@code NoopCacheClient} grants every
  * lock, so a lock here would be theater in one deployment mode).
+ *
+ * <p>A write replaces the WHOLE secret, so it merges into what the store holds NOW, read for that write, and
+ * is refused when that read fails. It used to merge into the cached map, which a failed first read (or a
+ * hand-edit that broke the JSON) leaves EMPTY: one organization saving its keys then erased every other
+ * organization's. The cache is one immutable map swapped in a single assignment, so a reader never sees the
+ * half-filled map a clear-then-fill refresh exposed.
  */
 @Slf4j
 public final class ProcessorSecrets {
@@ -41,8 +46,8 @@ public final class ProcessorSecrets {
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final AtomicReference<ProcessorSecrets> INSTANCE = new AtomicReference<>();
 
-    /** Local-mode (and test) storage; also the write-through cache in AWS mode. */
-    private final Map<String, Map<String, String>> local = new ConcurrentHashMap<>();
+    /** Local-mode (and test) storage; also the write-through cache in AWS mode. Immutable; swapped whole. */
+    private volatile Map<String, Map<String, String>> current = Map.of();
     private final AtomicLong loadedAt = new AtomicLong();
     private final Store store;
 
@@ -72,8 +77,8 @@ public final class ProcessorSecrets {
     /** The secret fields for this config id; empty map when none are stored. Never null. */
     public Map<String, String> get(final String configId) {
         refreshIfStale();
-        final Map<String, String> found = local.get(configId);
-        return (found == null) ? Map.of() : Map.copyOf(found);
+        final Map<String, String> found = current.get(configId);
+        return (found == null) ? Map.of() : found;
     }
 
     public boolean hasSecret(final String configId, final String field) {
@@ -83,12 +88,16 @@ public final class ProcessorSecrets {
 
     /**
      * Merges these fields into the config's secret map (blank values DELETE the field) and persists. Returns
-     * false when the backing store rejected the write -- the caller must surface that, silently losing a
-     * pasted credential is the worst outcome available here.
+     * false when the backing store could not be read first or rejected the write -- the caller must surface
+     * that, silently losing a pasted credential is the worst outcome available here, short of losing everyone
+     * else's.
      */
     public synchronized boolean put(final String configId, final Map<String, String> fields) {
-        refreshIfStale();
-        final Map<String, String> merged = new HashMap<>(local.getOrDefault(configId, Map.of()));
+        final Map<String, Map<String, String>> stored = (store == null) ? current : readStoreForWrite();
+        if (stored == null) {
+            return false;
+        }
+        final Map<String, String> merged = new HashMap<>(stored.getOrDefault(configId, Map.of()));
         for (final Map.Entry<String, String> field : fields.entrySet()) {
             if (field.getValue() == null || field.getValue().isBlank()) {
                 merged.remove(field.getKey());
@@ -96,18 +105,29 @@ public final class ProcessorSecrets {
                 merged.put(field.getKey(), field.getValue().trim());
             }
         }
-        final Map<String, Map<String, String>> snapshot = new HashMap<>(local);
+        final Map<String, Map<String, String>> snapshot = new HashMap<>(stored);
         if (merged.isEmpty()) {
             snapshot.remove(configId);
         } else {
-            snapshot.put(configId, merged);
+            snapshot.put(configId, Map.copyOf(merged));
         }
         if (store != null && !writeStore(snapshot)) {
             return false;
         }
-        local.clear();
-        local.putAll(snapshot);
+        current = Map.copyOf(snapshot);
+        loadedAt.set(System.currentTimeMillis());
         return true;
+    }
+
+    /** What the store holds right now, or null (logged) when it cannot be read or is not the expected JSON. */
+    private Map<String, Map<String, String>> readStoreForWrite() {
+        try {
+            return parse(store.read());
+        } catch (final RuntimeException ex) {
+            log.error("Payment secrets could not be read, so nothing was written: a write replaces the whole "
+                    + "secret and would have erased every entry this read did not return", ex);
+            return null;
+        }
     }
 
     private void refreshIfStale() {
@@ -120,9 +140,7 @@ public final class ProcessorSecrets {
             return;
         }
         try {
-            final Map<String, Map<String, String>> fresh = parse(store.read());
-            local.clear();
-            local.putAll(fresh);
+            current = parse(store.read());
         } catch (final RuntimeException ex) {
             // Keep serving the last-known values: a transient Secrets Manager blip must not fail a payment
             // that yesterday's credentials would have served.
@@ -145,8 +163,12 @@ public final class ProcessorSecrets {
             return Map.of();
         }
         try {
-            return MAPPER.readValue(json, new TypeReference<Map<String, Map<String, String>>>() { });
-        } catch (final java.io.IOException ex) {
+            final Map<String, Map<String, String>> parsed =
+                    MAPPER.readValue(json, new TypeReference<Map<String, Map<String, String>>>() { });
+            final Map<String, Map<String, String>> frozen = new HashMap<>();
+            parsed.forEach((configId, fields) -> frozen.put(configId, Map.copyOf(fields)));
+            return Map.copyOf(frozen);
+        } catch (final java.io.IOException | RuntimeException ex) {
             throw new IllegalStateException("Payment secret is not the expected JSON object shape", ex);
         }
     }

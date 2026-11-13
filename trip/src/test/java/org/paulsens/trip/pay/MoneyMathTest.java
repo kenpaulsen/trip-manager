@@ -25,7 +25,24 @@ public class MoneyMathTest {
         assertEquals(MoneyMath.formatCents(250000L), "$2,500.00");
         assertEquals(MoneyMath.formatCents(7500L), "$75.00");
         assertEquals(MoneyMath.formatCents(5L), "$0.05");
+        assertEquals(MoneyMath.formatCents(0L), "$0.00");
         assertEquals(MoneyMath.toFloatDollars(47500L), 475f);
+    }
+
+    /** A negative amount leads with its sign; under a dollar it used to lose the sign altogether. */
+    @Test
+    public void aNegativeAmountLeadsWithItsSign() {
+        assertEquals(MoneyMath.formatCents(-5L), "-$0.05");
+        assertEquals(MoneyMath.formatCents(-50L), "-$0.50");
+        assertEquals(MoneyMath.formatCents(-2500L), "-$25.00");
+        assertEquals(MoneyMath.formatCents(-123456L), "-$1,234.56");
+    }
+
+    @Test
+    public void aChangeIsAlwaysSigned() {
+        assertEquals(MoneyMath.formatSigned(1200L), "+$12.00");
+        assertEquals(MoneyMath.formatSigned(-1000L), "-$10.00");
+        assertEquals(MoneyMath.formatSigned(0L), "+$0.00");
     }
 
     /** The user's worked example: flat 5%, credits $1,425 gross up to $1,500 with a $75 fee. */

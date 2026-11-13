@@ -3,7 +3,6 @@ package org.paulsens.trip.action;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.function.Consumer;
-import org.paulsens.trip.pay.CostExtras;
 import org.paulsens.trip.pay.MoneyMath;
 
 /**
@@ -19,7 +18,7 @@ final class MoneyForms {
 
     /** "$1,440.00", "-$1.50". */
     static String money(final long cents) {
-        return CostExtras.formatSigned(cents);
+        return MoneyMath.formatCents(cents);
     }
 
     /** Dollars typed into a form as cents, HALF_UP; 0 for null. */

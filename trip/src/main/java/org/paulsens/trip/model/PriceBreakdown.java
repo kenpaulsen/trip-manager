@@ -102,18 +102,19 @@ public class PriceBreakdown implements Serializable {
         }
 
         String describe() {
-            switch (kind) {
-                case BASE, ADD_ON:
-                    return label + " " + MoneyMath.formatCents(deltaCents);
-                case NOTE:
-                    return label;
-                default:
-                    return label + " " + signed(deltaCents);
-            }
+            return kind == LineKind.NOTE ? label : label + " " + amountText();
         }
 
-        private static String signed(final long cents) {
-            return cents < 0 ? "-" + MoneyMath.formatCents(-cents) : "+" + MoneyMath.formatCents(cents);
+        /**
+         * The line's amount as every reader prints it: the price of a base or an add-on, nothing for a note, a
+         * signed change for everything else. Not a bean getter, so it is never stored with the line.
+         */
+        public String amountText() {
+            return switch (kind) {
+                case BASE, ADD_ON -> MoneyMath.formatCents(deltaCents);
+                case NOTE -> "";
+                default -> MoneyMath.formatSigned(deltaCents);
+            };
         }
     }
 

@@ -12,6 +12,7 @@ import org.paulsens.trip.model.BindingType;
 import org.paulsens.trip.model.Payment;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Transaction;
+import org.paulsens.trip.util.Util;
 
 /**
  * Turns a CAPTURED {@link Payment} into ledger {@link Transaction}s -- the exact user-locked spec of
@@ -100,12 +101,19 @@ public class PaymentRecorder {
 
     /**
      * The ledger row for money the processor sent BACK: one row per payment, {@code {paymentId}-refund},
-     * on the PAYER (whose card or account was refunded), carrying the CUMULATIVE refunded amount as a
-     * negative Payment. A second partial refund, or a re-delivered event, rewrites the same row with the new
-     * total -- idempotent like every other row here, and the ledger never grows a second refund line. The
-     * original credit rows stay as written (money rows are never destroyed); the refund row is what brings
-     * the balance back. Multi-person payments refund the payer too: the processor returned the money to the
-     * one card, and splitting a refund across travelers is the organization's call to make by hand.
+     * on the PAYER (whose card or account was refunded). A second partial refund, or a re-delivered event,
+     * rewrites the same row with the new total -- idempotent like every other row here, and the ledger never
+     * grows a second refund line. The original credit rows stay as written (money rows are never destroyed);
+     * the refund row is what brings the balance back. Multi-person payments refund the payer too: the
+     * processor returned the money to the one card, and splitting a refund across travelers is the
+     * organization's call to make by hand.
+     *
+     * <p><b>The amount is the refund, credits first, capped at what the payment credited</b> (owner's decision,
+     * 2026-11-12). The processor's cumulative figure is of the GROSS charge, which also carried the payer-paid
+     * fee (never a ledger row) and the donation (a +D / -D pair, balance-neutral). Taking the gross back left a
+     * fully refunded payer owing the fee and the donation, money they never owed. So a refund comes off the
+     * credit until the credit is gone and no further: the description still names everything the processor
+     * returned, and says how much of it was ever on this account.
      */
     public Line refundLine(final Payment payment, final long refundedCents, final String orgName,
             final String processorName) {
@@ -121,8 +129,31 @@ public class PaymentRecorder {
                     .append(" payment)");
         }
         description.append(" from ").append(orgName);
+        final long takenBack = Math.min(refundedCents, payment.getCreditTotalCents());
+        if (takenBack < refundedCents) {
+            description.append(" (").append(MoneyMath.formatCents(takenBack))
+                    .append(" of it had been credited to this account; ").append(neverCredited(payment))
+                    .append(" never ").append(neverCreditedIsPlural(payment) ? "were" : "was").append(')');
+        }
         return new Line(Line.Kind.REFUND, payment.getPayerId(), payment.getPaymentId() + "-refund",
-                -refundedCents, Transaction.TransactionType.Payment, description.toString());
+                -takenBack, Transaction.TransactionType.Payment, description.toString());
+    }
+
+    /** The parts of a charge that are never a credit on anyone's account, as this payment had them. */
+    private static String neverCredited(final Payment payment) {
+        final boolean fee = payment.isPayerPaysFee() && payment.getCreditFeeCents() > 0;
+        final boolean donation = payment.getDonationCents() > 0;
+        if (fee && donation) {
+            return "the processing fee and the donation";
+        }
+        if (donation) {
+            return "the donation";
+        }
+        return fee ? "the processing fee" : "the rest";
+    }
+
+    private static boolean neverCreditedIsPlural(final Payment payment) {
+        return payment.isPayerPaysFee() && payment.getCreditFeeCents() > 0 && payment.getDonationCents() > 0;
     }
 
     /**
@@ -230,13 +261,7 @@ public class PaymentRecorder {
             all.add(payerName);
         }
         all.addAll(rest);
-        if (all.size() == 1) {
-            return all.get(0);
-        }
-        if (all.size() == 2) {
-            return all.get(0) + " and " + all.get(1);
-        }
-        return String.join(", ", all.subList(0, all.size() - 1)) + ", and " + all.get(all.size() - 1);
+        return Util.joinNames(all);
     }
 
     // ------------------------------------------------------------------ application

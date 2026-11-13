@@ -16,9 +16,6 @@ public interface PaymentProcessor {
 
     ProcessorType type();
 
-    /** Human label for descriptions and email ("PayPal", "Stripe", "Test Processor"). */
-    String displayName();
-
     /**
      * Creates the processor-side order for {@code payment.getTotalChargedCents()} and answers where to send
      * the payer. Throws {@link ProcessorException} on refusal -- the caller surfaces it, nothing is charged.
@@ -33,12 +30,29 @@ public interface PaymentProcessor {
     CaptureResult capture(String orderRef);
 
     /**
-     * Gives up an order the payer walked away from (page Cancel, "Change amounts", the admin's Abandon).
-     * Redirect processors have nothing to release; an inline one cancels its PaymentIntent so the payer's
-     * saved form can never complete it later. Failures are logged by the implementation, never thrown: the
-     * local CANCELLED transition does not depend on the processor agreeing.
+     * Gives up an order the payer walked away from (page Cancel, "Change amounts", the admin's Abandon), and
+     * answers where the order stands afterwards. The caller marks its row CANCELLED only on
+     * {@link OrderState#OPEN}: the processor released the order, or never held anything for it. Every other
+     * answer means it was NOT cancelled, because the processor already has the payer's money
+     * ({@link OrderState#PAID}), is moving it ({@link OrderState#SETTLING}, a bank debit in flight cannot be
+     * recalled), or could not be asked ({@link OrderState#UNKNOWN}). Until 2026-11 this answered nothing and
+     * the row was cancelled first, so an abandoned bank debit that later cleared left money with no ledger row.
+     * Never throws. The default is the answer of a kind with nothing to release and nothing in flight.
      */
-    default void cancel(final String orderRef) {
+    default OrderState cancel(final String orderRef) {
+        return OrderState.OPEN;
+    }
+
+    /** Where an order stands at the processor when we ask to give it up (see {@link #cancel}). */
+    enum OrderState {
+        /** Nothing accepted from the payer: released, or never there. Safe to cancel our row. */
+        OPEN,
+        /** The payer's method was accepted and the money is in flight (a bank debit). */
+        SETTLING,
+        /** The processor has the money. */
+        PAID,
+        /** The processor could not be asked right now. */
+        UNKNOWN
     }
 
     /**
@@ -53,13 +67,25 @@ public interface PaymentProcessor {
 
     /**
      * Re-prices a not-yet-confirmed order (the payer picked a payment method whose fee differs, so the
-     * grossed-up total changed). True when the processor accepted the new amount; false when this kind has
-     * no re-pricing (a redirect processor, whose amount is final once the payer is sent off). Throws
+     * grossed-up total changed). {@code onlyMethod} names the one method the new price is FOR (a bank debit's
+     * lower total must not be payable by card); null means the price every method may pay (the card estimate),
+     * which also lifts an earlier restriction. Answers {@link Repriced#UNSUPPORTED} when this kind has no
+     * re-pricing (a redirect processor, whose amount is final once the payer is sent off). Throws
      * {@link ProcessorException} when the processor refused or could not be reached, so the caller keeps the
      * old total rather than showing a figure the processor will not charge.
      */
-    default boolean updateAmount(final String orderRef, final long cents) {
-        return false;
+    default Repriced reprice(final String orderRef, final long cents, final String onlyMethod) {
+        return Repriced.UNSUPPORTED;
+    }
+
+    /** What a {@link #reprice} did. */
+    enum Repriced {
+        /** This kind of processor cannot re-price an order. */
+        UNSUPPORTED,
+        /** The order carries the new amount and accepts every method. */
+        REPRICED,
+        /** The order carries the new amount and the processor will refuse any method but the one it is for. */
+        REPRICED_LOCKED
     }
 
     /**
@@ -111,10 +137,20 @@ public interface PaymentProcessor {
      * method was ACCEPTED and settlement is outstanding (a bank debit in flight -- nothing more is needed
      * from the payer, the webhook finishes it); with none, the payer simply has not finished at the
      * processor yet (approved but uncaptured, or the form is still open) and may retry.
+     *
+     * <p>{@code methodType} is the processor's name for the kind of method that paid ("card",
+     * "us_bank_account"), or null when it does not say: what tells a card that paid a bank-priced total.
      */
-    record CaptureResult(Status status, String captureId, long grossCents, OptionalLong actualFeeCents) {
+    record CaptureResult(Status status, String captureId, long grossCents, OptionalLong actualFeeCents,
+            String methodType) {
         public enum Status {
             COMPLETED, ALREADY_CAPTURED, PENDING, FAILED
+        }
+
+        /** A result from a processor that does not say which kind of method paid (every redirect kind). */
+        public CaptureResult(final Status status, final String captureId, final long grossCents,
+                final OptionalLong actualFeeCents) {
+            this(status, captureId, grossCents, actualFeeCents, null);
         }
 
         public static CaptureResult failed() {

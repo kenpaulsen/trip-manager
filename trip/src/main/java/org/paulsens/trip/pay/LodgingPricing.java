@@ -22,6 +22,7 @@ import org.paulsens.trip.model.Reservation;
 import org.paulsens.trip.model.ReservationOffer;
 import org.paulsens.trip.model.Room;
 import org.paulsens.trip.model.RoomType;
+import org.paulsens.trip.util.Util;
 
 /**
  * The lodging money rules, pure and deterministic ({@code MoneyMath} style) -- {@code LodgingPricingTest}
@@ -266,7 +267,7 @@ public final class LodgingPricing {
             final Set<Person.Id> sharers, final Concession concession, final Function<Person.Id, String> names) {
         final StringBuilder sb = new StringBuilder("Lodging: ").append(offer.getName());
         if (accommodation != null) {
-            sb.append(" — ").append(accommodation.getName());
+            sb.append(" -- ").append(accommodation.getName());
             // The ASSIGNED room's type when there is one (an option may sell several), else the option's first.
             final Room room = accommodation.room(reservation.getRoomId());
             final RoomType type = accommodation.roomType(room != null ? room.getRoomTypeId()
@@ -311,13 +312,13 @@ public final class LodgingPricing {
         return first.format(MONTH_DAY) + "–" + last.format(MONTH_DAY_YEAR);
     }
 
-    /** "Ada", "Ada and Bob", "Ada, Bob and Cy" -- alphabetical, the payment recorder's wording. */
+    /**
+     * "Ada", "Ada and Bob", "Ada, Bob, and Cy": alphabetical without regard to case, worded by
+     * {@link Util#joinNames} like the payment recorder's "split with".
+     */
     public static String joinNames(final List<Person.Id> ids, final Function<Person.Id, String> names) {
-        final List<String> list = ids.stream().map(id -> displayName(id, names)).sorted().toList();
-        if (list.size() == 1) {
-            return list.get(0);
-        }
-        return String.join(", ", list.subList(0, list.size() - 1)) + " and " + list.get(list.size() - 1);
+        return Util.joinNames(ids.stream().map(id -> displayName(id, names))
+                .sorted(String.CASE_INSENSITIVE_ORDER).toList());
     }
 
     private static String displayName(final Person.Id id, final Function<Person.Id, String> names) {

@@ -40,7 +40,8 @@ public class PaymentProcessorsTest {
         config.setVersion(config.getVersion() + 1);
         assertTrue(live != PaymentProcessors.forConfig(config, false),
                 "A config edit (version bump) rebuilds -- credential rotation without restart");
-        live.cancel("ORDER-1");   // a redirect processor has nothing to release: the SPI default is a no-op
+        assertEquals(live.cancel("ORDER-1"), PaymentProcessor.OrderState.UNKNOWN,
+                "these credentials cannot ask PayPal anything, and that is never read as 'released'");
     }
 
     @Test

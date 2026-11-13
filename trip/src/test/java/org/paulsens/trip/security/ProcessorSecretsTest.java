@@ -106,6 +106,57 @@ public class ProcessorSecretsTest {
         final ProcessorSecrets secrets = new ProcessorSecrets(store);
         assertTrue(secrets.get("anything").isEmpty(),
                 "A malformed secret serves empty (and logs) rather than tearing payments down");
+        // ... but it is never WRITTEN from: the write replaces the whole secret, and what could not be parsed
+        // may hold every organization's credentials.
+        assertFalse(secrets.put("cfg-new", Map.of("clientSecret", "x")));
+        assertEquals(store.json.get(), "not json at all {", "left for a person to repair");
+    }
+
+    /**
+     * A write replaces the WHOLE secret, so it must merge into what the store holds now. The cache can be
+     * empty for reasons that have nothing to do with the store (the first read after a deploy failed): a write
+     * built from it erased every other organization's payment credentials.
+     */
+    @Test
+    public void aWriteNeverStartsFromACacheThatWasNotLoaded() {
+        final FakeStore store = new FakeStore();
+        store.json.set("{\"org-a\":{\"clientSecret\":\"a\"},\"org-b\":{\"clientSecret\":\"b\"}}");
+        store.failReads = true;
+        final ProcessorSecrets secrets = new ProcessorSecrets(store);
+        assertTrue(secrets.get("org-a").isEmpty(), "the first read failed, so the cache is empty");
+
+        assertFalse(secrets.put("org-c", Map.of("clientSecret", "c")), "refused while the store is unreadable");
+        assertTrue(store.json.get().contains("org-a") && store.json.get().contains("org-b"), store.json.get());
+        assertFalse(store.json.get().contains("org-c"));
+
+        // Readable again: the write merges into the stored entries, whatever the cache held.
+        store.failReads = false;
+        assertTrue(secrets.put("org-c", Map.of("clientSecret", "c")));
+        assertTrue(store.json.get().contains("org-a") && store.json.get().contains("org-b")
+                && store.json.get().contains("org-c"), store.json.get());
+        assertEquals(secrets.get("org-a").get("clientSecret"), "a", "and the cache now holds what was stored");
+        assertEquals(secrets.get("org-c").get("clientSecret"), "c");
+    }
+
+    /** Another task's write is not undone by this task's stale cache. */
+    @Test
+    public void aWriteMergesIntoAnotherWritersEntries() {
+        final FakeStore store = new FakeStore();
+        final ProcessorSecrets first = new ProcessorSecrets(store);
+        final ProcessorSecrets second = new ProcessorSecrets(store);
+        assertTrue(first.put("org-a", Map.of("clientSecret", "a")));
+        assertTrue(second.get("org-a").containsKey("clientSecret"));
+        assertTrue(first.put("org-b", Map.of("clientSecret", "b")), "second's cache does not know org-b yet");
+        assertTrue(second.put("org-c", Map.of("clientSecret", "c")));
+        assertTrue(store.json.get().contains("org-b"), "org-b survived second's write: " + store.json.get());
+    }
+
+    @Test
+    public void whatAReaderIsHandedCannotBeChanged() {
+        final ProcessorSecrets secrets = new ProcessorSecrets(null);
+        assertTrue(secrets.put("cfg", Map.of("clientSecret", "s")));
+        org.testng.Assert.assertThrows(UnsupportedOperationException.class,
+                () -> secrets.get("cfg").put("clientSecret", "changed"));
     }
 
     @Test

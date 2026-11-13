@@ -24,8 +24,23 @@ public final class FakeProcessor implements PaymentProcessor {
     /** orderRef -> the order as created; consulted at capture like a real processor would. */
     private static final Map<String, Order> ORDERS = new ConcurrentHashMap<>();
 
-    private record Order(long cents, String paymentId, boolean async, long refundedCents) {
+    /**
+     * {@code bank} = the payer paid "as bank" (the fake checkout's async door) at any point; {@code onlyMethod}
+     * = the one method a re-price locked the order to, null for none.
+     */
+    private record Order(long cents, String paymentId, boolean async, long refundedCents, boolean bank,
+            String onlyMethod) {
+        Order(final long cents, final String paymentId) {
+            this(cents, paymentId, false, 0L, false, null);
+        }
+
+        String methodType() {
+            return bank ? BANK : "card";
+        }
     }
+
+    /** Stripe's name for a US bank debit: the one method the fake's bank pricing is for. */
+    private static final String BANK = "us_bank_account";
 
     private final boolean inline;
 
@@ -49,15 +64,10 @@ public final class FakeProcessor implements PaymentProcessor {
     }
 
     @Override
-    public String displayName() {
-        return "Test Processor";
-    }
-
-    @Override
     public CreatedOrder createOrder(final Payment payment, final String description,
             final String returnUrl, final String cancelUrl) {
         final String orderRef = "FAKE-" + UUID.randomUUID();
-        ORDERS.put(orderRef, new Order(payment.getTotalChargedCents(), payment.getPaymentId(), false, 0L));
+        ORDERS.put(orderRef, new Order(payment.getTotalChargedCents(), payment.getPaymentId()));
         if (inline) {
             // The order ref doubles as the "client secret"; null script = the page's own fake Stripe.js.
             return CreatedOrder.inline(orderRef, "pk_fake", orderRef, null);
@@ -78,17 +88,27 @@ public final class FakeProcessor implements PaymentProcessor {
         if (order.async()) {
             return CaptureResult.pending("FAKE-PI-" + orderRef.substring(5));
         }
+        if (order.onlyMethod() != null && !order.onlyMethod().equals(order.methodType())) {
+            // What Stripe does with a card on a bank-locked intent: it refuses the confirm, so nothing was paid.
+            return CaptureResult.pending(null);
+        }
         final long fee = MoneyMath.donationFeeCents(order.cents(), ProcessorType.FAKE.getDefaultFeeBps())
                 + ProcessorType.FAKE.getDefaultFeeFixedCents();
         return new CaptureResult(CaptureResult.Status.COMPLETED, "CAP-" + orderRef.substring(5),
-                order.cents(), OptionalLong.of(fee));
+                order.cents(), OptionalLong.of(fee), order.methodType());
     }
 
+    /** Like Stripe: a debit in flight cannot be cancelled; anything else is released. */
     @Override
-    public void cancel(final String orderRef) {
-        if (orderRef != null) {
+    public OrderState cancel(final String orderRef) {
+        final Order order = (orderRef == null) ? null : ORDERS.get(orderRef);
+        if (order != null && order.async()) {
+            return OrderState.SETTLING;
+        }
+        if (order != null) {
             ORDERS.remove(orderRef);
         }
+        return OrderState.OPEN;
     }
 
     /** "Pay as bank": the order is accepted but settling; captures answer the settling PENDING until settled. */
@@ -97,7 +117,8 @@ public final class FakeProcessor implements PaymentProcessor {
         if (order == null) {
             return false;
         }
-        ORDERS.put(orderRef, new Order(order.cents(), order.paymentId(), true, order.refundedCents()));
+        ORDERS.put(orderRef, new Order(order.cents(), order.paymentId(), true, order.refundedCents(), true,
+                order.onlyMethod()));
         return true;
     }
 
@@ -107,7 +128,8 @@ public final class FakeProcessor implements PaymentProcessor {
         if (order == null) {
             return null;
         }
-        ORDERS.put(orderRef, new Order(order.cents(), order.paymentId(), false, order.refundedCents()));
+        ORDERS.put(orderRef, new Order(order.cents(), order.paymentId(), false, order.refundedCents(), order.bank(),
+                order.onlyMethod()));
         return order.paymentId();
     }
 
@@ -120,7 +142,8 @@ public final class FakeProcessor implements PaymentProcessor {
         if (order == null || cents < 0 || cents > order.cents()) {
             return null;
         }
-        ORDERS.put(orderRef, new Order(order.cents(), order.paymentId(), order.async(), cents));
+        ORDERS.put(orderRef, new Order(order.cents(), order.paymentId(), order.async(), cents, order.bank(),
+                order.onlyMethod()));
         return order.paymentId();
     }
 
@@ -130,14 +153,15 @@ public final class FakeProcessor implements PaymentProcessor {
         return (order == null) ? OptionalLong.empty() : OptionalLong.of(order.refundedCents());
     }
 
-    /** Re-prices like Stripe would: only an order that has not been captured (settled) yet. */
+    /** Re-prices like Stripe would, locking the order to {@code onlyMethod} when the price is for one method. */
     @Override
-    public boolean updateAmount(final String orderRef, final long cents) {
+    public Repriced reprice(final String orderRef, final long cents, final String onlyMethod) {
         final Order order = (orderRef == null) ? null : ORDERS.get(orderRef);
         if (order == null || cents <= 0) {
             throw new ProcessorException("The test processor could not re-price the payment.");
         }
-        ORDERS.put(orderRef, new Order(cents, order.paymentId(), order.async(), order.refundedCents()));
-        return true;
+        ORDERS.put(orderRef, new Order(cents, order.paymentId(), order.async(), order.refundedCents(), order.bank(),
+                onlyMethod));
+        return (onlyMethod == null) ? Repriced.REPRICED : Repriced.REPRICED_LOCKED;
     }
 }

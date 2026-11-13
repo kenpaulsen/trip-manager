@@ -42,7 +42,6 @@ import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripPaymentConfig;
 import org.paulsens.trip.pay.Bills;
 import org.paulsens.trip.pay.MoneyMath;
-import org.paulsens.trip.util.Ages;
 
 /**
  * Priced checkout (docs/checkout.md): a family registers and pays in one step, priced by the trip's typed
@@ -122,18 +121,9 @@ public class CheckoutCommands {
         if (!choice.isPriced()) {
             return choice.getLabel();
         }
-        final long price = personalPrice(trip, question, choice, person == null ? null : person.getBirthdate());
+        final long price = CheckoutPricing.choiceNetCents(trip, question, choice,
+                person == null ? null : person.getBirthdate());
         return choice.getLabel() + " (" + MoneyMath.formatCents(price) + ")";
-    }
-
-    static long personalPrice(final Trip trip, final RegistrationOption question, final OptionChoice choice,
-            final LocalDate birthdate) {
-        if (trip == null || trip.getStartDate() == null || !CheckoutPricing.isAdmissionQuestion(trip, question)) {
-            return choice.getPriceCents();
-        }
-        final java.util.OptionalInt age = Ages.ageAt(birthdate, trip.getStartDate().toLocalDate());
-        final AgeBand band = age.isPresent() ? trip.getCheckout().bandFor(age.getAsInt()) : null;
-        return band == null ? choice.getPriceCents() : band.getConcession().netCents(choice.getPriceCents(), 0);
     }
 
     /** One person's line of a quote. */
@@ -214,10 +204,9 @@ public class CheckoutCommands {
         final TripPaymentConfig effective = trip == null ? null : new OrgCommands(callerSource)
                 .effectivePaymentConfig(trip);
         final boolean payerPays = effective != null && effective.getFeesPaidBy() == FeesPaidBy.PAYER;
-        final long fee = (config == null || credits == 0) ? 0L
-                : MoneyMath.creditFeeCents(credits, config.getEffectiveFeeBps(), config.getEffectiveFeeFixedCents());
+        final PaymentCommands.Fees fees = PaymentCommands.feesFor(config, payerPays, credits, 0L, false);
         return new Quote(prepared.persons(), prepared.problems(), prepared.totalCents(), credits,
-                payerPays ? fee : 0L, payerPays ? credits + fee : credits, config != null,
+                payerPays ? fees.creditFeeCents() : 0L, fees.totalCents(), config != null,
                 policy.isDeposit() ? policy.getDepositCents() : null,
                 policy.isDeposit() ? policy.getBalanceDueOn() : null);
     }
@@ -756,13 +745,7 @@ public class CheckoutCommands {
     }
 
     private static LineView lineView(final PriceBreakdown.Line line) {
-        final long delta = line.getDeltaCents();
-        final String amount = switch (line.getKind()) {
-            case BASE, ADD_ON -> MoneyMath.formatCents(delta);
-            case NOTE -> "";
-            default -> delta < 0 ? "-" + MoneyMath.formatCents(-delta) : "+" + MoneyMath.formatCents(delta);
-        };
-        return new LineView(line.getLabel(), amount, line.getKind().name());
+        return new LineView(line.getLabel(), line.amountText(), line.getKind().name());
     }
 
     /**
@@ -798,9 +781,7 @@ public class CheckoutCommands {
         if (payment == null || !payment.hasCheckout()) {
             return new ArrayList<>();
         }
-        final Caller caller = callerSource.get();
-        final boolean mine = payment.getPayerId() != null && payment.getPayerId().equals(caller.personId());
-        if (!mine && !caller.isSiteAdmin() && !caller.has(PrivilegeCommands.REGISTRATION_ADMIN, payment.getTripId())) {
+        if (!paymentSource.get().mayComplete(callerSource.get(), payment)) {
             return new ArrayList<>();
         }
         return payment.getCheckout().getRows().stream().map(row -> row.getUserId().getValue())

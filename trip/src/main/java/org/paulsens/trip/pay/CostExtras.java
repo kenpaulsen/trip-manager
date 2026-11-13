@@ -54,16 +54,11 @@ public final class CostExtras {
         if (extra.getLabel() != null && !extra.getLabel().isBlank()) {
             sb.append(extra.getLabel()).append(": ");
         }
-        sb.append(formatSigned(extra.getAmountCents()));
+        sb.append(MoneyMath.formatCents(extra.getAmountCents()));
         if (extra.getBasis() != CostExtra.Basis.FIXED) {
             final int quantity = quantity(extra, guestNights, roomNights, stays);
             sb.append(" × ").append(quantity).append(' ').append(extra.unit(quantity));
         }
         return sb.toString();
-    }
-
-    /** {@code MoneyMath.formatCents} with the sign in front: {@code "-$20.00"}, not {@code "$-20.00"}. */
-    public static String formatSigned(final long cents) {
-        return (cents < 0) ? "-" + MoneyMath.formatCents(-cents) : MoneyMath.formatCents(cents);
     }
 }

@@ -43,9 +43,19 @@ public final class MoneyMath {
         return cents / 100f;
     }
 
-    /** Cents formatted as {@code $1,234.56} for descriptions and email tokens. */
+    /**
+     * Cents formatted as {@code $1,234.56} for descriptions and email tokens; a negative amount leads with its
+     * sign ({@code -$0.50}, {@code -$25.00}). The sign is taken off first and the whole value formatted
+     * unsigned: dividing a negative by 100 put the sign after the "$" and lost it altogether under a dollar.
+     */
     public static String formatCents(final long cents) {
-        return String.format("$%,d.%02d", cents / 100, Math.abs(cents % 100));
+        final long unsigned = Math.abs(cents);
+        return (cents < 0 ? "-" : "") + String.format("$%,d.%02d", unsigned / 100, unsigned % 100);
+    }
+
+    /** A CHANGE in cents, always signed: {@code +$12.00}, {@code -$10.00}, and {@code +$0.00} for none. */
+    public static String formatSigned(final long cents) {
+        return (cents < 0 ? "" : "+") + formatCents(cents);
     }
 
     /**

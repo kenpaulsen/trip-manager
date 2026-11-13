@@ -61,14 +61,6 @@ public class CostExtrasTest {
         assertEquals(CostExtras.describe(null, GUEST_NIGHTS, ROOM_NIGHTS, STAYS), "");
     }
 
-    @Test
-    public void formatSignedPutsTheMinusFirst() {
-        assertEquals(CostExtras.formatSigned(123456), "$1,234.56");
-        assertEquals(CostExtras.formatSigned(0), "$0.00");
-        assertEquals(CostExtras.formatSigned(-5), "-$0.05");
-        assertEquals(CostExtras.formatSigned(-123456), "-$1,234.56");
-    }
-
     private static CostExtra extra(final CostExtra.Basis basis, final long cents) {
         return CostExtra.builder().label("City tax").basis(basis).amountCents(cents).build();
     }

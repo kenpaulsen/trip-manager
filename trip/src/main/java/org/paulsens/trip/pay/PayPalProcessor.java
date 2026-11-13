@@ -64,11 +64,6 @@ public final class PayPalProcessor implements PaymentProcessor {
     }
 
     @Override
-    public String displayName() {
-        return "PayPal";
-    }
-
-    @Override
     public CreatedOrder createOrder(final Payment payment, final String description,
             final String returnUrl, final String cancelUrl) {
         final OrderRequest request = new OrderRequest.Builder()
@@ -118,23 +113,69 @@ public final class PayPalProcessor implements PaymentProcessor {
             if (isAlreadyCaptured(ex)) {
                 return recoverAlreadyCaptured(orderRef);
             }
+            if (isTransient(ex)) {
+                // PayPal itself failed (a 5xx, a throttle): it may have captured before it answered.
+                log.error("PayPal answered {} capturing order {}; outcome unknown", ex.getResponseCode(), orderRef, ex);
+                return CaptureResult.pending(null);
+            }
             log.error("PayPal capture failed for order {}", orderRef, ex);
             return CaptureResult.failed();
         } catch (final IOException ex) {
-            log.error("PayPal capture transport failure for order {}", orderRef, ex);
-            return CaptureResult.failed();
+            // A timeout or a dropped connection AFTER PayPal received the request: the money may have moved.
+            // PENDING keeps the row CREATED, where the next return visit or an admin's Finish converges
+            // through ORDER_ALREADY_CAPTURED. FAILED is terminal and tells the payer they were not charged.
+            log.error("PayPal capture transport failure for order {}; outcome unknown", orderRef, ex);
+            return CaptureResult.pending(null);
         }
     }
 
-    /** The safe-retry path: the money already moved once; re-read the order and report THAT capture. */
+    /**
+     * The safe-retry path: the money already moved once; re-read the order and report THAT capture. PayPal
+     * has said outright that it captured, so an unreadable or unusable answer here is "ask again" (PENDING),
+     * never FAILED.
+     */
     private CaptureResult recoverAlreadyCaptured(final String orderRef) {
         try {
             final Order order = sdk.getOrdersController()
                     .getOrder(new GetOrderInput.Builder().id(orderRef).build()).getResult();
-            return verified(order, CaptureResult.Status.ALREADY_CAPTURED);
+            final CaptureResult recovered = verified(order, CaptureResult.Status.ALREADY_CAPTURED);
+            return recovered.status() == CaptureResult.Status.FAILED ? CaptureResult.pending(null) : recovered;
         } catch (final ApiException | IOException ex) {
             log.error("PayPal already-captured recovery failed for order {}", orderRef, ex);
-            return CaptureResult.failed();
+            return CaptureResult.pending(null);
+        }
+    }
+
+    /** A failure on PayPal's side or on the way to it, which says nothing about whether the request took effect. */
+    static boolean isTransient(final ApiException ex) {
+        final int code = ex.getResponseCode();
+        return code >= 500 || code == 429 || code == 408;
+    }
+
+    /**
+     * PayPal has nothing to release (an unapproved order simply expires), but the row being given up may be
+     * one whose capture answer was lost: a COMPLETED order means the money is in, so it must not be cancelled.
+     */
+    @Override
+    public OrderState cancel(final String orderRef) {
+        if (orderRef == null || orderRef.isBlank()) {
+            return OrderState.OPEN;
+        }
+        try {
+            final Order order = sdk.getOrdersController()
+                    .getOrder(new GetOrderInput.Builder().id(orderRef).build()).getResult();
+            return (order != null && order.getStatus() == OrderStatus.COMPLETED) ? OrderState.PAID : OrderState.OPEN;
+        } catch (final ApiException ex) {
+            if (isTransient(ex)) {
+                log.warn("PayPal answered {} reading order {} before a cancel", ex.getResponseCode(), orderRef);
+                return OrderState.UNKNOWN;
+            }
+            // Not found, or not ours: nothing of the payer's is held under this reference.
+            return OrderState.OPEN;
+        } catch (final IOException | RuntimeException ex) {
+            // RuntimeException: the SDK throws an unchecked one when it cannot authenticate at all.
+            log.warn("PayPal could not be asked about order {} before a cancel: {}", orderRef, ex.getMessage());
+            return OrderState.UNKNOWN;
         }
     }
 

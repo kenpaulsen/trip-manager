@@ -65,7 +65,7 @@ tenancy check; a foreign config id simply misses). Types: PAYPAL, STRIPE (stagea
 **Secrets never touch DynamoDB.** ONE Secrets Manager secret (`trip/payment-processors`, env
 `TRIP_PAYMENT_SECRET`, both task definitions) holds a JSON object keyed by config id —
 `security/ProcessorSecrets` (Pepper-style resolution; in-memory in local mode; the task role has Get+Put
-because org admins paste credentials through the UI, write-only fields with set/unset badges).
+because org admins paste credentials through the UI, write-only fields with set/unset badges). A write replaces the WHOLE secret, so `put` merges into a fresh read of the store and is REFUSED when that read fails or the body is not the expected JSON (2026-11: merging into a cache that never loaded erased every other organization's credentials); the cache is one immutable map swapped whole.
 
 ## Configuration ladder
 
@@ -183,10 +183,33 @@ are thin callers of the same methods — that is what makes iOS/Android possible
 `CREATED → CAPTURED → RECORDED`, terminal CANCELLED/FAILED, transitions as conditional puts on the stored
 status (double-submits serialize). Completion order: capture → verify (COMPLETED + real capture id/amount —
 `PayPalProcessor` never reports a $0 success; ALREADY_CAPTURED recovers via getOrder) → gross==expected
-check (mismatch parks in CAPTURED) → idempotent record → RECORDED → confirmation mail (failure audited,
+check (mismatch HOLDS in CAPTURED, below) → idempotent record → RECORDED → confirmation mail (failure audited,
 never blocks). `admin/payments.jsf` lists non-terminal payments with a "Finish" that reruns the same path and,
 since 2026-11, an "Abandon" for a CREATED payment the payer walked away from (cancels the order at the
 processor, then CANCELLED; a Stripe PaymentIntent never expires on its own).
+
+**A capture whose answer was lost is PENDING, never FAILED (2026-11, both processors).** FAILED is terminal,
+tells the payer "you were not charged" and leaves the reconciliation list. A PayPal timeout, a PayPal 5xx/429,
+and an `ORDER_ALREADY_CAPTURED` whose recovery read fails all leave the row CREATED: the next return visit or
+Finish converges through `ORDER_ALREADY_CAPTURED`. Only a refusal (a 4xx that says the capture did not happen)
+is FAILED.
+
+**Held payments (`Payment.heldReason`, 2026-11).** A CAPTURED payment may be HELD: the processor captured a
+different amount than expected, or the webhook reported money for a payment that was CANCELLED or FAILED here
+(`paidAfterGivenUp`: the payer's saved form completed it after a cancel; the row comes back as CAPTURED). The
+reason is stored WITH the capture, because every completion door reaches the same `complete()`: the payer's
+return page and REST call and the webhook answer `mismatch` for a held payment and record nothing; ONLY a site
+admin's Finish (`adminComplete`) records it, and the reconciliation page's Status column shows the reason
+(`payment.holdOf`). A CAPTURED row from before the field existed is told by its amounts (an OFFLINE payment's
+gross is whatever was received, so it is never held).
+
+**Giving a payment up asks the processor first (2026-11).** `cancelPayment` (the payer's Cancel, "Change
+amounts", "Change registration", `POST /api/payments/{id}/cancel`) and the admin's Abandon call
+`PaymentProcessor.cancel`, which answers where the order stands, and mark the row CANCELLED only on `OPEN`.
+`SETTLING` (a bank debit in flight, which looks exactly like a walked-away payment here: CREATED, no capture
+id) and `UNKNOWN` (the processor could not be reached) refuse with a growl; `PAID` finishes the payment through
+`complete()` instead. The old order (CANCELLED first, then a processor cancel that could not fail) let an
+abandoned debit clear days later into a CANCELLED row.
 
 **Two shapes of start (2026-11).** `startPayment` answers a `Start`: `approvalUrl` for a REDIRECT processor
 (PayPal, the fake checkout) or `publishableKey` + `clientSecret` (+ `scriptUrl`) for an INLINE one (Stripe):
@@ -235,8 +258,8 @@ tasks and the webhook, the return page and an admin's Finish can hit different o
 - **FAILED / CANCELLED and their mails** happen only after the conditional put succeeds: once.
 - **Re-pricing** (`selectMethod`): the PaymentIntent is updated first, then the row (status-conditional). Two
   overlapping picks could leave the two disagreeing, which the capture's gross-vs-expected check turns into a
-  `mismatch` parked for reconciliation rather than a wrong charge; the page serializes its requests so this
-  needs two browsers on one payment.
+  `mismatch` HELD for an administrator rather than a wrong charge; the page serializes its requests and keeps
+  Pay disabled while one is in flight, so this needs two browsers on one payment.
 
 ## Sandbox mode
 
@@ -251,7 +274,8 @@ excluded from balances and the reconciliation list.
 ## Processors (`pay/`)
 
 `PaymentProcessor` SPI (createOrder → a redirect `approvalUrl` OR an inline client secret; capture → verified
-result; cancel → release the order), built per config by `PaymentProcessors.forConfig(config, sandbox)`
+result, naming the method that paid when the processor says; cancel → release the order and answer where it
+stands: `OPEN`, `SETTLING`, `PAID`, `UNKNOWN`), built per config by `PaymentProcessors.forConfig(config, sandbox)`
 (memoized per config id+version+sandbox -- rotation without restart). `FakeProcessor` + `trip/fakeCheckout.xhtml`
 drive the whole flow locally (webtest: `PaymentPagePwIT`): the CFPW org default is the REDIRECT fake, and the
 INLINE fake (`publicConfig.inline=true`, `FakeData.CFPW_INLINE_PROCESSOR_ID`) is what the Summer Demo trip's
@@ -263,6 +287,9 @@ Zeffy: a future record-only kind.
 
 ### Stripe (shipped 2026-11)
 
+- **One place for fees** (2026-11): `PaymentCommands.feesFor(config, payerPays, credits, donation, bank)` is the
+  only computation of a payment's fee shares and total; the live quote, `newPayment`, `selectMethod` and
+  `CheckoutCommands.quote` all read it. Processor names come from `ProcessorType.getLabel()`.
 - **Shape**: `StripeProcessor` creates a PaymentIntent (`automatic_payment_methods`, so the org's Stripe
   dashboard decides which methods the form offers: cards, Link, US bank account, Apple Pay, Google Pay) and
   answers its client secret; the website mounts Stripe's **Payment Element** in `trip/payment.xhtml`, the
@@ -295,10 +322,15 @@ Zeffy: a future record-only kind.
   row is found by `metadata.paymentId` (Stripe copies the intent's metadata onto its charge) or by the intent
   id (= `orderRef`). `PaymentCommands.refundFromWebhook` re-reads the charge's cumulative `amount_refunded`
   from Stripe (`PaymentProcessor.refundedCents`, never the event's number) and
-  `PaymentRecorder.recordRefund` writes ONE row on the PAYER, `{paymentId}-refund`, category `Refund`,
-  amount = minus the cumulative total ("Stripe (id #pi_…) Refund of $100.00 (partial, of the $984.87 payment)
-  from CFPW"). A second partial refund or a redelivery rewrites that same row; the original credit rows are
-  never touched (money rows are never destroyed). Only a RECORDED payment is refundable against the ledger;
+  `PaymentRecorder.recordRefund` writes ONE row on the PAYER, `{paymentId}-refund`, category `Refund`
+  ("Stripe (id #pi_…) Refund of $100.00 (partial, of the $984.87 payment) from CFPW"). **The amount is the
+  cumulative refund, credits first, CAPPED at what the payment credited (owner's decision 2026-11-12):** Stripe's
+  figure is of the gross charge, which also carried the payer-paid fee (never a ledger row) and the donation (a
+  balance-neutral +D / -D pair), so taking the gross back left a fully refunded payer owing the fee and the
+  donation. A $153.20 charge ($100 credit, $3.20 fee, $50 donation) fully refunded writes -$100.00, and the
+  description says so ("Refund of $153.20 from CFPW ($100.00 of it had been credited to this account; the
+  processing fee and the donation never were)"). A second partial refund or a redelivery rewrites that same row;
+  the original credit rows are never touched (money rows are never destroyed). Only a RECORDED payment is refundable against the ledger;
   anything else is audited and answered `unchanged`. An unreadable Stripe answers 503 so Stripe redelivers.
   Sandbox computes and writes nothing. No mail: Stripe's own refund receipt covers it, and the org knows.
   PayPal refunds stay a hand entry (no refund read; the SPI default is "unknown").
@@ -308,10 +340,25 @@ Zeffy: a future record-only kind.
   `us_bank_account` at `ProcessorType.STRIPE`'s bank pricing (80 bps, $5.00 cap:
   `MoneyMath.bankCreditFeeCents`), re-prices the PaymentIntent (`PaymentProcessor.updateAmount`) and only then
   the `Payment` row, and the page rewrites every `[data-pay-total]` and calls `elements.fetchUpdates()`. A
-  card (or Link, or anything else) prices it back to the card estimate. Payer only (or a site admin), CREATED
+  card (or Link, or anything else) prices it back to the card estimate. Whoever may act on the payment
+  (`PaymentCommands.mayComplete`: its payer, a site admin, a checkout's registration admins), CREATED
   only, payer-pays only, processors with bank pricing only; a processor refusal keeps the quoted total (the
   page must never show a figure the processor will not charge). The apps' PaymentSheet has no method
   callback and keeps the card estimate (the org keeps the difference; `actualFeeCents` records the truth).
+- **The bank price is locked to bank debits (owner's decision 2026-11-12).** The page's word about the picked
+  method is not proof of what pays: a payer could take the bank total and pay by card, and the organization
+  absorbed the card fee. `PaymentProcessor.reprice(orderRef, cents, onlyMethod)` now narrows the intent to
+  `us_bank_account` with the amount (`allowed_payment_method_types`, Stripe API 2026-08+), so Stripe itself
+  refuses a card at that total, and remembers the methods the intent offered in its metadata
+  (`offeredMethods`) so the card estimate can put them back (the narrowing replaces the dashboard's list).
+  `Payment.pricedForMethod` records what the stored total is priced for. The answer's `methodLocked` tells
+  `payElement.js` to leave the mounted form alone (a `fetchUpdates` would drop the other methods' tabs, and
+  with them the payer's way back to a card); picking another method re-prices and unlocks. **Fallback:** an
+  intent Stripe will not narrow is re-priced unlocked, as before, and a capture whose method is not the one
+  the total was priced for is RECORDED AS PAID with a failure-outcome audit line naming the shortfall
+  (`noteMethodMismatch`: "Paid with card at the total priced for us_bank_account: ... the organization
+  absorbs the difference"). NOT verified against live Stripe from this repo: `FakeProcessor` models the lock
+  (a card capture on a bank-locked order stays pending), and `StripeProcessorTest` pins the request shape.
 - **Wallets**: "Register this site for wallets" (`OrgCommands.registerPaymentDomain`, Stripe's
   PaymentMethodDomain API) once per host per org account; `WellKnownServlet` serves Stripe's
   `apple-developer-merchantid-domain-association` on every host. The iOS app's Apple Pay certificate is per

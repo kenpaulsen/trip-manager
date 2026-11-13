@@ -333,12 +333,19 @@ merchantName}` -- `approvalUrl` set = a redirect processor (PayPal): open it and
 URL; `clientSecret` + `publishableKey` set = a Stripe PaymentIntent: present the native PaymentSheet with them
 (`merchantName` is the organization's display name), then `POST /api/payments/{paymentId}/complete {token}`
 (`token` null for Stripe) and read `status` (`recorded`, `sandbox`, `pending` = a bank debit is processing and
-the server will email when it clears, `mismatch`, `failed`, `cancelled`), or `POST /api/payments/{id}/cancel`
-when the sheet is dismissed. `POST /api/payments/{paymentId}/method {type}` (2026-11; `type` is the
-processor's payment method type, `us_bank_account` or `card`) → `{paymentId, creditFeeCents, totalCents,
-totalFormatted, changed}`: re-prices a payer-pays Stripe payment for the picked method (the website's Payment
-Element calls it on its `change` event; PaymentSheet has no equivalent, so the apps need not call it) and
-answers the current total either way; 404 for a payment that is not the caller's. `POST
+the server will email when it clears, `mismatch` = the money was received but the payment is held for an
+administrator, `failed`, `cancelled`), or `POST /api/payments/{id}/cancel` when the sheet is dismissed. The cancel
+answers 200 `{cancelled}`: `false` means it was NOT cancelled and the attempt must keep showing as awaiting
+confirmation -- the payment was already finished, the processor is still settling it (a bank debit in flight
+cannot be cancelled, 2026-11) or already holds the money (it is then recorded instead), or the processor could
+not be reached. A transport failure of the PayPal capture answers `pending`, never `failed` (2026-11): the money
+may have moved, and a later `complete` converges. `POST /api/payments/{paymentId}/method {type}` (2026-11;
+`type` is the processor's payment method type, `us_bank_account` or `card`) → `{paymentId, creditFeeCents,
+totalCents, totalFormatted, changed, methodLocked}`: re-prices a payer-pays Stripe payment for the picked method
+(the website's Payment Element calls it on its `change` event; PaymentSheet has no equivalent, so the apps need
+not call it) and answers the current total either way; `methodLocked` = the processor now refuses any other
+method at this total, until another pick re-prices it; 404 for a payment the caller may not act on (its payer, a
+site admin, and for a checkout the trip's registration admins). `POST
 /api/webhooks/stripe/{configId}` is Stripe's, not a client's: no session, authenticated by the
 `Stripe-Signature` header; it takes the four `payment_intent.*` events plus `charge.refunded` /
 `charge.refund.updated` (a dashboard refund becomes a ledger row).

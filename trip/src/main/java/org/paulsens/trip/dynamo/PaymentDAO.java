@@ -75,8 +75,10 @@ public class PaymentDAO {
         }
         final Map<String, AttributeValue> key =
                 Map.of(PAYMENT_ID, AttributeValue.builder().s(paymentId).build());
-        final AttributeValue content =
-                persistence.getItem(b -> b.key(key).tableName(PAYMENTS_TABLE).build()).item().get(CONTENT);
+        // Strongly consistent, like the scan below: adoptWinner re-reads straight after losing a conditional put,
+        // and a replica that has not caught up would hand it the pre-race row to capture or record a second time.
+        final AttributeValue content = persistence.getItem(b -> b.key(key).consistentRead(true)
+                .tableName(PAYMENTS_TABLE).build()).item().get(CONTENT);
         if (content == null) {
             return Optional.empty();
         }
