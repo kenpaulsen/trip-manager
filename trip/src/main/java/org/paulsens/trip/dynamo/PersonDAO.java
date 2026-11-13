@@ -130,19 +130,41 @@ public class PersonDAO {
      * People search ({@link PersonMatch} is the rule: names and cell digits match anywhere, email by prefix). The
      * longest query word drives the index lookup -- the index holds suffixes, so a prefix lookup there is a
      * contains lookup -- and every word must then match the resolved person, which also filters out entries
-     * stale since the last index rebuild.
+     * stale since the last index rebuild. {@code reach} says which withheld fields this viewer may search by.
+     *
+     * <p>The index is read in TOKEN order, a window of {@code limit * 3} ids, so a short word common across the
+     * whole site can fill the window before every match is seen: {@link Search#cut} reports that, and a page must
+     * then say "narrow the search" rather than present the rows as the whole answer.</p>
      */
     protected List<Person> searchPeople(final String query, final int limit) {
+        return searchPeople(query, limit, PersonMatch.SHARED_FIELDS).people();
+    }
+
+    /** {@link #searchPeople(String, int)} for a viewer with the given {@code reach}, saying whether it was cut. */
+    protected Search searchPeople(final String query, final int limit, final PersonMatch.Reach reach) {
         final List<String> words = PersonMatch.queryWords(query);
         final String lookup = PersonMatch.lookupWord(words);
         if (lookup.isEmpty() || limit <= 0) {
-            return List.of();
+            return new Search(List.of(), false);
         }
-        return resolvePeople(searchIndex.searchIds(lookup, limit * 3)).stream()
-                .filter(person -> PersonMatch.matchesAll(person, words))
+        final int window = limit * 3;
+        final List<String> ids = searchIndex.searchIds(lookup, window);
+        final List<Person> matched = resolvePeople(ids).stream()
+                .filter(person -> PersonMatch.matchesAll(person, words, reach))
                 .sorted()
-                .limit(limit)
                 .toList();
+        return new Search(matched.size() > limit ? matched.subList(0, limit) : matched,
+                ids.size() >= window || matched.size() > limit);
+    }
+
+    /**
+     * A directory search's answer: up to the asked-for number of people, and whether more may exist (the index
+     * window filled, or more matched than were asked for).
+     */
+    public record Search(List<Person> people, boolean cut) {
+        public Search {
+            people = List.copyOf(people);
+        }
     }
 
     public void clearCache() {

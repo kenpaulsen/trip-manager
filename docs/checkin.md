@@ -74,9 +74,11 @@ view holds the trip id, the search text and the focused person id, all scalars; 
 (`focus` and `counts` are memoized per request and forgotten by a write in the same request, so the render after an
 action shows it).
 
-- **Find a person** (`canCheckIn`): the search box posts on `keyup` with a 400 ms delay; `lookup` matches a whole
-  ticket code EXACTLY (never a prefix), else every whitespace token must appear in the first, last or preferred
-  name or the email; CONFIRMED and PENDING, at most 50, by name. Rows are `RegistrationCommands.RegRow` (the
+- **Find a person** (`canCheckIn`): the shared people search row (`WEB-INF/peopleSearchRow.xhtml`: Search or
+  Enter, no search as you type since 2026-11-12); `checkin.find` matches a whole ticket code EXACTLY (never a
+  prefix), else the people-search rule every list uses (`PersonMatch`: names and cell digits anywhere, email from
+  its start; cell and email only where this viewer may see them, a trip manager having the admin view);
+  CONFIRMED and PENDING, at most `PersonCommands.PEOPLE_LIST_LIMIT` (60) by name, flagged when cut. Rows are `RegistrationCommands.RegRow` (the
   registrations table's scalar row, plus `name`, `registrationType`, `checkedInAt`; never the ticket). A row's
   "Check in" is an ajax button carrying the person in an `f:param`; picking a name is a plain GET (`?id=`).
 - **Buttons hide by `style`, never by a state-dependent `rendered=`.** `rendered` is evaluated again when the click

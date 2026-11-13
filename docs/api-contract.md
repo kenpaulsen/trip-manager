@@ -171,8 +171,8 @@ admin, `tripMgr` or `checkinStaff`; clear = site admin or `tripMgr`; counts = th
 
 - `GET /api/trips/{tripId}/registrations/lookup?q=` → `[RegistrationDto]` (no `options`, no ticket; `name` is
   "Last, First"). A whole ticket code (grouped, any case, 0/1/8 for O/I/B) matches exactly that ticket, never a
-  prefix; any other `q` must match every whitespace token in first/last/preferred name or email. CONFIRMED and
-  PENDING only, at most 50.
+  prefix; any other `q` is the people-search rule (every word must match: names and cell digits anywhere, email
+  from its start, cell and email only where the caller may see them). CONFIRMED and PENDING only, at most 60.
 - `GET /api/trips/{tripId}/registrations/ticket/{code}` → `RegistrationDto` with ticket, stamp, type and name
   (`options` only for `tripMgr`/`tripView`/`registrationAdmin`); 404 `NOT_FOUND` for no such ticket ON THIS TRIP.
 - `POST /api/trips/{tripId}/registrations/{personId}/checkin` (CSRF header for a cookie caller) → 200

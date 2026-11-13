@@ -44,10 +44,11 @@ email to signed-in viewers -- unless the person set that field PRIVATE, which wi
 
 - **Self and family managers**: privacy never hides anything from them. Exception: staff **notes** follow
   `AccessLevel.seesNotes()` — a manager does not get them (hidden on pages, absent over REST).
-- **Trip admins (`tripMgr`) and site admins**: always get the real values, but withheld fields render
-  **masked** (blurred, click-to-reveal). The mask is **UI-only** by user decision — no server-side reveal
-  endpoint, no audit of reveals. `tripFinView` keeps its `account/person.xhtml?trip=` access (they mail
-  checks / validate identity); the mask covers casual reading.
+- **Trip admins (`tripMgr`) and site admins**: may get the real values, but withheld fields render
+  **masked**: a placeholder, with the value NOT in the page. A click is a server round trip that records the
+  reveal in the view and re-renders that one value (owner decision 2026-11-12, reversing the earlier UI-only
+  blur, whose real value sat in the HTML source for anyone to read). No audit of reveals. `tripFinView` keeps
+  its `account/person.xhtml?trip=` access (they mail checks / validate identity).
 - **Everyone else signed-in** (peers, `tripView` holders): exactly what the knobs share. `tripView` is
   roster access and does NOT override a privacy choice.
 - **Admin reports and exports** (`admin/reports/*`, the emergency list, the emails page, TSV/XLSX):
@@ -60,14 +61,20 @@ email to signed-in viewers -- unless the person set that field PRIVATE, which wi
   absent-means-unchanged, garbage ignored). `PersonDtoRedactionTest` pins the matrix.
 - **Pages**: `PrivacyView.of(viewer, subject, adminView)` (`#{people.privacyView(person, adminBool)}`)
   answers `SHOW | MASK | HIDE` per field group; `adminView` is the page's own privilege verdict.
-  `PrivacyViewTest` pins the page matrix. Masking uses `privMasked` (inplace) / `privMaskedText` (plain
-  text) in `trip.css`, with the click toggle in `resources/trip-js/privacy.js` (included by
-  `template.xhtml`).
+  `PrivacyViewTest` pins the page matrix. Every masked value goes through ONE template,
+  `WEB-INF/privacyMask.xhtml` (`ui:decorate`, the value as its body): SHOW renders the body, HIDE nothing,
+  MASK a `privMaskedText` placeholder whose ajax click adds `personId:field` to `viewScope.privReveals` (a
+  scalar, `people.withReveal`, bounded) and re-renders. The body renders only for MASK plus a recorded reveal,
+  so a forged reveal of a HIDE value shows nothing. A revealed inplace editor stays rendered for the life of
+  the view, so its edit is applied at Save; an unrevealed one is not rendered at all, so Save cannot
+  clobber it.
 - **Derived leaks handled in Java**: chat roster name-collision labels never use a private email
   (`ChatCommands.labelFor` falls to the id rung); the "via manager" contact fallback skips managers whose
   own email is private (`PersonCommands.primaryManagerOf`); gravatars are suppressed for viewers who may
   not see the email (the gravatar URL is a hash OF the address, fetched by the viewer's browser) —
-  initials/icon avatar instead.
+  initials/icon avatar instead; and people SEARCHES look at cell and email only where the viewer may see
+  them (`PersonMatch.Reach`, `PrivacyView.searchReach`), since a row that stays as digits are typed would
+  reveal a hidden number one digit at a time.
 
 ## Surfaces touched
 

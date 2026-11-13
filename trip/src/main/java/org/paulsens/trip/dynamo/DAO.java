@@ -263,8 +263,14 @@ public final class DAO {
     public Boolean savePerson(final Person person) throws IOException {
         return personDao.savePerson(person);
     }
+    /** People search that looks at cell and email only where the subject shares them with every user. */
     public List<Person> searchPeople(final String query, final int limit, final Cached cached) {
         return NearCacheContext.call(cached, () -> personDao.searchPeople(query, limit));
+    }
+    /** People search for a viewer with the given reach ({@link PersonMatch.Reach}), saying whether it was cut. */
+    public PersonDAO.Search searchPeople(
+            final String query, final int limit, final Cached cached, final PersonMatch.Reach reach) {
+        return NearCacheContext.call(cached, () -> personDao.searchPeople(query, limit, reach));
     }
     public Optional<Person> getPerson(final Person.Id id, final Cached cached) {
         return NearCacheContext.call(cached, () -> personDao.getPerson(id));

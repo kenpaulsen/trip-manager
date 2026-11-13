@@ -18,6 +18,7 @@ import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
@@ -280,5 +281,17 @@ public class PersonDAOTest {
         assertEquals(gsiDao.getPersonByEmail("bob@test.com"), bob);
         assertEquals(queryCount.get(), 1, "Second lookup should be served by the cached email mapping");
     }
-    }
 
+    @Test
+    public void aSearchSaysWhenItsWindowFilled() throws IOException {
+        final String last = "Zqwin" + RandomData.genAlpha(5);
+        for (int i = 0; i < 8; i++) {
+            assertTrue(dao.savePerson(Person.builder().first("W" + i).last(last).build()));
+        }
+        final PersonDAO.Search cut = dao.searchPeople(last, 2, PersonMatch.EVERY_FIELD);
+        assertEquals(cut.people().size(), 2);
+        assertTrue(cut.cut());
+        assertFalse(dao.searchPeople(last, 20, PersonMatch.EVERY_FIELD).cut());
+        assertFalse(dao.searchPeople("", 2, PersonMatch.EVERY_FIELD).cut());
+    }
+}

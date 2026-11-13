@@ -11,7 +11,9 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Locale;
+import java.util.Map;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 import lombok.extern.slf4j.Slf4j;
@@ -22,6 +24,7 @@ import org.paulsens.trip.content.OrgPageBootstrap;
 import org.paulsens.trip.content.StarterTemplates;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.FakeData;
+import org.paulsens.trip.dynamo.PersonMatch;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.config.KnownSettings;
@@ -184,7 +187,9 @@ public class OrgCommands {
         if (!canViewOrgPeople(orgId)) {
             return PeopleResult.NONE;
         }
-        return PersonCommands.getPersonCommands().listOrSearch(getMembers(findOrganization(orgId)), query);
+        // Every field: whoever may view an org's people sees its members' withheld fields masked.
+        return PersonCommands.getPersonCommands().listOrSearch(
+                getMembers(findOrganization(orgId)), query, PersonMatch.EVERY_FIELD);
     }
 
     /**
@@ -192,7 +197,7 @@ public class OrgCommands {
      * privileges (site admins only) and, for each organization the caller may view people in, org admin and
      * the org privileges held there. See {@link PrivilegeSummaries} for the batching and the tenancy rule.
      */
-    public java.util.Map<String, PrivilegeSummaries.PrivSummary> privilegeSummaries(final PeopleResult result) {
+    public Map<String, PrivilegeSummaries.PrivSummary> privilegeSummaries(final PeopleResult result) {
         return PrivilegeSummaries.of(result == null ? List.of() : result.rows(), caller().isSiteAdmin(),
                 this::canViewOrgPeople);
     }
@@ -449,7 +454,7 @@ public class OrgCommands {
         // shared site the org is listed on -- derived from the org, never from the host the admin is on.
         final String siteUrl = SiteUrls.baseUrl(org, KnownSettings.REG_MAIL_BASE_URL, config);
         final boolean ownSite = org.getSlug() != null && !org.getSlug().isBlank();
-        final java.util.Map<String, Object> values = java.util.Map.of(
+        final Map<String, Object> values = Map.of(
                 "orgName", org.getName(),
                 "siteName", ownSite ? org.getName() : config.siteString(KnownSettings.SITE_ORG_NAME),
                 "siteHost", SiteUrls.hostOf(siteUrl),
@@ -919,7 +924,7 @@ public class OrgCommands {
     }
 
     /** Display names for the trip-scoped role bases, as the trip editor has always labelled them. */
-    private static final java.util.Map<String, String> TRIP_ROLE_NAMES = java.util.Map.of(
+    private static final Map<String, String> TRIP_ROLE_NAMES = Map.of(
             PrivilegeCommands.TRIP_MGR, "Editor Admin",
             PrivilegeCommands.TRIP_FIN_ADMIN, "Finance Admin",
             PrivilegeCommands.TRIP_FIN_VIEW, "Finance Viewer",
@@ -939,7 +944,7 @@ public class OrgCommands {
      * are the same filter. Replaces the list the page used to assemble inline (which could not be
      * allow-list-aware).
      */
-    public List<java.util.Map<String, String>> tripRoleDefs(final Trip trip) {
+    public List<Map<String, String>> tripRoleDefs(final Trip trip) {
         return grantableTripBases(trip).stream()
                 .filter(base -> offeredOn(trip, base))
                 .map(base -> roleDef(trip, base))
@@ -956,9 +961,9 @@ public class OrgCommands {
         return !PrivilegeCommands.CHECKIN_STAFF.equals(base) || trip.isConference();
     }
 
-    private java.util.Map<String, String> roleDef(final Trip trip, final String base) {
+    private Map<String, String> roleDef(final Trip trip, final String base) {
         final String name = TRIP_ROLE_NAMES.getOrDefault(base, base);
-        return java.util.Map.of("name", name, "desc", trip.getTitle() + " - " + name, "base", base);
+        return Map.of("name", name, "desc", trip.getTitle() + " - " + name, "base", base);
     }
 
     /** ALL trip-scoped role bases, unfiltered -- the display list for who-holds-what (never a grant list). */
@@ -972,7 +977,7 @@ public class OrgCommands {
      * the flag drives whether the manager roster renders the chip's remove control, mirroring
      * {@link #setTripRole}'s enforcement so a rendered X can never be a refused click.
      */
-    public List<java.util.Map<String, String>> heldTripRoles(final Trip trip, final Person.Id personId) {
+    public List<Map<String, String>> heldTripRoles(final Trip trip, final Person.Id personId) {
         if (trip == null || personId == null) {
             return List.of();
         }
@@ -984,10 +989,10 @@ public class OrgCommands {
                 .toList();
     }
 
-    private java.util.Map<String, String> heldRoleDef(final Trip trip, final String base,
+    private Map<String, String> heldRoleDef(final Trip trip, final String base,
             final boolean grantable) {
         final String name = TRIP_ROLE_NAMES.getOrDefault(base, base);
-        return java.util.Map.of("name", name, "desc", trip.getTitle() + " - " + name, "base", base,
+        return Map.of("name", name, "desc", trip.getTitle() + " - " + name, "base", base,
                 "grantable", Boolean.toString(grantable));
     }
 
@@ -995,7 +1000,7 @@ public class OrgCommands {
      * The roles the viewer may still grant this person on the trip: the allow-list-filtered grant list minus
      * what they already hold -- the manager roster's per-row "Add role" menu items.
      */
-    public List<java.util.Map<String, String>> addableTripRoles(final Trip trip, final Person.Id personId) {
+    public List<Map<String, String>> addableTripRoles(final Trip trip, final Person.Id personId) {
         if (trip == null || personId == null) {
             return List.of();
         }
@@ -1055,7 +1060,7 @@ public class OrgCommands {
      * opening click stashed in the view (null before any row has been clicked). A distinct name, not an
      * overload: EL resolves overloads by runtime argument type and a null string would match either.
      */
-    public List<java.util.Map<String, String>> addableRolesFor(final Trip trip, final String personId) {
+    public List<Map<String, String>> addableRolesFor(final Trip trip, final String personId) {
         if (personId == null || personId.isBlank()) {
             return List.of();
         }
@@ -1180,7 +1185,7 @@ public class OrgCommands {
     }
 
     /** Display names for the org-scoped privilege bases, matching the trip roster's friendly labels. */
-    private static final java.util.Map<String, String> ORG_PRIV_NAMES = java.util.Map.of(
+    private static final Map<String, String> ORG_PRIV_NAMES = Map.of(
             PrivilegeCommands.PEOPLE_ADMIN, "People Admin",
             PrivilegeCommands.ADD_TRIP, "Create Trips",
             PrivilegeCommands.ADD_CONFERENCE, "Create Conferences",
@@ -1222,7 +1227,7 @@ public class OrgCommands {
                 .map(people::getPerson)
                 .map(person -> person.getPreferredName() + " " + person.getLast())
                 .toList();
-        return new OrgPrivilegeRow(base, ORG_PRIV_NAMES.getOrDefault(base, base),
+        return new OrgPrivilegeRow(base, orgPrivName(base),
                 PrivilegeCommands.canonicalDescription(base), holders);
     }
 
@@ -1232,7 +1237,7 @@ public class OrgCommands {
      * still show on its holder) and carries no grantable flag, because {@link #revokeOrgPrivilege} is
      * deliberately not allow-list-checked: every rendered chip is removable by an org admin.
      */
-    public List<java.util.Map<String, String>> heldOrgPrivs(final String orgId, final Person.Id personId) {
+    public List<Map<String, String>> heldOrgPrivs(final String orgId, final Person.Id personId) {
         if (personId == null || !canViewOrgPeople(orgId)) {
             return List.of();
         }
@@ -1247,7 +1252,7 @@ public class OrgCommands {
      * The org-scoped privileges an admin may still grant this person: {@link #grantableOrgPrivileges}
      * (the allow-list filter) minus what they already hold -- the chip row's "+ Add privilege" menu.
      */
-    public List<java.util.Map<String, String>> addableOrgPrivs(final String orgId,
+    public List<Map<String, String>> addableOrgPrivs(final String orgId,
             final Person.Id personId) {
         if (personId == null) {
             return List.of();
@@ -1265,7 +1270,7 @@ public class OrgCommands {
      * name, not an overload: EL resolves overloads by runtime argument type and a null string would
      * match either.
      */
-    public List<java.util.Map<String, String>> addableOrgPrivsFor(final String orgId,
+    public List<Map<String, String>> addableOrgPrivsFor(final String orgId,
             final String personId) {
         if (personId == null || personId.isBlank()) {
             return List.of();
@@ -1273,8 +1278,8 @@ public class OrgCommands {
         return addableOrgPrivs(orgId, Person.Id.from(personId));
     }
 
-    private java.util.Map<String, String> orgPrivDef(final String base) {
-        return java.util.Map.of("name", ORG_PRIV_NAMES.getOrDefault(base, base),
+    private Map<String, String> orgPrivDef(final String base) {
+        return Map.of("name", orgPrivName(base),
                 "desc", privCommands().baseDescription(base), "base", base);
     }
 
@@ -2115,7 +2120,7 @@ public class OrgCommands {
         if (config == null || !canManageOrg(orgId)) {
             return fail("Not allowed", "Only this organization's admins can manage payment processors.");
         }
-        final java.util.Map<String, String> fields = new java.util.HashMap<>();
+        final Map<String, String> fields = new java.util.HashMap<>();
         putIfGiven(fields, "clientSecret", liveSecret);
         putIfGiven(fields, "clientSecretSandbox", sandboxSecret);
         putIfGiven(fields, WEBHOOK_SECRET, liveWebhookSecret);
@@ -2131,7 +2136,7 @@ public class OrgCommands {
         return true;
     }
 
-    private static void putIfGiven(final java.util.Map<String, String> fields, final String key,
+    private static void putIfGiven(final Map<String, String> fields, final String key,
             final String value) {
         if (value != null && !value.isBlank()) {
             fields.put(key, value.trim());
@@ -2251,7 +2256,7 @@ public class OrgCommands {
         if (!DAO.getInstance().deletePaymentProcessorConfig(config.getOrgId(), config.getId())) {
             return fail("Unable to delete", "The delete did not complete.");
         }
-        ProcessorSecrets.getInstance().put(configId.trim(), java.util.Map.of("clientSecret", "",
+        ProcessorSecrets.getInstance().put(configId.trim(), Map.of("clientSecret", "",
                 "clientSecretSandbox", "", WEBHOOK_SECRET, "", WEBHOOK_SECRET_SANDBOX, ""));
         audit(current, findOrganization(orgId), "Processor config '" + config.getLabel() + "' DELETED");
         return true;
@@ -2414,11 +2419,11 @@ public class OrgCommands {
     }
 
     /** Sample token values for the test send (the real flow's PaymentMailer fills these from a Payment). */
-    private java.util.Map<String, Object> samplePaymentValues(final Trip trip, final Person me,
+    private Map<String, Object> samplePaymentValues(final Trip trip, final Person me,
             final TripPaymentConfig effective) {
         final Organization owner = (trip == null || trip.getOrgId() == null) ? null
                 : findOrganization(trip.getOrgId());
-        final java.util.Map<String, Object> values = new java.util.HashMap<>();
+        final Map<String, Object> values = new java.util.HashMap<>();
         effective.getExtraTokens().forEach(values::put);
         values.put("payerName", me.getPreferredName() + " " + me.getLast());
         values.put("tripTitle", (trip == null || trip.getTitle() == null) ? "Sample Trip" : trip.getTitle());
@@ -2437,7 +2442,7 @@ public class OrgCommands {
     }
 
     /** Extra-token map &rarr; the dialog textarea's one-per-line {@code token=value} text. */
-    public String tokensToText(final java.util.Map<String, String> tokens) {
+    public String tokensToText(final Map<String, String> tokens) {
         if (tokens == null || tokens.isEmpty()) {
             return "";
         }
@@ -2493,9 +2498,9 @@ public class OrgCommands {
      * org-overridable setting. Blank means inherit -- the Settings page's own convention, and what makes
      * "clear the box" the way to give a value back to the site.
      */
-    public java.util.Map<String, String> orgSettingsEdit(final String orgId) {
+    public Map<String, String> orgSettingsEdit(final String orgId) {
         final Organization org = findOrganization(orgId);
-        final java.util.Map<String, String> edit = new java.util.LinkedHashMap<>();
+        final Map<String, String> edit = new java.util.LinkedHashMap<>();
         for (final org.paulsens.trip.model.SettingDef def : orgSettingDefs()) {
             final String value = (org == null) ? null : org.settingOverride(def.getName());
             edit.put(def.getName(), value == null ? "" : value);
@@ -2530,7 +2535,7 @@ public class OrgCommands {
      * touch -- and a value that does not parse as the setting's declared type. Applied onto a FRESH read
      * and written only when something actually changed; site admins and the org's own admins may save.
      */
-    public boolean saveOrgSettings(final String orgId, final java.util.Map<String, String> values) {
+    public boolean saveOrgSettings(final String orgId, final Map<String, String> values) {
         final Caller current = caller();
         if (!canManageOrg(orgId)) {
             return fail("Not allowed", "Only this organization's admins can change its settings.");
@@ -2579,7 +2584,7 @@ public class OrgCommands {
         if (rejection != null) {
             return failText("Not saved", rejection);
         }
-        final java.util.Map<String, String> overrides = org.getSettingsOverrides();
+        final Map<String, String> overrides = org.getSettingsOverrides();
         final String before = overrides.get(def.getName());
         if (value.isEmpty()) {
             return (overrides.remove(def.getName()) == null) ? "" : def.getName() + " = (inherit)";
@@ -2623,6 +2628,24 @@ public class OrgCommands {
 
     private Caller caller() {
         return callerSource.get();
+    }
+
+    /** Whether the signed-in user is a site admin; the people searches' scope and reach turn on it. */
+    public boolean isSiteAdmin() {
+        return caller().isSiteAdmin();
+    }
+
+    /**
+     * Everyone the signed-in user may administer as a {@code peopleAdmin} holder, once each: the members of every
+     * org in which they hold it -- the people {@link #canAdminPerson} admits, which the admin People search scans
+     * in memory for a caller who is not a site admin.
+     */
+    public List<Person> peopleAdminScope() {
+        final Map<Person.Id, Person> byId = new LinkedHashMap<>();
+        for (final Organization org : orgsWithPriv(PrivilegeCommands.PEOPLE_ADMIN)) {
+            getMembers(org).forEach(member -> byId.putIfAbsent(member.getId(), member));
+        }
+        return new ArrayList<>(byId.values());
     }
 
     private boolean saveOrgOrWarn(final Organization org) {

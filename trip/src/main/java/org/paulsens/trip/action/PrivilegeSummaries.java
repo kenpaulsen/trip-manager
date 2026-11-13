@@ -28,16 +28,15 @@ import org.paulsens.trip.model.Privilege;
  * tenant's name or grants from this column.</p>
  */
 public final class PrivilegeSummaries {
-    /** Display names for the global bases; org bases use {@link OrgCommands#orgPrivName}. Others show raw. */
+    /**
+     * Display names for the global-only bases. A base that is also org-scoped (content, media, audit, lodging)
+     * takes its name from {@link OrgCommands#orgPrivName}, so one rename reaches both rows. Others show raw.
+     */
     private static final Map<String, String> GLOBAL_NAMES = Map.of(
             PrivilegeCommands.PRIVILEGE_ADMIN, "Privilege Admin",
             PrivilegeCommands.CONFIG_ADMIN, "Settings Admin",
-            PrivilegeCommands.AUDIT_ADMIN, "Audit Viewer",
             PrivilegeCommands.SITE_DEPLOYER, "Site Deployer",
-            PrivilegeCommands.CONTENT_ADMIN, "Site Content Editor",
-            PrivilegeCommands.MEDIA_ADMIN, "Site Media Editor",
             PrivilegeCommands.EVENT_ADMIN, "Events Editor",
-            PrivilegeCommands.LODGING_ADMIN, "Lodging Admin",
             PrivilegeCommands.VIEW_FINANCES, "View Finances");
 
     /**
@@ -112,7 +111,8 @@ public final class PrivilegeSummaries {
     }
 
     private PrivSummary summarize(final Person person) {
-        final List<String> site = showSite ? namesHeld(global, person.getId(), GLOBAL_NAMES::get) : List.of();
+        final List<String> site = showSite
+                ? namesHeld(global, person.getId(), PrivilegeSummaries::siteName) : List.of();
         final List<OrgPrivs> orgPrivs = person.getOrgIds().stream()
                 .map(orgId -> orgView(orgId.getValue()))
                 .filter(Objects::nonNull)
@@ -120,6 +120,11 @@ public final class PrivilegeSummaries {
                 .sorted(Comparator.comparing(OrgPrivs::orgName, String.CASE_INSENSITIVE_ORDER))
                 .toList();
         return new PrivSummary(site, orgPrivs);
+    }
+
+    /** A site-wide base's display name: the global-only names, else the shared org-scoped one, else raw. */
+    static String siteName(final String base) {
+        return GLOBAL_NAMES.containsKey(base) ? GLOBAL_NAMES.get(base) : OrgCommands.orgPrivName(base);
     }
 
     private OrgPrivs orgPrivs(final OrgView view, final Person.Id personId) {

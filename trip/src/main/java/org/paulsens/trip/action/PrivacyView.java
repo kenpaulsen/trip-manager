@@ -3,6 +3,7 @@ package org.paulsens.trip.action;
 import java.io.Serial;
 import java.io.Serializable;
 import lombok.Value;
+import org.paulsens.trip.dynamo.PersonMatch;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.PrivacySettings;
 
@@ -13,8 +14,8 @@ import org.paulsens.trip.model.PrivacySettings;
  *
  * <ul>
  *   <li>{@code SHOW} -- render the value plainly (self, family manager, or a field the subject shares);</li>
- *   <li>{@code MASK} -- admin viewing a withheld field: render masked with click-to-reveal. The mask is a UI
- *       affordance only (user-locked decision): the real value may sit in the page for the reveal;</li>
+ *   <li>{@code MASK} -- admin viewing a withheld field: render a placeholder, and the value only after they
+ *       click it (a server round trip, {@code WEB-INF/privacyMask.xhtml}; never in the page before);</li>
  *   <li>{@code HIDE} -- render nothing at all.</li>
  * </ul>
  *
@@ -68,5 +69,18 @@ public class PrivacyView implements Serializable {
                 privacy.isStreetVisible() ? State.SHOW : withheld,
                 withheld,
                 withheld);
+    }
+
+    /**
+     * What {@code viewer} may SEARCH by, per subject: a cell or email this class would {@code HIDE} from them on
+     * the page is not searched either, or a row appearing as digits are typed would reveal the hidden value one
+     * digit at a time ({@link PersonMatch.Reach}).
+     */
+    public static PersonMatch.Reach searchReach(final Person viewer, final boolean adminView) {
+        return (subject, field) -> searchable(of(viewer, subject, adminView), field);
+    }
+
+    private static boolean searchable(final PrivacyView view, final PersonMatch.Field field) {
+        return ((field == PersonMatch.Field.CELL) ? view.getCell() : view.getEmail()) != State.HIDE;
     }
 }

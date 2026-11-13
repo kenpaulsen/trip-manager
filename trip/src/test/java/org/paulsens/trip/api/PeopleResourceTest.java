@@ -17,6 +17,7 @@ import org.paulsens.trip.api.dto.PrivacyDto;
 import org.paulsens.trip.api.dto.ProfilePhotoDto;
 import org.paulsens.trip.media.PhotoProcessor;
 import org.paulsens.trip.model.DataId;
+import org.paulsens.trip.dynamo.PersonMatch;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.PersonDataValue;
 import org.paulsens.trip.model.PrivacySettings;
@@ -217,13 +218,15 @@ public class PeopleResourceTest extends ResourceTestSupport {
         signedInAs(ME);
 
         assertError(resource.search("sam", 25), 403, ApiErrors.FORBIDDEN);
-        Mockito.verify(people, Mockito.never()).searchPeople(ArgumentMatchers.anyString(), ArgumentMatchers.anyInt());
+        Mockito.verify(people, Mockito.never()).searchPeople(ArgumentMatchers.anyString(), ArgumentMatchers.anyInt(),
+                ArgumentMatchers.any());
     }
 
     @Test
     public void searchReturnsResultsForAnAdmin() {
         signedInAsSiteAdmin(ME);
-        Mockito.when(people.searchPeople(ArgumentMatchers.eq("sam"), ArgumentMatchers.anyInt()))
+        Mockito.when(people.searchPeople(ArgumentMatchers.eq("sam"), ArgumentMatchers.anyInt(),
+                ArgumentMatchers.eq(PersonMatch.EVERY_FIELD)))
                 .thenReturn(List.of(person(OTHER, "Sam")));
 
         final Response response = resource.search("sam", 25);
@@ -236,15 +239,16 @@ public class PeopleResourceTest extends ResourceTestSupport {
     @Test
     public void searchClampsTheLimitAtBothEnds() {
         signedInAsSiteAdmin(ME);
-        Mockito.when(people.searchPeople(ArgumentMatchers.anyString(), ArgumentMatchers.anyInt()))
+        Mockito.when(people.searchPeople(ArgumentMatchers.anyString(), ArgumentMatchers.anyInt(),
+                ArgumentMatchers.any()))
                 .thenReturn(List.of());
 
         // The raw fetch is 4x the clamped page: the org filter runs after it (see the endpoint comment).
         resource.search(null, 100_000);
-        Mockito.verify(people).searchPeople("", 400);
+        Mockito.verify(people).searchPeople("", 400, PersonMatch.EVERY_FIELD);
 
         resource.search("x", -5);
-        Mockito.verify(people).searchPeople("x", 4);
+        Mockito.verify(people).searchPeople("x", 4, PersonMatch.EVERY_FIELD);
     }
 
     @Test

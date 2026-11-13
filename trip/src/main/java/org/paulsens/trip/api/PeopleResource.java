@@ -39,6 +39,7 @@ import org.paulsens.trip.media.PhotoProcessor;
 import org.paulsens.trip.media.QuarterTurn;
 import org.paulsens.trip.model.DataId;
 import org.paulsens.trip.model.Organization;
+import org.paulsens.trip.dynamo.PersonMatch;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.PersonDataValue;
 import org.paulsens.trip.model.PrivacySettings;
@@ -88,9 +89,11 @@ public class PeopleResource extends BaseResource {
             return error(403, ApiErrors.FORBIDDEN, "Not permitted to search people.");
         }
         final int capped = Math.min(Math.max(limit, 1), MAX_SEARCH_RESULTS);
-        // Over-fetch before the tenancy filter, so a page of out-of-org hits cannot mask permitted ones.
+        // Over-fetch before the tenancy filter, so a page of out-of-org hits cannot mask permitted ones. Every
+        // field is searched: the filter keeps only people this caller administers (an admin view of them), and a
+        // filtered-out hit says nothing, so a private field of anyone else is never an oracle here.
         final List<Person> found = Beans.get(PersonCommands.class)
-                .searchPeople(query == null ? "" : query, capped * 4).stream()
+                .searchPeople(query == null ? "" : query, capped * 4, PersonMatch.EVERY_FIELD).stream()
                 .filter(person -> orgs.canAdminPerson(person.getId()))
                 .limit(capped)
                 .toList();

@@ -1,5 +1,6 @@
 package org.paulsens.trip.action;
 
+import java.util.ArrayList;
 import java.util.List;
 import org.paulsens.trip.model.Person;
 
@@ -9,8 +10,9 @@ import org.paulsens.trip.model.Person;
  * when more people matched than the rows hold. Request-scoped only: it holds Person objects, which never belong
  * in a view or a session.
  *
- * @param rows        the people to render, immutable (never null). Immutable is safe only because no table
- *                    rendering it has a {@code sortBy}: PrimeFaces sorts a sortable table's value IN PLACE
+ * @param rows        the people to render (never null), a private MUTABLE copy: PrimeFaces sorts a sortable
+ *                    table's value IN PLACE, so an immutable list would 500 the page the day someone adds a
+ *                    {@code sortBy} (the same stance as {@link ChatRoster#view} and {@code getPeopleByIds})
  * @param needsQuery  true when the page should ask for a search instead of listing anyone
  * @param truncated   true when more people matched than {@code rows} holds
  */
@@ -21,7 +23,7 @@ public record PeopleResult(List<Person> rows, boolean needsQuery, boolean trunca
     public static final PeopleResult NEEDS_QUERY = new PeopleResult(List.of(), true, false);
 
     public PeopleResult {
-        rows = List.copyOf(rows);
+        rows = new ArrayList<>(rows);
     }
 
     /** {@code matched} cut to its first {@code limit} rows, flagged {@code truncated} when it was longer. */

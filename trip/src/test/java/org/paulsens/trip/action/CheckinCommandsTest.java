@@ -206,17 +206,38 @@ public class CheckinCommandsTest {
         assertTrue(staff.lookup(trip.getId(), null).isEmpty());
         assertEquals(staff.lookup(trip.getId(), "moss").getFirst().getRegistrationType(), "Saturday only");
         assertTrue(as(Person.Id.newInstance()).lookup(trip.getId(), "ann").isEmpty(), "not staff, nothing");
-        assertFalse(CheckinCommands.matchesTokens(null, List.of("a")));
-        assertFalse(CheckinCommands.matchesTokens(ann, List.of()));
+        assertTrue(staff.find(trip.getId(), " , ").needsQuery(), "nothing typed asks for a search");
+        assertEquals(names(staff.lookup(trip.getId(), "nnie le")), List.of("Lee, Annie"), "each word anywhere");
+        assertTrue(staff.lookup(trip.getId(), "example.com").isEmpty(), "email only from its start");
     }
 
     @Test
-    public void aSearchIsCappedAtFifty() throws IOException {
+    public void aSearchIsCappedAtTheListLimitAndSaysSo() throws IOException {
         final Trip trip = newTrip();
         for (int i = 0; i < CheckinCommands.LOOKUP_CAP + 3; i++) {
             register(trip, newPerson("Many" + i, "Cap", null), Registration.Status.CONFIRMED, "full");
         }
-        assertEquals(admin().lookup(trip.getId(), "cap").size(), CheckinCommands.LOOKUP_CAP);
+        final CheckinCommands.Lookup found = admin().find(trip.getId(), "cap");
+        assertEquals(found.rows().size(), CheckinCommands.LOOKUP_CAP);
+        assertEquals(CheckinCommands.LOOKUP_CAP, PersonCommands.PEOPLE_LIST_LIMIT, "the same limit as every list");
+        assertTrue(found.truncated());
+        assertFalse(admin().find(trip.getId(), "many1 cap").truncated());
+    }
+
+    /** Check-in Staff see what a person shares, so a hidden cell is not searchable; a trip manager's is. */
+    @Test
+    public void aHiddenCellIsSearchableOnlyWithTheAdminView() throws IOException {
+        final Trip trip = newTrip();
+        final Person shy = newPerson("Shy", "Cell", null);
+        shy.setCell("555-321-9876");
+        shy.getPrivacy().setCell(org.paulsens.trip.model.PrivacySettings.Visibility.PRIVATE);
+        assertTrue(DAO.getInstance().savePerson(shy));
+        register(trip, shy, Registration.Status.CONFIRMED, "full");
+        final CheckinCommands staff = as(grant(PrivilegeCommands.CHECKIN_STAFF, trip.getId()));
+        assertTrue(staff.lookup(trip.getId(), "9876").isEmpty());
+        assertEquals(names(staff.lookup(trip.getId(), "shy")), List.of("Cell, Shy"));
+        final CheckinCommands manager = as(grant(PrivilegeCommands.TRIP_MGR, trip.getId()));
+        assertEquals(names(manager.lookup(trip.getId(), "9876")), List.of("Cell, Shy"));
     }
 
     private static List<String> names(final List<RegistrationCommands.RegRow> rows) {

@@ -138,6 +138,52 @@ public class PeopleSearchOrgTest {
         return trip.getId();
     }
 
+    /**
+     * The admin People search for an org people admin scans their own orgs' members, so a site full of other
+     * tenants' matches cannot crowd them out (it read a site-wide index window and filtered it until 2026-11-12).
+     */
+    @Test
+    public void anOrgPeopleAdminFindsEveryOwnMatchHoweverManyOthersMatch() throws IOException {
+        final String fragment = "Zqcrowd" + RandomData.genAlpha(5);
+        final Organization acme = orgWithAdmin(savedPerson("Ada", "Acme"));
+        final String acmeId = acme.getId().getValue();
+        for (int i = 0; i < 12; i++) {
+            savedPerson("Aaa" + i, fragment + "a");
+        }
+        final Person zed = savedPerson("Zed", fragment + "z");
+        final Person yan = savedPerson("Yan", fragment + "y");
+        assertTrue(admin().addMember(acmeId, zed.getId()));
+        assertTrue(admin().addMember(acmeId, yan.getId()));
+        final Person pam = savedPerson("Pam", "Peopleadmin");
+        assertTrue(admin().addMember(acmeId, pam.getId()));
+        assertTrue(admin().grantOrgPrivilege(acmeId, pam.getId(), PrivilegeCommands.PEOPLE_ADMIN));
+
+        final OrgCommands asPam = realPrivs(pam);
+        final PersonCommands people = new PersonCommands(() -> asPam);
+        final PeopleResult found = people.adminSearch(fragment.toLowerCase(), 2);
+        assertEquals(ids(found.rows()), List.of(yan.getId(), zed.getId()), "both members, nobody else");
+        assertFalse(found.truncated());
+        assertEquals(ids(people.adminSearchPeople(fragment, 1)), List.of(yan.getId()));
+        assertTrue(people.adminSearch(fragment, 1).truncated(), "a third member would not fit");
+        assertTrue(asPam.peopleAdminScope().stream().anyMatch(member -> member.getId().equals(zed.getId())));
+        assertTrue(commandsFor(pam).peopleAdminScope().isEmpty(), "no privilege, no scope");
+    }
+
+    /** A site admin searches the index; when its window fills, the page is told the list may be partial. */
+    @Test
+    public void aSiteAdminSearchSaysWhenItWasCut() throws IOException {
+        final String fragment = "Zqcut" + RandomData.genAlpha(5);
+        for (int i = 0; i < 12; i++) {
+            savedPerson("Cut" + i, fragment);
+        }
+        final PersonCommands people = new PersonCommands(this::admin);
+        final PeopleResult few = people.adminSearch(fragment, 3);
+        assertEquals(few.rows().size(), 3);
+        assertTrue(few.truncated());
+        assertFalse(people.adminSearch(fragment, 20).truncated(), "all twelve fit");
+        assertTrue(admin().isSiteAdmin());
+    }
+
     @Test
     public void noRowsNoSummaries() {
         assertTrue(admin().privilegeSummaries(null).isEmpty());

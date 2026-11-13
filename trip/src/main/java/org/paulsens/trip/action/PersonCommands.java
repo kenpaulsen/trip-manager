@@ -18,6 +18,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.dynamo.PersonDAO;
 import org.paulsens.trip.dynamo.PersonMatch;
 import org.paulsens.trip.media.PendingUploads;
 import org.paulsens.trip.model.Family;
@@ -312,14 +313,25 @@ public class PersonCommands {
         }
     }
 
-    /** Prefix search over name/nickname/email/cell; default result cap. */
+    /** People search ({@link PersonMatch}); default result cap. */
     public List<Person> searchPeople(final String query) {
         return searchPeople(query, 25);
     }
 
+    /**
+     * The directory search behind the pickers. A site admin may search by every field (they see private ones
+     * masked); anyone else only by the cell and email a subject shares with every signed-in user, so a picker
+     * cannot be used to test digits against a private number ({@link PersonMatch.Reach}). The role is read from
+     * the JSF session, so a caller with none (REST, a script) gets the shared reach: the safe side.
+     */
     public List<Person> searchPeople(final String query, final int limit) {
+        return searchPeople(query, limit, hasRole("admin") ? PersonMatch.EVERY_FIELD : PersonMatch.SHARED_FIELDS);
+    }
+
+    /** {@link #searchPeople(String, int)} with the reach decided by a caller that knows its viewer (REST). */
+    public List<Person> searchPeople(final String query, final int limit, final PersonMatch.Reach reach) {
         try {
-            return DAO.getInstance().searchPeople(query, limit, Cached.NO);
+            return DAO.getInstance().searchPeople(query, limit, Cached.NO, reach).people();
         } catch (final RuntimeException ex) {
             log.error("Failed to search people for '{}'!", query, ex);
             return Collections.emptyList();
@@ -330,15 +342,10 @@ public class PersonCommands {
      * People search restricted to subjects the caller may administer ({@code OrgCommands.canAdminPerson}:
      * site admins see everyone; org-scoped {@code peopleAdmin} holders see their orgs' people only). The
      * admin people pages and their pickers use THIS, never {@link #searchPeople}, so tenancy is enforced in
-     * the data source rather than per page. The raw search runs with a larger limit because the org filter
-     * runs after it -- otherwise a full page of out-of-org hits could mask every permitted one.
+     * the data source rather than per page. See {@link #adminSearch} for how each kind of caller is searched.
      */
     public List<Person> adminSearchPeople(final String query, final int limit) {
-        final OrgCommands orgCommands = orgSource.get();
-        return searchPeople(query, limit * 4).stream()
-                .filter(person -> orgCommands.canAdminPerson(person.getId()))
-                .limit(limit)
-                .toList();
+        return adminSearch(query, limit).rows();
     }
 
     /**
@@ -398,46 +405,126 @@ public class PersonCommands {
     /**
      * THE people-list rule, shared by every page that lists a known set of people: a blank query lists every
      * candidate when they fit {@link #PEOPLE_LIST_LIMIT} and nobody ({@link PeopleResult#needsQuery}) when they
-     * do not; otherwise the candidates matching every query word ({@link PersonMatch}). Rows are always in
-     * {@link Person#PEOPLE_SORTER} order (last, first) and capped at the limit, with {@code truncated} saying
-     * more matched than shown.
+     * do not; otherwise the candidates matching every query word ({@link PersonMatch}), searching cell and email
+     * only as far as {@code reach} lets this viewer see them. Rows are always in {@link Person#PEOPLE_SORTER}
+     * order (last, first) and capped at the limit, with {@code truncated} saying more matched than shown.
      */
-    public PeopleResult listOrSearch(final Collection<Person> candidates, final String query) {
+    public PeopleResult listOrSearch(
+            final Collection<Person> candidates, final String query, final PersonMatch.Reach reach) {
+        return listOrSearch(candidates, query, reach, PEOPLE_LIST_LIMIT);
+    }
+
+    private static PeopleResult listOrSearch(final Collection<Person> candidates, final String query,
+            final PersonMatch.Reach reach, final int limit) {
         if (candidates == null || candidates.isEmpty()) {
             return PeopleResult.NONE;
         }
         final List<String> words = PersonMatch.queryWords(query);
-        if (words.isEmpty() && candidates.size() > PEOPLE_LIST_LIMIT) {
+        if (words.isEmpty() && candidates.size() > limit) {
             return PeopleResult.NEEDS_QUERY;
         }
         return PeopleResult.capped(candidates.stream()
-                .filter(person -> words.isEmpty() || PersonMatch.matchesAll(person, words))
+                .filter(person -> words.isEmpty() || PersonMatch.matchesAll(person, words, reach))
                 .sorted(Person.PEOPLE_SORTER)
-                .toList(), PEOPLE_LIST_LIMIT);
+                .toList(), limit);
+    }
+
+    /** The admin People page's search: {@link #adminSearch(String, int)} at {@link #PEOPLE_LIST_LIMIT}. */
+    public PeopleResult adminSearch(final String query) {
+        return adminSearch(query, PEOPLE_LIST_LIMIT);
     }
 
     /**
-     * The admin People page's search: {@link #adminSearchPeople} (so only people the caller may administer),
-     * under the same rule as {@link #listOrSearch}. The whole directory never fits the limit, so a blank query
-     * always asks for a search.
+     * The admin People search. A blank query always asks for one (the directory never fits the limit).
+     *
+     * <p>A site admin searches the whole directory index, whose window is read in token order, so a short common
+     * word can fill it: the result is then marked {@code truncated} even when fewer rows survive, and the page
+     * asks for a narrower search instead of presenting a partial list as complete.</p>
+     *
+     * <p>Anyone else searches, in memory, exactly the members of the orgs where they hold {@code peopleAdmin}
+     * (the people {@code canAdminPerson} admits). Filtering a site-wide window down to their orgs instead could
+     * miss every one of their own matches (review finding, 2026-11-12). Measured locally at about 7 ms for a
+     * 1,000-member org and 45 ms at 10,000, against 25 ms for the old window search that missed them.</p>
      */
-    public PeopleResult adminSearch(final String query) {
+    public PeopleResult adminSearch(final String query, final int limit) {
         if (PersonMatch.queryWords(query).isEmpty()) {
             return PeopleResult.NEEDS_QUERY;
         }
-        return PeopleResult.capped(adminSearchPeople(query, PEOPLE_LIST_LIMIT + 1), PEOPLE_LIST_LIMIT);
+        final OrgCommands orgs = orgSource.get();
+        if (!orgs.isSiteAdmin()) {
+            return listOrSearch(orgs.peopleAdminScope(), query, PersonMatch.EVERY_FIELD, limit);
+        }
+        try {
+            final PersonDAO.Search found =
+                    DAO.getInstance().searchPeople(query, limit, Cached.NO, PersonMatch.EVERY_FIELD);
+            return new PeopleResult(
+                    found.people(), false, found.cut());
+        } catch (final RuntimeException ex) {
+            log.error("Failed to search people for '{}'!", query, ex);
+            return PeopleResult.NONE;
+        }
     }
 
     /**
-     * The ids the trip Contacts page lists, by {@link #listOrSearch} over the trip's roster. Ids, not people,
-     * because the page freezes them in the view so its row commands decode against exactly the rendered rows.
-     * A roster too big to list is answered before resolving anyone. Always a new mutable list.
+     * The trip Contacts page's rows, by {@link #listOrSearch} over the trip's roster. Cell and email are searched
+     * only where THIS viewer may see them on the page ({@link PrivacyView} with the page's own {@code adminView}):
+     * a co-traveler must not be able to find someone by digits of a number the page hides from them. A roster too
+     * big to list is answered before resolving anyone.
      */
-    public List<Person.Id> contactsRoster(final List<Person.Id> roster, final String query) {
-        if (roster == null || (PersonMatch.queryWords(query).isEmpty() && roster.size() > PEOPLE_LIST_LIMIT)) {
-            return new ArrayList<>();
+    public PeopleResult contactsSearch(final List<Person.Id> roster, final String query, final boolean adminView) {
+        if (roster == null || roster.isEmpty()) {
+            return PeopleResult.NONE;
         }
-        return toIds(listOrSearch(existingPeople(roster), query).rows());
+        if (PersonMatch.queryWords(query).isEmpty() && roster.size() > PEOPLE_LIST_LIMIT) {
+            return PeopleResult.NEEDS_QUERY;
+        }
+        return listOrSearch(existingPeople(roster), query, PrivacyView.searchReach(getCurrentPerson(), adminView));
+    }
+
+    /** The most masked values one view remembers revealing; past it the oldest is forgotten (masked again). */
+    static final int MAX_REVEALS = 100;
+
+    /**
+     * Whether the viewer clicked to reveal {@code field} of this person in this view ({@code WEB-INF/privacyMask
+     * .xhtml}). The answer only GRANTS nothing: the page renders the value solely when its {@link PrivacyView}
+     * state is {@code MASK} (the viewer is entitled to it) AND it was revealed, so a forged reveal of a HIDE value
+     * renders nothing. {@code reveals} is the view's own scalar record, {@code |personId:field|...}.
+     */
+    public boolean isRevealed(final String reveals, final String personId, final String field) {
+        final String key = revealKey(personId, field);
+        return key != null && reveals != null && reveals.contains("|" + key + "|");
+    }
+
+    /**
+     * {@code reveals} with this person's {@code field} added (the reveal link's command). A key that could not
+     * have come from a page (a separator, or longer than an id) is ignored, and the record keeps only the newest
+     * {@value #MAX_REVEALS} entries, so a scripted flood cannot grow the view, and with it the session, unbounded.
+     */
+    public String withReveal(final String reveals, final String personId, final String field) {
+        final String key = revealKey(personId, field);
+        if (key == null || isRevealed(reveals, personId, field)) {
+            return reveals;
+        }
+        final List<String> keys = new ArrayList<>(reveals == null ? List.of()
+                : Arrays.stream(reveals.split("\\|")).filter(entry -> !entry.isEmpty()).toList());
+        keys.add(key);
+        final List<String> kept = keys.subList(Math.max(0, keys.size() - MAX_REVEALS), keys.size());
+        return "|" + String.join("|", kept) + "|";
+    }
+
+    private static String revealKey(final String personId, final String field) {
+        if (!revealPart(personId, 64) || !revealPart(field, 32)) {
+            return null;
+        }
+        return personId + ":" + field;
+    }
+
+    /** Letters, digits and dashes only (UUIDs, field names), non-empty and within {@code max} characters. */
+    private static boolean revealPart(final String part, final int max) {
+        if (part == null || part.isEmpty() || part.length() > max) {
+            return false;
+        }
+        return part.chars().allMatch(c -> Character.isLetterOrDigit(c) || c == '-');
     }
 
     /**

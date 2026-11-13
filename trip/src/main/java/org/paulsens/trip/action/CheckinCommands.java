@@ -22,6 +22,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.dynamo.PersonMatch;
 import org.paulsens.trip.model.BindingType;
 import org.paulsens.trip.model.OptionChoice;
 import org.paulsens.trip.model.Person;
@@ -48,8 +49,8 @@ import org.paulsens.trip.util.TicketQr;
 @Named("checkin")
 @ApplicationScoped
 public class CheckinCommands {
-    /** The most rows one staff search answers: a name search is for finding one person, not listing a hall. */
-    public static final int LOOKUP_CAP = 50;
+    /** The most rows one staff search answers: the same limit as every other people list. */
+    public static final int LOOKUP_CAP = PersonCommands.PEOPLE_LIST_LIMIT;
     /** The bucket a registration without a registration type counts under. */
     public static final String NO_TYPE = "(none)";
 
@@ -139,54 +140,57 @@ public class CheckinCommands {
     // ------------------------------------------------------------------ lookup
 
     /**
-     * Staff search, as rows: a query that is a whole ticket code (typed, grouped or with look-alike digits) matches
-     * that ticket EXACTLY and nothing else, never a prefix; any other query must match every whitespace-separated
-     * token somewhere in the first, last or preferred name or the email. CONFIRMED and PENDING registrations only,
-     * at most {@value #LOOKUP_CAP}, by name. Empty for a caller who may not check in.
+     * The check-in page's search result: the rows, {@code needsQuery} when nothing was typed, and {@code truncated}
+     * when more registrations matched than the {@value #LOOKUP_CAP} shown -- the same three answers every people
+     * list gives ({@link PeopleResult}).
      */
+    public record Lookup(List<RegistrationCommands.RegRow> rows, boolean needsQuery, boolean truncated) {
+        static final Lookup NEEDS_QUERY = new Lookup(List.of(), true, false);
+
+        public Lookup {
+            rows = new ArrayList<>(rows);
+        }
+    }
+
+    /** {@link #find}'s rows, for the REST lookup. */
     public List<RegistrationCommands.RegRow> lookup(final String tripId, final String query) {
-        if (query == null || query.isBlank() || !canCheckIn(tripId)) {
-            return List.of();
+        return find(tripId, query).rows();
+    }
+
+    /**
+     * Staff search: a query that is a whole ticket code (typed, grouped or with look-alike digits) matches that
+     * ticket EXACTLY and nothing else, never a prefix; any other query is the people-search rule every people list
+     * uses ({@link PersonMatch}: names and cell digits anywhere, email from its start), searching cell and email
+     * only where this viewer may see them (a trip manager has the admin view; Check-in Staff see what the person
+     * shares). CONFIRMED and PENDING registrations only, by name. Empty for a caller who may not check in.
+     */
+    public Lookup find(final String tripId, final String query) {
+        final List<String> words = PersonMatch.queryWords(query);
+        if (words.isEmpty() || !canCheckIn(tripId)) {
+            return Lookup.NEEDS_QUERY;
         }
         final Trip trip = knownTrip(tripId);
         final boolean ticket = TicketCodes.normalize(query) != null;
-        final List<String> tokens = tokensOf(query);
+        final PersonMatch.Reach reach = PrivacyView.searchReach(viewer(), has(PrivilegeCommands.TRIP_MGR, tripId));
         final List<RegistrationCommands.RegRow> rows = new ArrayList<>();
         for (final Registration reg : registrations(tripId)) {
             if (isActive(reg) && (ticket ? TicketCodes.matches(reg.getTicketCode(), query)
-                    : matchesTokens(person(reg.getUserId()), tokens))) {
+                    : PersonMatch.matchesAll(person(reg.getUserId()), words, reach))) {
                 rows.add(rowOf(trip, reg));
             }
         }
         rows.sort(BY_NAME);
-        return rows.size() > LOOKUP_CAP ? new ArrayList<>(rows.subList(0, LOOKUP_CAP)) : rows;
+        return rows.size() > LOOKUP_CAP
+                ? new Lookup(rows.subList(0, LOOKUP_CAP), false, true) : new Lookup(rows, false, false);
     }
 
     private static final Comparator<RegistrationCommands.RegRow> BY_NAME =
             Comparator.comparing(RegistrationCommands.RegRow::getName, String.CASE_INSENSITIVE_ORDER);
 
-    /** The lower-cased whitespace-separated tokens of a search query (shared with the Contacts page's search). */
-    static List<String> tokensOf(final String query) {
-        final List<String> tokens = new ArrayList<>();
-        for (final String token : query.trim().toLowerCase(Locale.ROOT).split("\\s+")) {
-            if (!token.isEmpty()) {
-                tokens.add(token);
-            }
-        }
-        return tokens;
-    }
-
-    static boolean matchesTokens(final Person person, final List<String> tokens) {
-        if (person == null || tokens.isEmpty()) {
-            return false;
-        }
-        final String haystack = String.join(" ", lower(person.getFirst()), lower(person.getLast()),
-                lower(person.getNickname()), lower(person.getEmail()));
-        return tokens.stream().allMatch(haystack::contains);
-    }
-
-    private static String lower(final String text) {
-        return text == null ? "" : text.toLowerCase(Locale.ROOT);
+    /** The signed-in person doing the looking, or null. */
+    private Person viewer() {
+        final Person.Id me = caller().personId();
+        return me == null ? null : DAO.getInstance().getPerson(me, Cached.YES).orElse(null);
     }
 
     /** The registration whose ticket this is, any status, or null; an exact constant-time match, never a prefix. */
