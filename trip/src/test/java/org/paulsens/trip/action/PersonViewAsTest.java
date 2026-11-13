@@ -23,6 +23,7 @@ public class PersonViewAsTest {
         // No FacesContext in unit tests, so the public overload resolves a null session: refused, no throw.
         Assert.assertFalse(new PersonCommands().viewAs(Person.Id.from("whoever")));
         Assert.assertFalse(new PersonCommands().endViewAs());
+        Assert.assertFalse(new PersonCommands().isViewingAs(), "no session: nobody is viewing as anyone");
     }
 
     @Test

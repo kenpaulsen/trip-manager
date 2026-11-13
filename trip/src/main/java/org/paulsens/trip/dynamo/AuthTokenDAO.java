@@ -9,6 +9,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.model.AuthToken;
 import org.paulsens.trip.model.Person;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
+import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
 import software.amazon.awssdk.services.dynamodb.model.GetItemResponse;
 
 /**
@@ -65,6 +66,45 @@ public class AuthTokenDAO {
     }
 
     protected Boolean saveToken(final AuthToken token) {
+        final Map<String, AttributeValue> item = itemFor(token);
+        try {
+            return persistence.putItem(b -> b.tableName(AUTH_TOKENS_TABLE).item(item))
+                    .sdkHttpResponse().isSuccessful();
+        } catch (final RuntimeException ex) {
+            log.error("Failed to save auth token.", ex);
+            return false;
+        }
+    }
+
+    /**
+     * The rotation write: this row replaces the stored one ONLY while the stored one still holds the validator
+     * the caller read ({@code readValidatorHash}). A rotation is a read-modify-write of a row that
+     * authenticates, and an unconditional put after the read undid any revocation that landed in between: a
+     * password change deleted the row, and a refresh that had already read it wrote it straight back with a
+     * validator the holder of a stolen token now owned. With the condition, the delete wins.
+     *
+     * @return false when the row is gone or was rotated by somebody else since the read (and on a store
+     *         error); the caller decides what that means by reading the row again, never by retrying the put.
+     */
+    protected Boolean rotateToken(final AuthToken token, final String readValidatorHash) {
+        final Map<String, AttributeValue> item = itemFor(token);
+        try {
+            return persistence.putItem(b -> b.tableName(AUTH_TOKENS_TABLE).item(item)
+                            .conditionExpression("#v = :read")
+                            .expressionAttributeNames(Map.of("#v", VALIDATOR_HASH))
+                            .expressionAttributeValues(Map.of(":read",
+                                    AttributeValue.builder().s(readValidatorHash).build())))
+                    .sdkHttpResponse().isSuccessful();
+        } catch (final ConditionalCheckFailedException ex) {
+            log.info("Auth token {} was revoked or rotated before this rotation was written.", token.getSelector());
+            return false;
+        } catch (final RuntimeException ex) {
+            log.error("Failed to rotate auth token.", ex);
+            return false;
+        }
+    }
+
+    private static Map<String, AttributeValue> itemFor(final AuthToken token) {
         final Map<String, AttributeValue> item = new HashMap<>();
         item.put(SELECTOR, AttributeValue.builder().s(token.getSelector()).build());
         item.put(VALIDATOR_HASH, AttributeValue.builder().s(token.getValidatorHash()).build());
@@ -94,13 +134,7 @@ public class AuthTokenDAO {
         if (token.getParentSelector() != null) {
             item.put(PARENT_SELECTOR, AttributeValue.builder().s(token.getParentSelector()).build());
         }
-        try {
-            return persistence.putItem(b -> b.tableName(AUTH_TOKENS_TABLE).item(item))
-                    .sdkHttpResponse().isSuccessful();
-        } catch (final RuntimeException ex) {
-            log.error("Failed to save auth token.", ex);
-            return false;
-        }
+        return item;
     }
 
     /**
@@ -169,7 +203,9 @@ public class AuthTokenDAO {
     /** Fail-open like {@link #read}: one unreadable table must not take the other's rows down with it. */
     private void scanInto(final List<AuthToken> sink, final String table, final Person.Id userId) {
         try {
-            for (final Map<String, AttributeValue> row : persistence.scanAll(b -> b.tableName(table))) {
+            // Consistent, like the point read: the revocation sweep must see a row written a moment ago.
+            for (final Map<String, AttributeValue> row
+                    : persistence.scanAll(b -> b.tableName(table).consistentRead(true))) {
                 final AttributeValue owner = row.get(USER_ID);
                 if (owner != null && userId.getValue().equals(owner.s())) {
                     sink.add(fromItem(row));
@@ -203,7 +239,9 @@ public class AuthTokenDAO {
      */
     private Optional<AuthToken> read(final String table, final String selector) {
         try {
-            final GetItemResponse item = persistence.getItem(b -> b.tableName(table)
+            // Strongly consistent: a row deleted a moment ago (a revocation) must already read as gone, or the
+            // rotation that follows would be judged against a credential that no longer exists.
+            final GetItemResponse item = persistence.getItem(b -> b.tableName(table).consistentRead(true)
                     .key(Map.of(SELECTOR, AttributeValue.builder().s(selector).build())).build());
             // Emptiness, not hasItem(): the in-memory fake answers a miss with an explicit empty map.
             return (item.hasItem() && !item.item().isEmpty())

@@ -12,6 +12,7 @@ import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Locale;
+import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.Audit;
 import org.paulsens.trip.cache.CacheKeys;
@@ -34,6 +35,39 @@ import org.paulsens.trip.cache.Cached;
 @FacesConfig
 @ApplicationScoped
 public class PassCommands {
+    private final Supplier<OrgCommands> orgSource;
+
+    public PassCommands() {
+        this(() -> org.paulsens.trip.api.Beans.get(OrgCommands.class));
+    }
+
+    /**
+     * Test seam (the {@link PersonCommands} pattern): {@code Beans.get} needs a CDI container. The org
+     * commands are only ever asked who may change SOMEBODY ELSE's sign-in ({@link OrgCommands#canChangeSignInOf}).
+     */
+    PassCommands(final Supplier<OrgCommands> orgSource) {
+        this.orgSource = orgSource;
+    }
+
+    /**
+     * This person's own stored login row, or null when they have none. Owner-checked, because the {@code pass}
+     * table is keyed by a mutable email: a row found under the person's address but naming somebody else is
+     * not theirs. Java-side only, like {@link #adminGetCreds} -- never hand the result to a page. A failed read
+     * propagates, so a caller deciding something on "has no login" cannot mistake an outage for an answer.
+     */
+    static Creds storedLoginOf(final Person person) {
+        return (person == null) ? null : storedLogin(person.getEmail(), person.getId());
+    }
+
+    /** {@link #storedLoginOf} by the address the login is keyed under, for a caller that already holds it. */
+    private static Creds storedLogin(final String email, final Person.Id owner) {
+        if (Util.isBlank(email) || owner == null) {
+            return null;
+        }
+        final Creds creds = DAO.getInstance().getCredsForCodeLogin(email.trim(), Cached.NO);
+        return (creds != null && owner.equals(creds.getUserId())) ? creds : null;
+    }
+
     public boolean userExistsWithEmail(final String email) {
         return DAO.getInstance().getPersonByEmail(email, Cached.NO) != null;
     }
@@ -270,9 +304,20 @@ public class PassCommands {
     }
 
     public Boolean deleteCreds(final String email) {
-        // The plain (no-password, no-viewMap) read: this is not an authorization -- removeCreds carries its
-        // own gate -- just a lookup of whose remember-me tokens die if the removal succeeds.
+        // The plain (no-password, no-viewMap) read: whose login this is, for the sign-in rule below and for
+        // the remember-me tokens that die if the removal succeeds. removeCreds carries its own gate as well.
         final Creds doomed = DAO.getInstance().getCredsForCodeLogin(email, Cached.NO);
+        if (doomed != null && doomed.getUserId() != null
+                && !orgSource.get().canChangeSignInOf(doomed.getUserId())) {
+            // Removing a login ends how its owner signs in, so it takes the same reach as changing it.
+            Audit.builder(AuditAction.DELETE_CREDS, AuditOutcome.FAILURE)
+                    .currentActor(email)
+                    .targetPerson(email, doomed.getUserId().getValue())
+                    .message("Refused to remove credentials for " + email + ": not permitted to change this"
+                            + " person's sign-in")
+                    .log();
+            return PageFeedback.refuse(OrgCommands.SIGN_IN_CHANGE_REFUSED);
+        }
         final Boolean result = DAO.getInstance().removeCreds(email);
         if (Boolean.TRUE.equals(result) && doomed != null && doomed.getUserId() != null) {
             RememberMeService.getInstance().revokeAllFor(doomed.getUserId());
@@ -290,9 +335,19 @@ public class PassCommands {
         return result;
     }
 
+    /**
+     * Moves a login to a new address: the second half of an email change on the Manage People page, after
+     * the person row was saved. Whoever does this for somebody else decides where that person's sign-in codes
+     * are mailed, so it takes {@link OrgCommands#canChangeSignInOf}: being able to edit the profile is not
+     * enough (an organization can add any account as a member, and its people admin then edits that profile).
+     */
     public Boolean setEmail(final Person person, final String oldEmail, final String newEmail) {
         if (newEmail == null || newEmail.equals(oldEmail)) {
             return false;
+        }
+        // A blank old address has no login to move (see below), so there is nothing here to authorize.
+        if (!Util.isBlank(oldEmail) && !orgSource.get().canChangeSignInOf(person.getId())) {
+            return PageFeedback.refuse(OrgCommands.SIGN_IN_CHANGE_REFUSED);
         }
         final Boolean result;
         // Update their old Creds to use their new email
@@ -360,7 +415,13 @@ public class PassCommands {
             PageFeedback.error("Check email address, and make sure you have registered.");
             return false;
         }
-        final Creds creds = new Creds(email, person.getId(), pass);
+        // The stored row with a new password, NOT a fresh row: the row also carries the account's role and
+        // its last sign-in, and a fresh one is an ordinary user who never signed in. That is how an
+        // administrator who changed their password stopped being one. A row under this address that names
+        // somebody else is not this person's to inherit from, so only then is a new one written.
+        final Creds stored = storedLogin(email, person.getId());
+        final Creds creds = (stored == null) ? new Creds(email, person.getId(), pass) : stored;
+        creds.setPass(pass);
         final Boolean saved = dao.saveCreds(creds);
         if (Boolean.TRUE.equals(saved)) {
             // A changed password is the "I no longer trust the old state" signal: every browser holding a

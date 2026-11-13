@@ -55,6 +55,82 @@ public class RememberMeServiceTest {
     }
 
     /**
+     * The revocation race, cookie side: a password change deletes the row just after a restore has read it.
+     * The rotation must not put the row back, and the restore must not sign the browser in.
+     */
+    @Test
+    public void aRestoreThatLosesToARevocationSignsNobodyInAndRecreatesNothing() {
+        final Creds creds = userCreds("userrace2");
+        final List<Cookie> issued = new ArrayList<>();
+        service.issue(requestWith((Cookie) null), responseCapturing(issued), creds);
+        final String selector = issued.get(0).getValue().split(":")[0];
+        final DAO real = DAO.getInstance();
+        final DAO racing = Mockito.spy(real);
+        Mockito.doAnswer(call -> revokedRightAfter(call, real, selector))
+                .when(racing).getAuthToken(selector, Cached.NO);
+
+        final List<Cookie> answered = new ArrayList<>();
+        final Creds restored;
+        try (org.mockito.MockedStatic<DAO> dao = Mockito.mockStatic(DAO.class, Mockito.CALLS_REAL_METHODS)) {
+            dao.when(DAO::getInstance).thenReturn(racing);
+            restored = service.validateAndRotate(requestWith(issued.get(0)), responseCapturing(answered));
+        }
+
+        Assert.assertNull(restored, "a revoked remember-me token must not restore a session");
+        Assert.assertTrue(real.getAuthToken(selector, Cached.NO).isEmpty(), "the revoked row must stay gone");
+        Assert.assertEquals(answered.size(), 1, "the dead cookie is expired");
+        Assert.assertEquals(answered.get(0).getMaxAge(), 0);
+    }
+
+    /**
+     * Losing the rotation to a RACING restore (a page and its long-poll, both restoring from one cookie) is not
+     * losing to a revocation: the row is still there and honors this validator as the one just replaced, so the
+     * restore signs in and sets no cookie -- the winner already gave the browser the live one.
+     */
+    @Test
+    public void aRestoreThatLosesToARacingRestoreStillSignsInWithoutANewCookie() {
+        final Creds creds = userCreds("userrace5");
+        final List<Cookie> issued = new ArrayList<>();
+        service.issue(requestWith((Cookie) null), responseCapturing(issued), creds);
+        final DAO real = DAO.getInstance();
+        final DAO racing = Mockito.spy(real);
+        Mockito.doAnswer(call -> afterARacingRotation(call, real))
+                .when(racing).rotateAuthToken(ArgumentMatchers.any(), ArgumentMatchers.anyString());
+
+        final List<Cookie> answered = new ArrayList<>();
+        final Creds restored;
+        try (org.mockito.MockedStatic<DAO> dao = Mockito.mockStatic(DAO.class, Mockito.CALLS_REAL_METHODS)) {
+            dao.when(DAO::getInstance).thenReturn(racing);
+            restored = service.validateAndRotate(requestWith(issued.get(0)), responseCapturing(answered));
+        }
+
+        Assert.assertNotNull(restored, "the loser of its own race is still signed in");
+        Assert.assertEquals(answered, List.of(), "and gets no cookie: the winner set the live one");
+        real.deleteAuthToken(issued.get(0).getValue().split(":")[0]);
+    }
+
+    /** The other restore rotates first, from the same read; this one's conditional write then finds it changed. */
+    private static Object afterARacingRotation(final org.mockito.invocation.InvocationOnMock write, final DAO real)
+            throws Throwable {
+        final org.paulsens.trip.model.AuthToken mine = write.getArgument(0);
+        final String readHash = write.getArgument(1);
+        final org.paulsens.trip.model.AuthToken winner =
+                real.getAuthToken(mine.getSelector(), Cached.NO).orElseThrow();
+        winner.setPrevValidatorHash(readHash);
+        winner.setRotatedAt(java.time.Instant.now().getEpochSecond());
+        winner.setValidatorHash("the-winners-validator-hash");
+        Assert.assertTrue(real.saveAuthToken(winner));
+        return write.callRealMethod();
+    }
+
+    private static Object revokedRightAfter(final org.mockito.invocation.InvocationOnMock read, final DAO real,
+            final String selector) throws Throwable {
+        final Object row = read.callRealMethod();
+        real.deleteAuthToken(selector);
+        return row;
+    }
+
+    /**
      * A browser on an org-site host can present TWO remember-me cookies (a host-only one from before the
      * shared-cookie deploy plus the domain-wide one); logout must burn both rows, not just the first.
      */

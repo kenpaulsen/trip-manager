@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.AuditCommands;
 import org.paulsens.trip.action.OrgCommands;
@@ -204,11 +205,20 @@ public class PeopleResource extends BaseResource {
             return error(400, ApiErrors.VALIDATION_FAILED, "sex must be Male or Female.");
         }
         apply(body, person, level);
-        // The savePerson funnel would refuse this anyway; checking here turns an opaque 500 into a clear 409.
+        // Being able to edit this profile is not enough to change the address its sign-in codes go to
+        // (OrgCommands.canChangeSignInOf). The savePerson funnel would refuse this anyway, with the same
+        // reach; checking here turns an opaque 500 into a 403 that says why. Built over THIS request's
+        // caller: the bean's own org commands look for a FacesContext and would see nobody.
+        final Supplier<OrgCommands> reach = () -> new OrgCommands(this::caller);
+        final String signInRefusal = people.signInChangeRefusal(person, reach);
+        if (signInRefusal != null) {
+            return error(403, ApiErrors.FORBIDDEN, signInRefusal);
+        }
+        // Likewise refused by the funnel; checking here turns an opaque 500 into a clear 409.
         if (people.emailTakenByAnother(person)) {
             return error(409, ApiErrors.CONFLICT, "That email already belongs to another person.");
         }
-        if (!people.savePerson(person)) {
+        if (!people.savePerson(person, reach)) {
             return error(500, ApiErrors.STORE_FAILED, "Could not save the person.");
         }
         Beans.get(AuditCommands.class).person(person, "EDITED", actor());

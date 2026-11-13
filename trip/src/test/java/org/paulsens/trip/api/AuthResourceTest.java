@@ -227,6 +227,48 @@ public class AuthResourceTest extends ResourceTestSupport {
         Mockito.verify(tokens).revokeAllFor(ME);
     }
 
+    /**
+     * The ambiguous miss: the bean answers a blank person for a FAILED read exactly as it does for a missing
+     * one. When the store cannot confirm the account is gone, nothing is revoked -- one throttled read used to
+     * sign a healthy person out of every device and drop their push registrations -- and the answer is 503.
+     */
+    @Test
+    public void meAnswers503AndKeepsTheTokensWhenTheStoreCannotSayWhetherThePersonExists() {
+        signedInAs(ME);
+        Mockito.when(bean(PersonCommands.class).getPerson(ArgumentMatchers.any())).thenReturn(new Person());
+        final org.paulsens.trip.security.TokenService tokens =
+                Mockito.mock(org.paulsens.trip.security.TokenService.class);
+
+        final AuthResource failingStore = resource(new AuthResource(tokens, AuthResourceTest::storeIsDown));
+        assertError(failingStore.me(), 503, ApiErrors.STORE_FAILED);
+
+        Mockito.verify(tokens, Mockito.never()).revokeAllFor(ArgumentMatchers.any());
+    }
+
+    /** The row is there after all (only the cached path missed it): still nobody is signed out. */
+    @Test
+    public void meKeepsTheTokensWhenTheStoreStillHoldsThePerson() {
+        signedInAs(ME);
+        Mockito.when(bean(PersonCommands.class).getPerson(ArgumentMatchers.any())).thenReturn(new Person());
+        final org.paulsens.trip.security.TokenService tokens =
+                Mockito.mock(org.paulsens.trip.security.TokenService.class);
+
+        final AuthResource stillThere = resource(new AuthResource(tokens, AuthResourceTest::storeHasThem));
+        assertError(stillThere.me(), 503, ApiErrors.STORE_FAILED);
+
+        Mockito.verify(tokens, Mockito.never()).revokeAllFor(ArgumentMatchers.any());
+    }
+
+    private static java.util.Optional<Person> storeIsDown(final Person.Id id) {
+        throw new IllegalStateException("ProvisionedThroughputExceededException for " + id);
+    }
+
+    private static java.util.Optional<Person> storeHasThem(final Person.Id id) {
+        final Person person = new Person();
+        person.setId(id);
+        return java.util.Optional.of(person);
+    }
+
     @Test
     public void meReturnsTheCallersOwnUnredactedRecordAndTheirFlags() {
         signedInAs(ME);

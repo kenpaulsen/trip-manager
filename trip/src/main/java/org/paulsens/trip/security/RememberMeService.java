@@ -137,8 +137,12 @@ public class RememberMeService {
             expire(request, response);
             return null;
         }
-        if (judgment == SelectorTokens.Judgment.CURRENT) {
-            rotate(request, response, token, selector);
+        if (judgment == SelectorTokens.Judgment.CURRENT
+                && !rotate(request, response, token, selector, parsed.get().validatorHash())) {
+            // The rotation was not written AND the row no longer honors this cookie: it was revoked (a
+            // password change, a sign-out elsewhere) after this restore read it. Nobody is signed in.
+            expire(request, response);
+            return null;
         }
         // Grace path: no rotation and no Set-Cookie -- the racing request that won already rotated and set
         // the browser's cookie to the live validator; rotating again here would just restage the race.
@@ -175,22 +179,32 @@ public class RememberMeService {
         }
     }
 
-    private void rotate(final HttpServletRequest request, final HttpServletResponse response,
-            final AuthToken token, final String selector) {
+    /**
+     * Rotates the validator and sets the new cookie.
+     *
+     * @return whether the restore may proceed: true when the rotation was written, and also when it was not
+     *         but the stored row still honors the presented validator (a racing request rotated first, or
+     *         the store hiccuped -- rotation is a hardening measure, not a precondition). False only when
+     *         the row is gone, which means a revocation beat this restore; the conditional write is what
+     *         keeps the rotation from putting such a row back.
+     */
+    private boolean rotate(final HttpServletRequest request, final HttpServletResponse response,
+            final AuthToken token, final String selector, final String presentedHash) {
         final String freshValidator = SelectorTokens.mintValidator();
         final long now = Instant.now().getEpochSecond();
+        final String readValidatorHash = token.getValidatorHash();
         // The outgoing validator stays honored for the grace window; only ONE generation back, so a
         // validator two rotations old is stale evidence again.
-        token.setPrevValidatorHash(token.getValidatorHash());
+        token.setPrevValidatorHash(readValidatorHash);
         token.setRotatedAt(now);
         token.setValidatorHash(Digests.sha256Base64(freshValidator));
         token.setLastUsed(now);
-        if (Boolean.TRUE.equals(DAO.getInstance().saveAuthToken(token))) {
+        if (Boolean.TRUE.equals(DAO.getInstance().rotateAuthToken(token, readValidatorHash))) {
             final int remaining = (int) Math.max(60L, token.getExpires() - Instant.now().getEpochSecond());
             response.addCookie(cookie(request, selector + ":" + freshValidator, remaining));
+            return true;
         }
-        // A failed rotation save leaves the old validator valid; the login still proceeds -- rotation is a
-        // hardening measure, not a precondition.
+        return TokenService.stillHonored(selector, presentedHash, now);
     }
 
     private void expire(final HttpServletRequest request, final HttpServletResponse response) {

@@ -28,7 +28,8 @@ import software.amazon.awssdk.services.dynamodb.model.QueryResponse;
  * can round-trip under unit tests with the same honesty rules:
  *
  * <ul>
- *   <li>A conditional put on an existing key FAILS rather than overwriting.</li>
+ *   <li>A conditional put on an existing key FAILS rather than overwriting, and an {@code attribute_exists}
+ *       or {@code #attr = :value} put on a MISSING key fails rather than creating it.</li>
  *   <li>Keys sort as STRINGS, not numbers — zero-padding is load-bearing.</li>
  *   <li>{@code scanIndexForward(false)} returns a partition newest-first.</li>
  *   <li>Unaliased reserved words in expressions are rejected the way DynamoDB would.</li>
@@ -140,7 +141,14 @@ public class InMemoryPersistence implements Persistence {
             rejections.incrementAndGet();
             throw ConditionalCheckFailedException.builder().message("key exists: " + sk).build();
         }
-        if (condition != null && !notExists && !equalityConditionHolds(put, partition.get(sk))) {
+        // "Only if the row is still there": the write a revocation must be able to beat (an invite's use
+        // count). Honored here or a test of that race would pass against a store that recreates the row.
+        final boolean mustExist = condition != null && !notExists && condition.contains("attribute_exists");
+        if (mustExist && !partition.containsKey(sk)) {
+            rejections.incrementAndGet();
+            throw ConditionalCheckFailedException.builder().message("no such key: " + sk).build();
+        }
+        if (condition != null && !notExists && !mustExist && !equalityConditionHolds(put, partition.get(sk))) {
             rejections.incrementAndGet();
             throw ConditionalCheckFailedException.builder().message("condition failed: " + condition).build();
         }

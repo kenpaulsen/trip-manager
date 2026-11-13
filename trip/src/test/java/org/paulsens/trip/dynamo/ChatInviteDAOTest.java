@@ -62,6 +62,38 @@ public class ChatInviteDAOTest {
         Assert.assertEquals(DAO.getInstance().getChatInvite(channel, "sel-use", Cached.NO).orElseThrow().getUses(), 1L);
     }
 
+    /** Counting a use never writes a revoked link back: the put is conditional on the row still existing. */
+    @Test
+    public void recordUseRefusesToRecreateARevokedInvite() {
+        final ChatChannel.Id channel = ChatChannel.Id.forTrip("invite-dao-trip-revoked");
+        final long expires = Instant.now().plusSeconds(3600).getEpochSecond();
+        Assert.assertTrue(DAO.getInstance().saveChatInvite(invite(channel, "sel-gone", expires)));
+        final ChatInvite read = DAO.getInstance().getChatInvite(channel, "sel-gone", Cached.NO).orElseThrow();
+        Assert.assertTrue(DAO.getInstance().recordChatInviteUse(read), "a live link counts the use");
+
+        Assert.assertTrue(DAO.getInstance().deleteChatInvite(channel, "sel-gone"));
+        Assert.assertFalse(DAO.getInstance().recordChatInviteUse(read),
+                "false is the caller's signal that the link was revoked since it was read");
+        Assert.assertTrue(DAO.getInstance().getChatInvite(channel, "sel-gone", Cached.NO).isEmpty(),
+                "a revoked link must stay dead");
+    }
+
+    /** What the real store is asked for: a consistent point read, and a use count conditional on the row. */
+    @Test
+    public void theStoreIsAskedForAConsistentReadAndAConditionalUseCount() {
+        final RecordingPersistence store = new RecordingPersistence();
+        final ChatInviteDAO dao = new ChatInviteDAO(store);
+        final ChatChannel.Id channel = ChatChannel.Id.forTrip("invite-dao-requests");
+
+        Assert.assertTrue(dao.getInvite(channel, "sel-any").isEmpty());
+        Assert.assertEquals(store.reads.get(0).consistentRead(), Boolean.TRUE);
+
+        Assert.assertTrue(dao.recordUse(invite(channel, "sel-any", Instant.now().plusSeconds(60).getEpochSecond())));
+        Assert.assertEquals(store.puts.get(0).conditionExpression(), "attribute_exists(#s)");
+        Assert.assertEquals(store.puts.get(0).expressionAttributeNames(),
+                java.util.Map.of("#s", ChatInviteDAO.SELECTOR));
+    }
+
     @Test
     public void expiryIsAnswerable() {
         final ChatChannel.Id channel = ChatChannel.Id.forTrip("invite-dao-trip-5");
@@ -100,7 +132,8 @@ public class ChatInviteDAOTest {
 
         Assert.assertFalse(dao.saveInvite(invite(channel, "sel-fail", expires)));
         Assert.assertFalse(dao.deleteInvite(channel, "sel-fail"));
-        dao.recordUse(invite(channel, "sel-fail", expires)); // best effort: must not throw
+        Assert.assertTrue(dao.recordUse(invite(channel, "sel-fail", expires)),
+                "the count is best effort: a store error must not throw, nor read as a revoked link");
     }
 
     @Test

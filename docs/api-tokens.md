@@ -101,6 +101,28 @@ signature — row deleted, ALARM audit, exactly as `RememberMeService.validateAn
 Reusing same-selector rotation instead of the OAuth-style new-selector-per-refresh buys theft detection for
 free; do not change the rotation style without replacing that property.
 
+**Rotation never recreates a revoked row (2026-11-12).** A rotation is a read-modify-write of a row that
+authenticates. It used to be an eventually consistent read followed by an unconditional put, so a revocation
+that landed in between was undone: a password change deleted the row and a refresh that had already read it
+wrote it straight back, with a validator the holder of a stolen token now owned. Three things close it, for
+refresh tokens and remember-me cookies alike:
+
+- `AuthTokenDAO.rotateToken` is a compare-and-set, `#v = :read` on `validatorHash` (the shape of
+  `PaymentDAO.replacePaymentIfUnchanged`): the put only lands while the row still holds the validator that
+  was read. `saveToken` stays unconditional for issuance. The point read and the per-person scan are
+  strongly consistent, so a row deleted a moment ago already reads as gone.
+- A rotation that was not written is not retried; the row is read again (`TokenService.stillHonored`). Gone
+  means revoked: a refused refresh (401), a remember-me restore that signs nobody in. Still there and
+  honoring the presented validator, as current or as the one a racing request just replaced, is the grace
+  path it would have taken a moment later: access, no new refresh token.
+- After minting the access token, `refresh` confirms the refresh row still exists and takes the access token
+  back if not. A revocation's sweep that ran before the access row was written could never delete it, and
+  it would have lived out its 30 minutes with no parent.
+
+What is left is the gap between a revocation's scan and its delete of the refresh row, if a refresh's whole
+mint-and-check falls inside it: one access token can then outlive the revocation by its own lifetime. That
+window is a few milliseconds and no longer repeatable, because the refresh row itself stays dead.
+
 `role` and `scope` are **stamped on the rows at issuance and refresh**, when credentials are read
 (`Cached.NO`) anyway. Access validation trusts the stamp for the access lifetime; the refresh call is the
 freshness checkpoint at which a demoted admin loses admin power. This is the same staleness bound a live
@@ -154,8 +176,9 @@ ScopedValue (its javadoc makes "one binding point" a rule), and an actor bound b
 audit every token request as UNKNOWN. The filter's own concern stays session recovery; the token work lives in
 a static `BearerTokens.resolve(request)` (guard: header present and path under `/api/`), which validates via
 the cache above and stashes an immutable `TokenPrincipal` record — `personId, email, role, scope, selector` —
-as a request attribute. The filter then binds `new RequestContext(actor, role)` from the principal instead of
-the (absent) session. Nothing mutable enters the ScopedValue; the record rule holds.
+as a request attribute. The filter then binds `RequestContext.of(actor, principal.boundRole(), site)` from the
+principal instead of the (absent) session: the SCOPE-CAPPED role, never the raw `role` stamped on the token
+row (see [scopes](#scopes--admin-vs-member)). Nothing mutable enters the ScopedValue; the record rule holds.
 
 From there, one preference order, applied everywhere identity is asked:
 
@@ -182,6 +205,15 @@ through `siteAdmin`, a member-scoped token held by an administrator behaves as t
 role — and the ops resources (Mail, Deploy, Privileges, Config, Cache), which all gate on site-admin or
 admin-held privileges, need zero per-resource changes. Do not add per-resource scope checks; a second choke
 point is how the two drift.
+
+The cap itself is `TokenPrincipal.siteAdmin()`, and there are two readers of it, not two caps: `Caller.forToken`
+for resources, and `TokenPrincipal.boundRole()` for the `RequestContext` the filter binds (the admin role when
+`siteAdmin()`, an ordinary user's otherwise). The second exists because beans that re-check the caller inside
+a write read `Caller.bound()`, which knows only the bound role. Until 2026-11-12 the filter bound the raw
+role, so an administrator's member-scoped token was a site admin to every such bean: `MediaResource` let them
+in on an org-scoped Media Admin row and `MediaCommands.mayManage` then treated them as site admin, writable
+over every trip's chat album. Anything new that needs "is this bearer caller a site admin" asks one of those
+two, never the raw `role`.
 
 The deliberate residue: explicit privilege rows still apply under member scope. A person holding `TRIP_MGR`
 keeps it through a member-scoped token, exactly as through their own session — member scope means "no more
@@ -239,6 +271,21 @@ Backing endpoints on `AuthResource`, `@TripApi`-bound (session or token — a ph
 - `DELETE /api/auth/sessions/{selector}` — CSRF-checked (browser callers), owner-checked **inside the DAO**
   (the `PasskeyDAO.deletePasskey` pattern), 404 for missing and not-owned alike ("whether someone ELSE has
   this token is not an answerable question"), cascades through `parentSelector`, audited.
+
+**Not during View As (2026-11-12).** While an administrator is viewing as somebody, the session's person IS
+that somebody (`Sessions.pushViewAs`), so "your own profile" on the page and `personId()` here both name the
+viewed person. Both endpoints above, and passkey registration and removal (`PasskeyResource`), answer 403
+`FORBIDDEN` while `Sessions.isViewAs(session)`: a snapshot on `viewAsStack`, or `aUser` set to someone other
+than the active user. A passkey registered then was the administrator's own authenticator, filed under the
+administrator's address, signing in as the viewed person for good, with a sign-in audit that named only the
+victim. The profile page should hide the two fieldsets on the same condition; the endpoints are the
+enforcement. A bearer caller is never in View As.
+
+`GET /api/auth/me` revokes a person's credentials only when the store CONFIRMS the account is gone: the bean
+it reads through answers a blank person for a failed read exactly as for a missing one, so it asks
+`DAO.getPerson(id, Cached.NO)` directly, which lets errors through. Gone: 401 and `revokeAllFor`. A read that
+failed (or a row that is there after all): 503 `STORE_FAILED`, nothing revoked. One throttled read used to
+sign a healthy person out of every device and drop their push registrations.
 
 ## Settings
 

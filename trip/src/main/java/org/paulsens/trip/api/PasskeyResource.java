@@ -92,6 +92,9 @@ public class PasskeyResource extends BaseResource {
         if (csrfMissing(csrf)) {
             return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
         }
+        if (viewingAs()) {
+            return viewAsRefused();
+        }
         if (!passkeys.enabled()) {
             return error(404, ApiErrors.NOT_FOUND, "Passkeys are not enabled.");
         }
@@ -117,6 +120,9 @@ public class PasskeyResource extends BaseResource {
     public Response registerFinish(@HeaderParam(CSRF_HEADER) final String csrf, final Map<String, Object> body) {
         if (csrfMissing(csrf)) {
             return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+        }
+        if (viewingAs()) {
+            return viewAsRefused();
         }
         if (!passkeys.enabled()) {
             return error(404, ApiErrors.NOT_FOUND, "Passkeys are not enabled.");
@@ -200,6 +206,9 @@ public class PasskeyResource extends BaseResource {
         if (csrfMissing(csrf)) {
             return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
         }
+        if (viewingAs()) {
+            return viewAsRefused();
+        }
         final Person.Id owner = personId();
         if (!Boolean.TRUE.equals(DAO.getInstance().deletePasskey(credentialId, owner))) {
             // Owner mismatch and not-found read the same: whether someone ELSE has this key is not an
@@ -211,6 +220,16 @@ public class PasskeyResource extends BaseResource {
                 .message("Removed a passkey")
                 .log();
         return ok(Map.of("deleted", true));
+    }
+
+    /**
+     * During View As {@code personId()} is the VIEWED person while the session's email is still the
+     * administrator's, so a key registered then is the administrator's authenticator, filed under their own
+     * address, signing in as somebody else -- for good, with no trace of View As on the sign-in. Removing a
+     * key is refused for the same reason: it would be the administrator editing that person's sign-in.
+     */
+    private Response viewAsRefused() {
+        return error(403, ApiErrors.FORBIDDEN, VIEW_AS_REFUSED);
     }
 
     private String sessionEmail() {

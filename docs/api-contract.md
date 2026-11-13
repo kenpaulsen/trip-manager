@@ -18,10 +18,13 @@ LocalDateTime `2026-09-12T17:31:30.025` (no zone), LocalDate `2026-09-12`.
 | `POST token/refresh` | `{refreshToken}` | grant; `refreshToken` omitted = keep the presented one |
 | `POST token/revoke` | `{refreshToken}` | `{revoked:true}` |
 | `POST code/request` | `{email}` | `{sent:true}` (local code `424242`) |
-| `GET me` | | `{person: PersonDto, siteAdmin, privileges:{privilegeAdmin, configAdmin, auditAdmin, mediaAdmin, siteDeployer}}` |
-| `GET sessions` / `DELETE sessions/{selector}` | | signed-in devices |
+| `GET me` | | `{person: PersonDto, siteAdmin, privileges:{privilegeAdmin, configAdmin, auditAdmin, mediaAdmin, siteDeployer}}`; 401 `NOT_AUTHENTICATED` only when the account is confirmed gone (its tokens are revoked); 503 `STORE_FAILED` when the server could not load it right now: keep the tokens and retry (2026-11-12, before that a failed read answered the 401 and revoked everything) |
+| `GET sessions` / `DELETE sessions/{selector}` | | signed-in devices; 403 `FORBIDDEN` on a website session that is an administrator viewing as somebody (never a bearer caller) |
 
 `Authorization: Bearer <selector>:<validator>`. Bearer requests need no CSRF header. 401 ⇒ refresh once.
+A refresh answers 401 once its token has been revoked (password change, sign-out of that device), even to a
+request already in flight when the revocation landed (2026-11-12); two refreshes racing each other still both
+succeed, the loser with `refreshToken` omitted.
 
 ### Sign-in flow additions (2026-09-13)
 
@@ -249,6 +252,10 @@ deleted, privacy{email,cell,city,street: PRIVATE|LOGGED_IN, shareItinerary: bool
 their shared itinerary; absent on a PUT = unchanged. `PUT` absent = unchanged, `""` = clear.
 `PUT` also writes `address` (contact-gated), `passport` (travel-gated) and `sex` (`Male|Female`; anything
 else is 400 `VALIDATION_FAILED`). `GET /api/people?q=` needs `peopleAdmin`.
+A `PUT` that changes SOMEBODY ELSE's `email` is 403 `FORBIDDEN` ("Changing how this person signs in takes a
+site administrator.") unless the caller may change that person's sign-in (2026-11-12, `docs/org-admin.md`):
+a family manager may still add a first address to a member who has none, but not change or clear one; a
+person's own address is theirs to change. Nothing else in the body is saved when it is refused.
 
 `?trip=` on the single read asks for the caller's ROLE on that trip to decide the redaction (`tripMgr`: the
 trip-admin view; `tripView`: the roster view). Since 2026-11-12 it counts only when the trip exists on this site
@@ -292,8 +299,10 @@ must be someone the caller manages (or the caller is a site admin): 403 else, 40
 `PUT /api/family/members/{id}/manager {manager}` → family. `DELETE /api/family/members/{id}` →
 `{deleted, family}`. Writes are online-only in the app. Refusal codes on the wire: `NOT_MANAGER` (403),
 `EMAIL_IN_USE`/`FAMILY_CHANGED` (409), and 422 `NAME_REQUIRED, SEX_REQUIRED, BIRTHDATE_REQUIRED,
-BIRTHDATE_FUTURE, MANAGER_NEEDS_EMAIL, FAMILY_FULL, LAST_MANAGER, CANNOT_DELETE_SELF, HAS_HISTORY`; an
-unparseable `sex` is 422 `VALIDATION_FAILED`.
+BIRTHDATE_FUTURE, MANAGER_NEEDS_EMAIL, FAMILY_FULL, LAST_MANAGER, CANNOT_DELETE_SELF, HAS_HISTORY,
+HAS_OWN_ACCOUNT`; an unparseable `sex` is 422 `VALIDATION_FAILED`. `HAS_OWN_ACCOUNT` (2026-11-12) refuses the
+`DELETE` of a member who is a family manager or signs in with their own login; like `HAS_HISTORY`, the member's
+`deleteBlockReason` already says so, so an app that hides Delete on that field never sees it.
 
 ## Orgs
 

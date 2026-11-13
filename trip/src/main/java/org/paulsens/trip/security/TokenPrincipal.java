@@ -2,6 +2,7 @@ package org.paulsens.trip.security;
 
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.model.AuthToken;
+import org.paulsens.trip.model.Creds;
 import org.paulsens.trip.model.Person;
 
 /**
@@ -28,5 +29,16 @@ public record TokenPrincipal(Person.Id personId, String email, String role, Auth
      */
     public boolean siteAdmin() {
         return scope == AuthToken.Scope.ADMIN && role != null && role.contains("admin");
+    }
+
+    /**
+     * The role to bind into the request's {@code RequestContext}: the token's own when it carries site-admin
+     * power, an ordinary user's otherwise. Derived from {@link #siteAdmin()} so there is still exactly ONE cap:
+     * the bound context is what {@code Caller.bound()} reads, and binding the raw {@link #role} made a
+     * member-scoped token held by an administrator a site admin to every bean that re-checks the caller that
+     * way, while the resource in front of it had correctly said it was not.
+     */
+    public String boundRole() {
+        return siteAdmin() ? role : Creds.USER_PRIV;
     }
 }

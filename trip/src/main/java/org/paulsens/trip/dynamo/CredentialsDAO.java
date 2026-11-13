@@ -23,6 +23,11 @@ public class CredentialsDAO {
      * org-scoped {@code peopleAdmin} holders, who are not site admins and so never get {@code showAll}).
      * The org-migration analogue of the template-set {@link #IS_ADMIN} flag: both mark "this rendered view
      * was admitted by a server-side admin gate", which is what the credential read requires.
+     *
+     * <p>It unlocks the READ and nothing else. Whether that view's user may then move or remove the login is
+     * a separate question about the login's owner, asked by {@code PassCommands} of
+     * {@code OrgCommands.canChangeSignInOf}: the gate that sets this flag admits anyone who is a people admin
+     * of any organization.
      */
     public static final String CREDS_ADMIN_VIEW = "credsAdminView";
     static final String PASS_TABLE = "pass";

@@ -15,7 +15,7 @@ import org.paulsens.trip.cache.Cached;
  */
 public class PassCommandsTailsTest {
 
-    private final PassCommands pass = new PassCommands();
+    private final PassCommands pass = new PassCommands(TenancyFixtures::asSiteAdmin);
     private final PersonCommands people = new PersonCommands();
 
     private Person personWithCreds(final String first) {

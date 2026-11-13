@@ -118,7 +118,10 @@ remove X because revocation is deliberately not allow-list-checked) plus a "+ Ad
 row: org membership is explicit, ended only by the Remove link under the member's name, which renders
 only when removal can succeed (not an org admin, on none of the org's trips) and confirms first. Org
 admin itself is a confirmed checkbox in its own column; `setOrgAdmin` refuses to revoke the org's LAST
-admin. Leaving an org revokes its org-scoped privileges (`removeMember`), and a
+admin. Leaving an org revokes its org-scoped privileges AND every trip role held on the org's trips
+(`removeMember`; the trip roles since 2026-11-12: `setTripRole` grants to members only, so the role was bounded
+by the membership, and staff who are not travelers are on no roster and so were never caught by the next rule;
+their Editor, Finance and Registration access used to outlive the removal). A
 member on one of the org's trips cannot be removed at all. Trip roles (Editor Admin, Finance Admin,
 Finance Viewer, Viewer, Chat Admin, Registration Admin) are granted on `trip/edit.jsf` by site admins OR
 the owning org's admins, through `OrgCommands.setTripRole`. Since 2026-08-24 that page's Trip Managers
@@ -137,7 +140,12 @@ when the trip shares itineraries and the person has not opted out (`docs/shared-
 `OrgCommands.completeTripManagerCandidates` — the trip's org MEMBERS only, resolved from the page's
 pinned `viewScope.theTripId`, and empty for callers who may not manage the trip's roles (the completion
 endpoint is POSTable without the dialog, so authorization lives on the data source). Never wire a
-people picker on an org-owned page to the global `people.searchPeople`. `setTripRole` enforces the same
+people picker on an org-owned page to the global `people.searchPeople`. The shared multi-select picker
+(`WEB-INF/selectPeople.xhtml`: Batch Transactions, the To do editor, the privilege editors) searches through
+`people.searchCandidates`, which since 2026-11-12 is bounded for anyone but a site admin to the organizations
+the caller belongs to (`OrgCommands.sharesOrgWith`): a trip's Finance Admin on Batch Transactions could type
+any tenant's email or cell number, get the name back, and bind a money row to that person. People already
+selected stay offered whatever their org; the page's own rule put them there. `setTripRole` enforces the same
 boundary server-side: grants require membership in the trip's org (site admins included, the
 `grantOrgPrivilege` stance); revokes stay open so a departed member's stale role remains removable.
 Org-less trips are site-admin-only and keep the global search.
@@ -238,6 +246,50 @@ themselves — by a family manager's add-member flow, or through `POST /api/peop
 (`account/person.xhtml`) saves through `PersonCommands.saveProfile`, which refuses a person no row
 exists for: `?id=<unknown>` used to hand an admin a blank Person under a fresh id whose Save created a
 junk row.
+
+## Changing how someone signs in (2026-11-12)
+
+`OrgCommands.canAdminPerson` is reach over a person's PROFILE: site admin, or `peopleAdmin` in ANY organization
+the person belongs to. It follows membership, and membership can be imposed: an org admin adds any existing
+account by its address (`addMemberByEmail`), a registration joins the traveler to the trip's org, and an org
+admin can grant themselves `peopleAdmin`. That reach is kept for reading and editing the profile (owner
+decision, 2026-11). It is NOT enough to change how the person signs in, because that is taking the account:
+sign-in codes are mailed to the address on the person row, and a code redeemed at an address with no login
+creates one.
+
+`OrgCommands.canChangeSignInOf(subject)` is the one rule, asked by every path below. True for the person
+themselves and for a site admin. For anyone else, ALL of:
+
+- `canAdminPerson(subject)`;
+- the subject is not a site admin (the role on their own stored login row; a login that cannot be read counts
+  as one);
+- the caller holds `peopleAdmin` in EVERY organization the subject belongs to, so another tenant's member is
+  never one organization's to re-key;
+- for every organization the subject administers (`Organization.adminIds`), the caller may manage that
+  organization (`canManageOrg`), so a people admin cannot take over their own org's admin.
+
+A refusal is an ordinary refused outcome with one sentence, the same on every edge
+(`OrgCommands.SIGN_IN_CHANGE_REFUSED`): "Changing how this person signs in takes a site administrator."
+
+| Path | Where it is enforced |
+|------|----------------------|
+| A profile save that changes, clears or first sets another person's email (Manage People's Save Person 1, `account/person.xhtml`, any bean that saves a person) | `PersonCommands.savePerson` via `signInChangeRefusal`: every person save funnels through it. Changing or clearing needs the rule; a FIRST address also passes for the person's family manager (`canAddEmailFor`, `docs/family-accounts.md`) |
+| `PUT /api/people/{id}` with an `email` | the same check with the request's own caller, answered 403 `FORBIDDEN` before anything is saved |
+| Moving the login to the new address (`PassCommands.setEmail`, Manage People) | the rule, before any credential is read or written |
+| Removing a login (`PassCommands.deleteCreds`, Manage People's delete and its save) | the rule, on the login's OWNER; a refusal is audited as a failed `DELETE_CREDS` |
+| Deleting a person who has a login of their own (Manage People's delete, through `savePerson`) | the rule; a person with no login (a created child, a lodging contact) is deleted on profile reach as before |
+| A family manager deleting a member (`FamilyCommands.deleteFamilyMemberOutcome`) | never a manager or someone with their own login, for anyone (`docs/family-accounts.md`) |
+| Passkeys and signed-in devices | only ever the session's own person (`PasskeyResource`, `AuthResource.sessions`), and refused while that session is View As (`docs/api-tokens.md`) |
+
+Not on the list because nobody can do them to another person at all: setting a password (it takes the current
+password, or the one-shot flag an emailed code leaves on the person's OWN session; the admin set-password page
+is gone), and sending a sign-in code (it goes to the address typed at the login page, and only its mailbox can
+read it).
+
+Two things follow for the pages. Manage People still OPENS for a people admin on profile reach, and its Save
+is refused only when the address changed, with the sentence above. And `viewScope.credsAdminView` only lets
+that page's view read a login row by address (the User Type line, the re-key); it authorizes nothing by
+itself.
 
 ## Email addresses (the Settings section, 2026-08-24)
 
@@ -340,6 +392,8 @@ list.
   membered into that org. People search results are bounded per-subject (`canAdminPerson`), so counts can
   shrink for pre-migration clients.
 - `AuthResource` no longer reports `peopleAdmin`/`emailAdmin`/`addTrip` flags (absent reads as false).
+- `PUT /api/people/{id}` refuses a change to another person's `email` with 403 unless the caller may change
+  that person's sign-in (2026-11-12, "Changing how someone signs in").
 
 ## Organization sites (subdomains, 2026-09)
 

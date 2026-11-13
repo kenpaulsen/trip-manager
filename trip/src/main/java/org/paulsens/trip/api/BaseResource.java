@@ -24,6 +24,7 @@ import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.security.BearerTokens;
 import org.paulsens.trip.security.TokenPrincipal;
+import org.paulsens.trip.web.Sessions;
 
 /**
  * What every resource on this API needs and none of them should reinvent: response shaping, {@code Accept}
@@ -131,6 +132,18 @@ public abstract class BaseResource {
             }
         }
         throw new NotAuthorizedException("Sign in required.");
+    }
+
+    /** What an endpoint that manages the caller's own sign-in answers while an administrator is viewing as them. */
+    protected static final String VIEW_AS_REFUSED =
+            "Not available while viewing as another person. Go back to your own account first.";
+
+    /**
+     * Whether an administrator is viewing the site AS the session's person ({@link Sessions#isViewAs}). A
+     * bearer caller never is: View As is a session state, and a token is its own person's.
+     */
+    protected boolean viewingAs() {
+        return principal() == null && Sessions.isViewAs(request.getSession(false));
     }
 
     /** The bearer principal riding this request, or null when the caller authenticated by session cookie. */

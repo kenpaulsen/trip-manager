@@ -431,6 +431,42 @@ public class ChatGuestAccessTest {
                 "roster members are in every list through the trip itself; a row would be noise");
     }
 
+    /**
+     * The revoke race: an administrator revokes the link just after a redemption has read it. Counting the use
+     * must not write the row back ("a revoked link must die immediately"), and the redemption is refused.
+     */
+    @Test
+    public void aRedeemThatLosesToARevokeIsRefusedAndTheLinkStaysDead() {
+        final String token = tokenOf(chat.createInvite(tripId, rosterMember, actor));
+        final String selector = selectorOf(token);
+        final ChatChannel.Id channelId = ChatChannel.Id.forTrip(tripId);
+        final Person.Id guest = outsider("race-guest");
+        final DAO real = DAO.getInstance();
+        final DAO racing = org.mockito.Mockito.spy(real);
+        org.mockito.Mockito.doAnswer(call -> revokedRightAfter(call, real, channelId, selector))
+                .when(racing).getChatInvite(channelId, selector, Cached.NO);
+
+        final String outcome;
+        try (org.mockito.MockedStatic<DAO> dao =
+                org.mockito.Mockito.mockStatic(DAO.class, org.mockito.Mockito.CALLS_REAL_METHODS)) {
+            dao.when(DAO::getInstance).thenReturn(racing);
+            outcome = chat.redeemInvite(tripId, token, guest, actor);
+        }
+
+        Assert.assertEquals(outcome, "invalid", "a link revoked mid-redemption is a refused redemption");
+        Assert.assertTrue(real.getChatInvite(channelId, selector, Cached.NO).isEmpty(),
+                "the revoked link must not be written back");
+        Assert.assertNull(rowFor(guest), "and nobody joined through it");
+        Assert.assertFalse(chat.canParticipate(tripId, guest));
+    }
+
+    private static Object revokedRightAfter(final org.mockito.invocation.InvocationOnMock read, final DAO real,
+            final ChatChannel.Id channelId, final String selector) throws Throwable {
+        final Object row = read.callRealMethod();
+        real.deleteChatInvite(channelId, selector);
+        return row;
+    }
+
     // ------------------------------------------------------------------ helpers
 
     /** A saved person in a family with the roster member, so isTripMember admits them without any row. */

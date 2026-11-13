@@ -17,7 +17,8 @@ import org.testng.annotations.Test;
 public class ActionBeansTailTest {
 
     private final RegistrationCommands registrations = new RegistrationCommands();
-    private final PersonCommands people = new PersonCommands();
+    // Over a site-admin caller: the picker search is bounded by the caller's organizations for anyone else.
+    private final PersonCommands people = new PersonCommands(TenancyFixtures::asSiteAdmin);
 
     private Person savedPerson(final String first) {
         final Person person = people.createPerson();

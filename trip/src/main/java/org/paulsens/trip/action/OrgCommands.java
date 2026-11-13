@@ -611,6 +611,7 @@ public class OrgCommands {
             savePersonOrWarn(person);
         }
         revokeOrgPrivilegesOf(org, personId);
+        revokeTripRolesOf(org, personId);
         audit(current, org, "Removed " + (person == null ? personId.getValue() : describe(person))
                 + " from organization '" + org.getName() + "'");
         return true;
@@ -626,6 +627,33 @@ public class OrgCommands {
         for (final String base : PrivilegeCommands.ORG_SCOPED_BASES) {
             final Privilege row = priv.getPrivilege(base, org.getId().getValue());
             if (row.getPeople().contains(personId)) {
+                priv.savePrivilege(row.withoutPerson(personId), caller().auditActor());
+            }
+        }
+    }
+
+    /**
+     * Strips every trip role the departing member held on this org's trips, for the same reason as
+     * {@link #revokeOrgPrivilegesOf}: {@link #setTripRole} grants to the org's members only, so the role was
+     * bounded by the membership that just ended. Staff who are not travelers are on no roster, so the "on a
+     * trip" refusal above never sees them, and before this their Editor, Finance and Registration access
+     * outlived the removal until someone took each role away by hand. EVERY trip the org owns, old ones
+     * included: an old trip's roster and ledger are exactly what a removed person should stop reading.
+     */
+    private void revokeTripRolesOf(final Organization org, final Person.Id personId) {
+        final PrivilegeCommands priv = privCommands();
+        final String orgId = org.getId().getValue();
+        for (final Trip trip : DAO.getInstance().getRecentTrips(0, Cached.YES)) {
+            if (orgId.equals(trip.getOrgId())) {
+                revokeTripRolesOn(priv, trip, personId);
+            }
+        }
+    }
+
+    /** One partition read per trip, then a save per role actually held (each save audits its own delta). */
+    private void revokeTripRolesOn(final PrivilegeCommands priv, final Trip trip, final Person.Id personId) {
+        for (final Privilege row : priv.getTripPrivileges(trip.getId())) {
+            if (PrivilegeCommands.TRIP_SCOPED_BASES.contains(row.getName()) && row.getPeople().contains(personId)) {
                 priv.savePrivilege(row.withoutPerson(personId), caller().auditActor());
             }
         }
@@ -908,6 +936,100 @@ public class OrgCommands {
         }
         return subject.getOrgIds().stream()
                 .anyMatch(orgId -> current.has(PrivilegeCommands.PEOPLE_ADMIN, orgId.getValue()));
+    }
+
+    /** What a refused sign-in change says, on every edge: plain, and the same words each time. */
+    public static final String SIGN_IN_CHANGE_REFUSED =
+            "Changing how this person signs in takes a site administrator.";
+
+    /**
+     * Whether the signed-in user may change how this person SIGNS IN: the address their login and their sign-in
+     * codes are tied to, their login row, the account itself. THE one rule for it; every path that changes
+     * somebody else's sign-in asks here ({@code docs/org-admin.md}, "Changing how someone signs in").
+     *
+     * <p>Yourself, always, and a site admin. Anyone else needs more than {@link #canAdminPerson}, because that
+     * reach follows membership and membership can be imposed: an org admin adds any account by its address and
+     * may grant themselves {@code peopleAdmin}. Editing a profile on that footing is accepted (owner decision,
+     * 2026-11); deciding where the person's sign-in codes are mailed is taking the account. So, all of: reach
+     * over the person; the person is not a site admin; {@code peopleAdmin} in EVERY organization they belong
+     * to, so another tenant's member is never one org's to re-key; and for each organization they administer,
+     * the caller may manage that organization, so a people admin cannot take over their own org's admin.
+     */
+    public boolean canChangeSignInOf(final Person.Id subjectId) {
+        final Caller current = caller();
+        if (subjectId == null || !current.isAuthenticated()) {
+            return false;
+        }
+        if (current.isSiteAdmin() || subjectId.equals(current.personId())) {
+            return true;
+        }
+        // Fresh, not cached: this gates a write, and a membership added a moment ago must count.
+        final Person subject = DAO.getInstance().getPerson(subjectId, Cached.NO).orElse(null);
+        return subject != null
+                && canAdminPerson(subjectId)
+                && subject.getOrgIds().stream()
+                        .allMatch(orgId -> current.has(PrivilegeCommands.PEOPLE_ADMIN, orgId.getValue()))
+                && !holdsSiteAdminLogin(subject)
+                && managesEveryOrgAdministeredBy(subjectId);
+    }
+
+    /**
+     * Whether the signed-in user may give this person their FIRST email address. Whoever may change their
+     * sign-in may; so may their own family manager, which is how a member created without an address gets one
+     * ({@code docs/family-accounts.md}, "Adding a missing address"). Nobody else: the first address on a
+     * profile decides who can sign in as that person, since a sign-in code mailed there creates the login.
+     */
+    public boolean canAddEmailFor(final Person.Id subjectId) {
+        if (canChangeSignInOf(subjectId)) {
+            return true;
+        }
+        final Caller current = caller();
+        if (subjectId == null || !current.isAuthenticated()) {
+            return false;
+        }
+        return DAO.getInstance().getPerson(current.personId(), Cached.NO)
+                .map(me -> me.getManagedUsers().contains(subjectId))
+                .orElse(false);
+    }
+
+    /**
+     * The stored role on the person's own login. A read that fails answers "yes": the rule this feeds must
+     * refuse when it cannot tell, never allow.
+     */
+    private static boolean holdsSiteAdminLogin(final Person subject) {
+        try {
+            final org.paulsens.trip.model.Creds login = PassCommands.storedLoginOf(subject);
+            return login != null && login.getPriv() != null && login.getPriv().contains("admin");
+        } catch (final RuntimeException ex) {
+            log.error("Could not read the login of {} to check its role; treating it as a site admin's.",
+                    subject.getId(), ex);
+            return true;
+        }
+    }
+
+    /** Every org row, not just the person's derived {@code orgIds}: an admin missing from that list is still one. */
+    private boolean managesEveryOrgAdministeredBy(final Person.Id subjectId) {
+        return getOrganizations().stream()
+                .filter(org -> org.isAdmin(subjectId))
+                .allMatch(org -> canManageOrg(org.getId().getValue()));
+    }
+
+    /**
+     * Whether this person belongs to an organization the signed-in user belongs to (a site admin: always). The
+     * bound for a people picker on a page whose viewer has no people-admin standing, such as a trip's Finance
+     * Admin on Batch Transactions: their own organizations' members, never another tenant's.
+     */
+    public boolean sharesOrgWith(final Person person) {
+        final Caller current = caller();
+        if (person == null || !current.isAuthenticated()) {
+            return false;
+        }
+        if (current.isSiteAdmin()) {
+            return true;
+        }
+        final List<Organization.Id> mine = DAO.getInstance().getPerson(current.personId(), Cached.YES)
+                .map(Person::getOrgIds).orElse(List.of());
+        return person.getOrgIds().stream().anyMatch(mine::contains);
     }
 
     /**

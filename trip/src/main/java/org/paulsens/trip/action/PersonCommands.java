@@ -48,6 +48,8 @@ public class PersonCommands {
      * query string across the PayPal round trip). Declared here so the acting-for switch can clear it.
      */
     public static final String PAY_FOR = "payFor";
+    /** How many search hits a people picker offers ({@link #searchPeople(String)}, {@link #searchCandidates}). */
+    private static final int PICKER_LIMIT = 25;
 
     private final Supplier<OrgCommands> orgSource;
 
@@ -77,6 +79,20 @@ public class PersonCommands {
     }
 
     public boolean savePerson(final Person person) {
+        return savePerson(person, orgSource);
+    }
+
+    /**
+     * {@link #savePerson(Person)} for an edge that resolves its own caller: a REST resource hands in org
+     * commands built over the request's session or token, because the default ones find the caller through
+     * {@code FacesContext} and would see nobody there. Only consulted when the save would change how the
+     * person signs in ({@link #signInChangeRefusal}).
+     */
+    public boolean savePerson(final Person person, final Supplier<OrgCommands> reach) {
+        final String refusal = signInChangeRefusal(person, reach);
+        if (refusal != null) {
+            return PageFeedback.refuse(refusal);
+        }
         if (emailTakenByAnother(person)) {
             PageFeedback.error("Email already in use",
                     "'" + person.getEmail() + "' already belongs to another person. Use a different address, "
@@ -98,6 +114,102 @@ public class PersonCommands {
             result = false;
         }
         return result;
+    }
+
+    /** Said when the stored row could not be read to compare against: the save is refused, not waved through. */
+    static final String SIGN_IN_CHECK_FAILED =
+            "Not saved: this person's current record could not be read. Please try again.";
+
+    /**
+     * Why this save may not go through as it stands, or null when it may: the profile-save half of THE sign-in
+     * rule ({@link OrgCommands#canChangeSignInOf}). Every person save funnels through here, and two things a
+     * save can do change how somebody signs in, so each takes more than being able to edit the profile:
+     *
+     * <ul>
+     *   <li><b>Changing the email.</b> Sign-in codes are mailed to the address on the person row, and a code
+     *       redeemed at an address with no login creates one. Whoever sets the address can sign in as the
+     *       person. A FIRST address may also come from the person's family manager
+     *       ({@link OrgCommands#canAddEmailFor}); replacing or clearing one never.</li>
+     *   <li><b>Deleting somebody who has their own login.</b> That ends an account its owner signs in to. A
+     *       member a family manager created by mistake has no login and is not touched by this.</li>
+     * </ul>
+     *
+     * <p>A person changing their own address is unaffected, and so is a brand-new person: creation has its own
+     * five doors. The stored row is read fresh; a cached one could approve a stale form putting back an address
+     * the person has since moved off.
+     */
+    public String signInChangeRefusal(final Person person, final Supplier<OrgCommands> reach) {
+        if (person == null || person.getId() == null) {
+            return null;
+        }
+        final Person stored;
+        try {
+            stored = DAO.getInstance().getPerson(person.getId(), Cached.NO).orElse(null);
+        } catch (final RuntimeException ex) {
+            log.error("Could not read person '{}' to check a sign-in change; refusing the save.", person.getId(), ex);
+            return SIGN_IN_CHECK_FAILED;
+        }
+        if (stored == null) {
+            return null;
+        }
+        final boolean allowed;
+        if (person.getDeleted() != null) {
+            allowed = mayEndAccount(stored, reach);
+        } else if (sameAddress(stored.getEmail(), person.getEmail())) {
+            allowed = true;
+        } else if (isBlank(stored.getEmail())) {
+            allowed = reach.get().canAddEmailFor(stored.getId());
+        } else {
+            allowed = reach.get().canChangeSignInOf(stored.getId());
+        }
+        return allowed ? null : OrgCommands.SIGN_IN_CHANGE_REFUSED;
+    }
+
+    /**
+     * Whether {@link #savePerson} would accept the signed-in user DELETING this person, for a page to decide
+     * before it offers Delete (or unlinks them from a family on the way to it): anyone without a login of
+     * their own on the page's existing reach, somebody who signs in only under
+     * {@link OrgCommands#canChangeSignInOf}. False for an id that names nobody.
+     */
+    public boolean canDeletePerson(final Person.Id id) {
+        if (id == null) {
+            return false;
+        }
+        try {
+            return DAO.getInstance().getPerson(id, Cached.NO)
+                    .map(stored -> mayEndAccount(stored, orgSource))
+                    .orElse(false);
+        } catch (final RuntimeException ex) {
+            log.error("Could not read person '{}' to decide whether they may be deleted.", id, ex);
+            return false;
+        }
+    }
+
+    private static boolean mayEndAccount(final Person stored, final Supplier<OrgCommands> reach) {
+        return !hasOwnLogin(stored) || reach.get().canChangeSignInOf(stored.getId());
+    }
+
+    /** A login that could not be read counts as one: an outage must not be what lets an account be ended. */
+    private static boolean hasOwnLogin(final Person stored) {
+        try {
+            return PassCommands.storedLoginOf(stored) != null;
+        } catch (final RuntimeException ex) {
+            log.error("Could not read the login of {}; treating them as having one.", stored.getId(), ex);
+            return true;
+        }
+    }
+
+    /** Addresses compare the way the email index stores them: trimmed, case-folded, blank the same as none. */
+    private static boolean sameAddress(final String stored, final String updated) {
+        return normalized(stored).equals(normalized(updated));
+    }
+
+    private static String normalized(final String email) {
+        return email == null ? "" : email.trim().toLowerCase(java.util.Locale.ROOT);
+    }
+
+    private static boolean isBlank(final String value) {
+        return value == null || value.isBlank();
     }
 
     /**
@@ -315,7 +427,7 @@ public class PersonCommands {
 
     /** People search ({@link PersonMatch}); default result cap. */
     public List<Person> searchPeople(final String query) {
-        return searchPeople(query, 25);
+        return searchPeople(query, PICKER_LIMIT);
     }
 
     /**
@@ -556,8 +668,26 @@ public class PersonCommands {
         final List<Person> result = new ArrayList<>();
         selectedIds(selected).map(this::getPerson).filter(Objects::nonNull)
                 .filter(p -> !result.contains(p)).forEach(result::add);
-        searchPeople(query).stream().filter(p -> !result.contains(p)).forEach(result::add);
+        pickerSearch(query).stream().filter(p -> !result.contains(p)).forEach(result::add);
         return result;
+    }
+
+    /**
+     * The search half of {@link #searchCandidates}, bounded to the organizations the caller belongs to (a site
+     * admin: everyone). The picker is on pages a non-site-admin reaches -- a trip's Finance Admin on Batch
+     * Transactions -- and the global search matches email and cell across every account, so unbounded it
+     * mapped any tenant's address or phone number to a name and let that person be selected. Over-fetched
+     * before the filter, like {@link #adminSearchPeople}, so out-of-org hits cannot crowd out permitted ones.
+     */
+    private List<Person> pickerSearch(final String query) {
+        if (PersonMatch.queryWords(query).isEmpty()) {
+            return List.of();
+        }
+        final OrgCommands orgCommands = orgSource.get();
+        return searchPeople(query, PICKER_LIMIT * 4).stream()
+                .filter(orgCommands::sharesOrgWith)
+                .limit(PICKER_LIMIT)
+                .toList();
     }
 
     private Stream<Person.Id> selectedIds(final Object selected) {
@@ -664,6 +794,15 @@ public class PersonCommands {
         PageFeedback.info("Back to admin!",
                 getCurrentPerson().getPreferredName());
         return true;
+    }
+
+    /**
+     * Whether this session is an administrator viewing as somebody ({@link Sessions#isViewAs}): the one
+     * spelling for pages, which hide the passkey and signed-in-devices fieldsets on it. Those manage the
+     * session person's own sign-in, and during View As that person is the one being viewed.
+     */
+    public boolean isViewingAs() {
+        return Sessions.isViewAs(currentSession());
     }
 
     private static HttpSession currentSession() {

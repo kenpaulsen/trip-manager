@@ -24,7 +24,7 @@ import org.testng.annotations.Test;
  */
 public class PassCommandsTest {
 
-    private final PassCommands commands = new PassCommands();
+    private final PassCommands commands = new PassCommands(TenancyFixtures::asSiteAdmin);
 
     @Test
     public void aValidLoginAnswersCredsAndABadOneAnswersNull() {
@@ -113,7 +113,7 @@ public class PassCommandsTest {
      */
     @Test
     public void anEmailAlreadyInUseByAnotherAccountIsRevertedAndRefused() {
-        final PassCommands spied = Mockito.spy(new PassCommands());
+        final PassCommands spied = Mockito.spy(new PassCommands(TenancyFixtures::asSiteAdmin));
         final Creds taken = new Creds("admin", Person.Id.from("the-real-admin"), "x");
         Mockito.doReturn(taken).when(spied).adminGetCreds("admin");
 
@@ -127,7 +127,7 @@ public class PassCommandsTest {
 
     @Test
     public void aLegitimateEmailChangeRewritesTheOldCreds() {
-        final PassCommands spied = Mockito.spy(new PassCommands());
+        final PassCommands spied = Mockito.spy(new PassCommands(TenancyFixtures::asSiteAdmin));
         final Person person = new Person();
         person.setId(Person.Id.from("p-legit"));
         final Creds mine = new Creds("old@example.org", person.getId(), "x");
@@ -159,7 +159,7 @@ public class PassCommandsTest {
      */
     @Test
     public void givingAnEmailToAPersonWhoNeverHadOneDoesNotThrow() {
-        final PassCommands spied = Mockito.spy(new PassCommands());
+        final PassCommands spied = Mockito.spy(new PassCommands(TenancyFixtures::asSiteAdmin));
         Mockito.doReturn(null).when(spied).adminGetCreds("first-ever@example.org");
         final Person person = new Person();
         person.setId(Person.Id.from("family-member"));

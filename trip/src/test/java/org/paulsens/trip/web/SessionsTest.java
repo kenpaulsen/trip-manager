@@ -258,6 +258,28 @@ public class SessionsTest {
         Assert.assertFalse(Sessions.popViewAs(session));
     }
 
+    /** View As is exactly the span between a push and its matching pop, and never an admin's own session. */
+    @Test
+    public void isViewAsIsTrueOnlyBetweenAPushAndItsPop() {
+        final Map<String, Object> attrs = adminSession(Person.Id.from("the-admin"));
+        final HttpSession session = sessionOver(attrs);
+        Assert.assertFalse(Sessions.isViewAs(session), "an administrator's own session");
+        Assert.assertFalse(Sessions.isViewAs(null), "no session, nobody viewing as anyone");
+        Assert.assertFalse(Sessions.isViewAs(sessionOver(new HashMap<>())), "an ordinary session");
+
+        Assert.assertTrue(Sessions.pushViewAs(session, Person.Id.from("the-user")));
+        Assert.assertTrue(Sessions.isViewAs(session));
+        // Either sign alone is enough, so a session that lost one of them still counts.
+        attrs.remove(Sessions.VIEW_AS_STACK);
+        Assert.assertTrue(Sessions.isViewAs(session), "aUser differs from the active user");
+
+        attrs.clear();
+        attrs.putAll(adminSession(Person.Id.from("the-admin")));
+        Assert.assertTrue(Sessions.pushViewAs(session, Person.Id.from("the-user")));
+        Assert.assertTrue(Sessions.popViewAs(session));
+        Assert.assertFalse(Sessions.isViewAs(session), "back to the admin");
+    }
+
     /** The attribute set a real admin login leaves behind, plus dark mode. */
     private static Map<String, Object> adminSession(final Person.Id adminId) {
         final Map<String, Object> attrs = new HashMap<>();

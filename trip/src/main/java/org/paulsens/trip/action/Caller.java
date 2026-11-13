@@ -113,6 +113,9 @@ public final class Caller {
      * {@code RequestContext} the outermost filter binds for every request (actor + role), so beans that
      * re-check authorization inside a write ({@code MediaCommands.mayManage}) answer the same for a page
      * and for the API. Off a bound request (a scheduler, a unit test without the seam) this is nobody.
+     *
+     * <p>For a bearer request the bound role is already scope-capped ({@code TokenPrincipal.boundRole()}, which
+     * the filter binds), so this agrees with {@link #forToken} without a second cap of its own.
      */
     public static Caller bound() {
         if (!org.paulsens.trip.audit.RequestContext.SCOPE.isBound()) {

@@ -6,6 +6,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.util.HashMap;
 import java.util.Map;
 import org.mockito.Mockito;
+import org.paulsens.trip.action.Caller;
 import org.paulsens.trip.action.ConfigCommands;
 import org.paulsens.trip.action.PassCommands;
 import org.paulsens.trip.audit.AuditActor;
@@ -62,6 +63,49 @@ public class BearerRequestBindingTest {
             // fall to the production default, off, so the seeded value is restored explicitly.
             Assert.assertTrue(config.saveKnown(Map.of("api.token.enabled", "true"), "test"));
         }
+    }
+
+    /**
+     * The scope cap reaches the bound context too: beans that re-check the caller inside a write read it
+     * through {@code Caller.bound()}, and a member-scoped token held by an administrator must not be a site
+     * administrator there while the resource in front of it said it was not.
+     */
+    @Test
+    public void aMemberScopedTokenHeldByAnAdministratorBindsNoAdminRole() throws Exception {
+        final ConfigCommands config = new ConfigCommands();
+        Assert.assertTrue(config.saveKnown(Map.of("api.token.enabled", "true"), "test"));
+        final Creds admin = new PassCommands().login("admin", "admin");
+        Assert.assertEquals(admin.getPriv(), "admin");
+        final TokenService.Grant member = TokenService.getInstance().issue(admin, AuthToken.Scope.MEMBER, null);
+        final TokenService.Grant full = TokenService.getInstance().issue(admin, AuthToken.Scope.ADMIN, null);
+        try {
+            final Caller asMember = boundCallerFor(member.accessToken());
+            Assert.assertEquals(asMember.personId(), admin.getUserId(), "still that person");
+            Assert.assertFalse(asMember.isSiteAdmin(), "member scope: no more than their non-admin powers");
+            Assert.assertFalse(asMember.has("mediaAdmin"), "...so nothing is held without a row of its own");
+
+            Assert.assertTrue(boundCallerFor(full.accessToken()).isSiteAdmin(),
+                    "the admin role AND the admin scope together are a site administrator");
+        } finally {
+            TokenService.getInstance().revoke(member.refreshToken());
+            TokenService.getInstance().revoke(full.refreshToken());
+        }
+    }
+
+    /** {@code Caller.bound()} as code running inside a bearer request's filter chain sees it. */
+    private static Caller boundCallerFor(final String accessToken) throws Exception {
+        final Map<String, Object> attributes = new HashMap<>();
+        final HttpServletRequest request = Mockito.mock(HttpServletRequest.class);
+        Mockito.when(request.getRequestURI()).thenReturn("/api/media/some-id");
+        Mockito.when(request.getHeader("Authorization")).thenReturn("Bearer " + accessToken);
+        Mockito.when(request.getSession(false)).thenReturn(null);
+        Mockito.doAnswer(call -> attributes.put(call.getArgument(0), call.getArgument(1)))
+                .when(request).setAttribute(Mockito.anyString(), Mockito.any());
+        final Caller[] seen = new Caller[1];
+        final FilterChain chain = (req, res) -> seen[0] = Caller.bound();
+        new SessionRecoveryFilter().doFilter(request, Mockito.mock(HttpServletResponse.class), chain);
+        Assert.assertNotNull(attributes.get(BearerTokens.PRINCIPAL_ATTR), "the token must have been accepted");
+        return seen[0];
     }
 
     /** With the feature off (the production default), the same request binds anonymous -- no acceptance. */

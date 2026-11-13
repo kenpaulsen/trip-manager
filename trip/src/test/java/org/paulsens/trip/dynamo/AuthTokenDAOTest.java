@@ -68,6 +68,58 @@ public class AuthTokenDAOTest {
         Assert.assertTrue(DAO.getInstance().getAuthToken(selector, Cached.NO).isEmpty());
     }
 
+    /**
+     * The rotation write is a compare-and-set on the validator that was read: it replaces the row while the
+     * row still holds that validator, and writes NOTHING once the row is gone or was rotated by someone else.
+     */
+    @Test
+    public void rotationOnlyReplacesTheRowItRead() {
+        final String selector = RandomData.genSecureToken(9);
+        final AuthToken stored = token(selector, Person.Id.from("at-rotate"));
+        Assert.assertTrue(DAO.getInstance().saveAuthToken(stored));
+        final String read = stored.getValidatorHash();
+
+        final AuthToken rotated = token(selector, Person.Id.from("at-rotate"));
+        rotated.setValidatorHash("rotated-once");
+        Assert.assertTrue(DAO.getInstance().rotateAuthToken(rotated, read));
+        Assert.assertEquals(DAO.getInstance().getAuthToken(selector, Cached.NO).orElseThrow().getValidatorHash(),
+                "rotated-once");
+
+        final AuthToken late = token(selector, Person.Id.from("at-rotate"));
+        late.setValidatorHash("rotated-late");
+        Assert.assertFalse(DAO.getInstance().rotateAuthToken(late, read),
+                "a second rotation from the same read lost the race and must not overwrite the winner");
+        Assert.assertEquals(DAO.getInstance().getAuthToken(selector, Cached.NO).orElseThrow().getValidatorHash(),
+                "rotated-once");
+
+        Assert.assertTrue(DAO.getInstance().deleteAuthToken(selector));
+        Assert.assertFalse(DAO.getInstance().rotateAuthToken(late, "rotated-once"),
+                "a rotation must never recreate a revoked row");
+        Assert.assertTrue(DAO.getInstance().getAuthToken(selector, Cached.NO).isEmpty());
+    }
+
+    /**
+     * What the REAL store is asked for, which the in-memory fake cannot vouch for: the point read is strongly
+     * consistent (a row revoked a moment ago must read as gone), the rotation carries its condition, and a
+     * failing store is a refused rotation rather than an exception on the sign-in path.
+     */
+    @Test
+    public void theStoreIsAskedForAConsistentReadAndAConditionalRotation() {
+        final RecordingPersistence store = new RecordingPersistence();
+        final AuthTokenDAO dao = new AuthTokenDAO(store);
+
+        Assert.assertTrue(dao.getToken("some-selector").isEmpty());
+        Assert.assertEquals(store.reads.size(), 2, "auth_tokens, then the legacy fallback");
+        Assert.assertTrue(store.reads.stream().allMatch(read -> Boolean.TRUE.equals(read.consistentRead())),
+                "both reads must be consistent");
+
+        store.failPuts = true;
+        Assert.assertFalse(dao.rotateToken(token("some-selector", Person.Id.from("at-cond")), "the-read-hash"));
+        Assert.assertEquals(store.puts.get(0).conditionExpression(), "#v = :read");
+        Assert.assertEquals(store.puts.get(0).expressionAttributeNames(), Map.of("#v", AuthTokenDAO.VALIDATOR_HASH));
+        Assert.assertEquals(store.puts.get(0).expressionAttributeValues().get(":read").s(), "the-read-hash");
+    }
+
     /** The bearer-token fields are newer than the cookie fields; every one must survive a round trip. */
     @Test
     public void bearerTokenFieldsRoundTrip() {

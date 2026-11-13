@@ -95,15 +95,21 @@ Both on `ChatResource`, the channel path, so they share `tripIdOf`/CSRF/auth wit
 - `chat_invites` table: PK `channelId`, SK `selector`; attrs `validatorHash` (SHA-256 — the table never
   holds a working link; the full URL exists only in the minting session), `createdBy`, `created`,
   `expires` (epoch sec, doubles as TTL; redemption re-checks it because TTL lags), `uses` (best-effort).
-  `ChatInviteDAO` is deliberately UNCACHED (rows authorize; a revoked link must die immediately).
+  `ChatInviteDAO` is deliberately UNCACHED (rows authorize; a revoked link must die immediately), and for
+  the same reason its point read is strongly consistent and its one read-modify-write is conditional
+  (2026-11-12): `recordUse` puts with `attribute_exists(selector)`, so counting a use can never write back
+  a link that was revoked after the redemption read it. It answers `false` in exactly that case.
 - Guest reverse lookup: synthetic rows in `chat_members` under PK `person:{personId}`, SK = channel id —
   one partition query feeds `myChats`, keeping the no-GSI/no-scan design. These rows are NOT
   `ChatMembership` JSON; only `ChatDAO.addGuestChannel`/`listGuestChannelIds` touch them. `purgeChannel`
   orphans them harmlessly (`myChats` skips missing channels); re-clicking an invite self-heals a lost one.
-- Redeem writes membership row first, reverse row second, the `uses` increment third, non-transactionally:
-  losing a later write only hides the chat from that person's own list or under-counts a link, and
-  re-clicking heals both. The idempotent branch is an existing JOINED row that already says they are in
-  (guest-marked, or any row for a participant): reverse row only, no count, no audit.
+- Redeem writes the `uses` increment FIRST (2026-11-12; it was third), then the membership row, then the
+  reverse row, non-transactionally. The increment is the conditional write above, so it doubles as "is this
+  link still alive": a link revoked mid-redemption is refused as `invalid` (audited as a `CHAT_JOIN`
+  failure) before anybody has been let in through it. Losing a later write leaves a use counted for nobody
+  (the count is informational) or hides the chat from that person's own list, and re-clicking heals both.
+  The idempotent branch is an existing JOINED row that already says they are in (guest-marked, or any row
+  for a participant): reverse row only, no count, no audit.
 
 ## Knobs, audit, free behavior
 

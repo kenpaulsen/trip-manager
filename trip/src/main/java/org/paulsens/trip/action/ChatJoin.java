@@ -56,7 +56,8 @@ final class ChatJoin {
      * @param participant whether this person already has standing without the link ({@code isTripMember}) -- if
      *                    so the row is NOT guest-marked, because a link must not outlive the family membership
      *                    or privilege it was clicked with.
-     * @return the status token the redeem page renders: {@code ok} or {@code error}.
+     * @return the status token the redeem page renders: {@code ok}, {@code error}, or {@code invalid} when the
+     *         link was revoked while this redemption was in flight.
      */
     static String redeem(final ChatChannel channel, final Person.Id me, final ChatMembership existing,
             final boolean participant, final ChatInvite invite, final Instant now, final AuditActor actor) {
@@ -68,16 +69,32 @@ final class ChatJoin {
             return "ok";
         }
         final AuditActor who = actor == null ? AuditActor.current() : actor;
+        // The use is counted FIRST, by a write that only succeeds while the link still exists: a link revoked
+        // since redeemInvite read it is refused here, before anybody has been let in through it (and the count
+        // can no longer write a revoked link back). Counting last made the count the one write nothing checked.
+        if (!dao.recordChatInviteUse(invite)) {
+            return revoked(who, channel, invite.getSelector());
+        }
         final ChatMembership row = admission(channel, me, existing, participant, invite.getSelector(), now, who);
-        // Membership row first, reverse row second, the use count third: losing a later write only hides the
-        // chat from that person's own list or under-counts a link, and re-clicking heals both.
+        // Then the membership row, then the reverse row: losing the reverse row only hides the chat from that
+        // person's own list, and a membership row that fails to save leaves a use counted for nobody (the count
+        // is informational); re-clicking heals both.
         if (!dao.saveChatMembership(row)) {
             return "error";
         }
         dao.addGuestChatChannel(me, channel.getId());
-        dao.recordChatInviteUse(invite);
         audit(who, channel, joinMessage(existing, participant, invite.getSelector()));
         return "ok";
+    }
+
+    /** The same answer and the same kind of record as any other dead link: {@code invalid}, audited as a failure. */
+    private static String revoked(final AuditActor who, final ChatChannel channel, final String selector) {
+        Audit.log(Audit.builder(AuditAction.CHAT_JOIN, AuditOutcome.FAILURE)
+                .actor(who)
+                .target(AuditEventBuilder.TARGET_CHAT_CHANNEL, channel.getId().getValue())
+                .message("denied: invite " + selector + " was revoked while it was being redeemed")
+                .build());
+        return "invalid";
     }
 
     /**

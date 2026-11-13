@@ -98,9 +98,10 @@ public class SessionRecoveryFilter implements Filter {
                     (request instanceof HttpServletRequest http) ? BearerTokens.resolve(http) : null;
             // Bind the request identity for the whole chain (this is the outermost filter). call(), not
             // run(): doFilter throws checked exceptions -- tunneled through one carrier type because call()
-            // infers a single throws clause.
+            // infers a single throws clause. A bearer request binds the principal's SCOPE-CAPPED role
+            // (boundRole), never the raw one stamped on the token row: Caller.bound() reads this.
             ScopedValue.where(RequestContext.SCOPE, principal != null
-                            ? RequestContext.of(principal.actor(), principal.role(), site)
+                            ? RequestContext.of(principal.actor(), principal.boundRole(), site)
                             : RequestContext.from(session, site))
                     .call(() -> runChain(chain, request, response));
         } catch (final Tunnel tunneled) {

@@ -12,6 +12,8 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Optional;
+import java.util.function.Function;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.AuditCommands;
 import org.paulsens.trip.action.LoginCodeCommands;
@@ -52,6 +54,8 @@ public class AuthResource extends BaseResource {
     private static final String V1 = ApiMediaTypes.AUTH_V1;
 
     private final TokenService tokens;
+    /** The read that decides "this account is gone": straight from the store, and it lets errors through. */
+    private final Function<Person.Id, Optional<Person>> storedPerson;
 
     public AuthResource() {
         this(TokenService.getInstance());
@@ -59,7 +63,17 @@ public class AuthResource extends BaseResource {
 
     // Package-private: tests hand in a service wired to their own config.
     AuthResource(final TokenService tokens) {
+        this(tokens, AuthResource::readStoredPerson);
+    }
+
+    // Package-private: a test stands in a store that is failing, which the real one cannot be made to do.
+    AuthResource(final TokenService tokens, final Function<Person.Id, Optional<Person>> storedPerson) {
         this.tokens = tokens;
+        this.storedPerson = storedPerson;
+    }
+
+    private static Optional<Person> readStoredPerson(final Person.Id id) {
+        return DAO.getInstance().getPerson(id, Cached.NO);
     }
 
     @Override
@@ -404,6 +418,10 @@ public class AuthResource extends BaseResource {
     @TripApi
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response sessions() {
+        if (viewingAs()) {
+            // The session's person is the one being viewed: these would be THEIR devices, not the admin's.
+            return error(403, ApiErrors.FORBIDDEN, VIEW_AS_REFUSED);
+        }
         final Map<String, Object> result = new LinkedHashMap<>();
         result.put("sessions", tokens.sessionsFor(personId()).stream().map(AuthResource::describe).toList());
         return ok(result);
@@ -422,6 +440,9 @@ public class AuthResource extends BaseResource {
             @HeaderParam(CSRF_HEADER) final String csrf) {
         if (csrfMissing(csrf)) {
             return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+        }
+        if (viewingAs()) {
+            return error(403, ApiErrors.FORBIDDEN, VIEW_AS_REFUSED);
         }
         if (!tokens.revokeSession(personId(), selector)) {
             return error(404, ApiErrors.NOT_FOUND, "No such signed-in device.");
@@ -469,15 +490,7 @@ public class AuthResource extends BaseResource {
     public Response me() {
         final Person person = findPerson(personId());
         if (person == null) {
-            // The session names a person who is no longer there -- a deleted account with a live token or
-            // session. 401, not 404: the native client reads 404 as "API tokens are switched off" and parks on
-            // that screen with no way to sign out, which is exactly what a phone holding a deleted account's
-            // token did (2026-09-16). Its tokens are revoked here too, so the refresh that follows the 401
-            // fails and the client returns to the sign-in screen instead of retrying forever.
-            if (personId() != null) {
-                tokens.revokeAllFor(personId());
-            }
-            return error(401, ApiErrors.NOT_AUTHENTICATED, "Signed-in person not found.");
+            return personMissing(personId());
         }
         final ApiPrivileges privileges = privileges();
         final PersonDto dto = PersonMapper.INSTANCE.toDto(person).redactedFor(AccessLevel.SELF);
@@ -488,6 +501,44 @@ public class AuthResource extends BaseResource {
         // Self only, so it rides beside the redacted person rather than inside the shared PersonDto.
         result.put("defaultOrgId", person.getDefaultOrgId() == null ? null : person.getDefaultOrgId().getValue());
         return ok(result);
+    }
+
+    /**
+     * The answer when the caller's own person row did not come back.
+     *
+     * <p>That is ambiguous on its face: {@code findPerson} goes through a bean that turns ANY failed read into
+     * a blank person, so a throttled or timed-out store looks exactly like a deleted account. The two are told
+     * apart by asking the store directly, with a read that lets errors through:
+     *
+     * <ul>
+     *   <li>Really gone (a deleted account with a live token or session): 401, and every credential is
+     *       revoked. 401, not 404: the native client reads 404 as "API tokens are switched off" and parks on
+     *       that screen with no way to sign out, which is exactly what a phone holding a deleted account's
+     *       token did (2026-09-16). Revoking makes the refresh that follows the 401 fail, so the client
+     *       returns to the sign-in screen instead of retrying forever.</li>
+     *   <li>Could not tell (the read failed), or the row is there after all: 503, and NOTHING is revoked.
+     *       Revoking here signed a healthy person out of every device, and dropped their push registrations,
+     *       over one transient error.</li>
+     * </ul>
+     */
+    private Response personMissing(final Person.Id id) {
+        final Optional<Person> stored;
+        try {
+            stored = storedPerson.apply(id);
+        } catch (final RuntimeException ex) {
+            log.warn("Could not confirm whether person {} still exists; keeping their tokens.", id, ex);
+            return unavailable();
+        }
+        if (stored.isPresent()) {
+            log.warn("Person {} was not readable through the cache but is stored; keeping their tokens.", id);
+            return unavailable();
+        }
+        tokens.revokeAllFor(id);
+        return error(401, ApiErrors.NOT_AUTHENTICATED, "Signed-in person not found.");
+    }
+
+    private Response unavailable() {
+        return error(503, ApiErrors.STORE_FAILED, "Your account could not be loaded right now. Please try again.");
     }
 
     /**

@@ -607,6 +607,10 @@ public final class DAO {
     public Boolean saveAuthToken(final AuthToken token) {
         return authTokenDao.saveToken(token);
     }
+    /** The rotation write, refused once the row no longer holds the validator that was read. */
+    public Boolean rotateAuthToken(final AuthToken token, final String readValidatorHash) {
+        return authTokenDao.rotateToken(token, readValidatorHash);
+    }
     public Boolean deleteAuthToken(final String selector) {
         return authTokenDao.deleteToken(selector);
     }
@@ -953,8 +957,9 @@ public final class DAO {
     public Boolean deleteChatInvite(final ChatChannel.Id channelId, final String selector) {
         return chatInviteDao.deleteInvite(channelId, selector);
     }
-    public void recordChatInviteUse(final ChatInvite invite) {
-        chatInviteDao.recordUse(invite);
+    /** Counts one redemption; false only when the link no longer exists (revoked since it was read). */
+    public boolean recordChatInviteUse(final ChatInvite invite) {
+        return chatInviteDao.recordUse(invite);
     }
 
     // Bindings

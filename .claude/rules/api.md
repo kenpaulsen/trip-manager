@@ -39,6 +39,10 @@ expenses (`getClasses()` is the authoritative list) +
   anything that mints or validates a credential -- it holds the invariants (fully-attributed audit,
   bounded revocation, one Valkey GET on the hot path) every change must preserve.
 
+- An endpoint that manages the CALLER'S OWN sign-in (passkeys, signed-in devices) refuses while
+  `BaseResource.viewingAs()`: during an administrator's View As the session's person is the one being viewed,
+  so "mine" is theirs. Changing ANOTHER person's sign-in (their email above all) is never a matter of profile
+  reach: ask `OrgCommands.canChangeSignInOf` (`docs/org-admin.md`, "Changing how someone signs in").
 - Redaction is authorization: a DTO field the caller may not see is redacted by the mapper, not blocked by a
   route. `AccessLevel` is unranked -- do not compare its constants with ordinal logic.
 - `Beans.get` must select with the `Any` qualifier: `@FacesConfig` (on `PassCommands`) suppresses `@Default`,

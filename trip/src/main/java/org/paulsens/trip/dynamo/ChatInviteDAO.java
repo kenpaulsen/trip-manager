@@ -9,6 +9,7 @@ import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.chat.ChatChannel;
 import org.paulsens.trip.model.chat.ChatInvite;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
+import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
 import software.amazon.awssdk.services.dynamodb.model.GetItemResponse;
 
 /**
@@ -44,14 +45,7 @@ public class ChatInviteDAO {
         if (invite == null || invite.getChannelId() == null || invite.getSelector() == null) {
             return false;
         }
-        final Map<String, AttributeValue> item = new HashMap<>();
-        item.put(CHANNEL_ID, AttributeValue.builder().s(invite.getChannelId().getValue()).build());
-        item.put(SELECTOR, AttributeValue.builder().s(invite.getSelector()).build());
-        item.put(VALIDATOR_HASH, AttributeValue.builder().s(invite.getValidatorHash()).build());
-        item.put(CREATED_BY, AttributeValue.builder().s(invite.getCreatedBy().getValue()).build());
-        item.put(CREATED, AttributeValue.builder().n(String.valueOf(invite.getCreated().getEpochSecond())).build());
-        item.put(EXPIRES, AttributeValue.builder().n(String.valueOf(invite.getExpires())).build());
-        item.put(USES, AttributeValue.builder().n(String.valueOf(invite.getUses())).build());
+        final Map<String, AttributeValue> item = itemFor(invite);
         try {
             return persistence.putItem(b -> b.tableName(INVITES_TABLE).item(item))
                     .sdkHttpResponse().isSuccessful();
@@ -62,11 +56,24 @@ public class ChatInviteDAO {
         }
     }
 
+    private static Map<String, AttributeValue> itemFor(final ChatInvite invite) {
+        final Map<String, AttributeValue> item = new HashMap<>();
+        item.put(CHANNEL_ID, AttributeValue.builder().s(invite.getChannelId().getValue()).build());
+        item.put(SELECTOR, AttributeValue.builder().s(invite.getSelector()).build());
+        item.put(VALIDATOR_HASH, AttributeValue.builder().s(invite.getValidatorHash()).build());
+        item.put(CREATED_BY, AttributeValue.builder().s(invite.getCreatedBy().getValue()).build());
+        item.put(CREATED, AttributeValue.builder().n(String.valueOf(invite.getCreated().getEpochSecond())).build());
+        item.put(EXPIRES, AttributeValue.builder().n(String.valueOf(invite.getExpires())).build());
+        item.put(USES, AttributeValue.builder().n(String.valueOf(invite.getUses())).build());
+        return item;
+    }
+
     protected Optional<ChatInvite> getInvite(final ChatChannel.Id channelId, final String selector) {
         if (channelId == null || selector == null || selector.isEmpty()) {
             return Optional.empty();
         }
-        final GetItemResponse item = persistence.getItem(b -> b.tableName(INVITES_TABLE)
+        // Strongly consistent: a link revoked a moment ago must already read as gone.
+        final GetItemResponse item = persistence.getItem(b -> b.tableName(INVITES_TABLE).consistentRead(true)
                 .key(inviteKey(channelId, selector)).build());
         // Emptiness, not hasItem(): the in-memory fake answers a miss with an explicit empty map.
         return (item.hasItem() && !item.item().isEmpty())
@@ -105,15 +112,29 @@ public class ChatInviteDAO {
     }
 
     /**
-     * Best-effort redemption counter: a plain read-modify-write, because an exact count is informational and a
-     * lost increment must never fail (or slow) the join it is counting.
+     * Counts one redemption, and answers whether the link is still there to count it on.
+     *
+     * <p>The count itself stays best effort: a read-modify-write whose exact value is informational, so a
+     * store error is logged and answered {@code true} -- a lost increment must never fail the join it counts.
+     * What is NOT best effort is the row's existence. The put is conditional on the row still being there,
+     * because the unconditional one wrote a link back that an administrator had revoked between the
+     * redemption's read and this write, and "a revoked link must die immediately". Only that case answers
+     * {@code false}, and the caller refuses the redemption on it.
      */
-    protected void recordUse(final ChatInvite invite) {
+    protected boolean recordUse(final ChatInvite invite) {
+        final Map<String, AttributeValue> item = itemFor(new ChatInvite(invite.getChannelId(),
+                invite.getSelector(), invite.getValidatorHash(), invite.getCreatedBy(), invite.getCreated(),
+                invite.getExpires(), invite.getUses() + 1));
         try {
-            saveInvite(new ChatInvite(invite.getChannelId(), invite.getSelector(), invite.getValidatorHash(),
-                    invite.getCreatedBy(), invite.getCreated(), invite.getExpires(), invite.getUses() + 1));
+            persistence.putItem(b -> b.tableName(INVITES_TABLE).item(item)
+                    .conditionExpression("attribute_exists(#s)")
+                    .expressionAttributeNames(Map.of("#s", SELECTOR)));
+            return true;
+        } catch (final ConditionalCheckFailedException gone) {
+            return false;
         } catch (final RuntimeException ex) {
             log.debug("Chat invite use-count bump failed for {}.", invite.getSelector(), ex);
+            return true;
         }
     }
 

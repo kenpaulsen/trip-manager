@@ -130,6 +130,7 @@ public class PeopleResourceTest extends ResourceTestSupport {
 
         assertError(resource.update(OTHER.getValue(), CSRF_OK, null), 404, ApiErrors.NOT_FOUND);
         Mockito.verify(people, Mockito.never()).savePerson(ArgumentMatchers.any());
+        Mockito.verify(people, Mockito.never()).savePerson(ArgumentMatchers.any(), ArgumentMatchers.any());
     }
 
     @Test
@@ -229,7 +230,7 @@ public class PeopleResourceTest extends ResourceTestSupport {
         signedInAs(ME);
         final Person me = person(ME, "Ken");
         exists(me);
-        Mockito.when(people.savePerson(me)).thenReturn(Boolean.TRUE);
+        Mockito.when(people.savePerson(ArgumentMatchers.eq(me), ArgumentMatchers.any())).thenReturn(Boolean.TRUE);
 
         final PersonDto body = new PersonDto(null, null, null, null, null, null, null, null, null, null, null,
                 null, null, null, null, null, null, false,
@@ -247,7 +248,7 @@ public class PeopleResourceTest extends ResourceTestSupport {
         signedInAs(ME);
         final Person me = person(ME, "Ken");
         exists(me);
-        Mockito.when(people.savePerson(me)).thenReturn(Boolean.TRUE);
+        Mockito.when(people.savePerson(ArgumentMatchers.eq(me), ArgumentMatchers.any())).thenReturn(Boolean.TRUE);
         final PersonDto off = new PersonDto(null, null, null, null, null, null, null, null, null, null, null,
                 null, null, null, null, null, null, false, new PrivacyDto(null, null, null, null, false));
         assertOk(resource.update(ME.getValue(), CSRF_OK, off));
@@ -345,6 +346,7 @@ public class PeopleResourceTest extends ResourceTestSupport {
 
         assertError(resource.update(OTHER.getValue(), CSRF_OK, dto("Hacked")), 403, ApiErrors.FORBIDDEN);
         Mockito.verify(people, Mockito.never()).savePerson(ArgumentMatchers.any());
+        Mockito.verify(people, Mockito.never()).savePerson(ArgumentMatchers.any(), ArgumentMatchers.any());
     }
 
     @Test
@@ -359,7 +361,7 @@ public class PeopleResourceTest extends ResourceTestSupport {
         signedInAs(ME);
         final Person me = person(ME, "Ken");
         exists(me);
-        Mockito.when(people.savePerson(me)).thenReturn(true);
+        Mockito.when(people.savePerson(ArgumentMatchers.eq(me), ArgumentMatchers.any())).thenReturn(true);
 
         assertOk(resource.update(ME.getValue(), CSRF_OK, dto("Kenneth")));
 
@@ -379,7 +381,7 @@ public class PeopleResourceTest extends ResourceTestSupport {
         signedInAs(ME);
         final Person me = person(ME, "Ken");
         exists(me);
-        Mockito.when(people.savePerson(me)).thenReturn(true);
+        Mockito.when(people.savePerson(ArgumentMatchers.eq(me), ArgumentMatchers.any())).thenReturn(true);
 
         assertOk(resource.update(ME.getValue(), CSRF_OK, dto("Kenneth")));
 
@@ -387,12 +389,82 @@ public class PeopleResourceTest extends ResourceTestSupport {
         Assert.assertEquals(me.getCell(), "555-0100");
     }
 
+    /**
+     * Being able to edit a profile is not being able to change its sign-in address: the bean's refusal becomes
+     * a 403 that says why, and nothing in the body is saved.
+     */
+    @Test
+    public void anEmailChangeTheCallerMayNotMakeIs403AndSavesNothing() {
+        signedInAsSiteAdmin(ME);
+        final Person other = person(OTHER, "Sam");
+        exists(person(ME, "Ken"));
+        exists(other);
+        Mockito.when(people.signInChangeRefusal(ArgumentMatchers.eq(other), ArgumentMatchers.any()))
+                .thenReturn(org.paulsens.trip.action.OrgCommands.SIGN_IN_CHANGE_REFUSED);
+
+        final Response refused = resource.update(OTHER.getValue(), CSRF_OK, dto("Sam"));
+
+        assertError(refused, 403, ApiErrors.FORBIDDEN);
+        @SuppressWarnings("unchecked")
+        final java.util.Map<String, Object> body = (java.util.Map<String, Object>) refused.getEntity();
+        Assert.assertEquals(body.get("message"), "Changing how this person signs in takes a site administrator.");
+        Mockito.verify(people, Mockito.never()).savePerson(ArgumentMatchers.any(), ArgumentMatchers.any());
+        Mockito.verify(audit, Mockito.never()).person(ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any());
+    }
+
+    /**
+     * The same refusal with nothing stood in: an organization's people admin edits a member who also belongs to
+     * another organization. The name saves; the address does not, and the reach is this REQUEST's caller (the
+     * bean's own would look for a FacesContext and see nobody).
+     */
+    @Test
+    public void aPeopleAdminEditsTheProfileButNotTheSignInAddressOfAnotherTenantsMember() throws Exception {
+        bind(PersonCommands.class, new PersonCommands());
+        final org.paulsens.trip.dynamo.DAO dao = org.paulsens.trip.dynamo.DAO.getInstance();
+        final Person deputy = stored("Deputy");
+        final Person victim = stored("Victim");
+        final org.paulsens.trip.action.OrgCommands root = new org.paulsens.trip.action.OrgCommands(
+                () -> new org.paulsens.trip.action.Caller(Person.Id.from("root"), true,
+                        new org.paulsens.trip.audit.AuditActor("root@test", "root"),
+                        new org.paulsens.trip.action.PrivilegeCommands()));
+        final String orgA = root.createOrganization("PplA " + System.nanoTime(), null, null).getId().getValue();
+        final String orgB = root.createOrganization("PplB " + System.nanoTime(), null, null).getId().getValue();
+        Assert.assertTrue(root.addMember(orgA, deputy.getId()));
+        Assert.assertTrue(root.addMember(orgA, victim.getId()));
+        Assert.assertTrue(root.addMember(orgB, victim.getId()));
+        Assert.assertTrue(root.grantOrgPrivilege(orgA, deputy.getId(), ApiPrivileges.PEOPLE_ADMIN));
+        final String original = victim.getEmail();
+
+        signedInAs(deputy.getId());
+        final PersonDto rename = new PersonDto(null, "Vic", null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, false, null);
+        assertOk(resource(new PeopleResource()).update(victim.getId().getValue(), CSRF_OK, rename));
+        final PersonDto rekey = new PersonDto(null, null, null, null, null, null, null, null, null,
+                "attacker-" + System.nanoTime() + "@example.com", null,
+                null, null, null, null, null, null, false, null);
+        assertError(resource(new PeopleResource()).update(victim.getId().getValue(), CSRF_OK, rekey),
+                403, ApiErrors.FORBIDDEN);
+
+        final Person after = dao.getPerson(victim.getId(), org.paulsens.trip.cache.Cached.NO).orElseThrow();
+        Assert.assertEquals(after.getNickname(), "Vic", "the profile edit went through");
+        Assert.assertEquals(after.getEmail(), original, "the sign-in address did not move");
+    }
+
+    private static Person stored(final String first) throws java.io.IOException {
+        final Person person = Person.builder().first(first).last("Rest")
+                .email("rest." + first.toLowerCase(java.util.Locale.ROOT) + "." + System.nanoTime() + "@example.com")
+                .build();
+        Assert.assertTrue(org.paulsens.trip.dynamo.DAO.getInstance().savePerson(person));
+        return person;
+    }
+
     @Test
     public void aFailedUpdateIsReported() {
         signedInAs(ME);
         final Person me = person(ME, "Ken");
         exists(me);
-        Mockito.when(people.savePerson(me)).thenReturn(false);
+        Mockito.when(people.savePerson(ArgumentMatchers.eq(me), ArgumentMatchers.any())).thenReturn(false);
 
         assertError(resource.update(ME.getValue(), CSRF_OK, dto("Kenneth")), 500, ApiErrors.STORE_FAILED);
     }
@@ -767,7 +839,7 @@ public class PeopleResourceTest extends ResourceTestSupport {
         me.getPassport().setNumber("OLD-1");
         me.getPassport().setExpires(java.time.LocalDate.of(2030, 1, 1));
         exists(me);
-        Mockito.when(people.savePerson(me)).thenReturn(true);
+        Mockito.when(people.savePerson(ArgumentMatchers.eq(me), ArgumentMatchers.any())).thenReturn(true);
 
         final PersonDto body = new PersonDto(null, null, null, null, null, null, "female", null, null, null, null,
                 new org.paulsens.trip.api.dto.AddressDto("", null, "Seattle", "WA", null, null),
@@ -795,6 +867,7 @@ public class PeopleResourceTest extends ResourceTestSupport {
                 null, null, null, null, null, null, false, null);
         assertError(resource.update(ME.getValue(), CSRF_OK, body), 400, ApiErrors.VALIDATION_FAILED);
         Mockito.verify(people, Mockito.never()).savePerson(ArgumentMatchers.any());
+        Mockito.verify(people, Mockito.never()).savePerson(ArgumentMatchers.any(), ArgumentMatchers.any());
     }
 
     /** The redacted round-trip hazard: a body without a passport must not touch the stored one. */
@@ -805,7 +878,7 @@ public class PeopleResourceTest extends ResourceTestSupport {
         me.getAddress().setStreet("1 Old Street");
         me.getPassport().setNumber("OLD-1");
         exists(me);
-        Mockito.when(people.savePerson(me)).thenReturn(true);
+        Mockito.when(people.savePerson(ArgumentMatchers.eq(me), ArgumentMatchers.any())).thenReturn(true);
 
         final PersonDto body = new PersonDto(null, "Kenny", null, null, null, null, null, null, null, null, null,
                 null, null, null, null, null, null, false, null);

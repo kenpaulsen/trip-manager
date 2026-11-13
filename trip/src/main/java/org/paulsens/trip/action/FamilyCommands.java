@@ -181,8 +181,49 @@ public class FamilyCommands {
      * Why this member cannot be deleted by a manager, or null when deletion is allowed. Registrations have no
      * person-side index, so trip membership is the proxy (a registration is only created for a trip the person
      * is on); soft-deleted transactions still block -- financial history must survive.
+     *
+     * <p>Before either: the delete is for a member somebody created by mistake, so it never reaches a family
+     * manager or anyone who signs in for themselves ({@link #ownAccountBlock}). The family page and the REST
+     * family resource both hide Delete on this answer, so one rule covers the button and the write.
      */
     public String deleteBlockReason(final Person.Id memberId) {
+        final String ownAccount = ownAccountBlock(memberId);
+        if (ownAccount != null) {
+            return ownAccount;
+        }
+        return historyBlock(memberId);
+    }
+
+    /**
+     * Why this member is somebody a manager may not delete whatever their history: they are a manager of the
+     * family themselves, or they have a login of their own. Deleting the profile ends that person's account,
+     * and one adult deleting another's -- a spouse who signed up and was linked in by an admin, with no trip
+     * yet -- is not what "remove a family member" means. Those go to an admin, who UNLINKS and deletes nothing.
+     */
+    private String ownAccountBlock(final Person.Id memberId) {
+        final Person member = memberId == null ? null : DAO.getInstance().getPerson(memberId, Cached.NO).orElse(null);
+        if (member == null) {
+            return null;
+        }
+        final Family family = familyOf(member);
+        if (family != null && family.isManager(memberId)) {
+            return "This person is a family manager. Ask an administrator to remove them instead.";
+        }
+        return hasOwnLogin(member)
+                ? "This person signs in with their own account. Ask an administrator to remove them instead." : null;
+    }
+
+    /** A login that could not be read counts as one: an outage must not be what lets an account be deleted. */
+    private static boolean hasOwnLogin(final Person member) {
+        try {
+            return PassCommands.storedLoginOf(member) != null;
+        } catch (final RuntimeException ex) {
+            log.error("Could not read the login of {}; treating them as having one.", member.getId(), ex);
+            return true;
+        }
+    }
+
+    private String historyBlock(final Person.Id memberId) {
         if (!DAO.getInstance().getTripsForUser(memberId, Cached.NO).isEmpty()) {
             return "This person has trip registrations. Ask an administrator to remove them instead.";
         }
@@ -236,6 +277,7 @@ public class FamilyCommands {
         public static final String NO_FAMILY = "NO_FAMILY";
         public static final String CANNOT_DELETE_SELF = "CANNOT_DELETE_SELF";
         public static final String HAS_HISTORY = "HAS_HISTORY";
+        public static final String HAS_OWN_ACCOUNT = "HAS_OWN_ACCOUNT";
         public static final String LAST_MANAGER = "LAST_MANAGER";
         public static final String FAMILY_CHANGED = "FAMILY_CHANGED";
         public static final String STORE_FAILED = "STORE_FAILED";
@@ -402,7 +444,8 @@ public class FamilyCommands {
 
     /**
      * Delete (soft) a member a manager created by mistake -- allowed only while the member has no history at
-     * all ({@link #deleteBlockReason}). Anything with history goes through an admin unlink instead.
+     * all, is not a family manager, and has no login of their own ({@link #deleteBlockReason}). Anyone else
+     * goes through an admin unlink instead.
      */
     public boolean deleteFamilyMember(final Person.Id memberId) {
         return report(deleteFamilyMemberOutcome(memberId)).isOk();
@@ -427,7 +470,13 @@ public class FamilyCommands {
             return FamilyResult.refused(FamilyResult.CANNOT_DELETE_SELF, "Cannot delete yourself",
                     "You cannot delete your own profile.");
         }
-        final String blocked = deleteBlockReason(memberId);
+        // Site admins included: for a manager or somebody with their own login the admin path is the UNLINK
+        // on Manage People, which removes them from the family and deletes nothing.
+        final String ownAccount = ownAccountBlock(memberId);
+        if (ownAccount != null) {
+            return FamilyResult.refused(FamilyResult.HAS_OWN_ACCOUNT, "Cannot delete", ownAccount);
+        }
+        final String blocked = historyBlock(memberId);
         if (blocked != null) {
             return FamilyResult.refused(FamilyResult.HAS_HISTORY, "Cannot delete", blocked);
         }
@@ -514,6 +563,13 @@ public class FamilyCommands {
         final Person person = DAO.getInstance().getPerson(personId, Cached.NO).orElse(null);
         if (anchor == null || person == null) {
             return fail("Unknown person", "Both people must exist to link a family.");
+        }
+        // ...and over everyone ALREADY in the anchor's family, as resyncFamily requires: the link changes who
+        // manages whom across the whole household (a new manager gains every member, every manager gains the
+        // newcomer), and a member may belong to another organization only. Checked before ensureFamilyFor so
+        // a refusal writes nothing.
+        if (!hasReachOverFamilyOf(anchor)) {
+            return false;
         }
         final Family anchorFamily = ensureFamilyFor(anchor);
         if (anchorFamily == null) {
@@ -783,6 +839,20 @@ public class FamilyCommands {
             return true;
         }
         return fail("Not authorized", "Managing family links requires people-admin access to this person.");
+    }
+
+    /** {@link #requirePeopleAdminFor} over each member of this person's family; true when they have none yet. */
+    private boolean hasReachOverFamilyOf(final Person anchor) {
+        final Family family = familyOf(anchor);
+        if (family == null) {
+            return true;
+        }
+        for (final Person.Id memberId : family.getMemberIds()) {
+            if (!requirePeopleAdminFor(memberId)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private Person currentPerson() {

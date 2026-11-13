@@ -111,6 +111,24 @@ public final class Sessions {
     }
 
     /**
+     * Whether this session is an administrator viewing the site AS somebody else: a snapshot is on the stack,
+     * or {@code aUser} names someone other than the active user (either alone is enough, so a session that
+     * lost one of them still counts). While it lasts the session's person is the VIEWED one, so anything that
+     * manages "the signed-in person's" sign-in -- registering a passkey, listing or ending their devices --
+     * would be the administrator doing it to them; those endpoints refuse on this.
+     */
+    public static boolean isViewAs(final HttpSession session) {
+        if (session == null) {
+            return false;
+        }
+        if (!stackOf(session).isEmpty()) {
+            return true;
+        }
+        final Object admin = session.getAttribute(ADMIN_USER);
+        return admin != null && !admin.equals(session.getAttribute(PersonCommands.ACTIVE_USER_ID));
+    }
+
+    /**
      * Back to admin: clears everything the viewed-as user accumulated and restores the most recent
      * snapshot. Restoring is best-effort comfort; the CLEARING is the point -- state picked up while
      * impersonating must not follow the admin back either.

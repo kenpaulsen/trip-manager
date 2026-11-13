@@ -145,8 +145,8 @@ public class TokenService {
             return null;
         }
         final long now = Instant.now().getEpochSecond();
-        final SelectorTokens.Judgment judgment =
-                SelectorTokens.judge(token, SelectorTokens.parse(presented).orElseThrow().validatorHash(), now);
+        final String presentedHash = SelectorTokens.parse(presented).orElseThrow().validatorHash();
+        final SelectorTokens.Judgment judgment = SelectorTokens.judge(token, presentedHash, now);
         if (judgment == SelectorTokens.Judgment.EXPIRED) {
             revokeFamily(token);
             return null;
@@ -169,10 +169,22 @@ public class TokenService {
         String rotated = null;
         if (judgment == SelectorTokens.Judgment.CURRENT) {
             rotated = rotate(token, now);
+            // A rotation that was not written is either harmless (a racing request rotated first, or the
+            // store hiccuped: the row still honors what was presented) or a revocation that landed after
+            // this refresh read the row. Only the row itself can say which, and a revoked one ends here.
+            if (rotated == null && !stillHonored(token.getSelector(), presentedHash, now)) {
+                return null;
+            }
         }
         // Grace path: no rotation -- the racing request that won already rotated and holds the live token.
         final String access = mintAccess(token, now);
         if (access == null) {
+            return null;
+        }
+        if (DAO.getInstance().getAuthToken(token.getSelector(), Cached.NO).isEmpty()) {
+            // Revoked between the rotation and the mint: the revocation's sweep ran before this access
+            // token existed, so nothing else will ever delete it. Take it back rather than hand it out.
+            takeBack(access);
             return null;
         }
         Audit.builder(AuditAction.TOKEN_REFRESH, AuditOutcome.SUCCESS)
@@ -400,18 +412,43 @@ public class TokenService {
 
     /**
      * Rotates the refresh validator (same selector -- that is what makes theft detectable) and answers the
-     * new presentable token. A failed save answers null and leaves the OLD validator valid: handing the
-     * client a validator the store never accepted would strand the device, so "keep what you have" is the
-     * honest answer.
+     * new presentable token. The write is conditional on the row still holding the validator that was read
+     * ({@code DAO.rotateAuthToken}), so it can never recreate a row a revocation has deleted. A write that
+     * did not happen answers null and leaves the stored row as it was: handing the client a validator the
+     * store never accepted would strand the device, so "keep what you have" is the honest answer -- once the
+     * caller has checked the row is still there to keep ({@link #stillHonored}).
      */
     private String rotate(final AuthToken token, final long now) {
+        final String readValidatorHash = token.getValidatorHash();
         final String freshValidator = SelectorTokens.mintValidator();
-        token.setPrevValidatorHash(token.getValidatorHash());
+        token.setPrevValidatorHash(readValidatorHash);
         token.setRotatedAt(now);
         token.setValidatorHash(Digests.sha256Base64(freshValidator));
         token.setLastUsed(now);
-        return Boolean.TRUE.equals(DAO.getInstance().saveAuthToken(token))
+        return Boolean.TRUE.equals(DAO.getInstance().rotateAuthToken(token, readValidatorHash))
                 ? token.getSelector() + ":" + freshValidator : null;
+    }
+
+    /**
+     * Whether the stored row, read again now, still honors this presented validator: as its current one
+     * (nothing was written) or as the one a racing rotation just replaced (the grace window). False when
+     * the row is gone, which after a failed rotation means it was revoked. Shared with
+     * {@link RememberMeService}, whose rotation is this one.
+     */
+    static boolean stillHonored(final String selector, final String presentedHash, final long now) {
+        final AuthToken fresh = DAO.getInstance().getAuthToken(selector, Cached.NO).orElse(null);
+        if (fresh == null) {
+            return false;
+        }
+        final SelectorTokens.Judgment judgment = SelectorTokens.judge(fresh, presentedHash, now);
+        return judgment == SelectorTokens.Judgment.CURRENT || judgment == SelectorTokens.Judgment.GRACE;
+    }
+
+    /** Deletes an access token that was minted but must not be handed out, row and cache entry both. */
+    private void takeBack(final String presentableAccess) {
+        final String selector = SelectorTokens.parse(presentableAccess).orElseThrow().selector();
+        DAO.getInstance().deleteAuthToken(selector);
+        cache().remove(selector);
     }
 
     /**

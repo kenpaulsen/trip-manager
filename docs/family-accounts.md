@@ -30,9 +30,13 @@ Self-service is **create-and-link only**: `createFamilyMember` builds the new Pe
 non-admin can never link an id they did not just create. Linking an EXISTING person (spouse with their
 own login) is `adminLink`, on the Manage People page (the Person-2 compare column, or its "Link Family
 Member" search dialog). Admin family operations are gated per SUBJECT since the org migration (2026-08):
-`requirePeopleAdminFor` asks `OrgCommands.canAdminPerson` — site admin, or `peopleAdmin` scoped to an org
-the subject belongs to — and `adminLink` requires reach over BOTH ends, so an org's people admin can never
-relink another tenant's people. Everything is audited (`AuditAction.FAMILY`).
+`requirePeopleAdminFor` asks `OrgCommands.canAdminPerson` -- site admin, or `peopleAdmin` scoped to an org
+the subject belongs to -- and `adminLink` requires reach over BOTH ends **and over every member already in the
+anchor's family** (2026-11-12, as `resyncFamily` always has), so an org's people admin can never relink
+another tenant's people. The family half matters because a link changes who manages whom across the whole
+household: a person linked as manager gains every member, and a member may belong to another organization
+only (a child in org B whose parent later registered for an org A trip). The check runs before the family is
+created or anything is written. Everything is audited (`AuditAction.FAMILY`).
 
 Write order everywhere: person row that must exist → versioned family put → derived `managedUsers`
 sync computed from the IN-MEMORY objects just saved (a re-read can be stale in production) → audit.
@@ -79,6 +83,14 @@ Guard rails:
   zero transactions (soft-deleted ones count). Anything with history needs an admin **unlink**
   (Manage People, type-"remove" challenge validated server-side), blocked when the remaining family
   would keep no manager (2+ members) or no member with a valid email.
+- **The delete never reaches somebody with an account of their own** (2026-11-12): a member who is a
+  family manager, or who has a login row of their own (`PassCommands.storedLoginOf`), is refused with
+  `HAS_OWN_ACCOUNT` for managers and site admins alike, and goes to the same admin unlink. The delete
+  exists for a member created by mistake; without this rule one co-manager could delete the other (a
+  spouse who signed up and was linked in by an admin, with no trip yet), and that person's own account
+  stopped resolving. A member who was given an address but never signed in has no login and stays
+  deletable. `deleteBlockReason` carries all three reasons, and the family page and the REST family
+  resource both hide Delete on it, so the button and the write cannot disagree.
 - **Person-delete is family-aware**: the Manage People delete runs `adminUnlink` first — a deleted
   person still listed in `memberIds` renders blank everywhere.
 - Null emails are legitimate (members without logins); a NON-blank email must be unique across people,
@@ -87,6 +99,13 @@ Guard rails:
   email-index `.findFirst()` makes ownership arbitrary until then.
 - **Adding a missing address**: `account/person.xhtml` makes the email field editable only while it is
   EMPTY (changing an existing one renames the sign-in credentials with it — that stays with an admin).
+  The same rule is enforced on the save since 2026-11-12 (`PersonCommands.signInChangeRefusal`, every
+  edge): a FIRST address may come from the person themselves, their family manager, or whoever may change
+  their sign-in (`OrgCommands.canAddEmailFor`); nobody else who can open the profile. A trip's Editor
+  Admin or Finance Viewer arriving with `?trip=` could, and the first address on a profile decides who can
+  sign in as that person, because a sign-in code mailed there creates the login. Changing or clearing an
+  address that is already set is never a manager's, on the page or over `PUT /api/people/{id}`
+  (`docs/org-admin.md`, "Changing how someone signs in").
   Leaving the field runs `PersonCommands.emailConflictName` and, when taken, opens a dialog explaining
   that one address belongs to one account, suggesting they sign in with it instead, and offering
   `SupportChatCommands.fileEmailConflictRequest` (an `@all` post to the support channel) for a merge.
@@ -270,12 +289,12 @@ once.
 | `GET /api/family[?personId=]` | self; or a manager of / site admin over `personId` (403 else, 404 unknown) | `FamilyDto` — `id` null when there is no family yet (`members` = the subject alone); `canManage` is the caller's reach over THIS family; each member carries `manager`, `missingProfileFields`, `deleteBlockReason` (managers only) and their `PersonDto` redacted for the caller |
 | `POST /api/family/members` | a family manager, or a site admin; `forPersonId` grows that person's family | `{member, family}` — create-and-link, the one self-service way in |
 | `PUT /api/family/members/{id}/manager` `{manager}` | manager / site admin of the MEMBER's family | the family after the change |
-| `DELETE /api/family/members/{id}` | manager / site admin; only while the member has no history | `{deleted, family}` |
+| `DELETE /api/family/members/{id}` | manager / site admin; only while the member has no history, is not a manager, and has no login of their own | `{deleted, family}` |
 
 Refusal codes travel as the wire `error` when a client's remedy depends on them — `NOT_MANAGER` (403),
 `EMAIL_IN_USE` and `FAMILY_CHANGED` (409), and the 422 family: `NAME_REQUIRED`, `SEX_REQUIRED`,
 `BIRTHDATE_REQUIRED`, `BIRTHDATE_FUTURE`, `MANAGER_NEEDS_EMAIL`, `FAMILY_FULL`, `LAST_MANAGER`,
-`CANNOT_DELETE_SELF`, `HAS_HISTORY`. The generic ones map onto the API's generic codes (`NOT_AUTHENTICATED`,
+`CANNOT_DELETE_SELF`, `HAS_HISTORY`, `HAS_OWN_ACCOUNT`. The generic ones map onto the API's generic codes (`NOT_AUTHENTICATED`,
 `FORBIDDEN`, `NOT_FOUND`, `STORE_FAILED`). Admin linking of EXISTING people (`adminLink`) is deliberately not
 exposed — it is the one write that accepts an arbitrary person id.
 

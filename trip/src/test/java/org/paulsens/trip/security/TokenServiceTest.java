@@ -2,6 +2,7 @@ package org.paulsens.trip.security;
 
 import java.time.Instant;
 import java.util.List;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 import org.paulsens.trip.action.ConfigCommands;
 import org.paulsens.trip.action.PassCommands;
@@ -133,6 +134,106 @@ public class TokenServiceTest {
         Assert.assertNull(service.refresh(rotated.refreshToken()),
                 "theft detection must burn the token for the rightful holder too");
         Assert.assertNull(row(rotated.accessToken()), "the access children must die with the family");
+    }
+
+    /**
+     * The revocation race: a password change deletes every row just after a refresh has read its own. The
+     * refresh's write must not put the row back -- a stolen token looping on refresh would otherwise survive
+     * the very thing meant to end it -- and no access token may be left behind for it either.
+     */
+    @Test
+    public void aRefreshThatLosesToARevocationIsRefusedAndRecreatesNothing() {
+        final TokenService.Grant grant = service.issue(login("userrace1", "user"), AuthToken.Scope.MEMBER, null);
+        final String selector = SelectorTokens.parse(grant.refreshToken()).orElseThrow().selector();
+        final Person.Id owner = row(grant.refreshToken()).getUserId();
+        final DAO real = DAO.getInstance();
+        final DAO racing = Mockito.spy(real);
+        Mockito.doAnswer(call -> revokedRightAfter(call, real, owner)).when(racing).getAuthToken(selector, Cached.NO);
+
+        final TokenService.Grant refreshed;
+        try (MockedStatic<DAO> dao = Mockito.mockStatic(DAO.class, Mockito.CALLS_REAL_METHODS)) {
+            dao.when(DAO::getInstance).thenReturn(racing);
+            refreshed = service.refresh(grant.refreshToken());
+        }
+
+        Assert.assertNull(refreshed, "a refresh that lost to a revocation is a refused refresh");
+        Assert.assertNull(row(grant.refreshToken()), "the revoked row must stay gone");
+        Assert.assertEquals(real.listAuthTokensForUser(owner), List.of(), "and no access token outlives it");
+    }
+
+    /**
+     * The later half of the same race: the revocation lands after the rotation was written, so its sweep ran
+     * before this refresh's access token existed. The token is taken back, not handed out as an orphan that
+     * nothing would ever delete.
+     */
+    @Test
+    public void anAccessTokenMintedForARefreshRevokedMeanwhileIsTakenBack() {
+        final TokenService.Grant grant = service.issue(login("userrace3", "user"), AuthToken.Scope.MEMBER, null);
+        final Person.Id owner = row(grant.refreshToken()).getUserId();
+        final DAO real = DAO.getInstance();
+        final DAO racing = Mockito.spy(real);
+        Mockito.doAnswer(call -> revokedRightAfter(call, real, owner))
+                .when(racing).rotateAuthToken(Mockito.any(), Mockito.anyString());
+
+        final TokenService.Grant refreshed;
+        try (MockedStatic<DAO> dao = Mockito.mockStatic(DAO.class, Mockito.CALLS_REAL_METHODS)) {
+            dao.when(DAO::getInstance).thenReturn(racing);
+            refreshed = service.refresh(grant.refreshToken());
+        }
+
+        Assert.assertNull(refreshed);
+        Assert.assertEquals(real.listAuthTokensForUser(owner), List.of(), "no orphaned access token");
+    }
+
+    /**
+     * A rotation that loses to a RACING ROTATION (not a revocation) is the grace path: the row is still there
+     * and honors the presented validator as the one just replaced, so the loser gets access and no new
+     * refresh token, exactly as if it had arrived a moment later.
+     */
+    @Test
+    public void aRotationThatLosesToARacingRotationFallsBackToGrace() {
+        final TokenService.Grant grant = service.issue(login("userrace4", "user"), AuthToken.Scope.MEMBER, null);
+        final String selector = SelectorTokens.parse(grant.refreshToken()).orElseThrow().selector();
+        final DAO real = DAO.getInstance();
+        final DAO racing = Mockito.spy(real);
+        final TokenService.Grant[] winner = new TokenService.Grant[1];
+        Mockito.doAnswer(call -> afterARacingRefresh(call, winner, grant.refreshToken()))
+                .when(racing).getCredsForCodeLogin(Mockito.anyString(), Mockito.eq(Cached.NO));
+
+        final TokenService.Grant loser;
+        try (MockedStatic<DAO> dao = Mockito.mockStatic(DAO.class, Mockito.CALLS_REAL_METHODS)) {
+            dao.when(DAO::getInstance).thenReturn(racing);
+            loser = service.refresh(grant.refreshToken());
+        }
+
+        Assert.assertNotNull(winner[0].refreshToken(), "the winner rotated");
+        Assert.assertNotNull(loser, "losing to a rotation is not losing to a revocation");
+        Assert.assertNull(loser.refreshToken(), "the loser keeps what it presented; the winner holds the live token");
+        Assert.assertEquals(row(winner[0].refreshToken()).getSelector(), selector);
+        Assert.assertNotNull(service.refresh(winner[0].refreshToken()), "the family survives its own race");
+        service.revoke(winner[0].refreshToken());
+    }
+
+    /**
+     * Another request refreshes the same token between this one's read of the row and its rotation. The
+     * placeholder goes in first because the racing refresh passes through this same stubbed read.
+     */
+    private static Object afterARacingRefresh(final org.mockito.invocation.InvocationOnMock read,
+            final TokenService.Grant[] winner, final String presented) throws Throwable {
+        final Object creds = read.callRealMethod();
+        if (winner[0] == null) {
+            winner[0] = new TokenService.Grant(null, 0, null, null);
+            winner[0] = new TokenService(enabledConfig()).refresh(presented);
+        }
+        return creds;
+    }
+
+    /** The read answers what was stored; the revocation lands before the caller can act on it. */
+    private static Object revokedRightAfter(final org.mockito.invocation.InvocationOnMock read, final DAO real,
+            final Person.Id owner) throws Throwable {
+        final Object row = read.callRealMethod();
+        real.deleteAuthTokensForUser(owner);
+        return row;
     }
 
     @Test

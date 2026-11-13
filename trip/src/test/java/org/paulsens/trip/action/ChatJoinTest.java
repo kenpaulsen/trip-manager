@@ -69,14 +69,31 @@ public class ChatJoinTest {
 
     @Test
     public void aRedemptionThatCannotBeStoredReportsAnError() {
-        DAO.getInstance();
-        final ChatInvite invite = new ChatInvite(ChatChannel.Id.forTrip("chatjoin-test-trip"), "sel-x",
-                "hash", Person.Id.from("minter"), Instant.now(),
-                Instant.now().plusSeconds(3600).getEpochSecond(), 0L);
+        final ChatChannel.Id channelId = ChatChannel.Id.forTrip("chatjoin-test-trip");
+        final ChatInvite invite = new ChatInvite(channelId, "sel-x", "hash", Person.Id.from("minter"),
+                Instant.now(), Instant.now().plusSeconds(3600).getEpochSecond(), 0L);
+        Assert.assertTrue(DAO.getInstance().saveChatInvite(invite));
 
         Assert.assertEquals(ChatJoin.redeem(channelWithId(null), AUTHOR, null, false, invite,
                 Instant.now(), AuditActor.system()), "error",
                 "the redeem page must be told, not shown a chat the person was never recorded in");
-        Assert.assertEquals(invite.getUses(), 0L, "a failed join counts no use");
+        // The use is counted before the row is written (that write is also the "link still exists" check),
+        // so a join that then fails to store leaves one use counted for nobody: docs/chat-invites.md.
+        Assert.assertEquals(DAO.getInstance().getChatInvite(channelId, "sel-x", Cached.NO).orElseThrow().getUses(),
+                1L);
+        DAO.getInstance().deleteChatInvite(channelId, "sel-x");
+    }
+
+    /** A link that is no longer in the store (revoked since it was read) lets nobody in. */
+    @Test
+    public void aRedemptionOfALinkThatIsGoneIsInvalidAndWritesNoRow() {
+        final ChatChannel.Id channelId = ChatChannel.Id.forTrip("chatjoin-test-revoked");
+        final ChatInvite neverStored = new ChatInvite(channelId, "sel-gone", "hash", Person.Id.from("minter"),
+                Instant.now(), Instant.now().plusSeconds(3600).getEpochSecond(), 0L);
+
+        Assert.assertEquals(ChatJoin.redeem(channelWithId(channelId), AUTHOR, null, false, neverStored,
+                Instant.now(), null), "invalid");
+        Assert.assertTrue(DAO.getInstance().getChatMembership(channelId, AUTHOR, Cached.NO).isEmpty());
+        Assert.assertTrue(DAO.getInstance().getChatInvite(channelId, "sel-gone", Cached.NO).isEmpty());
     }
 }
