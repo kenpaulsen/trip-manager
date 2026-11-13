@@ -465,9 +465,48 @@ public class TransactionsCommands {
      * source for anyone holding a finance role on one trip the person was on.
      */
     public List<Transaction> getTransactionsOnBooks(final Person.Id userId, final String tripId) {
+        return getTransactionsOnBooks(TripFinanceGate.forCaller(Caller::current), userId, tripId);
+    }
+
+    /**
+     * {@link #getTransactionsOnBooks(Person.Id, String)} as this gate's caller. The trip is asked about HERE as
+     * well as on the page: the page once passed whatever its trip filter menu held, so a finance viewer of one
+     * trip chose another trip's books from the menu. No finance role on the trip, no rows.
+     */
+    List<Transaction> getTransactionsOnBooks(final TripFinanceGate gate, final Person.Id userId,
+            final String tripId) {
+        if (userId == null || !gate.canReadLedgers(tripId)) {
+            return new ArrayList<>();
+        }
         return getTransactionsSorted(userId).stream()
                 .filter(tx -> TripFinanceGate.onBooks(tripId, tx, Cached.YES))
                 .collect(Collectors.toCollection(ArrayList::new));
+    }
+
+    /**
+     * The transaction page's Save: {@link #saveTransaction(Transaction, String)} once the signed-in user may put
+     * this row on this trip's books. A site admin may always. A trip's finance admin may record a NEW row only
+     * for someone on that trip, and may change an existing row only while it stays on the books it is on
+     * ({@code TripFinanceGate.mayCharge} / {@code mayWriteRow}, the API's rule: an update never re-binds a row
+     * to another trip). The page's gate asked about the trip in the URL and then offered a Trip menu, so a
+     * finance admin of trip A saved a payment onto trip B's books.
+     */
+    public boolean saveFromPage(final Transaction tx, final String tripId) {
+        return saveFromPage(TripFinanceGate.forCaller(Caller::current), tx, tripId);
+    }
+
+    boolean saveFromPage(final TripFinanceGate gate, final Transaction tx, final String tripId) {
+        if (tx == null || tx.getUserId() == null || !mayPutOnBooks(gate, tx, tripId)) {
+            return PageFeedback.refuse("Not saved", "You can record transactions only on the books of a trip whose "
+                    + "finances you administer, for the people on that trip.");
+        }
+        return saveTransaction(tx, tripId);
+    }
+
+    private static boolean mayPutOnBooks(final TripFinanceGate gate, final Transaction tx, final String tripId) {
+        final Transaction stored = tx.getTxId() == null ? null
+                : DAO.getInstance().getTransaction(tx.getUserId(), tx.getTxId(), Cached.NO).orElse(null);
+        return stored == null ? gate.mayCharge(tripId, tx.getUserId()) : gate.mayWriteRow(tripId, stored);
     }
 
     /**

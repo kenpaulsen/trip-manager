@@ -208,6 +208,23 @@ public class SignInChangeRuleTest {
                 "once set, the manager cannot move it");
     }
 
+    /** The page's one question about the email field: a first address and a replaced one are different rules. */
+    @Test
+    public void theEmailFieldFollowsWhetherThePersonHasAnAddressYet() {
+        final Scene scene = new Scene();
+        final Person inBoth = scene.memberOfA("Both");
+        TenancyFixtures.addMember(scene.orgB, inBoth);
+        final OrgCommands asManager = TenancyFixtures.orgsFor(TenancyFixtures.saved(
+                Person.builder().first("Mgr").last("T" + TenancyFixtures.unique())
+                        .email("mgr." + TenancyFixtures.unique() + "@example.com")
+                        .managedUsers(new java.util.ArrayList<>(java.util.List.of(inBoth.getId()))).build()));
+
+        assertFalse(scene.asDeputy().mayChangeEmailOf(inBoth.getId(), inBoth.getEmail()), "replacing: the rule");
+        assertFalse(scene.asDeputy().mayChangeEmailOf(inBoth.getId(), " "), "a first address is not theirs either");
+        assertTrue(asManager.mayChangeEmailOf(inBoth.getId(), null), "the family manager gives the first address");
+        assertFalse(asManager.mayChangeEmailOf(inBoth.getId(), inBoth.getEmail()), "but does not replace one");
+    }
+
     /**
      * An organization's people admin filling in a missing address goes by the full rule, not the family
      * manager's allowance: fine for a member who is only theirs, refused for one another tenant shares.

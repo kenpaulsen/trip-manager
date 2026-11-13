@@ -1014,6 +1014,17 @@ public class OrgCommands {
                 .orElse(false);
     }
 
+    /**
+     * Whether the signed-in user may change the email field of this person, whose address is {@code currentEmail}
+     * today: a FIRST address is {@link #canAddEmailFor}, replacing or clearing one is {@link #canChangeSignInOf}.
+     * One call for a page to make once per request (each rule reads fresh), instead of spelling the choice out
+     * in every attribute that depends on it.
+     */
+    public boolean mayChangeEmailOf(final Person.Id subjectId, final String currentEmail) {
+        return currentEmail == null || currentEmail.isBlank()
+                ? canAddEmailFor(subjectId) : canChangeSignInOf(subjectId);
+    }
+
     /** Every org row, not just the person's derived {@code orgIds}: an admin missing from that list is still one. */
     private boolean managesEveryOrgAdministeredBy(final Person.Id subjectId) {
         return getOrganizations().stream()

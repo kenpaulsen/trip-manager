@@ -931,6 +931,26 @@ public class PersonCommands {
         return true;
     }
 
+    /**
+     * {@link #selectProfilePhoto} for the profile page: only somebody who may EDIT the profile chooses its
+     * picture ({@link #mayEditProfile}, the rule its Save follows). A trip's staff read a traveler's profile and
+     * were still offered the thumbnails, whose click changed the traveler's picture everywhere it is shown. The
+     * REST door authorizes its own subject and calls {@link #selectProfilePhoto} directly.
+     */
+    public boolean chooseProfilePhoto(final Person viewPerson, final int slot) {
+        return chooseProfilePhoto(viewPerson, slot, getCurrentPerson(), hasRole("admin"));
+    }
+
+    boolean chooseProfilePhoto(final Person viewPerson, final int slot, final Person editor,
+            final boolean siteAdmin) {
+        if (viewPerson == null || viewPerson.getId() == null
+                || !mayEditProfile(editor, siteAdmin, viewPerson.getId())) {
+            return PageFeedback.refuse("Not changed: you can view this profile, but only the person, their family "
+                    + "manager or an administrator can change its picture.");
+        }
+        return selectProfilePhoto(viewPerson, slot);
+    }
+
     public boolean hasRole(final String role) {
         if (role == null || role.isBlank()) {
             return false;

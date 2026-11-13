@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.UUID;
+import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.BindingType;
 import org.paulsens.trip.model.Person;
@@ -100,9 +101,58 @@ public class TripFinanceGateLedgerTest {
         Assert.assertFalse(TransactionsCommands.tripStaffMayOpen(admin, null, traveler, here.getTxId()));
         Assert.assertFalse(TransactionsCommands.tripStaffMayOpen(admin, mine.getId(), null, here.getTxId()));
 
-        final List<Transaction> shown = new TransactionsCommands().getTransactionsOnBooks(traveler, mine.getId());
+        final List<Transaction> shown = new TransactionsCommands().getTransactionsOnBooks(admin, traveler,
+                mine.getId());
         Assert.assertEquals(shown.stream().map(Transaction::getTxId).toList(), List.of(here.getTxId()),
                 "only this trip's rows are handed to the page");
+        // The trip is asked about in the bean too: the page's filter menu once chose it.
+        final TransactionsCommands transactions = new TransactionsCommands();
+        Assert.assertTrue(transactions.getTransactionsOnBooks(admin, traveler, other.getId()).isEmpty(),
+                "no finance role on that trip, so none of its rows");
+        Assert.assertTrue(transactions.getTransactionsOnBooks(viewer, null, mine.getId()).isEmpty());
+        Assert.assertEquals(transactions.getTransactionsOnBooks(viewer, traveler, mine.getId()).size(), 1);
+    }
+
+    /**
+     * The transaction page's Save binds the row to a trip, so the bean asks whether THIS caller may put the row
+     * on THAT trip's books. The page asked once about the trip in the URL and then offered a Trip menu.
+     */
+    @Test
+    public void thePageSavePutsARowOnlyOnBooksTheCallerAdministers() throws IOException {
+        final Person.Id traveler = Person.Id.newInstance();
+        final Person.Id stranger = Person.Id.newInstance();
+        final Trip mine = storedTrip(traveler);
+        final Trip other = storedTrip(traveler, stranger);
+        final TripFinanceGate admin = gateFor(PrivilegeCommands.TRIP_FIN_ADMIN, mine);
+        final TransactionsCommands transactions = new TransactionsCommands();
+
+        final Transaction fresh = payment(traveler);
+        Assert.assertFalse(transactions.saveFromPage(admin, fresh, other.getId()),
+            "a new row bound to a trip whose finances the caller does not administer");
+        Assert.assertTrue(DAO.getInstance().getTransaction(traveler, fresh.getTxId(), Cached.NO).isEmpty());
+        Assert.assertFalse(transactions.saveFromPage(admin, payment(stranger), mine.getId()),
+                "nor a row for someone who is not on the caller's trip");
+        Assert.assertFalse(transactions.saveFromPage(admin, fresh, null), "nor a row on no trip's books");
+        Assert.assertFalse(transactions.saveFromPage(admin, null, mine.getId()));
+        Assert.assertTrue(transactions.saveFromPage(admin, fresh, mine.getId()));
+
+        // An existing row stays on the books it is on: its own trip's admin changes it, nobody moves it.
+        final Transaction here = saved(rowOnBooks(traveler, mine));
+        final Transaction elsewhere = saved(rowOnBooks(traveler, other));
+        here.setAmount(25f);
+        Assert.assertTrue(transactions.saveFromPage(admin, here, mine.getId()));
+        Assert.assertFalse(transactions.saveFromPage(gateFor(PrivilegeCommands.TRIP_FIN_ADMIN, other), here,
+                other.getId()), "another trip's admin cannot take a row onto their books");
+        Assert.assertFalse(transactions.saveFromPage(admin, elsewhere, mine.getId()));
+        final TripFinanceGate siteAdmin = TripFinanceGate.forCaller(TenancyFixtures::siteAdminCaller);
+        Assert.assertTrue(transactions.saveFromPage(siteAdmin, elsewhere, mine.getId()), "a site admin may");
+    }
+
+    private static Transaction payment(final Person.Id who) {
+        final Transaction row = new Transaction(who, null, null);
+        row.setAmount(10f);
+        row.setCategory("Payment");
+        return row;
     }
 
     private static Transaction saved(final Transaction row) throws IOException {

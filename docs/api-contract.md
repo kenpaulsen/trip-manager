@@ -428,10 +428,20 @@ administrator, `failed`, `cancelled`), or `POST /api/payments/{id}/cancel` when 
 answers 200 `{cancelled, state}`: `cancelled: false` means THIS call did not cancel it -- the payment was already
 finished or already canceled (a replayed cancel), the processor is still settling it (a bank debit in flight
 cannot be canceled, 2026-11) or already holds the money (it is then recorded instead), or the processor could
-not be reached. `state` (2026-11; null for a payment that is not the caller's) is the payment's stored status
-after the call and is what settles the client's attempt: `CANCELLED` or `FAILED` = canceled, `RECORDED` =
-completed, `CREATED` or `CAPTURED` = still open, keep showing it as awaiting confirmation. A transport failure of the
-PayPal capture answers `pending`, never `failed` (2026-11): the money
+not be reached. `state` (2026-11; null for a payment that is unknown or not the caller's, and absent from a
+server that predates it) is the payment's stored status after the call, and with `cancelled` it is what settles
+the client's attempt. The apps follow ONE rule, and a client must not keep an attempt "awaiting confirmation"
+on any answer but the last:
+
+- `cancelled: true`, or `state` `CANCELLED` or `FAILED`: the attempt is canceled.
+- `state` `RECORDED` or `CAPTURED`: the money was taken (a `CAPTURED` payment may be held for an administrator
+  to review), so the attempt is completed; the payer is not asked to pay again.
+- no `state`, or a 4xx answer: the attempt is canceled (nothing of the caller's is open under that id).
+- `state` `CREATED` (the processor could not be reached, or a bank debit is settling) or a state the client
+  does not know: the attempt is left as it is and NOT retried from the outbox (a retry at the head of a FIFO
+  queue would hold every later write); the client stops counting it as awaiting 24 hours after it was started.
+
+A transport failure of the PayPal capture answers `pending`, never `failed` (2026-11): the money
 may have moved, and a later `complete` converges. `POST /api/payments/{paymentId}/method {type}` (2026-11;
 `type` is the processor's payment method type, `us_bank_account` or `card`) → `{paymentId, creditFeeCents,
 totalCents, totalFormatted, changed, methodLocked}`: re-prices a payer-pays Stripe payment for the picked method

@@ -51,4 +51,22 @@ public class ProfilePhotoSelectionTest {
         Assert.assertNotEquals(people.getPerson(ghost.getId()).getId(), ghost.getId(),
                 "No junk row may be written for the ghost");
     }
+
+    /** The profile page's door: reading a profile (a trip's staff can) is not permission to change its picture. */
+    @Test
+    public void onlySomeoneWhoMayEditTheProfileChoosesItsPicture() {
+        final Person owner = TenancyFixtures.savedPerson("Owner");
+        final Person reader = TenancyFixtures.savedPerson("Reader");
+        final PersonCommands asNobodysAdmin = new PersonCommands(() -> TenancyFixtures.orgsFor(reader));
+
+        Assert.assertFalse(asNobodysAdmin.chooseProfilePhoto(asNobodysAdmin.getPerson(owner.getId()), 2, reader,
+                false), "a reader of the profile");
+        Assert.assertNull(TenancyFixtures.reload(owner).getProfilePhotoSlot(), "nothing was saved");
+        Assert.assertFalse(asNobodysAdmin.chooseProfilePhoto(null, 2, reader, false));
+        Assert.assertTrue(asNobodysAdmin.chooseProfilePhoto(asNobodysAdmin.getPerson(owner.getId()), 2, owner,
+                false), "the person themselves");
+        Assert.assertEquals(TenancyFixtures.reload(owner).getProfilePhotoSlot(), Integer.valueOf(2));
+        Assert.assertTrue(asNobodysAdmin.chooseProfilePhoto(asNobodysAdmin.getPerson(owner.getId()), 1, reader,
+                true), "a site admin");
+    }
 }
