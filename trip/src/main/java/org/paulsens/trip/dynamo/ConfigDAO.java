@@ -121,7 +121,8 @@ public class ConfigDAO {
     }
 
     private List<Config> loadAllConfig() {
-        return persistence.scanAll(b -> b.consistentRead(false).limit(1000).tableName(CONFIG_TABLE).build())
+        // A consistent scan: the rebuild REMOVES what this does not return (PartitionScanCache's loader).
+        return persistence.scanAll(b -> b.consistentRead(true).limit(1000).tableName(CONFIG_TABLE).build())
                 .stream()
                 .map(it -> it.get(CONTENT))
                 .filter(content -> content != null)

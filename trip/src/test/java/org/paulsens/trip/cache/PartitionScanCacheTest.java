@@ -2,12 +2,16 @@ package org.paulsens.trip.cache;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import org.testng.Assert;
 import org.testng.annotations.BeforeMethod;
+import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
 /**
@@ -302,24 +306,13 @@ public class PartitionScanCacheTest {
      */
     @Test
     public void aRescanNeverOverwritesOrRevivesWhatWasWrittenWhileItScanned() throws Exception {
-        final java.util.concurrent.CountDownLatch entered = new java.util.concurrent.CountDownLatch(1);
-        final java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
-        final PartitionScanCache<String> scan = versioned(() -> {
-            if (loads.incrementAndGet() == 2) {
-                entered.countDown();
-                try {
-                    Assert.assertTrue(release.await(3, java.util.concurrent.TimeUnit.SECONDS));
-                } catch (final InterruptedException ex) {
-                    Thread.currentThread().interrupt();
-                }
-            }
-            // What the table held when the scan read it: before any of the writes below.
-            return List.of("pa:edited=v1", "pa:removed=v1", "pa:quiet=v1");
-        });
+        final CountDownLatch entered = new CountDownLatch(1);
+        final CountDownLatch release = new CountDownLatch(1);
+        final PartitionScanCache<String> scan = versioned(() -> tableBeforeTheWrites(2, entered, release));
         scan.getPartition("pa");
         clock.addAndGet(Duration.ofMinutes(2).toMillis());
         scan.getPartition("pa");                                   // stale: starts the background rescan
-        Assert.assertTrue(entered.await(3, java.util.concurrent.TimeUnit.SECONDS));
+        Assert.assertTrue(entered.await(3, TimeUnit.SECONDS));
         scan.put("pa:edited=v2");
         scan.removeOne("pa", "removed");
         scan.put("pc:born=v1");                                    // a brand-new partition, by write-through
@@ -346,10 +339,7 @@ public class PartitionScanCacheTest {
         final java.util.concurrent.atomic.AtomicReference<List<String>> db =
                 new java.util.concurrent.atomic.AtomicReference<>(
                         List.of("pa:one=v1", "pa:two=v1", "pb:only=v1"));
-        final PartitionScanCache<String> scan = versioned(() -> {
-            loads.incrementAndGet();
-            return db.get();
-        });
+        final PartitionScanCache<String> scan = versioned(() -> countedScan(db));
         Assert.assertEquals(scan.getPartition("pa").size(), 2);
         db.set(List.of("pa:one=v2"));                              // two deleted, pb emptied, one edited
         clock.addAndGet(Duration.ofMinutes(2).toMillis());
@@ -370,10 +360,7 @@ public class PartitionScanCacheTest {
     public void aPartitionTheRegistryHasNotSeenIsOverwrittenOnceAndThenTracked() throws Exception {
         final java.util.concurrent.atomic.AtomicReference<List<String>> db =
                 new java.util.concurrent.atomic.AtomicReference<>(List.of("pa:one=v1", "pa:gone=v1"));
-        final PartitionScanCache<String> scan = versioned(() -> {
-            loads.incrementAndGet();
-            return db.get();
-        });
+        final PartitionScanCache<String> scan = versioned(() -> countedScan(db));
         scan.getPartition("pa");
         cache.removeKey("scan-test-loaded:parts");                 // as a cache filled by an older build looks
         db.set(List.of("pa:one=v2"));
@@ -391,6 +378,110 @@ public class PartitionScanCacheTest {
         scan.getPartition("pa");
         clock.addAndGet(-Duration.ofMinutes(2).toMillis());
         awaitTrue(() -> scan.getOne("pa", "gone", Optional::empty).isEmpty(), "the NEXT rebuild reconciles it");
+    }
+
+    /**
+     * A cache dropped while the rebuild scans leaves every snapshotted field missing. The per-field compare read
+     * that as "each row was removed during the scan", wrote none of them and still marked the cache loaded:
+     * every privilege held by nobody for a day. A dropped cache is a cold load, whichever way it was dropped.
+     */
+    @Test(dataProvider = "drops")
+    public void aCacheDroppedDuringARescanIsRepopulatedInFull(final String how, final Runnable drop)
+            throws Exception {
+        final CountDownLatch entered = new CountDownLatch(1);
+        final CountDownLatch release = new CountDownLatch(1);
+        final PartitionScanCache<String> scan = versioned(() -> tableBeforeTheWrites(2, entered, release));
+        scan.getPartition("pa");
+        clock.addAndGet(Duration.ofMinutes(2).toMillis());
+        scan.getPartition("pa");                                   // stale: starts the background rescan
+        Assert.assertTrue(entered.await(3, TimeUnit.SECONDS));
+        drop.run();
+        Assert.assertTrue(cache.getHash("scan-test:pa").isEmpty(), how + " dropped the partition");
+        release.countDown();
+        clock.addAndGet(-Duration.ofMinutes(2).toMillis());
+        awaitTrue(() -> cache.getValue("scan-test-loaded").isPresent(), "the rescan never finished");
+
+        // Read from the cache client: a getPartition would rescan a cache left unmarked and hide the bug.
+        Assert.assertEquals(cache.getHash("scan-test:pa"),
+                Map.of("edited", "pa:edited=v1", "removed", "pa:removed=v1", "quiet", "pa:quiet=v1"),
+                "every scanned row is cached after " + how);
+        Assert.assertEquals(loads.get(), 2);
+    }
+
+    @DataProvider(name = "drops")
+    public Object[][] drops() {
+        final Runnable invalidate = () -> scanCache().invalidate();
+        final Runnable clearCaches = () -> cache.clearNamespace("scan-test");
+        return new Object[][] {{"invalidate()", invalidate}, {"Clear caches", clearCaches}};
+    }
+
+    /**
+     * The same drop on a COLD build, with a write-through after it that registers the partition again: the
+     * registry holding the partition proves nothing, only the epoch the snapshot was read under does. And the
+     * row written after the drop is newer than the scan's copy of it.
+     */
+    @Test
+    public void aColdBuildWhoseCacheWasDroppedKeepsWhatWasWrittenAfterTheDrop() throws Exception {
+        final CountDownLatch entered = new CountDownLatch(1);
+        final CountDownLatch release = new CountDownLatch(1);
+        final PartitionScanCache<String> scan = versioned(() -> tableBeforeTheWrites(1, entered, release));
+        scan.put("pa:quiet=v1");                                   // write-through only: no marker yet
+        final Thread coldRead = Thread.ofVirtual().start(() -> scan.getPartition("pa"));
+        Assert.assertTrue(entered.await(3, TimeUnit.SECONDS));
+        scan.invalidate();
+        scan.put("pa:edited=v2");
+        release.countDown();
+        coldRead.join(3000);
+
+        Assert.assertEquals(cache.getHash("scan-test:pa"),
+                Map.of("edited", "pa:edited=v2", "removed", "pa:removed=v1", "quiet", "pa:quiet=v1"));
+        Assert.assertTrue(scan.isAuthoritative());
+    }
+
+    /** The epoch is not a partition: a rebuild neither reads it as one nor starts a second one. */
+    @Test
+    public void theRegistryEpochIsPlantedOnceAndIsNotAPartition() throws Exception {
+        final PartitionScanCache<String> scan = scanCache();
+        scan.getPartition("pa");
+        final Set<String> afterColdBuild = cache.getSetMembers("scan-test-loaded:parts");
+        Assert.assertEquals(afterColdBuild.stream().filter(member -> member.startsWith("epoch#")).count(), 1L);
+        final int afterWarm = loads.get();
+        clock.addAndGet(Duration.ofMinutes(2).toMillis());
+        scan.getPartition("pa");
+        clock.addAndGet(-Duration.ofMinutes(2).toMillis());
+        awaitTrue(() -> loads.get() > afterWarm, "the rescan never ran");
+        Thread.sleep(100);
+
+        Assert.assertEquals(cache.getSetMembers("scan-test-loaded:parts"), afterColdBuild,
+                "the rescan reuses the epoch it found");
+        Assert.assertEquals(Set.copyOf(scan.getPartition("pa")), Set.of(A1, A2));
+    }
+
+    /**
+     * What the table held when a scan read it, before the test's writes. Scan number {@code parked} waits
+     * between its read and its return, which is where a test acts "during the scan".
+     */
+    private List<String> tableBeforeTheWrites(final int parked, final CountDownLatch entered,
+            final CountDownLatch release) {
+        if (loads.incrementAndGet() == parked) {
+            entered.countDown();
+            awaitRelease(release);
+        }
+        return List.of("pa:edited=v1", "pa:removed=v1", "pa:quiet=v1");
+    }
+
+    private static void awaitRelease(final CountDownLatch release) {
+        try {
+            Assert.assertTrue(release.await(3, TimeUnit.SECONDS));
+        } catch (final InterruptedException ex) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    /** One scan of a table the test can change between scans. */
+    private List<String> countedScan(final java.util.concurrent.atomic.AtomicReference<List<String>> db) {
+        loads.incrementAndGet();
+        return db.get();
     }
 
     @Test

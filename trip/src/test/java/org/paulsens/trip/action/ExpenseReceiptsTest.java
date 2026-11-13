@@ -271,9 +271,6 @@ public class ExpenseReceiptsTest {
         assertEquals(ExpenseReceipts.title("x".repeat(200)).length(), 120);
         assertEquals(ExpenseReceipts.typeOf("a/b.GIF"), "image/gif");
         assertEquals(ExpenseReceipts.typeOf("a/b.jpg"), "image/jpeg");
-        assertTrue(ExpenseReceipts.isPdf(PDF));
-        assertFalse(ExpenseReceipts.isPdf(new byte[] {'%'}));
-        assertFalse(ExpenseReceipts.isPdf(null));
         assertTrue(new Outcome("m", null).ok());
         ExpenseReceipts.localStoreMaxBytesForTest(ExpenseReceipts.LOCAL_STORE_MAX_BYTES);
     }

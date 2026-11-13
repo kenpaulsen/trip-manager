@@ -73,7 +73,8 @@ public class WaiverDAO {
 
     /**
      * Conditionally persists the document and, on success, leaves its version bumped and writes through the
-     * cache. On a version conflict the version is restored and the exception propagates.
+     * cache. On a version conflict the version is restored, the STORED row is put into the cache
+     * ({@link VersionedWrites#recacheStored}) and the exception propagates.
      *
      * @throws IllegalArgumentException when the serialized row would not fit the item cap.
      */
@@ -102,6 +103,9 @@ public class WaiverDAO {
             return saved;
         } catch (final ConditionalCheckFailedException ex) {
             doc.setVersion(expected);
+            VersionedWrites.recacheStored(persistence, WAIVERS_TABLE,
+                    Map.of(ORG_ID, item.get(ORG_ID), ID, item.get(ID)), this::parseDocument,
+                    stored -> cache.put(doc.getOrgId(), stored));
             throw ex;
         }
     }

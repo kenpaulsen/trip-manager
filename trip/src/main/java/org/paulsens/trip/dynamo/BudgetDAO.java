@@ -89,26 +89,9 @@ public class BudgetDAO {
             return saved;
         } catch (final ConditionalCheckFailedException ex) {
             budget.setVersion(expected);
-            recacheStored(budget.getTripId());
+            VersionedWrites.recacheStored(persistence, BUDGETS_TABLE, Map.of(TRIP_ID, map.get(TRIP_ID)),
+                    this::parseBudget, stored -> cache.put(budget.getTripId(), stored));
             throw ex;
-        }
-    }
-
-    /**
-     * After a lost version check: put the row the STORE holds into the cache. The caller is told to reload and
-     * try again, and that reload reads this cache; an entry still at the losing version (a write-through SET
-     * that failed, which the caches deliberately survive) would hand back the same stale version every time,
-     * so the record could not be edited until the soft TTL. A reload, never a removal: in local mode the cache
-     * is the datastore. Never lets its own failure hide the conflict being reported.
-     */
-    private void recacheStored(final String tripId) {
-        try {
-            final TripBudget stored = loadBudget(tripId);
-            if (stored != null) {
-                cache.put(tripId, stored);
-            }
-        } catch (final RuntimeException ex) {
-            log.warn("Unable to refresh the cached budget of trip {} after a version conflict", tripId, ex);
         }
     }
 

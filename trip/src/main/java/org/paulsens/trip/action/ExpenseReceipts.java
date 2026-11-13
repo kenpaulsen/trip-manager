@@ -2,10 +2,8 @@ package org.paulsens.trip.action;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Named;
-import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -23,6 +21,7 @@ import org.paulsens.trip.media.PhotoRejectedException;
 import org.paulsens.trip.media.ProcessedPhoto;
 import org.paulsens.trip.media.QuarterTurn;
 import org.paulsens.trip.media.RotationGuard;
+import org.paulsens.trip.media.UploadType;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.MediaItem;
@@ -62,14 +61,13 @@ public class ExpenseReceipts {
     public static final String LINE_KEY = "receiptLineId";
     static final String KEY_PREFIX = "receipts/";
     static final String SLOT_PREFIX = "receipts-";
-    static final String PDF = "application/pdf";
+    static final String PDF = UploadType.PDF;
     static final long MAX_BYTES = PhotoUploadBean.MAX_UPLOAD_BYTES;
     /** The longest side, in pixels, of a stored receipt image: legible on any screen, a fraction of a phone photo. */
     static final int MAX_IMAGE_SIDE = 1280;
     static final long LOCAL_STORE_MAX_BYTES = 64L * 1024 * 1024;
     /** The object never changes under its key; the servlet still answers {@code private, no-store}. */
     static final long CACHE_SECONDS = 31_536_000L;
-    private static final byte[] PDF_MAGIC = "%PDF-".getBytes(StandardCharsets.US_ASCII);
     private static final LocalObjectStore LOCAL = new LocalObjectStore(LOCAL_STORE_MAX_BYTES);
 
     private final Supplier<Caller> callerSource;
@@ -204,7 +202,7 @@ public class ExpenseReceipts {
 
     /** Null when the bytes are neither a supported image nor a PDF. */
     private Rendered render(final byte[] bytes) {
-        if (isPdf(bytes)) {
+        if (UploadType.isPdf(bytes)) {
             return new Rendered(bytes, PDF, "pdf", null, null);
         }
         if (ImageFormat.detect(bytes).isEmpty()) {
@@ -213,11 +211,6 @@ public class ExpenseReceipts {
         final ProcessedPhoto photo = processor.processWithin(bytes, MAX_IMAGE_SIDE);
         return new Rendered(photo.fullBytes(), photo.fullContentType(), photo.fullExtension(),
                 photo.smallIsFull() ? null : photo.smallBytes(), photo.smallExtension());
-    }
-
-    static boolean isPdf(final byte[] bytes) {
-        return bytes != null && bytes.length >= PDF_MAGIC.length
-                && Arrays.equals(Arrays.copyOf(bytes, PDF_MAGIC.length), PDF_MAGIC);
     }
 
     /** A plain name to show for the receipt: the uploaded file's base name, else "Receipt". */

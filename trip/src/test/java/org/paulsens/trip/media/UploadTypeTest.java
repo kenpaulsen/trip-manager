@@ -41,6 +41,18 @@ public class UploadTypeTest {
         assertEquals(UploadType.of("pdf", ascii("%PD")), download, "shorter than the signature");
     }
 
+    /** The one PDF sniffer, which the expense receipts ask too: the signature at the very start, nothing else. */
+    @Test
+    public void aPdfIsKnownByItsSignature() {
+        assertTrue(UploadType.isPdf(ascii("%PDF-")));
+        assertTrue(UploadType.isPdf(ascii("%PDF-1.7\n%rest of the file")));
+        assertFalse(UploadType.isPdf(ascii("%PDF")), "shorter than the signature");
+        assertFalse(UploadType.isPdf(ascii(" %PDF-1.7")), "not at the start");
+        assertFalse(UploadType.isPdf(new byte[0]));
+        assertFalse(UploadType.isPdf(null));
+        assertEquals(UploadType.of("receipt", ascii("%PDF-1.4")).contentType(), UploadType.PDF);
+    }
+
     @Test
     public void videoAndAudioPlayInlineByExtension() {
         assertEquals(UploadType.of("downloads/Welcome.MP4", ascii("....ftypisom")), new UploadType("video/mp4", false));

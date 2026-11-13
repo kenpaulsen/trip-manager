@@ -81,14 +81,7 @@ public class DecodeBudgetTest {
         assertTrue(holding.await(3, TimeUnit.SECONDS));
         final AtomicBoolean refused = new AtomicBoolean();
         final AtomicBoolean stillInterrupted = new AtomicBoolean();
-        final Thread waiter = Thread.ofVirtual().start(() -> {
-            try {
-                budget.run(4 * MB, () -> "never");
-            } catch (final PhotoRejectedException ex) {
-                refused.set(true);
-                stillInterrupted.set(Thread.currentThread().isInterrupted());
-            }
-        });
+        final Thread waiter = Thread.ofVirtual().start(() -> waitForAShare(budget, refused, stillInterrupted));
         Thread.sleep(100);
         waiter.interrupt();
         waiter.join(3000);
@@ -135,6 +128,17 @@ public class DecodeBudgetTest {
 
     private static String fail() {
         throw new IllegalStateException("work failed");
+    }
+
+    /** Asks for a share that is not free, and records how the wait ended when it is refused. */
+    private static void waitForAShare(final DecodeBudget budget, final AtomicBoolean refused,
+            final AtomicBoolean stillInterrupted) {
+        try {
+            budget.run(4 * MB, () -> "never");
+        } catch (final PhotoRejectedException ex) {
+            refused.set(true);
+            stillInterrupted.set(Thread.currentThread().isInterrupted());
+        }
     }
 
     private static String park(final CountDownLatch holding, final CountDownLatch release) {

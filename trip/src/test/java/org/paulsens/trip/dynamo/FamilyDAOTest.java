@@ -2,6 +2,7 @@ package org.paulsens.trip.dynamo;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Set;
 import org.paulsens.trip.cache.InMemoryCacheClient;
 import org.paulsens.trip.model.Family;
 import org.paulsens.trip.model.Person;
@@ -136,6 +137,20 @@ public class FamilyDAOTest {
         assertThrows(ConditionalCheckFailedException.class, () -> ours.saveFamily(stale));
         assertEquals(ours.getFamily(family.getId()).orElseThrow().getVersion(), 2L,
                 "the reload after the refusal reads the stored version");
+    }
+
+    /**
+     * The in-memory fake is always consistent, so only the request can show this: the re-read after a lost
+     * check must be strongly consistent, or a lagging replica hands the cache the version that just lost.
+     */
+    @Test
+    public void theReReadAfterALostVersionCheckIsConsistent() {
+        final RecordingPersistence store = new RecordingPersistence();
+        store.conflictPuts = true;
+        final FamilyDAO familyDao = new FamilyDAO(DAO.getInstance().getMapper(), store, new InMemoryCacheClient());
+        final Family family = newFamily();
+        assertThrows(ConditionalCheckFailedException.class, () -> familyDao.saveFamily(family));
+        assertEquals(store.onlyConsistentReadOf(FamilyDAO.FAMILY_TABLE).key().keySet(), Set.of("id"));
     }
 
     private static Family newFamily() {

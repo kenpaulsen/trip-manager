@@ -183,15 +183,11 @@ public class PayPalProcessorTest {
 
         // Already-captured whose recovery ALSO fails: PayPal has said the money moved, so ask again, never FAILED.
         final ErrorException alreadyCaptured = paypalRefusal(422, "ORDER_ALREADY_CAPTURED");
-        assertEquals(processorAnswering(c -> {
-            Mockito.when(c.captureOrder(ArgumentMatchers.any())).thenThrow(alreadyCaptured);
-            Mockito.when(c.getOrder(ArgumentMatchers.any())).thenThrow(transport);
-        }).capture("O").status(), PaymentProcessor.CaptureResult.Status.PENDING);
+        assertEquals(processorAnswering(c -> alreadyCapturedThenRecoveryThrows(c, alreadyCaptured, transport))
+                .capture("O").status(), PaymentProcessor.CaptureResult.Status.PENDING);
         final ApiResponse<Order> unusable = response(null);
-        assertEquals(processorAnswering(c -> {
-            Mockito.when(c.captureOrder(ArgumentMatchers.any())).thenThrow(alreadyCaptured);
-            Mockito.when(c.getOrder(ArgumentMatchers.any())).thenReturn(unusable);
-        }).capture("O").status(), PaymentProcessor.CaptureResult.Status.PENDING, "an unusable recovery read too");
+        assertEquals(processorAnswering(c -> alreadyCapturedThenRecoveryAnswers(c, alreadyCaptured, unusable))
+                .capture("O").status(), PaymentProcessor.CaptureResult.Status.PENDING, "an unusable recovery read too");
 
         // PayPal's own failure (a 5xx, a throttle) says nothing about the capture either; a refusal does.
         final ErrorException down = paypalRefusal(503, "INTERNAL_SERVICE_ERROR");
@@ -254,6 +250,20 @@ public class PayPalProcessorTest {
         Mockito.when(sdk.getOrdersController()).thenReturn(controller);
         stubbing.stub(controller);
         return new PayPalProcessor(sdk);
+    }
+
+    /** A capture PayPal refuses as already captured, whose recovery read of the order then fails. */
+    private static void alreadyCapturedThenRecoveryThrows(final OrdersController controller,
+            final ErrorException alreadyCaptured, final Exception recoveryFailure) throws Exception {
+        Mockito.when(controller.captureOrder(ArgumentMatchers.any())).thenThrow(alreadyCaptured);
+        Mockito.when(controller.getOrder(ArgumentMatchers.any())).thenThrow(recoveryFailure);
+    }
+
+    /** The same refused capture, whose recovery read answers {@code recovered}. */
+    private static void alreadyCapturedThenRecoveryAnswers(final OrdersController controller,
+            final ErrorException alreadyCaptured, final ApiResponse<Order> recovered) throws Exception {
+        Mockito.when(controller.captureOrder(ArgumentMatchers.any())).thenThrow(alreadyCaptured);
+        Mockito.when(controller.getOrder(ArgumentMatchers.any())).thenReturn(recovered);
     }
 
     /** Capture-stub shorthand that builds the response mock BEFORE the when() (Mockito nesting rule). */

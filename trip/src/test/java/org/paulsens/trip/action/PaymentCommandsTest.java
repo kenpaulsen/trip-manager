@@ -641,11 +641,14 @@ public class PaymentCommandsTest {
         assertEquals(DAO.getInstance().getPayment(second).orElseThrow().getStatus(), Payment.Status.CREATED);
 
         // A processor that cannot even be built (credentials removed) can never be asked: the row may go.
-        final PaymentCommands orphaned = commandsFor(payer, false, (config, sandbox) -> {
-            throw new PaymentProcessor.ProcessorException("credentials missing");
-        });
+        final PaymentCommands orphaned = commandsFor(payer, false, PaymentCommandsTest::credentialsMissing);
         assertTrue(orphaned.cancelPayment(second));
         assertEquals(DAO.getInstance().getPayment(second).orElseThrow().getStatus(), Payment.Status.CANCELLED);
+    }
+
+    /** The processor factory of an organization whose credentials were removed: nothing can be built. */
+    private static PaymentProcessor credentialsMissing(final PaymentProcessorConfig config, final Boolean sandbox) {
+        throw new PaymentProcessor.ProcessorException("credentials missing");
     }
 
     /**

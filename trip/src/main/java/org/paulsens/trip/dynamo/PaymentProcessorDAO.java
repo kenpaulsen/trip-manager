@@ -56,7 +56,8 @@ public class PaymentProcessorDAO {
 
     /**
      * Conditionally persist (create at version 0, else replace that exact version); bumps the object's
-     * version on success, restores it and rethrows on a lost race -- the {@link FamilyDAO} contract.
+     * version on success; on a lost race restores it, puts the STORED row into the cache
+     * ({@link VersionedWrites#recacheStored}) and rethrows -- the {@link FamilyDAO} contract.
      */
     protected Boolean saveConfig(final PaymentProcessorConfig config) throws IOException {
         final long expected = config.getVersion();
@@ -87,6 +88,9 @@ public class PaymentProcessorDAO {
             return saved;
         } catch (final ConditionalCheckFailedException ex) {
             config.setVersion(expected);
+            VersionedWrites.recacheStored(persistence, PROCESSORS_TABLE,
+                    Map.of(ORG_ID, map.get(ORG_ID), CONFIG_ID, map.get(CONFIG_ID)), this::parseConfig,
+                    stored -> cache.put(config.getOrgId().getValue(), stored));
             throw ex;
         }
     }

@@ -1,6 +1,7 @@
 package org.paulsens.trip.media;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -28,6 +29,9 @@ public record UploadType(String contentType, boolean attachment) {
     /** How many leading bytes {@link #of} needs to recognize a file. */
     public static final int HEAD_BYTES = 64;
 
+    /** The type of a file {@link #isPdf} recognizes. */
+    public static final String PDF = "application/pdf";
+
     private static final byte[] PDF_MAGIC = "%PDF-".getBytes(StandardCharsets.US_ASCII);
 
     /** Inert types trusted by extension: a browser plays them or fails, it never runs them as a page. */
@@ -37,7 +41,7 @@ public record UploadType(String contentType, boolean attachment) {
 
     /** What a direct (presigned) upload may DECLARE, since its bytes never pass through the server. */
     private static final Set<String> DECLARABLE = Set.of("image/jpeg", "image/png", "image/gif", "image/heic",
-            "image/heif", "image/webp", "application/pdf", "video/mp4", "video/quicktime", "video/webm",
+            "image/heif", "image/webp", PDF, "video/mp4", "video/quicktime", "video/webm",
             "audio/mpeg", "audio/mp4", "audio/wav", DOWNLOAD);
 
     /**
@@ -50,8 +54,8 @@ public record UploadType(String contentType, boolean attachment) {
         if (image != null) {
             return new UploadType(image, false);
         }
-        if (startsWith(bytes, PDF_MAGIC)) {
-            return new UploadType("application/pdf", false);
+        if (isPdf(bytes)) {
+            return new UploadType(PDF, false);
         }
         final String playable = PLAYABLE.get(extensionOf(fileName));
         return (playable == null) ? new UploadType(DOWNLOAD, true) : new UploadType(playable, false);
@@ -70,16 +74,14 @@ public record UploadType(String contentType, boolean attachment) {
         return DECLARABLE.contains(bare);
     }
 
-    private static boolean startsWith(final byte[] bytes, final byte[] magic) {
-        if (bytes.length < magic.length) {
-            return false;
-        }
-        for (int i = 0; i < magic.length; i++) {
-            if (bytes[i] != magic[i]) {
-                return false;
-            }
-        }
-        return true;
+    /**
+     * Whether these bytes (a whole file, or at least its head) are a PDF, by its signature. The ONE sniffer:
+     * the media library and the expense receipts both ask here, so a file cannot be a PDF to one of them and
+     * a download-only attachment to the other.
+     */
+    public static boolean isPdf(final byte[] bytes) {
+        return bytes != null && bytes.length >= PDF_MAGIC.length
+                && Arrays.equals(bytes, 0, PDF_MAGIC.length, PDF_MAGIC, 0, PDF_MAGIC.length);
     }
 
     private static String extensionOf(final String fileName) {

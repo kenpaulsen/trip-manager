@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
 import org.paulsens.trip.cache.CacheKeys;
@@ -18,6 +19,7 @@ import org.paulsens.trip.util.RandomData;
 import org.testng.annotations.Test;
 import software.amazon.awssdk.http.SdkHttpResponse;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
+import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
 import software.amazon.awssdk.services.dynamodb.model.PutItemResponse;
 
 import static org.testng.Assert.assertEquals;
@@ -104,6 +106,45 @@ public class WaiverDAOTest {
                 "content", AttributeValue.builder().s("{not json").build())));
         assertTrue(dao.getDocuments("org-c").isEmpty());
         assertTrue(dao.getAcceptances("trip-c").isEmpty());
+    }
+
+    /**
+     * A second writer's cache can hold the losing version (its write-through failed and so did the recovery
+     * that drops the key, or another task saved). The refused save tells the admin to reload and try again,
+     * and that reload reads the cache: it must now hold what the STORE holds, or every retry loses the same
+     * way until the soft TTL.
+     */
+    @Test
+    public void aLostVersionCheckRefreshesTheCachedRow() throws IOException {
+        final InMemoryPersistence store = new InMemoryPersistence();
+        final WaiverDAO ours = new WaiverDAO(DAO.getInstance().getMapper(), store, new InMemoryCacheClient());
+        final WaiverDAO theirs = new WaiverDAO(DAO.getInstance().getMapper(), store, new InMemoryCacheClient());
+        final String org = "org-" + RandomData.genAlpha(8);
+        final WaiverDocument doc = document(org, "Conflict");
+        assertTrue(theirs.saveDocument(doc));
+        assertEquals(ours.getDocument(org, doc.getId()).orElseThrow().getVersion(), 1L, "our cache holds v1");
+        assertTrue(theirs.saveDocument(theirs.getDocument(org, doc.getId()).orElseThrow()));
+
+        final WaiverDocument stale = ours.getDocument(org, doc.getId()).orElseThrow();
+        assertEquals(stale.getVersion(), 1L, "the store is at v2; our cache still answers v1");
+        assertThrows(ConditionalCheckFailedException.class, () -> ours.saveDocument(stale));
+        assertEquals(ours.getDocument(org, doc.getId()).orElseThrow().getVersion(), 2L,
+                "the reload after the refusal reads the stored version");
+    }
+
+    /**
+     * The in-memory fake is always consistent, so only the request can show this: the re-read after a lost
+     * check must be strongly consistent, or a lagging replica hands the cache the version that just lost.
+     */
+    @Test
+    public void theReReadAfterALostVersionCheckIsConsistent() {
+        final RecordingPersistence store = new RecordingPersistence();
+        store.conflictPuts = true;
+        final WaiverDAO dao = new WaiverDAO(DAO.getInstance().getMapper(), store, new InMemoryCacheClient());
+        final WaiverDocument doc = document("org-" + RandomData.genAlpha(8), "Conflict");
+        assertThrows(ConditionalCheckFailedException.class, () -> dao.saveDocument(doc));
+        assertEquals(store.onlyConsistentReadOf(WaiverDAO.WAIVERS_TABLE).key().keySet(),
+                Set.of(WaiverDAO.ORG_ID, WaiverDAO.ID));
     }
 
     private static WaiverDocument document(final String org, final String title) {

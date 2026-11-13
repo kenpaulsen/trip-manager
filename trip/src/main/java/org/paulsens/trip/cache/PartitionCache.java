@@ -189,14 +189,15 @@ public class PartitionCache<K, V> {
         return CacheKeys.LOADED_SENTINEL.equals(field) || CacheKeys.LOADED_AT.equals(field);
     }
 
-    private List<V> mergeLoaderResult(final String key, final List<V> list, final Map<String, String> preHash) {
-        final boolean wasFullyLoaded = preHash.containsKey(CacheKeys.LOADED_SENTINEL);
-        final Map<String, String> preSnapshot = wasFullyLoaded ? entitySnapshot(preHash) : Map.of();
+    private List<V> mergeLoaderResult(final String key, final List<V> list, final Map<String, String> snapshot) {
         // Read again AFTER the load: a field that is no longer what the pre-load snapshot saw was written
         // through (or removed) while the eventually consistent load ran, so the cache's copy is the newer one
         // and the loader's must not replace it. Until 2026-11 the overlay was unconditional, and a save that
         // triggered its own reload (its Cached.NO read is the stale hit) had its write put back.
         final Map<String, String> postHash = cache.getHash(key);
+        final Map<String, String> preHash = droppedDuringLoad(snapshot, postHash) ? Map.of() : snapshot;
+        final boolean wasFullyLoaded = preHash.containsKey(CacheKeys.LOADED_SENTINEL);
+        final Map<String, String> preSnapshot = wasFullyLoaded ? entitySnapshot(preHash) : Map.of();
         final Map<String, String> fields = new HashMap<>();
         fields.put(CacheKeys.LOADED_SENTINEL, CacheKeys.LOADED_VALUE);
         fields.put(CacheKeys.LOADED_AT, String.valueOf(clock.get()));
@@ -223,6 +224,18 @@ public class PartitionCache<K, V> {
         cache.expire(key, gcTtl);
         final Map<String, String> merged = cache.getHash(key);
         return merged.containsKey(CacheKeys.LOADED_SENTINEL) ? toValues(merged) : sorted(list);
+    }
+
+    /**
+     * Whether the whole key went away while the loader ran: a failed write-through's {@link #recover}, an
+     * {@link #invalidate}, the admin Clear caches. Every field is then missing, which the per-field compare
+     * would read as "each of these rows was removed during the load": it would skip them all and still mark
+     * the partition loaded, an authoritative "nothing here" until the soft TTL. The sentinel is the tell (no
+     * single-row removal touches it), and the load is then merged as the cold load it has become: onto an
+     * empty snapshot, so every loader row is put unless a write-through has already landed in its field.
+     */
+    private static boolean droppedDuringLoad(final Map<String, String> snapshot, final Map<String, String> now) {
+        return snapshot.containsKey(CacheKeys.LOADED_SENTINEL) && !now.containsKey(CacheKeys.LOADED_SENTINEL);
     }
 
     private boolean maybeReconcileDeletes(

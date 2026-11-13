@@ -3,6 +3,7 @@ package org.paulsens.trip.dynamo;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
 import org.paulsens.trip.cache.CacheKeys;
@@ -136,6 +137,22 @@ public class ExpenseReportDAOTest {
         assertThrows(ConditionalCheckFailedException.class, () -> ours.saveReport(stale));
         assertEquals(ours.getReport(report.getTripId()).orElseThrow().getVersion(), 2L,
                 "the reload after the refusal reads the stored version");
+    }
+
+    /**
+     * The in-memory fake is always consistent, so only the request can show this: the re-read after a lost
+     * check must be strongly consistent, or a lagging replica hands the cache the version that just lost.
+     */
+    @Test
+    public void theReReadAfterALostVersionCheckIsConsistent() {
+        final RecordingPersistence store = new RecordingPersistence();
+        store.conflictPuts = true;
+        final ExpenseReportDAO dao =
+                new ExpenseReportDAO(DAO.getInstance().getMapper(), store, new InMemoryCacheClient());
+        final TripExpenseReport report = report();
+        assertThrows(ConditionalCheckFailedException.class, () -> dao.saveReport(report));
+        assertEquals(store.onlyConsistentReadOf(ExpenseReportDAO.EXPENSES_TABLE).key().keySet(),
+                Set.of(ExpenseReportDAO.TRIP_ID));
     }
 
     private static TripExpenseReport report() {

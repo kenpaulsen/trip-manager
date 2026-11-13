@@ -51,7 +51,8 @@ public class FamilyDAO {
     /**
      * Conditionally persist this family and, on success, bump the object's version in place and write through
      * the cache. On a version conflict the object is left at its original version (so the caller can re-read and
-     * retry) and the {@link ConditionalCheckFailedException} propagates.
+     * retry), the STORED row is put into the cache so that re-read sees it ({@link VersionedWrites#recacheStored})
+     * and the {@link ConditionalCheckFailedException} propagates.
      */
     protected Boolean saveFamily(final Family family) throws IOException {
         final long expected = family.getVersion();
@@ -81,26 +82,10 @@ public class FamilyDAO {
             return saved;
         } catch (final ConditionalCheckFailedException ex) {
             family.setVersion(expected);
-            recacheStored(family.getId().getValue());
+            final String id = family.getId().getValue();
+            VersionedWrites.recacheStored(persistence, FAMILY_TABLE, Map.of(ID, map.get(ID)), this::parseFamily,
+                    stored -> cache.put(id, stored));
             throw ex;
-        }
-    }
-
-    /**
-     * After a lost version check: put the row the STORE holds into the cache. The caller is told to reload and
-     * try again, and that reload reads this cache; an entry still at the losing version (a write-through SET
-     * that failed, which the caches deliberately survive) would hand back the same stale version every time,
-     * so the record could not be edited until the soft TTL. A reload, never a removal: in local mode the cache
-     * is the datastore. Never lets its own failure hide the conflict being reported.
-     */
-    private void recacheStored(final String id) {
-        try {
-            final Family stored = loadFamilyById(id);
-            if (stored != null) {
-                cache.put(id, stored);
-            }
-        } catch (final RuntimeException ex) {
-            log.warn("Unable to refresh the cached family {} after a version conflict", id, ex);
         }
     }
 

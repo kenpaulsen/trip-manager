@@ -2,7 +2,9 @@ package org.paulsens.trip.dynamo;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Set;
 import org.paulsens.trip.cache.Cached;
+import org.paulsens.trip.cache.InMemoryCacheClient;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.PaymentProcessorConfig;
 import org.paulsens.trip.model.ProcessorType;
@@ -57,6 +59,48 @@ public class PaymentProcessorDAOTest {
         assertTrue(DAO.getInstance()
                 .getPaymentProcessorConfig(other, mineCfg.getId(), Cached.NO).isEmpty());
         assertTrue(DAO.getInstance().getPaymentProcessorConfig(null, null, Cached.NO).isEmpty());
+    }
+
+    /**
+     * A second writer's cache can hold the losing version (its write-through failed and so did the recovery
+     * that drops the key, or another task saved). The refused save tells the admin to reload and try again,
+     * and that reload reads the cache: it must now hold what the STORE holds, or every retry loses the same
+     * way until the soft TTL.
+     */
+    @Test
+    public void aLostVersionCheckRefreshesTheCachedRow() throws IOException {
+        final InMemoryPersistence store = new InMemoryPersistence();
+        final PaymentProcessorDAO ours =
+                new PaymentProcessorDAO(DAO.getInstance().getMapper(), store, new InMemoryCacheClient());
+        final PaymentProcessorDAO theirs =
+                new PaymentProcessorDAO(DAO.getInstance().getMapper(), store, new InMemoryCacheClient());
+        final Organization.Id org = Organization.Id.newInstance();
+        final PaymentProcessorConfig config = config(org, "Conflict");
+        assertTrue(theirs.saveConfig(config));
+        assertEquals(ours.getConfig(org, config.getId()).orElseThrow().getVersion(), 1L, "our cache holds v1");
+        assertTrue(theirs.saveConfig(theirs.getConfig(org, config.getId()).orElseThrow()));
+
+        final PaymentProcessorConfig stale = ours.getConfig(org, config.getId()).orElseThrow();
+        assertEquals(stale.getVersion(), 1L, "the store is at v2; our cache still answers v1");
+        assertThrows(ConditionalCheckFailedException.class, () -> ours.saveConfig(stale));
+        assertEquals(ours.getConfig(org, config.getId()).orElseThrow().getVersion(), 2L,
+                "the reload after the refusal reads the stored version");
+    }
+
+    /**
+     * The in-memory fake is always consistent, so only the request can show this: the re-read after a lost
+     * check must be strongly consistent, or a lagging replica hands the cache the version that just lost.
+     */
+    @Test
+    public void theReReadAfterALostVersionCheckIsConsistent() {
+        final RecordingPersistence store = new RecordingPersistence();
+        store.conflictPuts = true;
+        final PaymentProcessorDAO dao =
+                new PaymentProcessorDAO(DAO.getInstance().getMapper(), store, new InMemoryCacheClient());
+        final PaymentProcessorConfig config = config(Organization.Id.newInstance(), "Conflict");
+        assertThrows(ConditionalCheckFailedException.class, () -> dao.saveConfig(config));
+        assertEquals(store.onlyConsistentReadOf(PaymentProcessorDAO.PROCESSORS_TABLE).key().keySet(),
+                Set.of(PaymentProcessorDAO.ORG_ID, PaymentProcessorDAO.CONFIG_ID));
     }
 
     private static PaymentProcessorConfig config(final Organization.Id orgId, final String label) {

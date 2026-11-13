@@ -1,6 +1,7 @@
 package org.paulsens.trip.dynamo;
 
 import java.io.IOException;
+import java.util.Set;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.cache.InMemoryCacheClient;
 import org.paulsens.trip.model.Organization;
@@ -93,6 +94,21 @@ public class OrganizationDAOTest {
         assertThrows(ConditionalCheckFailedException.class, () -> ours.saveOrganization(stale));
         assertEquals(ours.getOrganization(org.getId()).orElseThrow().getVersion(), 2L,
                 "the reload after the refusal reads the stored version");
+    }
+
+    /**
+     * The in-memory fake is always consistent, so only the request can show this: the re-read after a lost
+     * check must be strongly consistent, or a lagging replica hands the cache the version that just lost.
+     */
+    @Test
+    public void theReReadAfterALostVersionCheckIsConsistent() {
+        final RecordingPersistence store = new RecordingPersistence();
+        store.conflictPuts = true;
+        final OrganizationDAO dao =
+                new OrganizationDAO(DAO.getInstance().getMapper(), store, new InMemoryCacheClient());
+        final Organization org = newOrg("Conflict " + RandomData.genAlpha(6));
+        assertThrows(ConditionalCheckFailedException.class, () -> dao.saveOrganization(org));
+        assertEquals(store.onlyConsistentReadOf(OrganizationDAO.ORG_TABLE).key().keySet(), Set.of("id"));
     }
 
     private static Organization newOrg(final String name) {

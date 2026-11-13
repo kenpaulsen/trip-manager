@@ -6,6 +6,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -36,6 +37,14 @@ import lombok.extern.slf4j.Slf4j;
  * snapshot needs to know which partitions exist, so each one is listed in a registry set next to the loaded
  * marker; a partition the registry has not seen yet is overwritten as before, once.</p>
  *
+ * <p><b>A cache dropped during the scan is a cold load, not a mass removal.</b> {@link #invalidate()}, the
+ * admin Clear caches and a namespace clear all leave every snapshotted field missing, which the per-field
+ * compare alone would read as "each of these rows was removed while the scan ran". It would write none of
+ * them and still mark the cache loaded: privileges would read as held by nobody for a day, and the next grant
+ * would save a row holding only the new person. Every such drop takes the registry with it, so the snapshot
+ * plants an epoch member in the registry and the merge trusts the snapshot only while that member is still
+ * there.</p>
+ *
  * @param <V> the cached entity type.
  */
 @Slf4j
@@ -52,7 +61,13 @@ public final class PartitionScanCache<V> {
     private final boolean softRevalidate = true;
     @Builder.Default
     private final Duration gcTtl = CacheKeys.GC_TTL;
-    /** Full build: every live entity. */
+    /**
+     * Full build: every live entity, from a STRONGLY CONSISTENT scan. A rebuild removes a cached row the scan
+     * does not return, and the snapshot it compares against only protects a write that lands DURING the scan:
+     * a row written just before it, which an eventually consistent scan may not see yet, would be removed and
+     * the cache marked loaded without it (a new trip's creator would hold no role until the next rebuild).
+     * These are small tables scanned once per soft TTL, so the doubled read cost is nothing.
+     */
     private final Supplier<List<V>> loader;
     /** Entity -> its partition. */
     private final Function<V, String> partitioner;
@@ -68,6 +83,11 @@ public final class PartitionScanCache<V> {
 
     /** Suffix of the registry set (next to {@code loadedKey}) naming every partition hash that holds rows. */
     private static final String PARTITIONS_SUFFIX = ":parts";
+    /**
+     * Prefix of the registry's epoch member. A partition key starts with {@code keyPrefix}, which is a cache
+     * key prefix and so never begins with this.
+     */
+    private static final String EPOCH_PREFIX = "epoch#";
 
     /** In-process single-flight for the (single) background rebuild; keyed by {@code loadedKey}. */
     private final ConcurrentHashMap<String, Boolean> refreshing = new ConcurrentHashMap<>();
@@ -192,7 +212,7 @@ public final class PartitionScanCache<V> {
 
     private List<V> buildAndAnswer(final Function<List<V>, List<V>> inMemoryAnswer) {
         final String lockKey = CacheKeys.refreshLockKey(loadedKey);
-        final Map<String, Map<String, String>> before = snapshot();
+        final Snapshot before = snapshot();
         final List<V> all = loader.get();
         if (cache.tryAcquireLock(lockKey, CacheKeys.REFRESH_LOCK_TTL)) {
             try {
@@ -208,30 +228,58 @@ public final class PartitionScanCache<V> {
 
     /** The background rebuild: snapshot, scan, then merge the scan in against the snapshot. */
     private boolean rebuild() {
-        final Map<String, Map<String, String>> before = snapshot();
+        final Snapshot before = snapshot();
         return populate(loader.get(), before);
     }
 
-    /** Every registered partition's hash as it stands now: what a rebuild compares against after its scan. */
-    private Map<String, Map<String, String>> snapshot() {
-        final Map<String, Map<String, String>> before = new HashMap<>();
-        for (final String key : cache.getSetMembers(partitionsKey())) {
-            before.put(key, cache.getHash(key));
-        }
-        return before;
+    /**
+     * What a rebuild compares against after its scan: every registered partition's hash as it stands now, and
+     * the registry epoch they were read under.
+     */
+    private record Snapshot(String epoch, Map<String, Map<String, String>> partitions) {
     }
 
-    private boolean populate(final List<V> all, final Map<String, Map<String, String>> before) {
+    private Snapshot snapshot() {
+        final Map<String, Map<String, String>> partitions = new HashMap<>();
+        String epoch = null;
+        for (final String member : cache.getSetMembers(partitionsKey())) {
+            if (member.startsWith(EPOCH_PREFIX)) {
+                epoch = member;
+            } else {
+                partitions.put(member, cache.getHash(member));
+            }
+        }
+        return new Snapshot((epoch == null) ? plantEpoch() : epoch, partitions);
+    }
+
+    /**
+     * Starts a registry epoch. A set member rather than a key of its own, so that it goes exactly when the
+     * registry goes, and so that two rebuilds planting at once both find their own member afterward (a
+     * last-writer-wins key would make the loser see a drop that never happened).
+     */
+    private String plantEpoch() {
+        final String epoch = EPOCH_PREFIX + UUID.randomUUID();
+        cache.addSetMembers(partitionsKey(), List.of(epoch));
+        cache.expire(partitionsKey(), gcTtl);
+        return epoch;
+    }
+
+    private boolean populate(final List<V> all, final Snapshot snapshot) {
         final Map<String, Map<String, String>> scanned = new HashMap<>();
         for (final V v : all) {
             scanned.computeIfAbsent(keyPrefix + partitioner.apply(v), k -> new HashMap<>())
                     .put(fielder.apply(v), serializer.apply(v));
         }
+        // The epoch is gone: the cache was dropped while the scan ran (see the class comment), and the scan
+        // is merged as onto an empty cache. An empty baseline rather than none, so a write-through that has
+        // landed since the drop is still not overwritten by the scan's older copy of that row.
+        final boolean dropped = !cache.getSetMembers(partitionsKey()).contains(snapshot.epoch());
+        final Map<String, Map<String, String>> before = dropped ? Map.of() : snapshot.partitions();
         // Partitions the scan no longer returns are visited too: their rows are what has to go.
         final List<String> keys = new ArrayList<>(scanned.keySet());
         before.keySet().stream().filter(key -> !scanned.containsKey(key)).forEach(keys::add);
         for (final String key : keys) {
-            mergePartition(key, scanned.getOrDefault(key, Map.of()), before.get(key));
+            mergePartition(key, scanned.getOrDefault(key, Map.of()), dropped ? Map.of() : before.get(key));
         }
         if (!scanned.isEmpty()) {
             cache.addSetMembers(partitionsKey(), scanned.keySet());
@@ -241,9 +289,9 @@ public final class PartitionScanCache<V> {
     }
 
     /**
-     * Brings one partition hash in line with the scan. {@code before} is the partition as the snapshot saw it,
-     * or null for a partition the registry did not know yet, which is overwritten outright (there is nothing to
-     * compare against, and nothing is removed from it).
+     * Brings one partition hash in line with the scan. {@code before} is the partition as the snapshot saw it
+     * (empty when the cache was dropped during the scan), or null for a partition the registry did not know
+     * yet, which is overwritten outright (there is nothing to compare against, and nothing is removed from it).
      */
     private void mergePartition(final String key, final Map<String, String> scanned,
             final Map<String, String> before) {

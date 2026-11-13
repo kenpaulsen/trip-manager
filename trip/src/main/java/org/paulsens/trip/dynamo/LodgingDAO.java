@@ -421,25 +421,10 @@ public class LodgingDAO {
         }
     }
 
-    /**
-     * After a lost version check: put the row the STORE holds into the cache. The caller is told to reload and
-     * try again, and that reload reads this cache; an entry still at the losing version (a write-through SET
-     * that failed, which the caches deliberately survive) would hand back the same stale version every time,
-     * so the record could not be edited until the soft TTL. A reload, never a removal: in local mode the cache
-     * is the datastore. Never lets its own failure hide the conflict being reported.
-     */
+    /** {@link VersionedWrites#recacheStored} for one of this class's five tables. */
     private <T> void recacheStored(final String table, final Map<String, AttributeValue> key, final Class<T> type,
             final Consumer<T> cachePut) {
-        try {
-            final AttributeValue content =
-                    persistence.getItem(b -> b.key(key).tableName(table).build()).item().get(CONTENT);
-            final T stored = (content == null) ? null : parse(content.s(), type);
-            if (stored != null) {
-                cachePut.accept(stored);
-            }
-        } catch (final RuntimeException ex) {
-            log.warn("Unable to refresh a cached {} row after a version conflict", table, ex);
-        }
+        VersionedWrites.recacheStored(persistence, table, key, json -> parse(json, type), cachePut);
     }
 
     private void conditionalPut(final PutItemRequest.Builder b, final String table,
@@ -501,7 +486,8 @@ public class LodgingDAO {
     }
 
     private List<Accommodation> loadAllAccommodations() {
-        return persistence.scanAll(b -> b.consistentRead(false).limit(1000).tableName(ACCOMMODATIONS_TABLE).build())
+        // A consistent scan: the rebuild REMOVES what this does not return (PartitionScanCache's loader).
+        return persistence.scanAll(b -> b.consistentRead(true).limit(1000).tableName(ACCOMMODATIONS_TABLE).build())
                 .stream()
                 .map(item -> item.get(CONTENT))
                 .filter(content -> content != null)

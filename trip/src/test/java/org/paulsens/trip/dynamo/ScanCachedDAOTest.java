@@ -17,6 +17,7 @@ import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
+import software.amazon.awssdk.services.dynamodb.model.ScanRequest;
 
 /**
  * The whole-table-scan load path of the {@link org.paulsens.trip.cache.PartitionScanCache}-backed DAOs
@@ -41,6 +42,30 @@ public class ScanCachedDAOTest {
     /** A cache that behaves like Valkey (shared, real) but is not an InMemoryCacheClient by type. */
     private static CacheClient valkeyLike() {
         return Mockito.mock(CacheClient.class, AdditionalAnswers.delegatesTo(new InMemoryCacheClient()));
+    }
+
+    /**
+     * A rebuild removes a cached row its scan does not return, so the scan has to see a row written a moment
+     * ago: all seven loaders behind a scan cache ask for a strongly consistent scan. The engines the tests
+     * run on are always consistent, so only the requests can show it.
+     */
+    @Test
+    public void everyLoaderBehindAScanCacheAsksForAConsistentScan() {
+        final RecordingPersistence store = new RecordingPersistence();
+
+        new PrivilegesDAO(mapper, store, valkeyLike()).getGlobalPrivileges();
+        new ConfigDAO(mapper, store, valkeyLike()).getAllConfig();
+        new MediaDAO(mapper, store, valkeyLike()).getAllMedia();
+        new TemplateDAO(mapper, store, valkeyLike()).getAllTemplates();
+        new ContentDAO(mapper, store, valkeyLike()).getContentForSection("home");
+        new OrganizationDAO(mapper, store, valkeyLike()).getOrganizations();
+        new LodgingDAO(mapper, store, valkeyLike()).getAccommodations();
+
+        Assert.assertEquals(store.scans.stream().map(ScanRequest::tableName).toList(),
+                List.of("privs", "config", MediaDAO.MEDIA_TABLE, TemplateDAO.TEMPLATES_TABLE,
+                        ContentDAO.CONTENT_TABLE, OrganizationDAO.ORG_TABLE, LodgingDAO.ACCOMMODATIONS_TABLE));
+        Assert.assertTrue(store.scans.stream().allMatch(scan -> Boolean.TRUE.equals(scan.consistentRead())),
+                "every one of them is consistent: " + store.scans);
     }
 
     // --- PrivilegesDAO ---

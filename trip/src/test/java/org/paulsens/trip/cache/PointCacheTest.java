@@ -261,18 +261,7 @@ public class PointCacheTest {
         final CountDownLatch release = new CountDownLatch(1);
         final InMemoryCacheClient client = new InMemoryCacheClient();
         final PointCache<String> cache = point(clock, client);
-        final Function<String, String> loader = id -> {
-            if (loads.incrementAndGet() <= 2) {
-                return "v1";
-            }
-            entered.countDown();
-            try {
-                assertTrue(release.await(3, TimeUnit.SECONDS));
-            } catch (final InterruptedException ex) {
-                Thread.currentThread().interrupt();
-            }
-            return "v1";   // what the store held when the reload read it: before the writes below
-        };
+        final Function<String, String> loader = id -> storedBeforeTheWrites(loads, entered, release);
 
         assertEquals(cache.get("edited", loader), Optional.of("v1"));
         assertEquals(cache.get("removed", loader), Optional.of("v1"));
@@ -287,6 +276,24 @@ public class PointCacheTest {
 
         assertTrue(client.getValue("te:edited").orElseThrow().endsWith("|v2"), "the write survives the reload");
         assertTrue(client.getValue("te:removed").isEmpty(), "the removal survives the reload");
+    }
+
+    /**
+     * What the store held when a load read it: before the test's writes. The first two loads are the warm-up;
+     * every later one (a background reload) waits between its read and its return.
+     */
+    private static String storedBeforeTheWrites(final AtomicInteger loads, final CountDownLatch entered,
+            final CountDownLatch release) {
+        if (loads.incrementAndGet() <= 2) {
+            return "v1";
+        }
+        entered.countDown();
+        try {
+            assertTrue(release.await(3, TimeUnit.SECONDS));
+        } catch (final InterruptedException ex) {
+            Thread.currentThread().interrupt();
+        }
+        return "v1";
     }
 
     private static PointCache<String> point(final AtomicLong clock) {

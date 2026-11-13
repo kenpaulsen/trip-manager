@@ -237,18 +237,8 @@ public class PartitionCacheTest {
         final CountDownLatch releaseSecondLoad = new CountDownLatch(1);
         final AtomicInteger loads = new AtomicInteger();
         final PartitionCache<String, String> cache = partition(clock);
-        final Supplier<List<String>> loader = () -> {
-            if (loads.incrementAndGet() == 2) {
-                enteredSecondLoad.countDown();
-                try {
-                    assertTrue(releaseSecondLoad.await(3, TimeUnit.SECONDS));
-                } catch (final InterruptedException ex) {
-                    Thread.currentThread().interrupt();
-                }
-            }
-            // What the table held when the reload read it: before either write below.
-            return List.of("a-db", "b-db", "c-db");
-        };
+        final Supplier<List<String>> loader =
+                () -> tableBeforeTheWrites(loads, enteredSecondLoad, releaseSecondLoad);
 
         cache.getAll("p1", loader);
         clock.addAndGet(Duration.ofMinutes(2).toMillis());
@@ -269,9 +259,98 @@ public class PartitionCacheTest {
         assertEquals(cache.getOne("p1", "c", loader), Optional.of("c-db"), "an untouched row is still refreshed");
     }
 
+    /**
+     * A key that goes away while the reload reads (a failed write-through's recover, an invalidate, the admin
+     * Clear caches) leaves every field missing. The per-field compare read that as "each row was removed during
+     * the load", put none of them back and still marked the partition loaded: an authoritative empty list until
+     * the soft TTL. A dropped key is a cold load.
+     */
+    @Test
+    public void aKeyDroppedDuringTheReloadIsLoadedInFull() throws Exception {
+        final AtomicLong clock = new AtomicLong(1_000_000L);
+        final CountDownLatch enteredSecondLoad = new CountDownLatch(1);
+        final CountDownLatch releaseSecondLoad = new CountDownLatch(1);
+        final AtomicInteger loads = new AtomicInteger();
+        final InMemoryCacheClient client = new InMemoryCacheClient();
+        final PartitionCache<String, String> cache = partition(clock, client);
+        final Supplier<List<String>> loader =
+                () -> tableBeforeTheWrites(loads, enteredSecondLoad, releaseSecondLoad);
+
+        cache.getAll("p1", loader);
+        clock.addAndGet(Duration.ofMinutes(2).toMillis());
+        cache.getAll("p1", loader); // start background refresh
+        assertTrue(enteredSecondLoad.await(3, TimeUnit.SECONDS));
+        assertTrue(cache.invalidate("p1"));
+        releaseSecondLoad.countDown();
+        clock.addAndGet(-Duration.ofMinutes(2).toMillis());
+        awaitLoaded(client, "t:p1");
+
+        assertEquals(cache.getAll("p1", loader), List.of("a-db", "b-db", "c-db"), "every loader row is cached");
+        assertEquals(loads.get(), 2, "and the list came from the cache the reload filled");
+    }
+
+    /** The other half of a cold load: what was written through AFTER the drop is newer than the loader's read. */
+    @Test
+    public void aWriteThatLandsAfterTheDropSurvivesTheReload() throws Exception {
+        final AtomicLong clock = new AtomicLong(1_000_000L);
+        final CountDownLatch enteredSecondLoad = new CountDownLatch(1);
+        final CountDownLatch releaseSecondLoad = new CountDownLatch(1);
+        final AtomicInteger loads = new AtomicInteger();
+        final InMemoryCacheClient client = new InMemoryCacheClient();
+        final PartitionCache<String, String> cache = partition(clock, client);
+        final Supplier<List<String>> loader =
+                () -> tableBeforeTheWrites(loads, enteredSecondLoad, releaseSecondLoad);
+
+        cache.getAll("p1", loader);
+        clock.addAndGet(Duration.ofMinutes(2).toMillis());
+        cache.getAll("p1", loader); // start background refresh
+        assertTrue(enteredSecondLoad.await(3, TimeUnit.SECONDS));
+        assertTrue(client.removeKey("t:p1"));
+        assertTrue(cache.put("p1", "c-written"));
+        releaseSecondLoad.countDown();
+        clock.addAndGet(-Duration.ofMinutes(2).toMillis());
+        awaitLoaded(client, "t:p1");
+
+        assertEquals(cache.getAll("p1", loader), List.of("a-db", "b-db", "c-written"));
+        assertEquals(loads.get(), 2);
+    }
+
+    /**
+     * What the table held when a reload read it, before the test's writes. The SECOND load (the background
+     * reload) waits between its read and its return, which is where a test acts "during the reload".
+     */
+    private static List<String> tableBeforeTheWrites(final AtomicInteger loads, final CountDownLatch entered,
+            final CountDownLatch release) {
+        if (loads.incrementAndGet() == 2) {
+            entered.countDown();
+            awaitRelease(release);
+        }
+        return List.of("a-db", "b-db", "c-db");
+    }
+
+    private static void awaitRelease(final CountDownLatch release) {
+        try {
+            assertTrue(release.await(3, TimeUnit.SECONDS));
+        } catch (final InterruptedException ex) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    /** Waits for a reload to land: the sentinel is the last thing it leaves missing after a drop. */
+    private static void awaitLoaded(final CacheClient client, final String key) throws InterruptedException {
+        for (int i = 0; i < 250 && !client.getHash(key).containsKey(CacheKeys.LOADED_SENTINEL); i++) {
+            Thread.sleep(20);
+        }
+        assertTrue(client.getHash(key).containsKey(CacheKeys.LOADED_SENTINEL), "the reload never landed");
+    }
+
     private static PartitionCache<String, String> partition(final AtomicLong clock) {
+        return partition(clock, new InMemoryCacheClient());
+    }
+
+    private static PartitionCache<String, String> partition(final AtomicLong clock, final CacheClient client) {
         return PartitionCache.<String, String>builder()
-                .cache(new InMemoryCacheClient())
+                .cache(client)
                 .keyPrefix("t:")
                 .softTtl(Duration.ofMinutes(1))
                 .idGetter(v -> v.substring(0, 1))

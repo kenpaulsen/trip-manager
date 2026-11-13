@@ -63,12 +63,35 @@ person into the table), and a scan-cache rebuild never removed anything, so a de
 rebuild had put back was served until someone cleared the caches. The compare and the write are two commands,
 not one atomic step; the window left is the microseconds between them, not the length of a table scan.
 
+Two things the compare alone gets wrong, and what covers each:
+
+- **A key dropped during the load is a cold load.** A whole key going away (`PartitionCache.recover` after a
+  failed write-through, an `invalidate`, the admin Clear caches) leaves every field missing, exactly what
+  "each of these rows was removed during the load" looks like. Taken that way the reload would write nothing
+  back and still mark the cache loaded: an authoritative empty answer until the soft TTL. So `PartitionCache`
+  treats a loaded sentinel that was in the snapshot and is gone after the load as a drop, and
+  `PartitionScanCache` plants an epoch member in its registry set at snapshot time and trusts the snapshot only
+  while that member is still there (every drop takes the registry with it; a write-through after the drop
+  re-creates the registry, but without the epoch). A dropped load is merged onto an EMPTY snapshot: every
+  loaded row is written, except over a field a write-through has filled since the drop.
+- **The loader behind a `PartitionScanCache` scans with `consistentRead(true)`.** The snapshot only protects a
+  write that lands DURING the scan. A row written just before it is in the snapshot, unchanged, and an
+  eventually consistent scan may not return it yet, so the rebuild would remove it and mark the cache loaded
+  without it. All seven loaders (privileges, config, media, templates, content, organizations, lodging
+  accommodations) therefore ask for a strongly consistent scan; these are small tables scanned once per soft
+  TTL, so twice the read units is nothing. `PartitionCache`'s per-partition queries are still eventually
+  consistent.
+
 **A lost version check refreshes the cached row (2026-11).** The versioned DAOs (family, budget, expense
-report, organization, the five lodging rows) answer a `ConditionalCheckFailedException` with "reload and try
-again", and that reload reads the cache. A cache entry still at the losing version (a write-through SET that
-failed, which `PointCache.put` and `PartitionScanCache.put` deliberately survive) made every retry lose the
-same way until the soft TTL, so each conflict handler now re-reads the stored row and puts it into the cache
-before rethrowing (`recacheStored`): a reload, never a removal, because in local mode the cache is the store.
+report, organization, payment processor config, waiver document, the five lodging rows) answer a
+`ConditionalCheckFailedException` with "reload and try again", and that reload reads the cache. A cache entry
+still at the losing version (a write-through that failed: `PointCache.put` and `PartitionScanCache.put`
+deliberately survive it, and `PartitionCache.recover`'s key drop can fail the same way) made every retry lose
+again until the soft TTL. So every conflict handler calls the one `VersionedWrites.recacheStored` before
+rethrowing: it re-reads the stored row and puts it into the cache. A reload, never a removal, because in local
+mode the cache is the store. The re-read is a STRONGLY CONSISTENT `GetItem`, made inside the helper so no DAO
+can leave it out: the winner has usually just written the new version through to this cache, and a default
+read landing on a replica that has not caught up would replace it with the version that lost.
 
 **Tier 3 (hygiene): `GC_TTL`** (7 days) bounds abandoned keys. Never the coherence mechanism.
 

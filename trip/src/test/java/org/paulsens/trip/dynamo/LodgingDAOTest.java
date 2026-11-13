@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.cache.InMemoryCacheClient;
 import org.paulsens.trip.model.Accommodation;
@@ -22,6 +23,7 @@ import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertThrows;
 import static org.testng.Assert.assertTrue;
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
+import software.amazon.awssdk.services.dynamodb.model.GetItemRequest;
 
 /** The lodging tables through the DAO facade against the in-memory fake. */
 public class LodgingDAOTest {
@@ -330,6 +332,38 @@ public class LodgingDAOTest {
         final RatePlan stalePlan = ours.getPlan(acc.getId().getValue(), plan.getId()).orElseThrow();
         assertThrows(ConditionalCheckFailedException.class, () -> ours.savePlan(stalePlan));
         assertEquals(ours.getPlan(acc.getId().getValue(), plan.getId()).orElseThrow().getVersion(), 2L, "the plan");
+    }
+
+    /**
+     * The in-memory fake is always consistent, so only the requests can show this: each of the five rows is
+     * re-read strongly consistently after a lost check, by its own table's full key (a reservation's index
+     * attributes are not part of it).
+     */
+    @Test
+    public void theReReadAfterALostVersionCheckIsConsistent() {
+        final RecordingPersistence store = new RecordingPersistence();
+        store.conflictPuts = true;
+        final LodgingDAO dao = new LodgingDAO(DAO.getInstance().getMapper(), store, new InMemoryCacheClient());
+        final Accommodation acc = accommodation("Conflict " + RandomData.genAlpha(6));
+        final ReservationOffer offer = offer("trip-1", "Double");
+        final Reservation res = atHotel("trip-1", acc.getId(), AT, AT.plusDays(2));
+        final RoomBlock block = block(acc.getId(), "room-1");
+        final RatePlan plan = plan(acc.getId(), "Summer");
+
+        assertThrows(ConditionalCheckFailedException.class, () -> dao.saveAccommodation(acc));
+        assertThrows(ConditionalCheckFailedException.class, () -> dao.saveOffer(offer));
+        assertThrows(ConditionalCheckFailedException.class, () -> dao.saveReservation(res));
+        assertThrows(ConditionalCheckFailedException.class, () -> dao.saveBlock(block));
+        assertThrows(ConditionalCheckFailedException.class, () -> dao.savePlan(plan));
+
+        assertTrue(store.reads.stream().allMatch(read -> Boolean.TRUE.equals(read.consistentRead())),
+                "every re-read is consistent: " + store.reads);
+        assertEquals(store.reads.stream().map(GetItemRequest::tableName).toList(),
+                List.of(LodgingDAO.ACCOMMODATIONS_TABLE, LodgingDAO.OFFERS_TABLE, LodgingDAO.RESERVATIONS_TABLE,
+                        LodgingDAO.BLOCKS_TABLE, LodgingDAO.RATE_PLANS_TABLE));
+        assertEquals(store.reads.stream().map(read -> read.key().keySet()).toList(),
+                List.of(Set.of("id"), Set.of("tripId", "id"), Set.of("tripId", "id"),
+                        Set.of("accommodationId", "id"), Set.of("accommodationId", "id")));
     }
 
     private static Accommodation accommodation(final String name) {
