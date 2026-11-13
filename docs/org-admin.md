@@ -153,8 +153,9 @@ index down to an organization instead: the index is read in token order across e
 organizations' matches fill the window and the caller's own colleague is never found (`people.adminSearch`
 dropped that shape for the same reason, and `GET /api/people?q=` is that search). People already selected stay
 offered whatever their org; the page's own rule put them there. The picker is a convenience, not the rule:
-Batch Transactions' save (`txCmds.saveGroupTx`) refuses anyone the caller may not charge on that trip
-(`TripFinanceGate.mayCharge`), exactly as `POST /api/transactions/groups` does. `setTripRole` enforces the same
+Batch Transactions' save (`txCmds.saveGroupTx`) refuses a member being added whom the caller may not charge on
+that trip (`TripFinanceGate.mayCharge`), and keeps a member who already has a row while that row is on the trip's
+books (`TransactionsCommands.mayKeepInGroup`, the one rule `POST /api/transactions/groups` asks too). `setTripRole` enforces the same
 boundary server-side: grants require membership in the trip's org (site admins included, the
 `grantOrgPrivilege` stance); revokes stay open so a departed member's stale role remains removable.
 Org-less trips are site-admin-only and keep the global search.

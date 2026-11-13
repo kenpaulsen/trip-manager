@@ -345,7 +345,10 @@ or a non-member -- the review seed uses it to take the reviewer accounts back ou
   `GET people/{id}/{txId}`, `PUT` and `DELETE` answer 404 `NOT_FOUND` for a row on another trip's books (or on
   none); `GET trips/{tripId}` lists the roster's rows on that trip's books only; `POST people/{id}?trip=` needs
   the person to be on the trip (roster, or a registration that is not `NOT_REGISTERED`), else 403 `FORBIDDEN`;
-  `POST groups?trip=` needs every member on the trip and every existing row of the group on its books (403), and
+  `POST groups?trip=` needs every member BEING ADDED to be on the trip, and every row the group already has on
+  its books (403): a member who already has a row keeps it while that row is on this trip's books, even after
+  leaving the trip, so a client must send withdrawn members back unchanged (leaving one out deletes their row);
+  the one rule is `TransactionsCommands.mayKeepInGroup`. And
   `GET groups/{gid}/people/{pid}` answers 404 for another trip's group. A missing or unknown `trip` is 403 for
   anyone but a site admin, who reads and writes every ledger. A `PUT` never moves a row to another trip: it binds
   a row that has no trip yet and otherwise leaves the binding alone.

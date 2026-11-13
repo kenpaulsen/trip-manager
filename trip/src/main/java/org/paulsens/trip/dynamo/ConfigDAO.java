@@ -29,9 +29,9 @@ import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
  */
 @Slf4j
 public class ConfigDAO {
-    private static final String NAME = "name";
+    static final String NAME = "name";
     private static final String CONTENT = "content";
-    private static final String CONFIG_TABLE = "config";
+    static final String CONFIG_TABLE = "config";
 
     private final ObjectMapper mapper;
     private final Persistence persistence;

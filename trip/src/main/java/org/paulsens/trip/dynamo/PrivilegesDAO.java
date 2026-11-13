@@ -25,9 +25,9 @@ import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
  */
 @Slf4j
 public class PrivilegesDAO {
-    private static final String NAME = "name";
+    static final String NAME = "name";
     private static final String CONTENT = "content";
-    private static final String PRIVILEGE_TABLE = "privs";
+    static final String PRIVILEGE_TABLE = "privs";
     protected static final Comparator<Privilege> PRIV_SORTER = (a, b) ->
             a.getName().compareToIgnoreCase(b.getName());
 

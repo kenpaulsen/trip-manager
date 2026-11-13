@@ -150,6 +150,11 @@ session login is the only auth mechanism the API has today.
 
 - `InMemoryCacheClient` is the datastore for write-through data; `softRevalidate` is forced off
   (`CacheSupport`) because a rebuild against empty `FakeData` loaders would wipe seeded data.
+- Local mode on a REAL Valkey (`trip.cache.local.useConfigured`, the pipeline's integration test) keeps
+  `softRevalidate` ON, so the scan caches rebuild against `InMemoryPersistence`, and a rebuild removes what its
+  scan does not return. Every table behind a `PartitionScanCache` must therefore be registered in
+  `InMemoryPersistence.TABLES`: privileges and config were not, every scan of them came back empty, and the
+  first full read removed every seeded role (pipeline run f3752b04, 2026-11-13).
 - The near cache is deliberately NOT wrapped around `InMemoryCacheClient`.
 - Pub/sub works in-process; the invalidation broadcast is a no-op with one JVM (and skipped via the
   per-JVM origin id anyway). `DAO.invalidate` still clears, so the endpoint behaves.

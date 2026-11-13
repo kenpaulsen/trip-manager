@@ -395,7 +395,8 @@ public class TransactionsResource extends BaseResource {
     }
 
     /**
-     * The group save's half of the books rule: every member it would charge is on the trip, and every row
+     * The group save's half of the books rule: every member passes {@code TransactionsCommands.mayKeepInGroup}
+     * (a member being added is on the trip; one already in the group keeps a row on its books), and every row
      * the group already has (a member being amended, or one being dropped and so deleted) is on this trip's
      * books. A group id is all it takes to name somebody else's shared transaction.
      */

@@ -168,9 +168,10 @@ public class TransactionsCommands {
 
     /**
      * {@link #saveGroupTx} as this gate's caller (the seam: {@code Caller.current()} needs a session). The page's
-     * picker is a convenience, not the rule: everyone charged must be someone this caller may charge on this
-     * trip ({@code TripFinanceGate.mayCharge}), exactly what {@code POST /api/transactions/groups} requires, so
-     * the page and the API cannot disagree about whose ledger a trip's Finance Admin may write to.
+     * picker is a convenience, not the rule: every member must pass {@link #mayKeepInGroup} (one being added is
+     * someone this caller may charge on the trip; one already in the group keeps a row that is on its books),
+     * exactly what {@code POST /api/transactions/groups} requires, so the page and the API cannot disagree
+     * about whose ledger a trip's Finance Admin may write to.
      */
     boolean saveGroupTxAs(final TripFinanceGate gate, final String gid, final List<Person.Id> origPeople,
                 final Type type, final Transaction.TransactionType txType, final LocalDateTime date,
