@@ -80,7 +80,8 @@ email to signed-in viewers -- unless the person set that field PRIVATE, which wi
   An EMPTY value on a read-only display is HIDE, so nobody is offered a "private value" that reveals
   nothing. The rule lives in the template: a read-only host passes the optional `blank` param, its own
   emptiness test for what the body shows (`#{empty person.cell}`; trip Contacts' "City, State" is blank only
-  when both are), and the template turns the verdict into HIDE. Every read-only mask passes it: trip
+  when both are), and the template turns a MASK into HIDE (a SHOW still renders, so a disabled editor keeps
+  "Not given"). Every read-only mask passes it: trip
   Contacts, People, Org People, the admin person page (Notes too), Manage People's person 2 column and the
   profile's read-only email. An editor the viewer can use leaves it unset and keeps its verdict, so staff can
   still fill an empty field. An editor that is DISABLED for some viewers is read-only for them, so it passes
