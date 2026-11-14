@@ -1,6 +1,7 @@
 package org.paulsens.trip.action;
 
 import java.io.IOException;
+import java.util.List;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
@@ -10,6 +11,7 @@ import org.testng.annotations.Test;
 
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
+import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertTrue;
 
 /**
@@ -102,6 +104,28 @@ public class RegistrationStaffReachTest {
                 "no registration role on the destination");
         assertTrue(new RegistrationCommands(TenancyFixtures::siteAdminCaller)
                 .mayMoveRegistration(from.getId(), traveler.getId(), foreign.getId()), "a site admin is not bounded");
+    }
+
+    /** The Move menu offers the trips {@link RegistrationCommands#mayMoveRegistration} could allow, and no others. */
+    @Test
+    public void theMoveMenuOffersOnlyOtherTripsWhoseRegistrationsTheMoverAdministers() {
+        final Person registrar = TenancyFixtures.savedPerson("Registrar");
+        final Organization home = TenancyFixtures.org("MenuHome");
+        final Trip from = TenancyFixtures.tripOwnedBy(home);
+        final Trip sibling = TenancyFixtures.tripOwnedBy(home);
+        final Trip unadministered = TenancyFixtures.tripOwnedBy(home);
+        final Trip foreign = TenancyFixtures.tripOwnedBy(TenancyFixtures.org("MenuForeign"));
+        grantRegistrationAdmin(registrar, from, sibling);
+        final List<Trip> candidates = List.of(from, sibling, unadministered, foreign);
+
+        assertEquals(RegistrationCommands.moveDestinationsOf(TenancyFixtures.callerFor(registrar), from.getId(),
+                candidates), List.of(sibling), "never the trip it is on, never a trip they do not administer");
+        assertEquals(RegistrationCommands.moveDestinationsOf(TenancyFixtures.siteAdminCaller(), from.getId(),
+                candidates), List.of(sibling, unadministered, foreign), "a site admin may move anywhere else");
+        // The live list reads the shared active-trips index, which other tests also fill: no content assert.
+        assertNotNull(registrationsAs(registrar).moveDestinations(from.getId()));
+        assertTrue(new RegistrationCommands(() -> Caller.forActor(null)).moveDestinations(from.getId()).isEmpty(),
+                "nobody signed in");
     }
 
     private static void grantRegistrationAdmin(final Person person, final Trip... trips) {

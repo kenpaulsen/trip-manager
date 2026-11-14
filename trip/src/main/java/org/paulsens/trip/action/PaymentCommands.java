@@ -1022,6 +1022,11 @@ public class PaymentCommands {
         return LocalMode.isLocal() && FakeProcessor.markAsync(orderRef);
     }
 
+    /** LOCAL ONLY: the fake checkout's "capture short" -- the fake order's capture comes back one cent short (HELD). */
+    public boolean fakeCaptureShort(final String orderRef) {
+        return LocalMode.isLocal() && FakeProcessor.captureShort(orderRef);
+    }
+
     /** LOCAL ONLY: a dashboard refund's stand-in -- the fake order's refunded total, then the webhook path. */
     public Completion fakeRefund(final String orderRef, final long cents) {
         if (!LocalMode.isLocal()) {

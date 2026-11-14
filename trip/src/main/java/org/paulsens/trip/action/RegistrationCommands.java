@@ -110,6 +110,29 @@ public class RegistrationCommands {
         return true;
     }
 
+    /**
+     * The Registrations page's Move menu: the active trips of this site, other than {@code fromTripId}, whose
+     * registrations the caller administers (every one for a site admin). It offers exactly the destinations
+     * {@link #mayMoveRegistration} can allow, so a registration admin of one trip is not shown a dozen trips that
+     * all answer "Not moved"; that check still runs on Yes, and it alone also asks for the traveler's reach.
+     */
+    public List<org.paulsens.trip.model.Trip> moveDestinations(final String fromTripId) {
+        final Caller caller = callerSource.get();
+        if (!caller.isAuthenticated()) {
+            return List.of();
+        }
+        return moveDestinationsOf(caller, fromTripId, tripSource.get().getActiveTrips(1));
+    }
+
+    /** The candidates other than {@code fromTripId} whose registrations {@code caller} administers. */
+    static List<org.paulsens.trip.model.Trip> moveDestinationsOf(final Caller caller, final String fromTripId,
+            final List<org.paulsens.trip.model.Trip> candidates) {
+        return candidates.stream()
+                .filter(trip -> !trip.getId().equals(fromTripId))
+                .filter(trip -> caller.has(PrivilegeCommands.REGISTRATION_ADMIN, trip.getId()))
+                .toList();
+    }
+
     private static org.paulsens.trip.model.Trip existingTrip(final String tripId) {
         if (tripId == null || tripId.isBlank()) {
             return null;

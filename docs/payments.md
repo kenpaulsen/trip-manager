@@ -306,8 +306,10 @@ drive the whole flow locally (webtest: `PaymentPagePwIT`): the CFPW org default 
 INLINE fake (`publicConfig.inline=true`, `FakeData.CFPW_INLINE_PROCESSOR_ID`) is what the Summer Demo trip's
 own payment config points at for laptop runs and what the webtest points its OWN trip at through the trips
 API's `paymentConfig` (2026-11). The fake checkout page doubles as the inline fake's back end (`?async=1` =
-pay as bank, `?settle=1` = the webhook stand-in); `FakeProcessor.refund` / `PaymentCommands.fakeRefund` stand
-in for a dashboard refund, and the fake carries Stripe's bank pricing so re-pricing is exercised locally.
+pay as bank, `?settle=1` = the webhook stand-in, `?captureShort=1` = a capture one cent short of the order, which
+takes the real HELD path for the reconciliation page, `PaymentReconciliationPwIT`); `FakeProcessor.refund` /
+`PaymentCommands.fakeRefund` stand in for a dashboard refund, and the fake carries Stripe's bank pricing so
+re-pricing is exercised locally.
 Zeffy: a future record-only kind.
 
 ### Stripe (shipped 2026-11)
