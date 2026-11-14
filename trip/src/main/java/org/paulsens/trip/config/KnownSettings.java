@@ -225,7 +225,7 @@ public final class KnownSettings {
     public static final SettingDef SITE_SIDEBAR_TITLE = new SettingDef(
             "site.sidebar.title", Config.Type.STRING, "", "Sidebar trips heading",
             "The heading over the list of upcoming trips in the sidebar of the organization's site, for example "
-                    + "Pilgrimages or Retreats. Blank shows Trips.").withOrgOnly();
+                    + "Retreats or Tours. Blank shows Trips.").withOrgOnly();
 
     // --- home page ---
 

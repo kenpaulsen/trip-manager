@@ -44,10 +44,16 @@ Both on `ChatResource`, the channel path, so they share `tripIdOf`/CSRF/auth wit
   (`/.well-known/apple-app-site-association`, `/.well-known/assetlinks.json`) are served by
   `WellKnownServlet` from the private overlay's `WEB-INF/well-known/`; they claim `/i/*` and
   `/trip/chatInvite.jsf` on every host the app answers on. The phones, in turn, must claim every host a link
-  can be minted on (`SiteUrls.baseUrlForTrip`): `unitetrip.com`, `*.unitetrip.com`, and the shared-site
+  can be minted on (`SiteUrls.appLinkBaseUrlForTrip`): `unitetrip.com`, `*.unitetrip.com`, and the shared-site
   host from `chat.mail.baseUrl` for an organization without a subdomain (today `visitqueenofpeace.com`).
   A link on a host neither app lists opens the browser instead, which is how the first live link failed
   (2026-10-15). A new shared-site domain therefore means a release of both apps.
+  **An organization's custom domain is never an invite host** (owner decision 2026-11-13): a custom domain
+  is added online, with no app release, so no app claims it. An org with a subdomain gets its invite links on
+  `https://{slug}.{base}` (claimed through `*.unitetrip.com`) even when it has a custom domain, while its mail
+  and page links (`SiteUrls.baseUrl`) use the custom domain. A new link that must open the app (anything
+  under the paths the association files claim) is minted through `SiteUrls.appLinkBaseUrl`, never
+  `baseUrl`.
 
 ## Authorization model — read before touching
 

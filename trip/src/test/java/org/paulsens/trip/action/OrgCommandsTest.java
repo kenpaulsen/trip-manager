@@ -1,6 +1,7 @@
 package org.paulsens.trip.action;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
@@ -12,6 +13,7 @@ import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.SettingDef;
+import org.paulsens.trip.site.DomainProbe;
 import org.paulsens.trip.site.SiteContext;
 import org.paulsens.trip.util.RandomData;
 import org.testng.annotations.BeforeClass;
@@ -1784,6 +1786,38 @@ public class OrgCommandsTest {
         assertTrue(admin().saveOrgEdits(orgId, org.getName(), null, null, null, null, null, null, null, " "));
         assertEquals(admin().storedCustomDomain(orgId), "", "blank clears it");
         assertEquals(admin().storedCustomDomain("no-such-org"), "");
+    }
+
+    @Test
+    public void aNewCustomDomainMustAnswerTheLiveProbe() throws IOException {
+        final Organization org = orgWithAdmin(savedPerson());
+        final String orgId = org.getId().getValue();
+        final String slug = "lp" + unique().toLowerCase();
+        final String domain = unique().toLowerCase() + ".example.org";
+        final List<String> asked = new ArrayList<>();
+        final DomainProbe.Check previous = DomainProbe.useCheck((probed, code) -> refuse(asked, probed));
+        try {
+            assertFalse(admin().saveOrgEdits(orgId, org.getName(), null, null, null, null, slug, null, null, domain),
+                    "a domain that does not echo the code is refused");
+            assertEquals(asked, List.of(domain));
+            assertEquals(admin().storedCustomDomain(orgId), "", "and nothing is stored");
+            DomainProbe.useCheck((probed, code) -> null);
+            assertTrue(admin().saveOrgEdits(orgId, org.getName(), null, null, null, null, slug, null, null, domain));
+            assertEquals(admin().storedCustomDomain(orgId), domain);
+            DomainProbe.useCheck((probed, code) -> refuse(asked, probed));
+            assertTrue(admin().saveOrgEdits(orgId, org.getName(), null, null, null, null, slug, null, null,
+                    "www." + domain), "re-saving the stored domain is not a new claim");
+            assertEquals(asked.size(), 1, "so it is not probed again");
+            assertTrue(admin().saveOrgEdits(orgId, org.getName(), null, null, null, null, slug, null, null, ""));
+            assertEquals(admin().storedCustomDomain(orgId), "", "a clear is never probed");
+        } finally {
+            DomainProbe.useCheck(previous);
+        }
+    }
+
+    private static String refuse(final List<String> asked, final String domain) {
+        asked.add(domain);
+        return domain + " did not answer";
     }
 
     @Test

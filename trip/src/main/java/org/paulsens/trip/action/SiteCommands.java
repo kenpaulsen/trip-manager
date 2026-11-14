@@ -13,9 +13,9 @@ import org.paulsens.trip.content.OrgPageBootstrap;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Trip;
-import org.paulsens.trip.site.CustomDomains;
 import org.paulsens.trip.site.ListingScope;
 import org.paulsens.trip.site.SiteContext;
+import org.paulsens.trip.site.SiteUrls;
 
 /**
  * The request's resolved {@link SiteContext}, exposed to pages as {@code #{site}}.
@@ -117,12 +117,12 @@ public class SiteCommands {
         if (orgId == null || orgId.isBlank() || ListingScope.reachable(orgId)) {
             return "";
         }
-        final String slug = DAO.getInstance().getOrganization(Organization.Id.from(orgId), Cached.YES)
-                .map(Organization::getSlug).orElse(null);
-        if (slug == null || slug.isBlank()) {
+        final Organization org = DAO.getInstance().getOrganization(Organization.Id.from(orgId), Cached.YES)
+                .orElse(null);
+        if (org == null || org.getSlug() == null || org.getSlug().isBlank()) {
             return "";
         }
-        final String url = orgSiteUrl(slug);
+        final String url = orgSiteUrlOf(org);
         return url.endsWith("/") ? url.substring(0, url.length() - 1) : url;
     }
 
@@ -145,62 +145,73 @@ public class SiteCommands {
     }
 
     /**
-     * The public URL of an organization's site, for links on the admin pages: its custom domain
-     * ({@code https://{customDomain}/}) or {@code https://{slug}.{base}/} in production, and
-     * {@code http://{slug}.localhost[:port]} when the request itself came in on localhost (neither the org-site
-     * base domain nor a customer's domain resolves on a laptop; {@code *.localhost} does).
+     * The public URL of the organization holding {@code slug}, for links on the admin pages: {@link
+     * #orgSiteUrlOf(Organization)} of that org (a slug no org holds gets its subdomain shape).
      */
     public String orgSiteUrl(final String slug) {
-        final FacesContext ctx = FacesContext.getCurrentInstance();
-        final Object request = ctx == null ? null : ctx.getExternalContext().getRequest();
-        return orgSiteUrl(slug, request instanceof HttpServletRequest http ? http : null);
+        return orgSiteUrl(slug, facesRequest());
     }
 
     /**
-     * {@link #orgSiteUrl(String)} for an explicit request (null off-request): the testable half, and what the
+     * {@link #orgSiteUrl(String)} for an explicit request (null off-request), by way of the org lookup: what the
      * REST edge calls, since a JAX-RS resource has the servlet request but no FacesContext.
      */
     public static String orgSiteUrl(final String slug, final HttpServletRequest request) {
-        if (request != null) {
-            return orgSiteUrl(slug, request.getServerName(), request.getServerPort(), baseDomain());
-        }
-        return orgSiteUrl(slug, null, -1, baseDomain());
+        return orgSiteUrl(orgOfSlug(slug), request);
     }
 
-    /** {@link #orgSiteUrl(String)} on explicit request facts, the custom domain read from the cached orgs. */
-    static String orgSiteUrl(final String slug, final String requestHost, final int requestPort,
-            final String baseDomain) {
-        return orgSiteUrl(slug, requestHost, requestPort, baseDomain, SiteCommands::customDomainOfSlug);
+    /**
+     * The public URL of {@code org}'s site, for links on the admin pages (trailing slash included): THE org-site
+     * builder of this class. In production that is {@link SiteUrls#orgSiteUrl(Organization, ConfigCommands)}
+     * (its custom domain, else {@code https://{slug}.{base}}); when the request itself came in on localhost it
+     * is {@code http://{slug}.localhost[:port]/}, since neither the base domain nor a customer's domain resolves
+     * on a laptop and {@code *.localhost} does.
+     */
+    public String orgSiteUrlOf(final Organization org) {
+        return orgSiteUrl(org, facesRequest());
     }
 
-    /** {@link #orgSiteUrl(String)} on explicit request facts and an explicit custom-domain lookup (testable). */
-    static String orgSiteUrl(final String slug, final String requestHost, final int requestPort,
-            final String baseDomain, final Function<String, String> customDomainOfSlug) {
+    /** {@link #orgSiteUrlOf} for an explicit request (null off-request). */
+    public static String orgSiteUrl(final Organization org, final HttpServletRequest request) {
+        return request == null ? orgSiteUrl(org, null, -1, new ConfigCommands())
+                : orgSiteUrl(org, request.getServerName(), request.getServerPort(), new ConfigCommands());
+    }
+
+    /** {@link #orgSiteUrlOf} on explicit request facts (the testable half). */
+    static String orgSiteUrl(final Organization org, final String requestHost, final int requestPort,
+            final ConfigCommands config) {
         if (requestHost != null && requestHost.endsWith("localhost")) {
             final String port = requestPort > 0 && requestPort != 80 ? ":" + requestPort : "";
-            return "http://" + slug + ".localhost" + port + "/";
+            return "http://" + org.getSlug() + ".localhost" + port + "/";
         }
-        final String domain = customDomainOfSlug.apply(slug);
-        return domain != null ? "https://" + domain + "/" : "https://" + slug + "." + baseDomain + "/";
+        return SiteUrls.orgSiteUrl(org, config) + "/";
     }
 
-    /** The normalized custom domain of the org holding {@code slug}, or null (none, or unreadable orgs). */
-    private static String customDomainOfSlug(final String slug) {
+    /**
+     * The organization whose site {@code slug} names, from the cached org list; when none holds it (a stale
+     * cache, an unreadable list), an org carrying only that slug, so the link keeps its subdomain shape.
+     */
+    private static Organization orgOfSlug(final String slug) {
         try {
-            return DAO.getInstance().getOrganizations(Cached.YES).stream()
+            final Optional<Organization> holder = DAO.getInstance().getOrganizations(Cached.YES).stream()
                     .filter(org -> slug != null && slug.equals(org.getSlug()))
-                    .map(org -> CustomDomains.normalize(org.getCustomDomain()))
-                    .filter(domain -> domain != null)
-                    .findFirst()
-                    .orElse(null);
+                    .findFirst();
+            if (holder.isPresent()) {
+                return holder.get();
+            }
         } catch (final RuntimeException ex) {
-            log.warn("Unable to read the organizations for the custom domain of '{}'", slug, ex);
-            return null;
+            log.warn("Unable to read the organizations for the site of '{}'", slug, ex);
         }
+        final Organization bare = new Organization();
+        bare.setSlug(slug);
+        return bare;
     }
 
-    private static String baseDomain() {
-        return new ConfigCommands().getString(KnownSettings.SITE_ORGSITES_BASE_DOMAIN);
+    /** The servlet request behind the current FacesContext, or null off a Faces request. */
+    private static HttpServletRequest facesRequest() {
+        final FacesContext ctx = FacesContext.getCurrentInstance();
+        final Object request = ctx == null ? null : ctx.getExternalContext().getRequest();
+        return request instanceof HttpServletRequest http ? http : null;
     }
 
     /**

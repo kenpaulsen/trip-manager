@@ -31,6 +31,7 @@ import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.ContentTemplate;
 import org.paulsens.trip.site.CustomDomains;
+import org.paulsens.trip.site.DomainProbe;
 import org.paulsens.trip.site.ListingScope;
 import org.paulsens.trip.site.SiteContext;
 import org.paulsens.trip.model.FeesPaidBy;
@@ -1791,20 +1792,12 @@ public class OrgCommands {
         return saveOrgEdits(orgId, name, abbreviation, contactEmail, domains, defaultDomain, slug, null);
     }
 
-    /** The 9-arg save leaving the org's custom domain alone. */
-    public boolean saveOrgEdits(final String orgId, final String name, final String abbreviation,
-            final String contactEmail, final List<String> domains, final String defaultDomain,
-            final String slug, final Boolean allowShared, final String registerTarget) {
-        return saveOrgEdits(orgId, name, abbreviation, contactEmail, domains, defaultDomain, slug, allowShared,
-                registerTarget, null);
-    }
-
-    /** The 8-arg save leaving the org's shared-site Register target alone. */
+    /** The 8-arg save leaving the org's shared-site Register target and custom domain alone. */
     public boolean saveOrgEdits(final String orgId, final String name, final String abbreviation,
             final String contactEmail, final List<String> domains, final String defaultDomain,
             final String slug, final Boolean allowShared) {
         return saveOrgEdits(orgId, name, abbreviation, contactEmail, domains, defaultDomain, slug, allowShared,
-                null);
+                null, null);
     }
 
     /**
@@ -1847,7 +1840,9 @@ public class OrgCommands {
      * where a shared site's Register link sends a visitor ({@link SharedSiteRegisterTarget} name; null =
      * leave it alone, an unknown name = the default). The default is stored as null, like {@code allowShared},
      * so every existing row already holds it. {@code customDomain} (site admins only, like the slug; null =
-     * leave it alone, blank = clear) is the org's tier-2 domain, validated by {@link #applyCustomDomain}.
+     * leave it alone, blank = clear; the pages turn an emptied field's null into blank) is the org's tier-2
+     * domain ({@link #applyCustomDomain}). Ten positions is the limit: a new profile field gets its own save
+     * like {@link #saveOrgMailDomains}, or a record, never an eleventh String a caller can swap unnoticed.
      */
     public boolean saveOrgEdits(final String orgId, final String name, final String abbreviation,
             final String contactEmail, final List<String> domains, final String defaultDomain,
@@ -2033,7 +2028,8 @@ public class OrgCommands {
     /**
      * Applies the site-admin's custom-domain edit onto the org being saved (AFTER its slug, which it needs), or
      * refuses (growl + false); null leaves it alone, blank clears it (online, like a slug). The rules are
-     * {@link CustomDomains#claimProblem}. Clearing the slug clears the domain: an org without a site has no address.
+     * {@link CustomDomains#claimProblem}, then a new claim's live HTTPS proof ({@link DomainProbe}). Clearing the
+     * slug clears the domain: an org without a site has no address.
      */
     private boolean applyCustomDomain(final Organization org, final String customDomain) {
         final boolean hasSite = org.getSlug() != null && !org.getSlug().isBlank();
@@ -2052,6 +2048,10 @@ public class OrgCommands {
                 sharedSendingDomains());
         if (problem != null) {
             return fail("Invalid custom domain", problem);
+        }
+        final String unreachable = DomainProbe.newClaimProblem(wanted, org.getCustomDomain());
+        if (unreachable != null) {
+            return fail("Custom domain not saved", unreachable);
         }
         org.setCustomDomain(wanted);
         return true;

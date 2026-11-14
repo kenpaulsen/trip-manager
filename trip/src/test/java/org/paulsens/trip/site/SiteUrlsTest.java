@@ -10,6 +10,7 @@ import org.paulsens.trip.action.RegistrationCommands;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
@@ -48,6 +49,29 @@ public class SiteUrlsTest {
         cfpw.setSlug(null);
         Assert.assertEquals(SiteUrls.baseUrl(cfpw, KnownSettings.REG_MAIL_BASE_URL, config),
                 config.getString(KnownSettings.REG_MAIL_BASE_URL), "no site, no address: the site rung");
+    }
+
+    @Test
+    public void anAppLinkStaysOnTheSubdomainTheAppsClaim() {
+        final Organization cfpw = new Organization();
+        cfpw.setSlug("cfpw");
+        cfpw.setCustomDomain("centerforpeacewest.com");
+        Assert.assertEquals(SiteUrls.appLinkBaseUrl(cfpw, KnownSettings.CHAT_MAIL_BASE_URL, config),
+                "https://cfpw.unitetrip.com", "never the custom domain: no app claims a customer's domain");
+        Assert.assertEquals(SiteUrls.baseUrl(cfpw, KnownSettings.CHAT_MAIL_BASE_URL, config),
+                "https://centerforpeacewest.com", "mail and page links keep the custom domain");
+        cfpw.setSlug(" ");
+        Assert.assertEquals(SiteUrls.appLinkBaseUrl(cfpw, KnownSettings.CHAT_MAIL_BASE_URL, config),
+                config.getString(KnownSettings.CHAT_MAIL_BASE_URL), "no site: the shared rung");
+        Assert.assertEquals(SiteUrls.appLinkBaseUrl(null, KnownSettings.CHAT_MAIL_BASE_URL, config),
+                config.getString(KnownSettings.CHAT_MAIL_BASE_URL));
+
+        final Trip betaTrip = Trip.builder().id(java.util.UUID.randomUUID().toString()).title("Beta").build();
+        betaTrip.setOrgId(FakeData.BETA_ORG_ID);
+        Assert.assertEquals(SiteUrls.appLinkBaseUrlForTrip(betaTrip, KnownSettings.CHAT_MAIL_BASE_URL, config),
+                "https://beta.unitetrip.com", "FakeData's Beta has a custom domain; its app links do not use it");
+        Assert.assertEquals(SiteUrls.appLinkBaseUrlForTrip(null, KnownSettings.CHAT_MAIL_BASE_URL, config),
+                config.getString(KnownSettings.CHAT_MAIL_BASE_URL));
     }
 
     @Test

@@ -98,8 +98,10 @@ participating, privNote, details{from,to,flightNumber,duration,carrier} (backend
 
 **The trip page (2026-11).** Every `TripDto` carries `detailsUrl`: the ABSOLUTE address of the trip's public page as
 the apps embed it (`{base}/trip/tripPage.jsf?trip={id}`), on lists and single reads alike. `{base}` is the site of
-the organization that OWNS the trip, the same base its tickets and emails link to (`SiteUrls`): its own subdomain
-(`https://{slug}.unitetrip.com`), else the "Link base URL" setting (`https://visitqueenofpeace.com`). Never the
+the organization that OWNS the trip, the same base its tickets and emails link to (`SiteUrls`): its custom domain
+(`https://{customDomain}`, such as `https://centerforpeacewest.com`) when it has one, else its own subdomain
+(`https://{slug}.unitetrip.com`), else the "Link base URL" setting (`https://visitqueenofpeace.com`). So the host
+may be outside `unitetrip.com` and the shared hosts; only chat invite links stay on the subdomain. Never the
 host the request came to: the apps call the API on the product host, where the page reaches only the trips the
 marketing page lists (2026-11-08). Local mode alone builds it on the request's host. Fetch it with no authentication and `Accept: text/html` (an API client's usual Accept would
 be refused by the view): a complete HTML document with the page's styles INLINE, no site chrome, no scripts and no
@@ -336,8 +338,9 @@ HAS_OWN_ACCOUNT`; an unparseable `sex` is 422 `VALIDATION_FAILED`. `HAS_OWN_ACCO
 allowsSharedSites, registerTarget, contactEmail, branding{palette, dark, layout, themeName, logoUrl,
 faviconUrl, ogImageUrl, backgroundUrl, backgroundColor, footerTitle, footerText, contactName, contactPhone, donateUrl}}]`
 — the caller's memberships (`all=true` is site-admin only, 403 else). `siteUrl` is built from the host the
-request came in on (`http://acme.localhost:8080` locally, `https://acme.unitetrip.com` in production) and
-is null when the org has no slug; `branding.palette` is null when the org never chose a look. `registerTarget`
+request came in on (`http://acme.localhost:8080` locally, even for an org with a custom domain; in production the
+org's custom domain, `https://{customDomain}`, when it has one, else `https://acme.unitetrip.com`) and is null when
+the org has no slug; `branding.palette` is null when the org never chose a look. `registerTarget`
 (`DETAIL_PAGE`, `ORG_TRIP_PAGE` or `ORG_HOME`) is where a shared site's Register link sends a visitor for the
 org's trips (`docs/org-admin.md`, "Shared-site Register target").
 `POST /api/orgs/{orgId}/members/{personId}` adds an existing person (org admins); `DELETE` the same path removes
