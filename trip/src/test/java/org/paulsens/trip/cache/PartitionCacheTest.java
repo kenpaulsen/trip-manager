@@ -19,6 +19,7 @@ import org.mockito.invocation.InvocationOnMock;
 import org.testng.annotations.Test;
 
 import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertThrows;
 import static org.testng.Assert.assertTrue;
 
 public class PartitionCacheTest {
@@ -359,7 +360,7 @@ public class PartitionCacheTest {
         final Thread reader = Thread.ofVirtual().start(() -> cache.getAll("p1", loader));
         assertTrue(enteredLoad.await(3, TimeUnit.SECONDS));
         assertTrue(client.removeKey("t:p1"));
-        assertTrue(client.putHashFields("t:p1", Map.of(PartitionCache.LOAD_MARK + "second-load", "1")));
+        assertTrue(client.putHashFields("t:p1", Map.of(PartitionCache.LOAD_MARK_PREFIX + "second-load", "1")));
         releaseLoad.countDown();
         reader.join(TimeUnit.SECONDS.toMillis(3));
 
@@ -368,8 +369,10 @@ public class PartitionCacheTest {
     }
 
     /**
-     * Two overlapping cold loads and a removal between them: the second load's mark is not a drop, so the first
-     * load still trusts its snapshot and does not put back the row removed while it loaded.
+     * Two overlapping cold loads and a removal between them: a REAL second cold load starts after the removal and
+     * finishes while the first is still reading. That is not a drop, so the first load still trusts its snapshot
+     * and does not put back the row removed while it loaded. One shared mark compared by value read the second
+     * load's overwrite as a drop, merged onto an empty baseline, and brought the removed row back.
      */
     @Test
     public void aSecondColdLoadDoesNotBringBackARowRemovedDuringTheFirst() throws Exception {
@@ -381,16 +384,45 @@ public class PartitionCacheTest {
         assertTrue(cache.put("p1", "a-written"));
         assertTrue(cache.put("p1", "c-written"));
         final Supplier<List<String>> loader = () -> blockedTable(enteredLoad, releaseLoad);
+        final AtomicReference<List<String>> secondLoad = new AtomicReference<>();
 
-        final Thread reader = Thread.ofVirtual().start(() -> cache.getAll("p1", loader));
+        final Thread first = Thread.ofVirtual().start(() -> cache.getAll("p1", loader));
         assertTrue(enteredLoad.await(3, TimeUnit.SECONDS));
-        assertTrue(cache.remove("p1", "c"));       // deleted while the (stale) load still returns it
-        assertTrue(client.putHashFields("t:p1", Map.of(PartitionCache.LOAD_MARK + "second-load", "1")));
+        assertTrue(cache.remove("p1", "c"));       // deleted while the (stale) first load still returns it
+        final Thread second = Thread.ofVirtual()
+                .start(() -> secondLoad.set(cache.getAll("p1", () -> List.of("a-db", "b-db"))));
+        assertTrue(second.join(Duration.ofSeconds(3)), "the second load finishes while the first is blocked");
+        assertEquals(secondLoad.get(), List.of("a-db", "b-db"));
         releaseLoad.countDown();
-        reader.join(TimeUnit.SECONDS.toMillis(3));
+        assertTrue(first.join(Duration.ofSeconds(3)));
 
         assertEquals(cache.getAll("p1", ArrayList::new), List.of("a-db", "b-db"),
                 "the removed row stays removed");
+        assertEquals(markFields(client, "t:p1"), 1L, "the second load relied on the first one's mark");
+    }
+
+    /** A cold load that throws leaves its mark behind; the next cold load relies on it rather than adding one. */
+    @Test
+    public void failedColdLoadsLeaveOneMarkBetweenThem() {
+        final AtomicLong clock = new AtomicLong(1_000_000L);
+        final InMemoryCacheClient client = new InMemoryCacheClient();
+        final PartitionCache<String, String> cache = partition(clock, client);
+        assertTrue(cache.put("p1", "a-written"));
+        for (int i = 0; i < 3; i++) {
+            assertThrows(IllegalStateException.class, () -> cache.getAll("p1", PartitionCacheTest::outage));
+        }
+
+        assertEquals(markFields(client, "t:p1"), 1L);
+        assertEquals(cache.getAll("p1", () -> List.of("a-db")), List.of("a-db"), "and the next load succeeds");
+    }
+
+    private static List<String> outage() {
+        throw new IllegalStateException("DynamoDB is down");
+    }
+
+    private static long markFields(final CacheClient client, final String key) {
+        return client.getHash(key).keySet().stream()
+                .filter(field -> field.startsWith(PartitionCache.LOAD_MARK_PREFIX)).count();
     }
 
     /**
@@ -415,7 +447,8 @@ public class PartitionCacheTest {
     }
 
     private static boolean isTheMarkWrite(final Map<String, String> fields) {
-        return fields != null && fields.keySet().stream().anyMatch(field -> field.startsWith(PartitionCache.LOAD_MARK));
+        return fields != null
+                && fields.keySet().stream().anyMatch(field -> field.startsWith(PartitionCache.LOAD_MARK_PREFIX));
     }
 
     /** The drop a failed write-through's recover makes, just before the mark write goes through. */
