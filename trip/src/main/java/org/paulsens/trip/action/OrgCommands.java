@@ -2552,10 +2552,14 @@ public class OrgCommands {
      * settings. Never null; {@code isPayable()} on the result answers "can this trip take payments".
      */
     public TripPaymentConfig effectivePaymentConfig(final Trip trip) {
-        final Organization owner = ownerOf(trip);
-        final TripPaymentConfig orgRung = (owner == null) ? siteDefaults()
-                : owner.getPaymentDefaults().overlayOn(siteDefaults());
+        final TripPaymentConfig orgRung = inheritedPaymentConfig(trip);
         return (trip == null) ? orgRung : trip.getPaymentConfig().overlayOn(orgRung);
+    }
+
+    /** The ladder minus the trip's own overlay (org &rarr; site): what each payment-dialog Inherit choice gives. */
+    public TripPaymentConfig inheritedPaymentConfig(final Trip trip) {
+        final Organization owner = ownerOf(trip);
+        return (owner == null) ? siteDefaults() : owner.getPaymentDefaults().overlayOn(siteDefaults());
     }
 
     /** The payment From a trip inherits (the ladder minus its own override): the org default while the org may send
@@ -2570,11 +2574,11 @@ public class OrgCommands {
         return (site == null || site.isBlank()) ? mailAddr().siteFrom() : site;
     }
 
-    /** The From payment mail really goes out from: the effective one while the trip's org may send from it, else
-     *  {@link #inheritedPaymentFrom}; null stays null (no From, no mail). Receipts, the test mail and the dialog's
-     *  Inherit label all read this one answer, so the dialog never promises a From the mail will not use. */
-    public String sendablePaymentFrom(final Trip trip, final TripPaymentConfig effective) {
-        final String from = effective.getMailFrom();
+    /** The From payment mail goes out from: the given config's while the trip's org may send from it, else {@link
+     *  #inheritedPaymentFrom}; null stays null (no From, no mail). Receipts and the test mail pass the effective
+     *  config; the dialog's Inherit label passes {@link #inheritedPaymentConfig}, what choosing Inherit sends. */
+    public String sendablePaymentFrom(final Trip trip, final TripPaymentConfig config) {
+        final String from = config.getMailFrom();
         return (from == null || isOrgFromSendable(trip == null ? null : trip.getOrgId(), from)) ? from
                 : inheritedPaymentFrom(trip);
     }
@@ -2716,8 +2720,7 @@ public class OrgCommands {
     /** Sample token values for the test send (the real flow's PaymentMailer fills these from a Payment). */
     private Map<String, Object> samplePaymentValues(final Trip trip, final Person me,
             final TripPaymentConfig effective) {
-        final Organization owner = (trip == null || trip.getOrgId() == null) ? null
-                : findOrganization(trip.getOrgId());
+        final Organization owner = ownerOf(trip);
         final Map<String, Object> values = new java.util.HashMap<>();
         effective.getExtraTokens().forEach(values::put);
         values.put("payerName", me.getPreferredName() + " " + me.getLast());
@@ -2738,10 +2741,7 @@ public class OrgCommands {
 
     /** Extra-token map &rarr; the dialog textarea's one-per-line {@code token=value} text. */
     public String tokensToText(final Map<String, String> tokens) {
-        if (tokens == null || tokens.isEmpty()) {
-            return "";
-        }
-        return tokens.entrySet().stream()
+        return (tokens == null) ? "" : tokens.entrySet().stream()
                 .sorted(java.util.Map.Entry.comparingByKey())
                 .map(entry -> entry.getKey() + "=" + entry.getValue())
                 .collect(java.util.stream.Collectors.joining("\n"));

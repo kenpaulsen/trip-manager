@@ -117,9 +117,13 @@ domain that changed hands), sends from the From the trip INHERITS instead (`OrgC
 ladder minus the trip's own override: the org default while the org may send from it, else the site's
 `payment.mail.from`, else the Site email; the dialog's From composer seeds from the same method), and logs the
 substitution. A trip whose own From is not sendable falls back; it is not refused at send time (owner decision).
-That choice is ONE method, `OrgCommands.sendablePaymentFrom(trip, effective)` (null stays null: no From, no mail),
-read by the live send, the dialog's **Send Test Email**, and the dialog's "Inherit (...)" From label, so the label,
-the test mail and the receipts never disagree.
+That choice is ONE method, `OrgCommands.sendablePaymentFrom(trip, config)` (null stays null: no From, no mail).
+The live send and the dialog's **Send Test Email** pass the effective config, so the test mail and the receipts never
+disagree. The dialog's "Inherit (...)" From label passes `OrgCommands.inheritedPaymentConfig(trip)` instead: the
+ladder WITHOUT the trip's own overlay, so the label names what choosing Inherit would send (the same address as
+`inheritedPaymentFrom`, or NOT SET when no From resolves and no mail would go), never the trip's own Custom From that
+choosing Inherit clears (2026-11-13). Every other Inherit choice and placeholder in that dialog (processor, fees,
+donations, template, Reply-To, Bcc) reads the same inherited config, once per render.
 
 ## The money rules (user-locked; the golden test is `PaymentRecorderTest`)
 

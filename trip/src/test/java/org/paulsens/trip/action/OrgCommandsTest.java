@@ -1975,10 +1975,10 @@ public class OrgCommandsTest {
         assertEquals(admin().inheritedPaymentFrom(trip), siteEmail, "a default the allow-list excludes is skipped");
     }
 
-    /** The dialog's Inherit label, the test mail and real receipts agree on the From: an org default the org may no
-     *  longer send from shows, and tests, as the From the receipts really go out from. */
+    /** The test mail and real receipts agree on the From: an org default the org may no longer send from tests as
+     *  the From the receipts really go out from. */
     @Test
-    public void theTestMailAndTheInheritLabelUseTheFromReceiptsUse() throws IOException {
+    public void theTestMailUsesTheFromReceiptsUse() throws IOException {
         final Person acmeAdmin = savedPerson();
         final Organization acme = orgWithAdmin(acmeAdmin);
         final String orgId = acme.getId().getValue();
@@ -1994,7 +1994,7 @@ public class OrgCommandsTest {
         assertEquals(narrowed.getMailFrom(), "Acme <pay@unitetrip.com>", "the premise: the ladder still has it");
         final String inherited = admin().inheritedPaymentFrom(trip);
         assertNotEquals(inherited, narrowed.getMailFrom());
-        assertEquals(admin().sendablePaymentFrom(trip, narrowed), inherited, "the label shows what is sent");
+        assertEquals(admin().sendablePaymentFrom(trip, narrowed), inherited, "the substitute is what is sent");
         assertNull(admin().sendablePaymentFrom(trip, org.paulsens.trip.model.TripPaymentConfig.builder().build()),
                 "no From stays no From");
 
@@ -2005,6 +2005,47 @@ public class OrgCommandsTest {
         assertTrue(new OrgCommands(callerOf(acmeAdmin), () -> mail).sendPaymentTestMail(trip, "tester@example.org"));
         Mockito.verify(mail).sendManagedTemplateForOrg(Mockito.anyString(), Mockito.eq(orgId), Mockito.anyMap(),
                 Mockito.eq("tester@example.org"), Mockito.eq(inherited), Mockito.any(), Mockito.any(), Mockito.any());
+    }
+
+    /** Every Inherit label in the payment dialog reads the ladder WITHOUT the trip's own overlay: with a Custom From
+     *  and other overrides set, each names what choosing Inherit gives, never the override that choice clears. */
+    @Test
+    public void theInheritLabelsShowTheInheritedValueNotTheTripsOwnOverride() throws IOException {
+        final Organization acme = orgWithAdmin(savedPerson());
+        final org.paulsens.trip.model.Trip trip = tripOwnedBy(acme);
+        final org.paulsens.trip.model.TripPaymentConfig own = trip.getPaymentConfig();
+        own.setMailFrom("Trips <trips@unitetrip.com>");
+        own.setFeesPaidBy(org.paulsens.trip.model.FeesPaidBy.ORGANIZATION);
+        own.setDonationEnabled(Boolean.TRUE);
+        own.setConfirmationTemplateId("trip-own-template");
+        own.setProcessorConfigId("trip-own-processor");
+        own.setReplyTo("trip@acme.example");
+        own.setBcc("records@acme.example");
+        assertNull(admin().inheritedPaymentConfig(null).getMailFrom(), "premise: the site ships no payment From");
+        assertNull(admin().sendablePaymentFrom(trip, admin().inheritedPaymentConfig(trip)),
+                "no From on the org or the site: Inherit sends no mail, so the label says NOT SET");
+        assertEquals(admin().sendablePaymentFrom(trip, admin().effectivePaymentConfig(trip)),
+                "Trips <trips@unitetrip.com>", "while the trip's own Custom From is what receipts use now");
+
+        final Organization fresh = dao.getOrganization(acme.getId(), Cached.NO).orElseThrow();
+        fresh.getPaymentDefaults().setMailFrom("Acme <pay@unitetrip.com>");
+        fresh.getPaymentDefaults().setFeesPaidBy(org.paulsens.trip.model.FeesPaidBy.PAYER);
+        fresh.getPaymentDefaults().setReplyTo("office@acme.example");
+        assertTrue(admin().saveOrganization(fresh));
+        final org.paulsens.trip.model.TripPaymentConfig inherited = admin().inheritedPaymentConfig(trip);
+        assertEquals(admin().sendablePaymentFrom(trip, inherited), "Acme <pay@unitetrip.com>",
+                "the From label names the org default Inherit falls back to, not the trip's Custom From");
+        assertEquals(admin().sendablePaymentFrom(trip, inherited), admin().inheritedPaymentFrom(trip),
+                "the same address the composer seeds and PaymentMailer falls back to");
+        assertEquals(inherited.getFeesPaidBy(), org.paulsens.trip.model.FeesPaidBy.PAYER);
+        assertFalse(inherited.isDonationOn(), "the site rung ships donations off");
+        assertEquals(inherited.getConfirmationTemplateId(), "payment-confirmation");
+        assertNull(inherited.getProcessorConfigId(), "no org default processor: the label says none");
+        assertEquals(inherited.getReplyTo(), "office@acme.example");
+        assertNull(inherited.getBcc());
+        assertEquals(own.getMailFrom(), "Trips <trips@unitetrip.com>", "reading it leaves the trip's own config alone");
+        assertEquals(admin().effectivePaymentConfig(trip).getFeesPaidBy(),
+                org.paulsens.trip.model.FeesPaidBy.ORGANIZATION, "and the effective config still has the override");
     }
 
     private static String unique() {
