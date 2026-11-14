@@ -1249,6 +1249,29 @@ public class TripCommands {
         return here(recentTripsAnywhere(limit));
     }
 
+    /**
+     * A trip picker's choices: {@link #getRecentTrips} plus, first, the trip the picker is already set to when the
+     * recent list does not reach it. A {@code p:selectOneMenu} whose value is not among its items renders with
+     * its FIRST option selected and posts that option back on the next submit, so the group transaction editor,
+     * opened for a trip older than the most recent {@code limit}, silently saved the group with no trip and
+     * (on an edit) unbound it from the trip it was on. An unknown or out-of-site id adds nothing: it resolves
+     * to {@link #getTrip}'s blank trip.
+     */
+    public List<Trip> getRecentTripsWith(final int limit, final String selectedId) {
+        final List<Trip> recent = getRecentTrips(limit);
+        if (selectedId == null || recent.stream().anyMatch(trip -> selectedId.equals(trip.getId()))) {
+            return recent;
+        }
+        final Trip selected = getTrip(selectedId);
+        if (!selectedId.equals(selected.getId())) {
+            return recent;
+        }
+        final List<Trip> choices = new ArrayList<>(recent.size() + 1);
+        choices.add(selected);
+        choices.addAll(recent);
+        return choices;
+    }
+
     /** {@link #getRecentTrips} before the site gate -- for the org-keyed reads, which bound themselves. */
     private List<Trip> recentTripsAnywhere(final int limit) {
         try {
