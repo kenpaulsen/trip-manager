@@ -16,16 +16,15 @@ import software.amazon.awssdk.services.ses.model.ListIdentitiesResponse;
 import software.amazon.awssdk.services.ses.model.VerificationStatus;
 
 /**
- * {@link MailCommands#verifiedSendingDomains()} -- the Settings page's From-domain dropdown. The suite
- * runs local (where the method answers the fixed fake list), so the SES path is exercised through the
- * package-private {@code memoizedVerifiedDomains} with the client mocked: pagination, the
- * verified-only filter, the memo, and serve-stale-on-failure.
+ * {@link MailCommands#siteVerifiedDomains()} -- every From-domain dropdown. The suite runs local (where it
+ * answers the fixed fake list), so the SES path is exercised through {@code verifiedSendingDomains} with the
+ * client mocked: pagination, the verified-only filter, the memo, and serve-stale-on-failure.
  */
 public class MailVerifiedDomainsTest {
 
     @Test
     public void localModeAnswersTheFixedFakeList() {
-        Assert.assertEquals(new MailCommands().verifiedSendingDomains(),
+        Assert.assertEquals(MailCommands.siteVerifiedDomains(),
                 List.of("centerforpeacewest.com", "example.com", "unitetrip.com", "visitqueenofpeace.com"),
                 "local mode never touches SES and the webtests rely on these domains");
     }
@@ -44,10 +43,10 @@ public class MailVerifiedDomainsTest {
                         "centerforpeacewest.com", VerificationStatus.SUCCESS)));
         final MailCommands mail = new MailCommands(ses);
 
-        final List<String> domains = mail.memoizedVerifiedDomains();
+        final List<String> domains = mail.verifiedSendingDomains();
         Assert.assertEquals(domains, List.of("centerforpeacewest.com", "visitqueenofpeace.com"),
                 "unverified identities are dropped and the rest sorted");
-        Assert.assertEquals(mail.memoizedVerifiedDomains(), domains);
+        Assert.assertEquals(mail.verifiedSendingDomains(), domains);
         Mockito.verify(ses, Mockito.times(2)).listIdentities(
                 ArgumentMatchers.<Consumer<ListIdentitiesRequest.Builder>>any());
         // Two pages = two list calls for the FIRST resolve; the second resolve hit the memo.
@@ -59,7 +58,7 @@ public class MailVerifiedDomainsTest {
         Mockito.when(broken.listIdentities(
                         ArgumentMatchers.<Consumer<ListIdentitiesRequest.Builder>>any()))
                 .thenThrow(new IllegalStateException("SES down"));
-        Assert.assertEquals(new MailCommands(broken).memoizedVerifiedDomains(), List.of(),
+        Assert.assertEquals(new MailCommands(broken).verifiedSendingDomains(), List.of(),
                 "no cache yet: a failure answers empty");
 
         // TTL forced to zero so the second call refreshes -- into a failure, which must serve stale.
@@ -74,12 +73,12 @@ public class MailVerifiedDomainsTest {
                 return 0L;
             }
         };
-        Assert.assertEquals(mail.memoizedVerifiedDomains(), List.of("visitqueenofpeace.com"));
+        Assert.assertEquals(mail.verifiedSendingDomains(), List.of("visitqueenofpeace.com"));
         Mockito.reset(flaky);
         Mockito.when(flaky.listIdentities(
                         ArgumentMatchers.<Consumer<ListIdentitiesRequest.Builder>>any()))
                 .thenThrow(new IllegalStateException("SES down"));
-        Assert.assertEquals(mail.memoizedVerifiedDomains(), List.of("visitqueenofpeace.com"),
+        Assert.assertEquals(mail.verifiedSendingDomains(), List.of("visitqueenofpeace.com"),
                 "a refresh failure serves the previous result rather than emptying the dropdown");
     }
 

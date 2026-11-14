@@ -23,7 +23,6 @@ import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.content.OrgPageBootstrap;
 import org.paulsens.trip.content.StarterTemplates;
 import org.paulsens.trip.dynamo.DAO;
-import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.dynamo.PersonMatch;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
@@ -1629,19 +1628,11 @@ public class OrgCommands {
     // never narrowed (null or empty list) may use all of its candidates. Site-level mail (no org) gets the
     // shared domains only: it goes out for every organization.
 
-    /** Every domain SES has verified for sending, sorted; empty when SES is unreachable. */
-    public List<String> siteSendingDomains() {
-        // Local mode answers the fixed fake list without resolving the mail bean: SES is unreachable off
-        // AWS anyway, and Beans.get needs a CDI container the unit-test JVM does not have.
-        return FakeData.isLocal() ? MailCommands.LOCAL_SENDING_DOMAINS
-                : mailSource.get().verifiedSendingDomains();
-    }
-
-    /** The address composer/splitter, over THIS bean's domain source so a test seam reaches it too. */
+    /** The address composer/splitter, over every domain SES verifies (the candidates narrow it per org). */
     private MailAddressCommands mailAddr() {
         MailAddressCommands addr = mailAddrCache;
         if (addr == null) {
-            addr = new MailAddressCommands(this::siteSendingDomains);
+            addr = new MailAddressCommands(MailCommands::siteVerifiedDomains);
             mailAddrCache = addr;
         }
         return addr;
@@ -1770,7 +1761,7 @@ public class OrgCommands {
         if (custom != null) {
             owned.add(custom);
         }
-        return siteSendingDomains().stream().filter(owned::contains).toList();
+        return MailCommands.siteVerifiedDomains().stream().filter(owned::contains).toList();
     }
 
     private String preferredDomain(final Organization org) {
@@ -1787,8 +1778,7 @@ public class OrgCommands {
 
     /** The 7-arg save leaving the org's shared-sites choice alone. */
     public boolean saveOrgEdits(final String orgId, final String name, final String abbreviation,
-            final String contactEmail, final List<String> domains, final String defaultDomain,
-            final String slug) {
+            final String contactEmail, final List<String> domains, final String defaultDomain, final String slug) {
         return saveOrgEdits(orgId, name, abbreviation, contactEmail, domains, defaultDomain, slug, null);
     }
 
@@ -1798,6 +1788,15 @@ public class OrgCommands {
             final String slug, final Boolean allowShared) {
         return saveOrgEdits(orgId, name, abbreviation, contactEmail, domains, defaultDomain, slug, allowShared,
                 null, null);
+    }
+
+    /** The org profile pages' ONE save: {@link #saveOrgEdits} taking the form as typed. Faces decodes an emptied
+     *  field as null, read there as "leave it alone", so an emptied Subdomain or Custom Domain posts blank: clear. */
+    public boolean saveOrgProfile(final String orgId, final String name, final String abbreviation,
+            final String contactEmail, final List<String> domains, final String defaultDomain,
+            final String slug, final Boolean allowShared, final String registerTarget, final String customDomain) {
+        return saveOrgEdits(orgId, name, abbreviation, contactEmail, domains, defaultDomain,
+                slug == null ? "" : slug, allowShared, registerTarget, customDomain == null ? "" : customDomain);
     }
 
     /**
@@ -1831,17 +1830,16 @@ public class OrgCommands {
     }
 
     /**
-     * Page-facing profile save with the mail-domain and subdomain rows: {@code domains} (the site-admin
-     * allow-list) and {@code slug} (the org's subdomain) are applied ONLY for a site admin -- an org
-     * admin's post carries the same fields, and silently ignoring them is what keeps the shared include
-     * safe to render for both. {@code defaultDomain} is an org-admin choice, kept only while the
-     * allow-list still permits it, and so is {@code allowShared} -- the org side of the shared-site gate
-     * ({@link Organization#getAllowSharedSites()}; null = leave it alone) -- and {@code registerTarget},
-     * where a shared site's Register link sends a visitor ({@link SharedSiteRegisterTarget} name; null =
-     * leave it alone, an unknown name = the default). The default is stored as null, like {@code allowShared},
-     * so every existing row already holds it. {@code customDomain} (site admins only, like the slug; null =
-     * leave it alone, blank = clear; the pages turn an emptied field's null into blank) is the org's tier-2
-     * domain ({@link #applyCustomDomain}). Ten positions is the limit: a new profile field gets its own save
+     * The full profile save with the mail-domain and subdomain rows: {@code domains} (the site-admin allow-list) and
+     * {@code slug} (the org's subdomain) are applied ONLY for a site admin -- an org admin's post carries the same
+     * fields, and silently ignoring them is what keeps the shared include safe to render for both. {@code
+     * defaultDomain} is an org-admin choice, kept only while the allow-list still permits it, and so is {@code
+     * allowShared} -- the org side of the shared-site gate ({@link Organization#getAllowSharedSites()}; null = leave it
+     * alone) -- and {@code registerTarget}, where a shared site's Register link sends a visitor ({@link
+     * SharedSiteRegisterTarget} name; null = leave it alone, an unknown name = the default). The default is stored as
+     * null, like {@code allowShared}, so every existing row already holds it. {@code customDomain} (site admins only,
+     * like the slug; null = leave it alone, blank = clear; the pages post through {@link #saveOrgProfile}) is the org's
+     * tier-2 domain ({@link #applyCustomDomain}). Ten positions is the limit: a new profile field gets its own save
      * like {@link #saveOrgMailDomains}, or a record, never an eleventh String a caller can swap unnoticed.
      */
     public boolean saveOrgEdits(final String orgId, final String name, final String abbreviation,
@@ -2554,16 +2552,22 @@ public class OrgCommands {
      * settings. Never null; {@code isPayable()} on the result answers "can this trip take payments".
      */
     public TripPaymentConfig effectivePaymentConfig(final Trip trip) {
-        if (trip == null) {
-            return siteDefaults();
-        }
-        final Organization owner = (trip.getOrgId() == null || trip.getOrgId().isBlank()) ? null
-                : DAO.getInstance().getOrganization(Organization.Id.from(trip.getOrgId()), Cached.YES)
-                        .orElse(null);
-        final TripPaymentConfig orgRung = (owner == null)
-                ? siteDefaults()
+        final Organization owner = ownerOf(trip);
+        final TripPaymentConfig orgRung = (owner == null) ? siteDefaults()
                 : owner.getPaymentDefaults().overlayOn(siteDefaults());
-        return trip.getPaymentConfig().overlayOn(orgRung);
+        return (trip == null) ? orgRung : trip.getPaymentConfig().overlayOn(orgRung);
+    }
+
+    /** The payment From a trip inherits (the ladder minus its own override): the org default while the org may send
+     *  from it, else the site's {@code payment.mail.from}, else the Site email. Also PaymentMailer's fallback. */
+    public String inheritedPaymentFrom(final Trip trip) {
+        final Organization owner = ownerOf(trip);
+        final String orgFrom = (owner == null) ? null : owner.getPaymentDefaults().getMailFrom();
+        if (orgFrom != null && !orgFrom.isBlank() && mailAddr().isSendable(orgFrom, allowedDomains(owner))) {
+            return orgFrom;
+        }
+        final String site = new ConfigCommands().getString(KnownSettings.PAYMENT_MAIL_FROM);
+        return (site == null || site.isBlank()) ? mailAddr().siteFrom() : site;
     }
 
     // ------------------------------------------------------------------ the payment dialog's From composer
@@ -2577,11 +2581,7 @@ public class OrgCommands {
     /** What the dialog's From composer seeds from: the trip's own override, else the inherited value. */
     public String paymentFromSeed(final Trip trip) {
         final String own = (trip == null) ? null : trip.getPaymentConfig().getMailFrom();
-        if (own != null && !own.isBlank()) {
-            return own;
-        }
-        final String inherited = effectivePaymentConfig(trip).getMailFrom();
-        return (inherited == null || inherited.isBlank()) ? mailAddr().siteFrom() : inherited;
+        return (own == null || own.isBlank()) ? inheritedPaymentFrom(trip) : own;
     }
 
     /**

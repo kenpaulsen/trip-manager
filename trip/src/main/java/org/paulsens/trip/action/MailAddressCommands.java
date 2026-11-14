@@ -14,7 +14,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.dynamo.DAO;
-import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.SettingDef;
@@ -32,7 +31,7 @@ import org.paulsens.trip.util.EmailAddresses;
  * which render as a mode menu plus a local-part/domain composer instead of raw text.
  *
  * <p>SES only enforces verification on the FROM identity, so From slots are composed against
- * {@link MailCommands#verifiedSendingDomains()} while recipient and Reply-To slots accept any well-formed
+ * {@link MailCommands#siteVerifiedDomains()} while recipient and Reply-To slots accept any well-formed
  * address (an organization's contact email is often external). From slots never honor {@code org} for the
  * same reason: an unverified org domain as From would fail every send.
  */
@@ -121,10 +120,7 @@ public class MailAddressCommands {
      * against, so the two cannot disagree. Throws when SES cannot be asked ({@link #getSendingDomains} logs).
      */
     public static List<String> siteFromDomains(final ConfigCommands config) {
-        // Local mode answers the fixed fake list without resolving the mail bean (OrgCommands.siteSendingDomains
-        // does the same): Beans.get needs a CDI container the unit-test JVM does not have.
-        return sharedOnly(FakeData.isLocal() ? MailCommands.LOCAL_SENDING_DOMAINS
-                : org.paulsens.trip.api.Beans.get(MailCommands.class).verifiedSendingDomains(), config);
+        return sharedOnly(MailCommands.siteVerifiedDomains(), config);
     }
 
     /**

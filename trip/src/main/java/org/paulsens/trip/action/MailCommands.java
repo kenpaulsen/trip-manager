@@ -16,6 +16,7 @@ import java.util.Optional;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.StructuredTaskScope;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.api.Beans;
 import org.paulsens.trip.audit.Audit;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.dynamo.DAO;
@@ -88,35 +89,33 @@ public class MailCommands {
         this.client = client;
     }
 
-    /** {@link #verifiedSendingDomains()} memo. Instance-level: resolution paths never call this -- only
-     *  the Settings page does, through the ONE CDI instance -- so per-instance is one SES call per window. */
+    /** {@link #verifiedSendingDomains()} memo. Instance-level: production reads it only through {@link
+     *  #siteVerifiedDomains}, i.e. through the ONE CDI instance, so per-instance is one SES call per window. */
     private volatile List<String> verifiedDomains;
     private volatile long verifiedDomainsLoadedAt;
     private static final long VERIFIED_DOMAINS_TTL_MS = 10 * 60 * 1000L;
-    /**
-     * The local-mode stand-in for SES's verified domains. Public because callers that need the list off
-     * AWS (every unit test, and {@code OrgCommands.siteSendingDomains}) must be able to answer it WITHOUT
-     * resolving this bean through CDI, which the test JVM has no container for.
-     */
+    /** The local-mode stand-in for SES's verified domains ({@link #siteVerifiedDomains}); tests compare to it. */
     public static final List<String> LOCAL_SENDING_DOMAINS =
             List.of("centerforpeacewest.com", "example.com", "unitetrip.com", "visitqueenofpeace.com");
 
     /**
-     * The domain identities SES has VERIFIED for sending, sorted -- the Settings page's From-address
-     * domain dropdown. Local mode answers a fixed fake list (SES stays untouched off AWS, the same stance
-     * as {@link #send}); production memoizes for ten minutes, and an SES failure answers the previous
-     * result when there is one rather than emptying the dropdown mid-edit. Needs {@code
-     * ses:ListIdentities} + {@code ses:GetIdentityVerificationAttributes} on the task role.
+     * The domain identities SES has VERIFIED for sending, sorted -- what every From-domain dropdown and sending
+     * check chooses among. THE place that decides local vs SES: local mode answers {@link #LOCAL_SENDING_DOMAINS}
+     * (SES stays untouched off AWS, the same stance as {@link #send}) without resolving this bean, because
+     * {@code Beans.get} needs a CDI container the unit-test JVM does not have; production asks the CDI
+     * instance's {@link #verifiedSendingDomains()}.
      */
-    public List<String> verifiedSendingDomains() {
-        if (FakeData.isLocal()) {
-            return LOCAL_SENDING_DOMAINS;
-        }
-        return memoizedVerifiedDomains();
+    public static List<String> siteVerifiedDomains() {
+        return FakeData.isLocal() ? LOCAL_SENDING_DOMAINS : Beans.get(MailCommands.class).verifiedSendingDomains();
     }
 
-    /** Package-private: the whole suite runs local, so the SES path is only reachable by a direct call. */
-    synchronized List<String> memoizedVerifiedDomains() {
+    /**
+     * The SES path of {@link #siteVerifiedDomains}, which callers go through (this one asks SES even in local
+     * mode): memoized for ten minutes, and an SES failure answers the previous result when there is one rather
+     * than emptying a dropdown mid-edit. Needs {@code ses:ListIdentities} + {@code
+     * ses:GetIdentityVerificationAttributes} on the task role.
+     */
+    public synchronized List<String> verifiedSendingDomains() {
         final long now = System.currentTimeMillis();
         if (verifiedDomains != null && now - verifiedDomainsLoadedAt < verifiedDomainsTtlMs()) {
             return verifiedDomains;
