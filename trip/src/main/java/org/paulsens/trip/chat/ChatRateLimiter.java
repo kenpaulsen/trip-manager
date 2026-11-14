@@ -329,13 +329,13 @@ public class ChatRateLimiter {
                 return null;
             }
             if ("slow_mode".equals(reason)) {
-                return "Slow mode is on — wait " + retryAfterSeconds + " seconds between messages.";
+                return "Slow mode is on: wait " + retryAfterSeconds + " seconds between messages.";
             }
             if (limit > 0 && windowSeconds > 0) {
-                return "Slow down — you can send " + limit + " messages every " + windowSeconds
+                return "Slow down: you can send " + limit + " messages every " + windowSeconds
                         + " seconds. Try again in " + retryAfterSeconds + " seconds.";
             }
-            return "Slow down — try again in " + retryAfterSeconds + " seconds.";
+            return "Slow down: try again in " + retryAfterSeconds + " seconds.";
         }
     }
 }

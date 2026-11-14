@@ -371,7 +371,7 @@ public class BadgePhotoCommands extends PhotoUploadBean {
         if (side < BADGE_SIZE) {
             final String message = "Low resolution: the selected area is " + side + "×" + side
                     + " px, but the badge prints from " + BADGE_SIZE + "×" + BADGE_SIZE
-                    + " px — it may look blurry when printed.";
+                    + " px, so it may look blurry when printed.";
             warn(message);
             publishParam("badgeWarn", message);
         }
