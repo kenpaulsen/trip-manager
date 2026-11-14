@@ -1786,6 +1786,15 @@ public class OrgCommandsTest {
         assertTrue(admin().saveOrgEdits(orgId, org.getName(), null, null, null, null, null, null, null, " "));
         assertEquals(admin().storedCustomDomain(orgId), "", "blank clears it");
         assertEquals(admin().storedCustomDomain("no-such-org"), "");
+
+        // The pages' save takes the form as typed: Faces decodes an emptied field as null, which must clear.
+        assertTrue(admin().saveOrgEdits(orgId, org.getName(), null, null, null, null, slug, null, null, domain));
+        assertTrue(admin().saveOrgEdits(orgId, org.getName(), null, null, null, null, null, null, null, null));
+        assertEquals(admin().storedCustomDomain(orgId), domain, "the Java save reads null as leave it alone");
+        assertTrue(admin().saveOrgProfile(orgId, org.getName(), null, null, null, null, slug, null, null, null));
+        assertEquals(admin().storedCustomDomain(orgId), "", "the page save reads an emptied Custom Domain as clear");
+        assertTrue(admin().saveOrgProfile(orgId, org.getName(), null, null, null, null, null, null, null, null));
+        assertEquals(admin().storedSlug(orgId), "", "and an emptied Subdomain too");
     }
 
     @Test
@@ -1941,6 +1950,29 @@ public class OrgCommandsTest {
         assertTrue(admin().applyPaymentFrom(trip, "", "Acme", "no-reply", "example.com"));
         assertNull(trip.getPaymentConfig().getMailFrom(), "blank mode means inherit");
         assertFalse(admin().applyPaymentFrom(null, "custom", "a", "b", "example.com"));
+    }
+
+    /** The composer's seed (and PaymentMailer's fallback) is the ladder minus the trip's own override, and the org
+     *  rung counts only while the org may send from it. */
+    @Test
+    public void theInheritedPaymentFromSkipsAnOrgDefaultTheOrgMayNotSendFrom() throws IOException {
+        final Organization acme = orgWithAdmin(savedPerson());
+        final String orgId = acme.getId().getValue();
+        final org.paulsens.trip.model.Trip trip = tripOwnedBy(acme);
+        final String siteEmail = admin().inheritedPaymentFrom(null);
+        assertFalse(siteEmail.isBlank(), "no trip: the site's payment From, else the Site email");
+        assertEquals(admin().paymentFromSeed(trip), siteEmail, "an org with no default inherits the site's");
+
+        final Organization fresh = dao.getOrganization(acme.getId(), Cached.NO).orElseThrow();
+        fresh.getPaymentDefaults().setMailFrom("Acme <pay@unitetrip.com>");
+        assertTrue(admin().saveOrganization(fresh));
+        assertEquals(admin().paymentFromSeed(trip), "Acme <pay@unitetrip.com>", "the org default, while sendable");
+        trip.getPaymentConfig().setMailFrom("Trip <trip@unitetrip.com>");
+        assertEquals(admin().paymentFromSeed(trip), "Trip <trip@unitetrip.com>", "the trip's own override seeds");
+        assertEquals(admin().inheritedPaymentFrom(trip), "Acme <pay@unitetrip.com>", "but is never inherited");
+
+        assertTrue(admin().saveOrgEdits(orgId, acme.getName(), null, null, List.of("visitqueenofpeace.com"), null));
+        assertEquals(admin().inheritedPaymentFrom(trip), siteEmail, "a default the allow-list excludes is skipped");
     }
 
     private static String unique() {

@@ -113,7 +113,10 @@ that SES verifies AND that is shared (what the Settings page's From composers of
 `withSiteFrom()` flag, checked by `ConfigCommands` on save): payment mail with no trip or org From goes out for
 every organization. At send time `PaymentMailer` checks the effective From once more against the trip's
 organization and, when that organization may not send from it (a row stored before the move check, a custom
-domain that changed hands), sends from the site's `payment.mail.from` instead, else the Site email, and logs it.
+domain that changed hands), sends from the From the trip INHERITS instead (`OrgCommands.inheritedPaymentFrom`, the
+ladder minus the trip's own override: the org default while the org may send from it, else the site's
+`payment.mail.from`, else the Site email; the dialog's From composer seeds from the same method), and logs the
+substitution. A trip whose own From is not sendable falls back; it is not refused at send time (owner decision).
 
 ## The money rules (user-locked; the golden test is `PaymentRecorderTest`)
 

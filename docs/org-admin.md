@@ -15,7 +15,7 @@ has no role or privilege row, so these pages gate themselves in `initPage`, NOT 
 | Page | View gate (`OrgCommands`) | Mutations |
 |------|---------------------------|-----------|
 | `orgSettings.jsf` (hub) | `canViewOrgHub` — admin OR any org-scoped privilege here | — (cards render per-permission) |
-| `orgConfig.jsf` (Organization Settings, tabbed) | `canManageOrg` | per tab: `saveOrgEdits` (Profile, Email; **the name included**; Profile's contact name and phone go through `saveOrgSettings`), `saveOrgSettings` (Home page, Trips & money, Chat, Appearance), `setGrantablePrivileges` (Privileges, site admins only) |
+| `orgConfig.jsf` (Organization Settings, tabbed) | `canManageOrg` | per tab: `saveOrgProfile` (Profile; **the name included**; its contact name and phone go through `saveOrgSettings`), `saveOrgMailDomains` (Email), `saveOrgSettings` (Home page, Trips & money, Chat, Appearance), `setGrantablePrivileges` (Privileges, site admins only) |
 | `orgTrips.jsf` | `canViewOrgTrips` — admin OR `addTrip@org` OR `addConference@org` | New Trip: `canCreateTripFor`; New Conference: `canCreateConferenceFor` |
 | `orgPeople.jsf` | `canViewOrgPeople` — admin OR `peopleAdmin@org` | **org admins only** (all of them) |
 | `orgProcessors.jsf` | `canManageOrg` | `canManageOrg` |
@@ -312,7 +312,7 @@ the sentinel `site` (the Site email setting), the sentinel `org` (the owning org
 email from its org Profile page, **falling back to the Site email**; only slots with a trip in hand),
 or a literal address. The admin Settings page renders the "Email addresses" section with a mode widget
 instead of raw text; its From composer is display-name + local-part + a domain dropdown fed by
-`MailCommands.verifiedSendingDomains()` (live from SES, ten-minute memo, fixed fake list in local
+`MailCommands.siteVerifiedDomains()` (live from SES, ten-minute memo, fixed fake list in local
 mode; needs `ses:ListIdentities` + `ses:GetIdentityVerificationAttributes` on the task role).
 
 Rules that outlast the UI:
@@ -555,10 +555,11 @@ site of its own, so it needs the slug first; everything that asks "does this org
 about the slug.
 
 - **Writing it**: site admins only, on the shared profile include beside the subdomain (`orgProfileFields.xhtml`,
-  `saveOrgEdits`' 10th argument; null = leave alone, blank = clear). The pages post an emptied Subdomain or
-  Custom Domain field as blank: the live web.xml decodes an empty field as null
-  (`INTERPRET_EMPTY_STRING_SUBMITTED_VALUES_AS_NULL`), which the save would read as "leave alone", so the save
-  scripts turn it back into blank (before that fix a cleared domain silently stayed). `site/CustomDomains`
+  `saveOrgEdits`' 10th argument; null = leave alone, blank = clear). Both profile pages save through
+  `OrgCommands.saveOrgProfile`, which takes the form as typed and posts an emptied Subdomain or Custom Domain as
+  blank: the live web.xml decodes an empty field as null (`INTERPRET_EMPTY_STRING_SUBMITTED_VALUES_AS_NULL`), which
+  `saveOrgEdits` reads as "leave alone" (before that fix a cleared domain silently stayed). A new profile page
+  calls `saveOrgProfile`, never `saveOrgEdits`. `site/CustomDomains`
   holds the grammar: `normalize` strips scheme, path, port, trailing dot and `www.`; `problem` refuses a
   non-host, a `.local` or `localhost` name, the org-site base domain and anything under it, and the shared
   sending domains; `claimProblem` adds uniqueness across orgs. Clearing the slug clears the domain.

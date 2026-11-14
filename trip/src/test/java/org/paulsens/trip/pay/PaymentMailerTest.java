@@ -1,5 +1,6 @@
 package org.paulsens.trip.pay;
 
+import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -13,6 +14,7 @@ import org.paulsens.trip.chat.MailTemplates;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.model.FeesPaidBy;
+import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Payment;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
@@ -145,6 +147,32 @@ public class PaymentMailerTest {
         assertEquals(mailer.fromFor(moved, shared), "Beta <no-reply@unitetrip.com>", "a sendable From is kept");
         assertEquals(mailer.fromFor(null, shared), "Beta <no-reply@unitetrip.com>", "no trip: the site's domains");
         assertNull(mailer.fromFor(moved, TripPaymentConfig.builder().build()), "no From stays no From");
+    }
+
+    /**
+     * The fallback is the ladder minus the trip's own override: the org's default From, while the org may send
+     * from it, comes before the site's, so a registrant never gets the org's receipt under the shared brand.
+     * An inherited site From the org's allow-list excludes is sent as it is: there is nothing to fall back to.
+     */
+    @Test
+    public void anUnsendableTripFromFallsBackToTheOrgDefaultFirst() throws IOException {
+        final Organization acme = Organization.builder().name("Acme " + java.util.UUID.randomUUID()).build();
+        acme.getPaymentDefaults().setMailFrom("Acme <pay@unitetrip.com>");
+        assertTrue(DAO.getInstance().saveOrganization(acme));
+        final Trip trip = trip();
+        trip.setOrgId(acme.getId().getValue());
+        final PaymentMailer mailer = new PaymentMailer(Mockito.mock(MailCommands.class), id -> null);
+        final TripPaymentConfig stale = TripPaymentConfig.builder()
+                .mailFrom("CFPW <no-reply@centerforpeacewest.com>").build();
+        assertEquals(mailer.fromFor(trip, stale), "Acme <pay@unitetrip.com>", "the org's default, not the site's");
+
+        acme.getPaymentDefaults().setMailFrom(null);
+        acme.setMailDomains(List.of("unitetrip.com"));
+        assertTrue(DAO.getInstance().saveOrganization(acme));
+        final String site = new OrgCommands().inheritedPaymentFrom(null);
+        assertFalse(new OrgCommands().isOrgFromSendable(acme.getId().getValue(), site), "the premise");
+        assertEquals(mailer.fromFor(trip, TripPaymentConfig.builder().mailFrom(site).build()), site,
+                "the inherited From is what is sent");
     }
 
     @Test
