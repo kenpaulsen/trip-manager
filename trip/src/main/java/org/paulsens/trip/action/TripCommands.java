@@ -50,6 +50,8 @@ public class TripCommands {
     private static final long TIMEOUT = 5_000L;
     /** Cap for the admin/joinable trip-resolution fallbacks (a user's own trips come from the reverse index). */
     private static final int RECENT_TRIP_LIMIT = 100;
+    /** The trip pickers' explicit no-trip row ({@code admin/batchTx.xhtml}'s Trip menu). */
+    private static final String NO_TRIP = "none";
     /** Shown (as a growl) on the profile page when a trip asked for by id could not be opened; see noTripUrl. */
     public static final String NO_TRIP_ACCESS_MESSAGE = "That trip is not available to you.";
     /** How long a finished pilgrimage stays on the public landing page (user-set product rule). */
@@ -62,6 +64,8 @@ public class TripCommands {
     private BindingCommands bind;
 
     private final Supplier<OrgCommands> orgSource;
+    /** Who is asking, for the trip pickers' tenancy rule ({@link #getRecentTripsFor}). */
+    private final Supplier<Caller> callerSource;
 
     public TripCommands() {
         this(() -> org.paulsens.trip.api.Beans.get(OrgCommands.class));
@@ -69,7 +73,13 @@ public class TripCommands {
 
     /** Test seam (the {@link TripDeleteCommands} pattern): {@code Beans.get} needs a CDI container. */
     TripCommands(final Supplier<OrgCommands> orgSource) {
+        this(orgSource, Caller::current);
+    }
+
+    /** Test seam: the caller too ({@code Caller.current()} needs a FacesContext). */
+    TripCommands(final Supplier<OrgCommands> orgSource, final Supplier<Caller> callerSource) {
         this.orgSource = orgSource;
+        this.callerSource = callerSource;
     }
 
     public Trip createTrip() {
@@ -1250,26 +1260,85 @@ public class TripCommands {
     }
 
     /**
-     * A trip picker's choices: {@link #getRecentTrips} plus, first, the trip the picker is already set to when the
-     * recent list does not reach it. A {@code p:selectOneMenu} whose value is not among its items renders with
-     * its FIRST option selected and posts that option back on the next submit, so the group transaction editor,
-     * opened for a trip older than the most recent {@code limit}, silently saved the group with no trip and
-     * (on an edit) unbound it from the trip it was on. An unknown or out-of-site id adds nothing: it resolves
-     * to {@link #getTrip}'s blank trip.
+     * The trips a trip PICKER on a page gated by {@code privilege} may offer the signed-in caller, newest first.
+     * A site admin gets {@link #getRecentTrips}, and so does a GLOBAL holder of a global base (the privilege
+     * editors' {@code privilegeAdmin}, a site-wide grant); anyone else gets only the recent trips on which they
+     * hold the trip-scoped {@code privilege} themselves (the group transaction editor's {@code tripFinAdmin}).
+     * Organization is the tenancy boundary and a picker is a read path: listing the whole site let one org's
+     * trip Finance Admin read every sharing tenant's trip titles, and through a picked trip, its roster (review
+     * 2026-11-14). Like {@code OrgCommands.mailableTrips} the filter runs over the recent {@code limit}, so a
+     * non-admin's trip older than that is not listed (the group editor still offers the trip it was opened for:
+     * {@link #getRecentTripsWith}). A null or unknown privilege offers a non-admin nothing.
      */
-    public List<Trip> getRecentTripsWith(final int limit, final String selectedId) {
+    public List<Trip> getRecentTripsFor(final String privilege, final int limit) {
         final List<Trip> recent = getRecentTrips(limit);
-        if (selectedId == null || recent.stream().anyMatch(trip -> selectedId.equals(trip.getId()))) {
+        final Caller caller = callerSource.get();
+        if (seesEveryTrip(caller, privilege)) {
             return recent;
         }
-        final Trip selected = getTrip(selectedId);
-        if (!selectedId.equals(selected.getId())) {
-            return recent;
+        return recent.stream().filter(trip -> holdsOnTrip(caller, privilege, trip.getId())).toList();
+    }
+
+    /**
+     * {@link #getRecentTripsFor} plus, first, the trip the picker was OPENED for when that list does not reach
+     * it. A {@code p:selectOneMenu} whose value is not among its items renders with its FIRST option selected
+     * and posts that option back, so the group transaction editor, opened for a trip older than the recent
+     * {@code limit}, saved the group with no trip and (on an edit) unbound it from the trip it was on.
+     *
+     * <p>Callers pass the id their page PINNED when it opened (a view scalar set once, {@code
+     * viewScope.openedTripId}), never the menu's own live value: JSF rebuilds the items at decode to validate the
+     * submitted value, and items keyed on the live value lost the opened trip as soon as the menu moved off it,
+     * so picking it again failed validation ("Value is not valid"), and so did every Save after. A null or blank
+     * id and the pages' {@code "none"} row add nothing without a lookup; an unknown or out-of-site id, or a trip
+     * the caller may not pick ({@link #getPickableTrip}), adds nothing either.
+     */
+    public List<Trip> getRecentTripsWith(final String privilege, final int limit, final String pinnedId) {
+        final List<Trip> listed = getRecentTripsFor(privilege, limit);
+        if (isNoTrip(pinnedId) || listed.stream().anyMatch(trip -> pinnedId.equals(trip.getId()))) {
+            return listed;
         }
-        final List<Trip> choices = new ArrayList<>(recent.size() + 1);
-        choices.add(selected);
-        choices.addAll(recent);
+        final Trip pinned = getPickableTrip(privilege, pinnedId);
+        if (!pinnedId.equals(pinned.getId())) {
+            return listed;
+        }
+        final List<Trip> choices = new ArrayList<>(listed.size() + 1);
+        choices.add(pinned);
+        choices.addAll(listed);
         return choices;
+    }
+
+    /**
+     * The trip a picker gated by {@code privilege} picked, or the blank trip (no people, no events) when the
+     * caller may not pick it under {@link #getRecentTripsFor}'s rule, or it is unknown or out of site. A picked
+     * trip's roster and events load through this: the menu's validation already refuses an id it did not list,
+     * and this refuses it again for whatever reaches a trip id another way.
+     */
+    public Trip getPickableTrip(final String privilege, final String tripId) {
+        final Caller caller = callerSource.get();
+        if (isNoTrip(tripId) || !(seesEveryTrip(caller, privilege) || holdsOnTrip(caller, privilege, tripId))) {
+            return Trip.builder().build();
+        }
+        return getTrip(tripId);
+    }
+
+    /** No trip at all: null, blank, or the pickers' explicit {@code "none"} row. */
+    private static boolean isNoTrip(final String tripId) {
+        return tripId == null || tripId.isBlank() || NO_TRIP.equals(tripId);
+    }
+
+    /**
+     * A site admin, or a holder of {@code privilege} site-wide where it is a global base. (The base lists are
+     * {@code List.of}, whose {@code contains(null)} throws, hence the null check.)
+     */
+    private static boolean seesEveryTrip(final Caller caller, final String privilege) {
+        return caller.isSiteAdmin() || (privilege != null
+                && PrivilegeCommands.GLOBAL_BASES.contains(privilege) && caller.has(privilege));
+    }
+
+    /** Whether the caller holds the trip-scoped {@code privilege} on this trip. */
+    private static boolean holdsOnTrip(final Caller caller, final String privilege, final String tripId) {
+        return privilege != null && PrivilegeCommands.TRIP_SCOPED_BASES.contains(privilege)
+                && caller.has(privilege, tripId);
     }
 
     /** {@link #getRecentTrips} before the site gate -- for the org-keyed reads, which bound themselves. */

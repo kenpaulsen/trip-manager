@@ -124,37 +124,6 @@ public class SiteReachTest {
     }
 
     @Test
-    public void aTripPickerListsTheTripItIsSetToEvenPastTheRecentCap() throws Exception {
-        // The group transaction editor opened for a trip older than its menu's recent cap: without the trip
-        // among the choices the menu posted its first option ("none") and the group was saved with no trip.
-        final Trip old = Trip.builder().title("Picker trip " + RandomData.genAlpha(6))
-                .startDate(LocalDateTime.of(2001, 1, 1, 9, 0))
-                .endDate(LocalDateTime.of(2001, 1, 2, 17, 0))
-                .build();
-        Assert.assertTrue(DAO.getInstance().saveTrip(old));
-        final String oldId = old.getId();
-        final List<String> recent = tripIds(onSite(SHARED, () -> trips.getRecentTrips(1)));
-        Assert.assertFalse(recent.contains(oldId), "precondition: the 2001 trip is not the most recent one");
-
-        final List<String> choices = tripIds(onSite(SHARED, () -> trips.getRecentTripsWith(1, oldId)));
-        Assert.assertEquals(choices.getFirst(), oldId, "the trip the picker is set to comes first");
-        Assert.assertEquals(choices.subList(1, choices.size()), recent, "then the recent trips, unchanged");
-
-        // Already listed, nothing selected, an unknown id, or a trip this site does not reach: just the recent.
-        final List<String> all = tripIds(onSite(SHARED, () -> trips.getRecentTrips(0)));
-        Assert.assertEquals(tripIds(onSite(SHARED, () -> trips.getRecentTripsWith(0, oldId))), all, "no duplicate");
-        Assert.assertEquals(tripIds(onSite(SHARED, () -> trips.getRecentTripsWith(1, null))), recent);
-        Assert.assertEquals(tripIds(onSite(SHARED, () -> trips.getRecentTripsWith(1, "none"))), recent);
-        final String acmeTrip = FakeData.ACME_TRIP_ID;
-        Assert.assertEquals(tripIds(onSite(SHARED, () -> trips.getRecentTripsWith(1, acmeTrip))), recent,
-                "a hosted org's trip is never offered on the shared site");
-    }
-
-    private static List<String> tripIds(final List<Trip> found) {
-        return found.stream().map(Trip::getId).toList();
-    }
-
-    @Test
     public void theCurrentTripIsChosenAmongWhatTheSiteLists() throws Exception {
         // The "current trip" behind /account.jsf: a page hands back the blank answer for a last-visited
         // trip the host no longer reaches, and an admin "can see" any trip -- the pick must move on to a

@@ -160,6 +160,21 @@ boundary server-side: grants require membership in the trip's org (site admins i
 `grantOrgPrivilege` stance); revokes stay open so a departed member's stale role remains removable.
 Org-less trips are site-admin-only and keep the global search.
 
+**Trip pickers are tenancy-bound too** (2026-11-14). A trip menu lists `TripCommands.getRecentTripsFor(privilege,
+n)`, never the unfiltered `getRecentTrips(n)`: a site admin, and a GLOBAL holder of a global base (`privilegeAdmin`),
+get every trip the host reaches; anyone else only the recent trips on which they hold the trip-scoped `privilege`,
+which is the page's own gate. The Batch Transactions Trip menu passes `tripFinAdmin`, the Trip Privileges page
+`privilegeAdmin`, and `selectPeople.xhtml`'s trip filter its host page's `viewScope.reqPriv`. They listed the whole
+site before, so on a shared host one org's trip Finance Admin read every sharing tenant's trip titles, and through
+a picked trip, its roster. A picked trip's roster and events load through `getPickableTrip(privilege, id)`, which
+answers the blank trip for one the caller may not pick (the menu's validation already refuses an id it did not
+list). Batch Transactions' menu is `getRecentTripsWith(privilege, n, viewScope.openedTripId)`: the trip the editor
+was OPENED for (pinned once in initPage) stays a choice even past the recent 100, or the menu would post its first
+option ("none") and the save would drop the trip; keyed on the pinned id rather than the menu's live value, so
+moving the menu away and back still validates. `medjugorje/webtest/.../TripPickerPolicyIT` fails a page that calls
+`trip.getRecentTrips(` outside its shrink-only allow-list (the health probe's count, and one admin page pending
+review).
+
 `registrationAdmin@trip` (display name "Registration Admin") opens the trip's Registrations tab and the
 whole `admin/tripRegistrations.jsf` page — approve, move, rooms, approval mail — for non-site-admins
 (user decision 2026-08-24: visibility means full page use). The tab gate (`tripTabs.xhtml`), the page's

@@ -78,9 +78,10 @@ email to signed-in viewers -- unless the person set that field PRIVATE, which wi
   (`trip.css` swaps which one shows). The wrapper is a span, so masked values sit inline. A masked inplace
   editor is always rendered, so Save submits its value unchanged unless it was revealed and edited.
   An EMPTY value on a read-only display renders UNMASKED, so nobody is offered a "private value" that
-  reveals nothing, and "nothing on file" (a disabled editor's "Not given", an empty cell) stays distinct from
-  HIDE, which is "withheld from you". The value is empty, so nothing private reaches the page. The rule lives
-  in the template: a read-only host passes the optional `blank` param, its own emptiness test for what the
+  reveals nothing, and "nothing on file" stays distinct from HIDE, which is "withheld from you": an empty
+  read-only value reads "Not given" (a disabled editor's `emptyLabel`, or the host's own text on the profile's
+  read-only email and Manage People's compare grid), never an empty cell. The value is empty, so nothing
+  private reaches the page. The rule lives in the template: a read-only host passes the optional `blank` param, its own emptiness test for what the
   body shows (`#{empty person.cell}`; trip Contacts' "City, State" is blank only when both are), and the
   template then renders a MASK's body with no placeholder and no `privMasked` class. Every read-only mask
   passes it: trip Contacts, People, Org People, the admin person page (Notes too), Manage People's person 2
@@ -95,12 +96,12 @@ email to signed-in viewers -- unless the person set that field PRIVATE, which wi
   (The param is not called `empty`, which is an EL operator.)
   `WEB-INF/privacyRevealAll.xhtml` is a "Show private values" link that reveals every mask in its scope: the
   nearest `privScope` element, else its fieldset (the profile's Address, Travel Info and Contact Info; Manage
-  People's two-person compare grid carries `privScope` and the link in its header). It renders for a viewer
-  with any MASK verdict in the scope (`show="#{pv.x eq 'MASK' or ...}"`), and `trip.css` shows it only while
-  the scope holds a `privMasked` span not yet `privRevealed`: whether to offer it is derived from the masks
-  actually rendered, never from a second copy of each field's emptiness test, so a fieldset of empty values
-  offers no link and the link goes away once everything in its scope is open. A list item cannot be
-  masked: Manage People's person pickers put an email or cell in the label only where the verdict is not HIDE
+  People's two-person compare grid carries `privScope` and the link in its header). It takes no params and is
+  always rendered (a link, never a value), and `trip.css` shows it only while the scope holds a `privMasked`
+  span not yet `privRevealed`: whether to offer it is derived from the masks actually rendered, never from a
+  second, hand-kept copy of each field's verdict or emptiness test on the host, so a scope with no MASK
+  verdict or only empty values offers no link and the link goes away once everything in its scope is open.
+  A list item cannot be masked: Manage People's person pickers put an email or cell in the label only where the verdict is not HIDE
   (`PersonCommands.adminPickerLabel`).
 - **Derived leaks handled in Java**: chat roster name-collision labels never use a private email
   (`ChatCommands.labelFor` falls to the id rung); the "via manager" contact fallback skips managers whose
@@ -120,7 +121,7 @@ to co-travelers where it used to be tripAdmin-only), `admin/people.xhtml`, `admi
 Webtest: `PrivacyPwIT` (hide → peer loses it and it is not in the page, admin gets it masked and a click
 shows it with no request, "Show private values" reveals a fieldset, street knob locks to city, View As from
 `admin/person.xhtml` hides the subject's sign-in fieldsets, an empty private value offers nothing to reveal,
-a trip manager opening an empty traveler's profile with `?trip=` gets "Not given" with no mask and no
-visible "Show private values" while a site admin keeps the editors to fill, and a profile saved with every
+a trip manager opening an empty traveler's profile with `?trip=` gets "Not given" (the email too) with no
+mask and no visible "Show private values" while a site admin keeps the editors to fill, and a profile saved with every
 mask closed keeps its birthdate, passport dates and cell exactly as stored);
 `AdminManagePersonPwIT` proves the same save rule for Save Person 1 and the compare grid's one-click reveal.
