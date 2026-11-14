@@ -72,7 +72,8 @@ date. Chat posts while acting carry `onBehalfOf` (Chat section).
 
 `TripDto`: id, title, description, detailsUrl, openToPublic, chatEnabled, startDate, endDate, regLimit, provider,
 orgId, language, estimatedPrice, director, localGuide, facilitators, flyerUrl, nonHostedTripUrl,
-nonHostedRegNumber, regOptions[{id, shortDesc, longDesc, show}], people[ids], tripEvents[],
+nonHostedRegNumber, regOptions[{id, shortDesc, longDesc, show, type, required?, choices?[{id, label, priceCents?,
+capacity?, attestationText?, days?, enabled?}]}] (see "Registration questions" below), people[ids], tripEvents[],
 paymentConfig{processorConfigId, feesPaidBy (ORGANIZATION|PAYER), donationEnabled, donationLabel,
 confirmationTemplateId, mailFrom, replyTo, bcc, extraTokens{}} (2026-11: the trip's OWN payment settings,
 the trip rung of the ladder in `docs/payments.md`; absent from lists; on `POST`/`PUT` an absent field is left
@@ -139,6 +140,17 @@ calls below refuse such a traveler the same way (403 "You cannot register ...").
 and people still register themselves and the family they manage on any trip they may join. The reason: a
 registration is what makes someone "on the trip", and a trip's staff read the profiles and ledgers of the
 people on it.
+
+**Registration questions (`regOptions[]`, 2026-11).** `type` is `TEXT`, `CHOICE`, `MULTI_CHOICE` or `YES_NO`; the
+server always sends it (a stored question that predates types reads `TEXT`), so a client copy WITHOUT a type was
+cached by an older client build and must be refreshed before it is trusted. `required` absent is optional. The
+answer stored under `options["<id>"]` is free text for `TEXT`, ONE choice `id` for `CHOICE`, choice ids joined with
+commas for `MULTI_CHOICE`, and exactly `Yes` or `No` for `YES_NO`; a label is never stored, so renaming a choice
+keeps its answers. A choice with `enabled: false` is withdrawn: never offered for a new pick, though an existing
+answer may still name it. A required question counts as answered when non-blank and, for the choice types, naming
+at least one id. Since 2026-11-13 both apps ask every type themselves (radio rows, checkbox rows, Yes/No rows) and
+send a person to the website only when the trip uses priced checkout (below) or shows a question whose type the
+build does not know; clients compare `type` trimmed and upper-cased.
 
 Self-registration: `POST /api/trips/{tripId}/registrations/party`
 `{travelers:[{personId, options{"<optId>":"answer"}, dailyDigest?}]}` → 200
