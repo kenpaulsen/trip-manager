@@ -1321,6 +1321,55 @@ public class TripCommands {
         return getTrip(tripId);
     }
 
+    /**
+     * The recent trips of the signed-in caller's OWN organizations, in display order: every trip of every
+     * organization they are a member of ({@code Person.orgIds}, the membership {@code OrgCommands.canAdminPerson}
+     * reads; an org admin is always a member). A site admin gets {@link #getRecentTrips}. For the admin person
+     * page's Registrations list, whose gate is per subject: an org's people admin opening a member who also
+     * belongs to another organization read the titles of that organization's trips (owner decision 2026-11-14:
+     * the list shows the viewer's own organizations' trips). Over-fetched like {@link #getTripsForOrg}, so
+     * another tenant's busy calendar does not push the caller's own trips out of their list; site-gated like
+     * every list here. Nobody signed in, or an unknown caller, gets nothing.
+     */
+    public List<Trip> getRecentTripsInMyOrgs(final int limit) {
+        final Caller caller = callerSource.get();
+        if (caller.isSiteAdmin()) {
+            return getRecentTrips(limit);
+        }
+        final Set<String> mine = caller.personId() == null ? Set.of()
+                : DAO.getInstance().getPerson(caller.personId(), Cached.YES)
+                        .map(TripCommands::orgIdsOf)
+                        .orElse(Set.of());
+        if (mine.isEmpty()) {
+            return List.of();
+        }
+        return latestEnding(here(recentTripsAnywhere(limit > 0 ? limit * 4 : limit)).stream()
+                .filter(trip -> mine.contains(trip.getOrgId()))
+                .toList(), limit);
+    }
+
+    private static Set<String> orgIdsOf(final Person person) {
+        return person.getOrgIds().stream().map(Organization.Id::getValue).collect(Collectors.toSet());
+    }
+
+    /**
+     * The {@code limit} trips that end last, kept in the list's display order (non-positive: all of them). The
+     * recency fetch arrives sorted by START date, so a plain {@code limit} would keep the earliest-starting
+     * trips of the over-fetched window rather than the most recent.
+     */
+    private static List<Trip> latestEnding(final List<Trip> trips, final int limit) {
+        if (limit <= 0 || trips.size() <= limit) {
+            return trips;
+        }
+        final Set<String> kept = trips.stream()
+                .sorted(Comparator.comparing(Trip::getEndDate,
+                        Comparator.nullsFirst(Comparator.<LocalDateTime>naturalOrder())).reversed())
+                .limit(limit)
+                .map(Trip::getId)
+                .collect(Collectors.toSet());
+        return trips.stream().filter(trip -> kept.contains(trip.getId())).toList();
+    }
+
     /** No trip at all: null, blank, or the pickers' explicit {@code "none"} row. */
     private static boolean isNoTrip(final String tripId) {
         return tripId == null || tripId.isBlank() || NO_TRIP.equals(tripId);
