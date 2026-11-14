@@ -2,6 +2,7 @@ package org.paulsens.trip.pay;
 
 import java.util.Map;
 import java.util.OptionalLong;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import org.paulsens.trip.model.Payment;
@@ -23,6 +24,8 @@ import org.paulsens.trip.model.ProcessorType;
 public final class FakeProcessor implements PaymentProcessor {
     /** orderRef -> the order as created; consulted at capture like a real processor would. */
     private static final Map<String, Order> ORDERS = new ConcurrentHashMap<>();
+    /** The orders whose capture reports one cent less than the order was for (see {@link #captureShort}). */
+    private static final Set<String> SHORT_CAPTURES = ConcurrentHashMap.newKeySet();
 
     /**
      * {@code bank} = the payer paid "as bank" (the fake checkout's async door) at any point; {@code onlyMethod}
@@ -94,8 +97,9 @@ public final class FakeProcessor implements PaymentProcessor {
         }
         final long fee = MoneyMath.donationFeeCents(order.cents(), ProcessorType.FAKE.getDefaultFeeBps())
                 + ProcessorType.FAKE.getDefaultFeeFixedCents();
+        final long gross = SHORT_CAPTURES.contains(orderRef) ? order.cents() - 1 : order.cents();
         return new CaptureResult(CaptureResult.Status.COMPLETED, "CAP-" + orderRef.substring(5),
-                order.cents(), OptionalLong.of(fee), order.methodType());
+                gross, OptionalLong.of(fee), order.methodType());
     }
 
     /** Like Stripe: a debit in flight cannot be canceled; anything else is released. */
@@ -119,6 +123,19 @@ public final class FakeProcessor implements PaymentProcessor {
         }
         ORDERS.put(orderRef, new Order(order.cents(), order.paymentId(), true, order.refundedCents(), true,
                 order.onlyMethod()));
+        return true;
+    }
+
+    /**
+     * A processor that captures a different amount than it was asked for: from now on this order's capture
+     * reports one cent less, so completing it takes the HELD path (the reconciliation page's "Held:" line) the way
+     * a real gross-vs-expected mismatch does. Answers false for an unknown order.
+     */
+    public static boolean captureShort(final String orderRef) {
+        if (orderRef == null || !ORDERS.containsKey(orderRef)) {
+            return false;
+        }
+        SHORT_CAPTURES.add(orderRef);
         return true;
     }
 

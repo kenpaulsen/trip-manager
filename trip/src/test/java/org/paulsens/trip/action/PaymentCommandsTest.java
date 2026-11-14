@@ -278,6 +278,27 @@ public class PaymentCommandsTest {
         assertEquals(first.getStatus(), "recorded", "a CAPTURED row is one Finish away for an administrator");
     }
 
+    /** The local fake's "capture short" (the webtests' way to a held row) takes the real mismatch path. */
+    @Test
+    public void theFakesShortCaptureIsHeldLikeARealMismatch() {
+        final Person payer = savedPerson();
+        final PaymentCommands commands = commandsFor(payer, false);
+        final String paymentId = commands.startPayment(trip(),
+                Map.of(payer.getId().getValue(), "50"), null, false, "http://localhost/pay").getPaymentId();
+        final String orderRef = DAO.getInstance().getPayment(paymentId).orElseThrow().getOrderRef();
+
+        assertFalse(commands.fakeCaptureShort("FAKE-nope"), "an unknown order");
+        assertFalse(commands.fakeCaptureShort(null));
+        assertTrue(commands.fakeCaptureShort(orderRef));
+        assertEquals(commands.completePayment(paymentId, null).getStatus(), "mismatch");
+        final Payment held = DAO.getInstance().getPayment(paymentId).orElseThrow();
+        assertEquals(held.getStatus(), Payment.Status.CAPTURED);
+        assertEquals(held.getCapturedGrossCents(), held.getTotalChargedCents() - 1, "one cent short");
+        assertTrue(commandsFor(savedPersonAsSiteAdmin(), false).holdOf(held).startsWith("the processor captured $"),
+                "the reconciliation page's reason");
+        assertTrue(txCmds.getTransactions(payer.getId()).isEmpty(), "nothing recorded until an administrator acts");
+    }
+
     @Test
     public void adminCompleteFinishesACapturedPayment() throws IOException {
         final Person payer = savedPerson();
