@@ -6,7 +6,7 @@ visibility, `PersonDto` redaction, `tripContacts.xhtml`, or `account/person.xhtm
 ## The model
 
 `PrivacySettings` lives directly ON `Person` (no separate table; setter-populated like `familyId`, never in
-the 17-arg builder, never null — old rows deserialize to the defaults). Exactly four knobs, each
+the 17-arg builder, never null; old rows deserialize to the defaults). Exactly four knobs, each
 `PRIVATE | LOGGED_IN`:
 
 | Knob | Governs | Default |
@@ -21,14 +21,14 @@ person's TRIPS (not every signed-in user), it defaults to shared, and it applies
 stored inverted as a primitive (`itineraryHidden`) so its zero value is the default under Kryo. See
 `docs/shared-itineraries.md`.
 
-`isStreetVisible()` is false whenever city is private, regardless of the stored street knob — the rule is
+`isStreetVisible()` is false whenever city is private, regardless of the stored street knob; the rule is
 enforced in the model, not just the UI (the profile page additionally disables the street selector).
 
 Everything else is fixed policy, no knob:
 
 - **Always private**: birthdate, passport, TSA, emergency contacts, notes.
 - **Always visible to signed-in users**: name, sex. (Sex was deliberately WIDENED out of
-  `seesTravelDocuments()` — user-confirmed. `tripContacts.xhtml` still renders it only in the admin
+  `seesTravelDocuments()`, user-confirmed. `tripContacts.xhtml` still renders it only in the admin
   columns, but that is a space/clutter choice, not privacy.)
 
 "Visible" always means **any authenticated user** (the user anticipates a future profile page; names are
@@ -43,7 +43,7 @@ email to signed-in viewers -- unless the person set that field PRIVATE, which wi
 ## Who sees what
 
 - **Self and family managers**: privacy never hides anything from them. Exception: staff **notes** follow
-  `AccessLevel.seesNotes()` — a manager does not get them (hidden on pages, absent over REST).
+  `AccessLevel.seesNotes()`: a manager does not get them (hidden on pages, absent over REST).
 - **Trip admins (`tripMgr`) and site admins**: may get the real values, but withheld fields render
   **masked**: the value is in the page, hidden behind a "private value" placeholder, and a click shows it in
   the browser with no server round trip. No audit of reveals. (Owner decision 2026-11-13. The 2026-11-12
@@ -62,11 +62,11 @@ email to signed-in viewers -- unless the person set that field PRIVATE, which wi
 - **Everyone else signed-in** (peers, `tripView` holders): exactly what the knobs share. `tripView` is
   roster access and does NOT override a privacy choice.
 - **Admin reports and exports** (`admin/reports/*`, the emergency list, the emails page, TSV/XLSX):
-  exempt — real data, no masking, no audit. Operational admin tools (rooms, registrations) likewise.
+  exempt: real data, no masking, no audit. Operational admin tools (rooms, registrations) likewise.
 
 ## Where it is enforced
 
-- **REST**: `PersonDto.redactedFor(AccessLevel)` — the single choke point. The DTO carries `privacy`
+- **REST**: `PersonDto.redactedFor(AccessLevel)`, the single choke point. The DTO carries `privacy`
   (visible to SELF/MANAGER/SITE_ADMIN only, who may also PUT it; the merge is per-knob,
   absent-means-unchanged, garbage ignored). `PersonDtoRedactionTest` pins the matrix.
 - **Pages**: `PrivacyView.of(viewer, subject, adminView)` (`#{people.privacyView(person, adminBool)}`)
@@ -77,9 +77,13 @@ email to signed-in viewers -- unless the person set that field PRIVATE, which wi
   `privMaskedText` placeholder, and the placeholder's click adds `privRevealed` to the wrapper in the browser
   (`trip.css` swaps which one shows). The wrapper is a span, so masked values sit inline. A masked inplace
   editor is always rendered, so Save submits its value unchanged unless it was revealed and edited.
-  A read-only display passes HIDE for an EMPTY value (`empty person.cell ? 'HIDE' : pv.cell`), so nobody is
-  offered a "private value" that reveals nothing: every mask on trip Contacts, Org People and the admin
-  person page does this (an editor keeps its verdict, so staff can still fill an empty field).
+  An EMPTY value on a read-only display is HIDE, so nobody is offered a "private value" that reveals
+  nothing. The rule lives in the template: a read-only host passes the optional `blank` param, its own
+  emptiness test for what the body shows (`#{empty person.cell}`; trip Contacts' "City, State" is blank only
+  when both are), and the template turns the verdict into HIDE. Every read-only mask passes it: trip
+  Contacts, People, Org People, the admin person page (Notes too), Manage People's person 2 column and the
+  profile's read-only email. An editor leaves it unset and keeps its verdict, so staff can still fill an
+  empty field. (The param is not called `empty`, which is an EL operator.)
   `WEB-INF/privacyRevealAll.xhtml` is a "Show private values" link that reveals every mask in its scope: the
   nearest `privScope` element, else its fieldset (the profile's Address, Travel Info and Contact Info; Manage
   People's two-person compare grid carries `privScope` and the link in its header). A list item cannot be
