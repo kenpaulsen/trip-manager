@@ -171,9 +171,15 @@ answers the blank trip for one the caller may not pick (the menu's validation al
 list). Batch Transactions' menu is `getRecentTripsWith(privilege, n, viewScope.openedTripId)`: the trip the editor
 was OPENED for (pinned once in initPage) stays a choice even past the recent 100, or the menu would post its first
 option ("none") and the save would drop the trip; keyed on the pinned id rather than the menu's live value, so
-moving the menu away and back still validates. `medjugorje/webtest/.../TripPickerPolicyIT` fails a page that calls
-`trip.getRecentTrips(` outside its shrink-only allow-list (the health probe's count, and one admin page pending
-review).
+moving the menu away and back still validates. A trip LIST that is not a picker follows the same boundary: the
+admin person page's Registrations list is `TripCommands.getRecentTripsInMyOrgs(n)`, the recent trips of the
+viewer's own organizations (every organization they are a member of; a site admin gets every trip the host
+reaches), and its Trips list is `getTripsForUserInMyOrgs(id)`, the subject's trips narrowed the same way. That
+page's gate is per subject, so an org's people admin reaches a member who belongs to another organization too, and
+that organization's trips are not theirs to read. The Registrations list over-fetches like the org Trips page, so
+other tenants' trips do not push the viewer's own out of it; both keep the latest-ending trips under their cap.
+`medjugorje/webtest/.../TripPickerPolicyIT` fails a page that calls `trip.getRecentTrips(` outside its shrink-only
+allow-list (the health probe's count), and an `admin/` page that calls `trip.getTripsForUser(`.
 
 `registrationAdmin@trip` (display name "Registration Admin") opens the trip's Registrations tab and the
 whole `admin/tripRegistrations.jsf` page — approve, move, rooms, approval mail — for non-site-admins
