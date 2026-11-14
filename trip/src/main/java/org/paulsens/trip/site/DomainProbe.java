@@ -194,7 +194,10 @@ public final class DomainProbe {
             return domain + " answered, but not as this site (HTTP " + response.statusCode()
                     + "). Check that its DNS points here.";
         } catch (final IOException ex) {
-            return problemOf(domain, ex);
+            // The deadline's interrupt surfaces from the body read as IOException(InterruptedException). The scope
+            // has already answered "did not answer", so this is no failure to log with a stack trace.
+            return Thread.currentThread().isInterrupted() || causedBy(ex, InterruptedException.class)
+                    ? interrupted(domain) : problemOf(domain, ex);
         } catch (final InterruptedException ex) {
             Thread.currentThread().interrupt();
             return interrupted(domain);

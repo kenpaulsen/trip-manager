@@ -745,13 +745,13 @@ public class OrgCommandsTest {
         assertFalse(cmds.sendPaymentTestMail(trip, acmeAdmin.getEmail()),
                 "No From address anywhere resolves to a loud refusal, not a broken send");
 
-        trip.getPaymentConfig().setMailFrom("Trip <no-reply@acme.example>");
+        trip.getPaymentConfig().setMailFrom("Trip <no-reply@unitetrip.com>");
         assertTrue(cmds.sendPaymentTestMail(trip, "  tester@example.org  "),
                 "The test goes to the PROMPTED address, trimmed");
         // The trip's ORG is threaded through: a test send must resolve the same copy the live send does.
         Mockito.verify(mail).sendManagedTemplateForOrg(Mockito.eq("payment-confirmation"),
                 Mockito.eq(acme.getId().getValue()), Mockito.anyMap(),
-                Mockito.eq("tester@example.org"), Mockito.eq("Trip <no-reply@acme.example>"),
+                Mockito.eq("tester@example.org"), Mockito.eq("Trip <no-reply@unitetrip.com>"),
                 Mockito.any(), Mockito.any(), Mockito.any());
 
         assertFalse(cmds.sendPaymentTestMail(trip, "not-an-address"), "A bogus To is refused");
@@ -1973,6 +1973,38 @@ public class OrgCommandsTest {
 
         assertTrue(admin().saveOrgEdits(orgId, acme.getName(), null, null, List.of("visitqueenofpeace.com"), null));
         assertEquals(admin().inheritedPaymentFrom(trip), siteEmail, "a default the allow-list excludes is skipped");
+    }
+
+    /** The dialog's Inherit label, the test mail and real receipts agree on the From: an org default the org may no
+     *  longer send from shows, and tests, as the From the receipts really go out from. */
+    @Test
+    public void theTestMailAndTheInheritLabelUseTheFromReceiptsUse() throws IOException {
+        final Person acmeAdmin = savedPerson();
+        final Organization acme = orgWithAdmin(acmeAdmin);
+        final String orgId = acme.getId().getValue();
+        final org.paulsens.trip.model.Trip trip = tripOwnedBy(acme);
+        final Organization fresh = dao.getOrganization(acme.getId(), Cached.NO).orElseThrow();
+        fresh.getPaymentDefaults().setMailFrom("Acme <pay@unitetrip.com>");
+        assertTrue(admin().saveOrganization(fresh));
+        assertEquals(admin().sendablePaymentFrom(trip, admin().effectivePaymentConfig(trip)),
+                "Acme <pay@unitetrip.com>", "a sendable From is the one shown and used");
+
+        assertTrue(admin().saveOrgEdits(orgId, acme.getName(), null, null, List.of("visitqueenofpeace.com"), null));
+        final org.paulsens.trip.model.TripPaymentConfig narrowed = admin().effectivePaymentConfig(trip);
+        assertEquals(narrowed.getMailFrom(), "Acme <pay@unitetrip.com>", "the premise: the ladder still has it");
+        final String inherited = admin().inheritedPaymentFrom(trip);
+        assertNotEquals(inherited, narrowed.getMailFrom());
+        assertEquals(admin().sendablePaymentFrom(trip, narrowed), inherited, "the label shows what is sent");
+        assertNull(admin().sendablePaymentFrom(trip, org.paulsens.trip.model.TripPaymentConfig.builder().build()),
+                "no From stays no From");
+
+        final org.paulsens.trip.action.MailCommands mail = Mockito.mock(org.paulsens.trip.action.MailCommands.class);
+        Mockito.when(mail.sendManagedTemplateForOrg(Mockito.anyString(), Mockito.any(), Mockito.anyMap(),
+                Mockito.anyString(), Mockito.anyString(), Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(true);
+        assertTrue(new OrgCommands(callerOf(acmeAdmin), () -> mail).sendPaymentTestMail(trip, "tester@example.org"));
+        Mockito.verify(mail).sendManagedTemplateForOrg(Mockito.anyString(), Mockito.eq(orgId), Mockito.anyMap(),
+                Mockito.eq("tester@example.org"), Mockito.eq(inherited), Mockito.any(), Mockito.any(), Mockito.any());
     }
 
     private static String unique() {

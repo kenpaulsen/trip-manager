@@ -112,25 +112,22 @@ public class PaymentMailer {
     }
 
     /**
-     * The From to send with: the effective one while the trip's organization may send from it, else the From the
-     * trip inherits ({@link OrgCommands#inheritedPaymentFrom}: the org default if sendable, else the site's payment
-     * From, else the Site email). The trips API re-checks a From when a trip moves to another organization, but a
-     * row stored before that check, or a domain that has since stopped being the organization's (a custom domain
-     * moved or dropped), must not mail its registrants as another tenant.
+     * The From to send with ({@link OrgCommands#sendablePaymentFrom}: the effective one while the trip's organization
+     * may send from it, else the From the trip inherits), logging a substitution. The trips API re-checks a From
+     * when a trip moves to another organization, but a row stored before that check, or a domain that has since
+     * stopped being the organization's (a custom domain moved or dropped), must not mail its registrants as
+     * another tenant.
      */
     String fromFor(final Trip trip, final TripPaymentConfig effective) {
         final String from = effective.getMailFrom();
-        if (from == null || orgs.isOrgFromSendable(trip == null ? null : trip.getOrgId(), from)) {
-            return from;
-        }
-        final String inherited = orgs.inheritedPaymentFrom(trip);
-        if (!from.equals(inherited)) {
+        final String sendable = orgs.sendablePaymentFrom(trip, effective);
+        if (from != null && !from.equals(sendable)) {
             // Only a real substitution is news: an org whose allow-list leaves out the shared domains still
             // inherits the site's From, and logging that on every payment mail would bury the real cases.
             log.warn("Trip {}: payment From {} is not on its organization's sending domains; sending as {}",
-                    trip == null ? null : trip.getId(), from, inherited);
+                    trip == null ? null : trip.getId(), from, sendable);
         }
-        return inherited;
+        return sendable;
     }
 
     /**

@@ -183,9 +183,9 @@ public class SiteCommands {
 
     /**
      * {@link #orgSiteUrl(Organization, HttpServletRequest)} WITHOUT the trailing slash: the prefix a path is
-     * appended to ({@link #hostFor}, the Site Pages View link).
+     * appended to ({@link #hostFor}, the Site Pages View link, the REST org directory's {@code siteUrl}).
      */
-    static String orgSiteRoot(final Organization org, final HttpServletRequest request) {
+    public static String orgSiteRoot(final Organization org, final HttpServletRequest request) {
         return request == null ? orgSiteRoot(org, null, -1, new ConfigCommands())
                 : orgSiteRoot(org, request.getServerName(), request.getServerPort(), new ConfigCommands());
     }

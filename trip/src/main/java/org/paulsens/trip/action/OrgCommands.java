@@ -2570,6 +2570,15 @@ public class OrgCommands {
         return (site == null || site.isBlank()) ? mailAddr().siteFrom() : site;
     }
 
+    /** The From payment mail really goes out from: the effective one while the trip's org may send from it, else
+     *  {@link #inheritedPaymentFrom}; null stays null (no From, no mail). Receipts, the test mail and the dialog's
+     *  Inherit label all read this one answer, so the dialog never promises a From the mail will not use. */
+    public String sendablePaymentFrom(final Trip trip, final TripPaymentConfig effective) {
+        final String from = effective.getMailFrom();
+        return (from == null || isOrgFromSendable(trip == null ? null : trip.getOrgId(), from)) ? from
+                : inheritedPaymentFrom(trip);
+    }
+
     // ------------------------------------------------------------------ the payment dialog's From composer
 
     /** "custom" when the trip overrides the From, "" when it inherits -- the dialog's mode menu value. */
@@ -2654,14 +2663,15 @@ public class OrgCommands {
         if (effective.getConfirmationTemplateId() == null) {
             return fail("No template", "Pick a confirmation template (or set the site default).");
         }
-        if (effective.getMailFrom() == null) {
+        final String from = sendablePaymentFrom(trip, effective);
+        if (from == null) {
             return fail("No From address", "Set a From address on the trip, the organization, or the "
                     + "site settings.");
         }
-        // The test must be the real thing: the trip's org picks the copy exactly as the live send does.
+        // The test must be the real thing: the trip's org picks the copy, and the From, exactly as the live send does.
         final boolean sent = mailSource.get().sendManagedTemplateForOrg(
                 effective.getConfirmationTemplateId(), trip == null ? null : trip.getOrgId(),
-                samplePaymentValues(trip, me, effective), addr, effective.getMailFrom(),
+                samplePaymentValues(trip, me, effective), addr, from,
                 effective.getReplyTo(), null, current.auditActor());
         if (!sent) {
             return fail("Not sent", "The test email could not be sent; is the template installed?");
