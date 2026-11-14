@@ -16,7 +16,7 @@ storage/staging/album), `photoChat` (PhotoChatCommands -- per-photo comment thre
 MAIL-kind templates are runtime-editable email copy rendered by `MailCommands.sendManagedTemplate`, tokens filled by
 Java only), `family` (FamilyCommands -- family accounts; the create-and-link security boundary, see
 `docs/family-accounts.md`), `support` (SupportChatCommands -- the support:main channel; requests post without
-membership), `org` (OrgCommands -- organizations, THE tenancy boundary: membership, org-scoped privileges + the per-org
+membership), `orgPages` (SitePageCommands -- an org site's own pages and menu links, `admin/orgPages.xhtml`, `page.xhtml`), `org` (OrgCommands -- organizations, THE tenancy boundary: membership, org-scoped privileges + the per-org
 allow-list, processor configs, the payment-config ladder; see `docs/org-admin.md` and `docs/payments.md` before
 touching), `payment` (PaymentCommands -- the whole payment flow in Java: quote/start/complete/cancel + reconciliation +
 paymentsAdmin sandbox; see `docs/payments.md`), `site` (SiteCommands -- the request's resolved `SiteContext`: shared /

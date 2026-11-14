@@ -189,7 +189,7 @@ public class MediaResource extends BaseResource {
         if (me != null && trip.getPeople() != null && trip.getPeople().contains(me)) {
             return true;
         }
-        return Boolean.TRUE.equals(trip.getOpenToPublic()) && ListingScope.forSite().shows(trip.getOrgId());
+        return Boolean.TRUE.equals(trip.getOpenToPublic()) && ListingScope.forSite().listsSiteWide(trip.getOrgId());
     }
 
     /**

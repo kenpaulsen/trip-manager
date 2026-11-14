@@ -131,6 +131,29 @@ public class ListingScopeTest {
     }
 
     @Test
+    public void siteWideSurfacesListACuratedHostedOrgOnASharedSiteOnly() {
+        final SiteContext shared = SiteContext.shared("visitqueenofpeace.com");
+        final ListingScope menus = new ListingScope(shared, List.of(),
+                id -> Optional.ofNullable(orgs.get(id.getValue())), () -> List.of(HOSTED, OPTED_OUT));
+        Assert.assertTrue(menus.listsSiteWide(HOSTED), "curated by the page: the menus list it too");
+        Assert.assertFalse(menus.shows(HOSTED), "while shows() keeps its uncurated default");
+        Assert.assertFalse(menus.listsSiteWide(OPTED_OUT), "the org side of the gate still holds");
+        Assert.assertTrue(menus.listsSiteWide(SHARED_ONLY));
+        Assert.assertTrue(menus.listsSiteWide(null));
+        Assert.assertFalse(menus.listsSiteWide(UNKNOWN));
+
+        final ListingScope uncurated = new ListingScope(shared, List.of(),
+                id -> Optional.ofNullable(orgs.get(id.getValue())), List::of);
+        Assert.assertFalse(uncurated.listsSiteWide(HOSTED), "nobody curated it: it stays off");
+        final ListingScope section = new ListingScope(shared, List.of(SHARED_ONLY),
+                id -> Optional.ofNullable(orgs.get(id.getValue())), () -> List.of(HOSTED));
+        Assert.assertFalse(section.listsSiteWide(HOSTED), "a section's own pick list stays exhaustive");
+        final ListingScope orgSite = new ListingScope(SiteContext.org(Organization.Id.from(SHARED_ONLY), "s", "s.x"),
+                List.of(), id -> Optional.ofNullable(orgs.get(id.getValue())), () -> List.of(HOSTED));
+        Assert.assertFalse(orgSite.listsSiteWide(HOSTED), "an org site lists its own content only");
+    }
+
+    @Test
     public void theSharedPagesCurationIsReadFromItsStoredSections() throws Exception {
         DAO.getInstance();
         final SiteContext shared = SiteContext.shared("localhost");

@@ -85,6 +85,8 @@ public class BrandCommandsTest {
         Assert.assertFalse(brand.isShowContact(), where);
         Assert.assertNull(brand.getDonateUrl(), where);
         Assert.assertFalse(brand.isShowDonate(), where);
+        Assert.assertNull(brand.getDonateText(), where);
+        Assert.assertNull(brand.getSiteTitle(), where);
         Assert.assertNull(brand.getAnalyticsId(), where + ": the shared pages keep their literal property");
     }
 
@@ -110,23 +112,31 @@ public class BrandCommandsTest {
             Assert.assertFalse(brand.isShowContact());
             Assert.assertNull(brand.getDonateUrl());
             Assert.assertFalse(brand.isShowDonate());
+            Assert.assertEquals(brand.getDonateTitle(), "Donate");
+            Assert.assertNull(brand.getDonateText());
+            Assert.assertEquals(brand.getSidebarTitle(), "Trips");
+            Assert.assertNull(brand.getSiteTitle(), "blank: the page title falls back to the org name");
             Assert.assertNull(brand.getAnalyticsId(), "blank means no tag, never the shared site's id");
         });
     }
 
     @Test
     public void anOrgHostWithSettingsAnswersEachOne() throws IOException {
-        setAcme(Map.of(
-                KnownSettings.SITE_THEME_PALETTE.getName(), "green",
-                KnownSettings.SITE_LOGO_URL.getName(), "https://cdn.acme.example/logo.png",
-                KnownSettings.SITE_FAVICON_URL.getName(), "https://cdn.acme.example/favicon.ico",
-                KnownSettings.SITE_OG_IMAGE_URL.getName(), "https://cdn.acme.example/og.png",
-                KnownSettings.SITE_BACKGROUND_URL.getName(), "https://cdn.acme.example/bg.jpg",
-                KnownSettings.SITE_FOOTER_TITLE.getName(), "Acme Pilgrimages",
-                KnownSettings.SITE_FOOTER_TEXT.getName(), "A registered charity",
-                KnownSettings.SITE_CONTACT_NAME.getName(), "Wile E.",
-                KnownSettings.SITE_CONTACT_PHONE.getName(), "+1 555 0100",
-                KnownSettings.SITE_DONATE_URL.getName(), "https://donate.acme.example/"), "info@acme.example");
+        setAcme(Map.ofEntries(
+                Map.entry(KnownSettings.SITE_THEME_PALETTE.getName(), "green"),
+                Map.entry(KnownSettings.SITE_LOGO_URL.getName(), "https://cdn.acme.example/logo.png"),
+                Map.entry(KnownSettings.SITE_FAVICON_URL.getName(), "https://cdn.acme.example/favicon.ico"),
+                Map.entry(KnownSettings.SITE_OG_IMAGE_URL.getName(), "https://cdn.acme.example/og.png"),
+                Map.entry(KnownSettings.SITE_BACKGROUND_URL.getName(), "https://cdn.acme.example/bg.jpg"),
+                Map.entry(KnownSettings.SITE_FOOTER_TITLE.getName(), "Acme Pilgrimages"),
+                Map.entry(KnownSettings.SITE_FOOTER_TEXT.getName(), "A registered charity"),
+                Map.entry(KnownSettings.SITE_CONTACT_NAME.getName(), "Wile E."),
+                Map.entry(KnownSettings.SITE_CONTACT_PHONE.getName(), "+1 555 0100"),
+                Map.entry(KnownSettings.SITE_DONATE_URL.getName(), "https://donate.acme.example/"),
+                Map.entry(KnownSettings.SITE_DONATE_TITLE.getName(), "Make Donation"),
+                Map.entry(KnownSettings.SITE_DONATE_TEXT.getName(), "Help priests visit."),
+                Map.entry(KnownSettings.SITE_SIDEBAR_TITLE.getName(), "Pilgrimages"),
+                Map.entry(KnownSettings.SITE_TITLE.getName(), "Acme Trips")), "info@acme.example");
         onSite(ACME_SITE, () -> {
             Assert.assertEquals(brand.getTheme(), "freya-green-light");
             Assert.assertEquals(brand.getLayoutCss(), "layout-green-light");
@@ -144,6 +154,10 @@ public class BrandCommandsTest {
             Assert.assertTrue(brand.isShowContact());
             Assert.assertEquals(brand.getDonateUrl(), "https://donate.acme.example/");
             Assert.assertTrue(brand.isShowDonate());
+            Assert.assertEquals(brand.getDonateTitle(), "Make Donation");
+            Assert.assertEquals(brand.getDonateText(), "Help priests visit.");
+            Assert.assertEquals(brand.getSidebarTitle(), "Pilgrimages");
+            Assert.assertEquals(brand.getSiteTitle(), "Acme Trips");
         });
         // The same settings are NOT the shared site's: another host still sees nothing of them.
         onSite(SiteContext.shared("www.visitqueenofpeace.com"), () -> assertNeutral("the shared site"));

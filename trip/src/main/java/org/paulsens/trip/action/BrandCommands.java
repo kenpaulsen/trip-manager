@@ -424,6 +424,28 @@ public class BrandCommands {
         return getDonateUrl() != null;
     }
 
+    /** The Donate card's heading: the org's own words, else "Donate" (the card shows only with a URL). */
+    public String getDonateTitle() {
+        final String own = setting(KnownSettings.SITE_DONATE_TITLE);
+        return own == null ? "Donate" : own;
+    }
+
+    /** The Donate card's line of plain text above the button, or null (the page escapes it). */
+    public String getDonateText() {
+        return setting(KnownSettings.SITE_DONATE_TEXT);
+    }
+
+    /** The heading over the sidebar's trip list on an org site: the org's own words, else "Trips". */
+    public String getSidebarTitle() {
+        final String own = setting(KnownSettings.SITE_SIDEBAR_TITLE);
+        return own == null ? "Trips" : own;
+    }
+
+    /** The org site's own browser title, or null (null off an org host, and when unset: the org name rules). */
+    public String getSiteTitle() {
+        return setting(KnownSettings.SITE_TITLE);
+    }
+
     // --- analytics ---
 
     /** The org's own analytics id, or null; null off an org host, where the shared pages keep theirs. */

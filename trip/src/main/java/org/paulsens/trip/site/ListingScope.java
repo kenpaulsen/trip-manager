@@ -43,6 +43,8 @@ public final class ListingScope {
     private final List<String> includeOrgs;
     private final Function<Organization.Id, Optional<Organization>> orgs;
     private final Supplier<List<String>> siteCuration;
+    /** {@link #curated()}'s memo: a per-trip filter must read the page's curation once, not once per trip. */
+    private ListingScope curatedScope;
 
     ListingScope(final SiteContext site, final List<String> includeOrgs,
             final Function<Organization.Id, Optional<Organization>> orgs) {
@@ -109,6 +111,34 @@ public final class ListingScope {
     }
 
     /**
+     * The rule for the site-wide surfaces -- the Trips menu, the sidebar and countdown, the home albums, the
+     * open-trips API: {@link #shows} without a section list, plus, on a SHARED site, a hosted org that any
+     * section of the site's page curates ({@link #curatedOnPageOf}; the org still allowing shared sites). A
+     * shared site that lists an org's trips in its sections lists them in its menus too (owner decision
+     * 2026-11-13: visitqueenofpeace.com keeps Center for Peace West's trips after CFPW got its own site), while
+     * a hosted org nobody curated stays off. An org site's answer is {@link #shows}: its own content only, and
+     * so is a section's that carries its own pick list (that list is exhaustive).
+     */
+    public boolean listsSiteWide(final String ownerOrgId) {
+        if (shows(ownerOrgId)) {
+            return true;
+        }
+        if (!includeOrgs.isEmpty() || site.isOrg() || site.reachesEverything() || ownerOrgId == null
+                || ownerOrgId.isBlank()) {
+            return false;
+        }
+        return curated().shows(ownerOrgId);
+    }
+
+    /** This site with its page's whole curation as the section list (read once per scope instance). */
+    private ListingScope curated() {
+        if (curatedScope == null) {
+            curatedScope = new ListingScope(site, siteCuration.get(), orgs, List::of);
+        }
+        return curatedScope;
+    }
+
+    /**
      * Whether a PAGE about something owned by {@code ownerOrgId} -- a trip and everything hanging off it
      * (contacts, itinerary, registration, chat, its ledger rows and payments) -- may be served on this
      * site: {@code SiteContext.admits(org) && shows(org)}, so an org's own site reaches only its own, and
@@ -132,7 +162,7 @@ public final class ListingScope {
         }
         // Only a non-org site with a real owner org gets here: an org site's admits() IS its shows(), and
         // org-less content shows on every other site.
-        return new ListingScope(site, siteCuration.get(), orgs, List::of).shows(ownerOrgId);
+        return curated().shows(ownerOrgId);
     }
 
     /**

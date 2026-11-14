@@ -18,8 +18,9 @@ import org.paulsens.trip.model.Trip;
  * The public base URL that links ABOUT an organization should carry -- in registration and chat email, in
  * an org invite -- derived, never stored: an org with a subdomain site is addressed at
  * {@code https://{slug}.{org-site base domain}}, and every other org at the site-wide setting the caller
- * names ({@code reg.mail.baseUrl}, {@code chat.mail.baseUrl}). The stored setting is thus the shared-site
- * rung only; a tier-2 custom domain will become a third source here without touching any sender.
+ * names ({@code reg.mail.baseUrl}, {@code chat.mail.baseUrl}). An org with a tier-2 custom domain is addressed
+ * there instead ({@code https://{customDomain}}): it is the site's canonical name, and the subdomain keeps
+ * serving the same site for links already sent. The stored setting is thus the shared-site rung only.
  *
  * <p>Every entry point takes the organization (or the entity it hangs off) EXPLICITLY. The senders that need
  * these run under the system request context -- the digest scheduler, notification fan-out -- where no host
@@ -34,13 +35,13 @@ public final class SiteUrls {
     }
 
     /**
-     * The base URL (no trailing slash) for links about {@code org}: its own site when it has a subdomain,
-     * else the value of {@code siteSetting}. A null org is the site rung.
+     * The base URL (no trailing slash) for links about {@code org}: its own site when it has one (its custom
+     * domain, else its subdomain), else the value of {@code siteSetting}. A null org is the site rung.
      */
     public static String baseUrl(final Organization org, final SettingDef siteSetting, final ConfigCommands config) {
         final String slug = (org == null) ? null : org.getSlug();
         if (slug != null && !slug.isBlank()) {
-            return orgSiteUrl(slug, config);
+            return orgSiteUrl(org, config);
         }
         return withoutTrailingSlash(config.getString(siteSetting));
     }
@@ -98,6 +99,15 @@ public final class SiteUrls {
             base = KnownSettings.SITE_ORGSITES_BASE_DOMAIN.getDefaultValue();
         }
         return "https://" + slug.trim().toLowerCase(Locale.ROOT) + "." + base.trim().toLowerCase(Locale.ROOT);
+    }
+
+    /**
+     * The production address of an org's site: {@code https://{customDomain}} when it has one (a custom domain
+     * is served only alongside a slug), else {@link #orgSiteUrl(String, ConfigCommands) its subdomain}.
+     */
+    public static String orgSiteUrl(final Organization org, final ConfigCommands config) {
+        final String domain = CustomDomains.normalize(org.getCustomDomain());
+        return domain != null ? "https://" + domain : orgSiteUrl(org.getSlug(), config);
     }
 
     /** The host of a base URL ({@code acme.unitetrip.com} from {@code https://acme.unitetrip.com}), for mail copy. */

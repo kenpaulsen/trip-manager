@@ -415,7 +415,7 @@ public class MediaCommands {
         try {
             return DAO.getInstance().getActiveTrips(now.minusDays(windowDays), Cached.YES).stream()
                     .filter(trip -> Boolean.TRUE.equals(trip.getOpenToPublic()))
-                    .filter(trip -> scope.shows(trip.getOrgId()))
+                    .filter(trip -> scope.listsSiteWide(trip.getOrgId()))
                     .filter(trip -> trip.getStartDate() != null && !trip.getStartDate().isAfter(now))
                     .map(this::toAlbum)
                     .filter(album -> album.photos().size() >= minPhotos)

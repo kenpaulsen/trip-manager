@@ -93,8 +93,8 @@ public class MailAddressCommands {
 
     public MailAddressCommands() {
         // Lazy on purpose: resolution paths never touch SES; only the Settings page and applyEdits do.
-        this(ConfigCommands::new,
-                () -> org.paulsens.trip.api.Beans.get(MailCommands.class).verifiedSendingDomains());
+        this(ConfigCommands::new, () -> sharedOnly(
+                org.paulsens.trip.api.Beans.get(MailCommands.class).verifiedSendingDomains(), new ConfigCommands()));
     }
 
     /**
@@ -103,8 +103,19 @@ public class MailAddressCommands {
      * class existed.
      */
     public MailAddressCommands(final ConfigCommands config) {
-        this(() -> config,
-                () -> org.paulsens.trip.api.Beans.get(MailCommands.class).verifiedSendingDomains());
+        this(() -> config, () -> sharedOnly(
+                org.paulsens.trip.api.Beans.get(MailCommands.class).verifiedSendingDomains(), config));
+    }
+
+    /**
+     * The verified domains SITE-level From addresses may use: the shared sending domains only. Site mail (sign-in
+     * codes, chat notices, registration mail) goes out for every organization, so it must never wear one tenant's
+     * custom domain; see {@code OrgCommands.candidateDomains} for the per-org rule.
+     */
+    static List<String> sharedOnly(final List<String> verified, final ConfigCommands config) {
+        final List<String> shared = org.paulsens.trip.site.CustomDomains.parseList(
+                config.getString(KnownSettings.MAIL_SHARED_DOMAINS));
+        return verified.stream().filter(shared::contains).toList();
     }
 
     /** Test seam: verified-domain lookup needs SES (or a CDI container) tests do not have. */
@@ -250,7 +261,10 @@ public class MailAddressCommands {
         return SLOTS;
     }
 
-    /** The SES-verified sending domains for the From composer; empty (with a log) when SES is unreachable. */
+    /**
+     * The sending domains for the Settings page's From composers: SES-verified AND shared (see {@link
+     * #sharedOnly}); empty (with a log) when SES is unreachable.
+     */
     public List<String> getSendingDomains() {
         try {
             return domainsSource.get();

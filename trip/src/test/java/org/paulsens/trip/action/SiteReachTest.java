@@ -217,7 +217,8 @@ public class SiteReachTest {
                 "a hosted org the shared host does not list is linked on its own host");
         Assert.assertEquals(onSite(SHARED, () -> site.hostFor(FakeData.CFPW_ORG_ID)), "", "reachable: site-relative");
         Assert.assertEquals(onSite(ACME_SITE, () -> site.hostFor(FakeData.ACME_ORG_ID)), "");
-        Assert.assertEquals(onSite(ACME_SITE, () -> site.hostFor(FakeData.BETA_ORG_ID)), "https://beta.unitetrip.com");
+        Assert.assertEquals(onSite(ACME_SITE, () -> site.hostFor(FakeData.BETA_ORG_ID)),
+                "https://" + FakeData.BETA_CUSTOM_DOMAIN, "an org with a custom domain is linked there");
         Assert.assertEquals(onSite(ACME_SITE, () -> site.hostFor(FakeData.CFPW_ORG_ID)), "",
                 "an org with no site of its own has nowhere else to link to");
         Assert.assertEquals(site.hostFor(FakeData.ACME_ORG_ID), "", "unbound reaches everything");

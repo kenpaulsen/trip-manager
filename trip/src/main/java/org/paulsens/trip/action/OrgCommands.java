@@ -30,6 +30,7 @@ import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.ContentTemplate;
+import org.paulsens.trip.site.CustomDomains;
 import org.paulsens.trip.site.ListingScope;
 import org.paulsens.trip.site.SiteContext;
 import org.paulsens.trip.model.FeesPaidBy;
@@ -842,16 +843,18 @@ public class OrgCommands {
     }
 
     /**
-     * The organizations the site admin's topbar org selector offers on a SHARED site: the ones that share
-     * it -- no site of their own. A hosted org's content is seen on its own site, never selected into a
-     * shared site's menus. Site admins only (the selector is theirs); empty for everyone else.
+     * The organizations the site admin's topbar org selector offers on a SHARED site: the ones its menus can
+     * list ({@link ListingScope#listsSiteWide}: no site of their own, or curated by this site's page). Site
+     * admins only (the selector is theirs); empty for everyone else.
      */
     public List<Organization> switchableOrgs() {
         if (!caller().isSiteAdmin()) {
             return List.of();
         }
+        final ListingScope here = ListingScope.forSite();
         return getOrganizations().stream()
-                .filter(org -> org.getSlug() == null || org.getSlug().isBlank())
+                .filter(org -> org.getSlug() == null || org.getSlug().isBlank()
+                        || here.listsSiteWide(org.getId().getValue()))
                 .toList();
     }
 
@@ -1618,10 +1621,12 @@ public class OrgCommands {
     // ------------------------------------------------------------------ sending domains
     //
     // SES only accepts a From on a domain it has verified, so every From box in the app is a domain
-    // DROPDOWN plus a typed mailbox (/WEB-INF/mailFromComposer.xhtml). What the dropdown offers is the
-    // org's allow-list: site admins narrow an org to the domains it owns, so one tenant can never send as
-    // another's. An org that has never been narrowed (null or empty list) is unrestricted -- every
-    // existing org keeps working with no migration.
+    // DROPDOWN plus a typed mailbox (/WEB-INF/mailFromComposer.xhtml). What an org may EVER use is its
+    // candidates: the shared sending domains (KnownSettings.MAIL_SHARED_DOMAINS) plus its own custom domain,
+    // both narrowed to what SES verifies. Another tenant's domain is never a candidate, whatever any list
+    // says. Within the candidates a site admin may narrow an org further (Organization.mailDomains); an org
+    // never narrowed (null or empty list) may use all of its candidates. Site-level mail (no org) gets the
+    // shared domains only: it goes out for every organization.
 
     /** Every domain SES has verified for sending, sorted; empty when SES is unreachable. */
     public List<String> siteSendingDomains() {
@@ -1641,8 +1646,32 @@ public class OrgCommands {
         return addr;
     }
 
-    /** The domains this organization's From addresses may use -- its allow-list narrowed to what SES
-     *  currently verifies (a domain dropped in SES stops being offered even if still listed here). */
+    /** The shared sending domains (every org may use them), as configured; never null. */
+    public List<String> sharedSendingDomains() {
+        return CustomDomains.parseList(new ConfigCommands().getString(KnownSettings.MAIL_SHARED_DOMAINS));
+    }
+
+    /**
+     * Every domain this organization could be allowed to send from: the shared sending domains plus its own
+     * custom domain, narrowed to what SES verifies right now, in SES's sorted order. What the site admin's
+     * allow-list (Email tab) chooses among; an unknown org gets the shared domains.
+     */
+    public List<String> candidateDomains(final String orgId) {
+        return candidates(findOrganization(orgId));
+    }
+
+    /** Whether {@code domain} is a shared sending domain (the Email tab's label: "shared" vs "this org's"). */
+    public boolean isSharedDomain(final String domain) {
+        return domain != null && sharedSendingDomains().contains(domain.trim().toLowerCase(Locale.ROOT));
+    }
+
+    /** The domains site-level From addresses (the Settings page's Email addresses) may use: shared only. */
+    public List<String> siteMailDomains() {
+        return candidates(null);
+    }
+
+    /** The domains this organization's From addresses may use -- its allow-list within its {@link
+     *  #candidateDomains candidates} (a domain dropped in SES stops being offered even if still listed). */
     public List<String> mailDomains(final String orgId) {
         return allowedDomains(findOrganization(orgId));
     }
@@ -1650,6 +1679,15 @@ public class OrgCommands {
     /** {@link #mailDomains} for the org that owns a trip; an org-less trip gets the site-wide list. */
     public List<String> mailDomainsForTrip(final Trip trip) {
         return allowedDomains(ownerOf(trip));
+    }
+
+    /**
+     * Whether {@code from} is a well-formed address on one of this organization's {@link #mailDomains allowed
+     * domains} (blank org id = the site rung, the shared domains). For edges that take a From as text, such as
+     * the trips API's payment settings, so they enforce what the page's composer offers.
+     */
+    public boolean isOrgFromSendable(final String orgId, final String from) {
+        return mailAddr().isSendable(from, allowedDomains(findOrganization(orgId)));
     }
 
     /** The org's preferred domain when it is still allowed, else "" (the composer picks the first). */
@@ -1717,16 +1755,26 @@ public class OrgCommands {
     }
 
     private List<String> allowedDomains(final Organization org) {
-        final List<String> verified = siteSendingDomains();
+        final List<String> candidates = candidates(org);
         final List<String> restricted = (org == null) ? null : org.getMailDomains();
         if (restricted == null || restricted.isEmpty()) {
-            return verified;
+            return candidates;
         }
         final java.util.Set<String> wanted = restricted.stream()
                 .filter(domain -> domain != null && !domain.isBlank())
                 .map(domain -> domain.trim().toLowerCase(Locale.ROOT))
                 .collect(java.util.stream.Collectors.toSet());
-        return verified.stream().filter(wanted::contains).toList();
+        return candidates.stream().filter(wanted::contains).toList();
+    }
+
+    /** The shared domains plus the org's custom domain (none for a null org), as SES verifies them. */
+    private List<String> candidates(final Organization org) {
+        final java.util.Set<String> owned = new java.util.HashSet<>(sharedSendingDomains());
+        final String custom = (org == null) ? null : CustomDomains.normalize(org.getCustomDomain());
+        if (custom != null) {
+            owned.add(custom);
+        }
+        return siteSendingDomains().stream().filter(owned::contains).toList();
     }
 
     private String preferredDomain(final Organization org) {
@@ -1746,6 +1794,14 @@ public class OrgCommands {
             final String contactEmail, final List<String> domains, final String defaultDomain,
             final String slug) {
         return saveOrgEdits(orgId, name, abbreviation, contactEmail, domains, defaultDomain, slug, null);
+    }
+
+    /** The 9-arg save leaving the org's custom domain alone. */
+    public boolean saveOrgEdits(final String orgId, final String name, final String abbreviation,
+            final String contactEmail, final List<String> domains, final String defaultDomain,
+            final String slug, final Boolean allowShared, final String registerTarget) {
+        return saveOrgEdits(orgId, name, abbreviation, contactEmail, domains, defaultDomain, slug, allowShared,
+                registerTarget, null);
     }
 
     /** The 8-arg save leaving the org's shared-site Register target alone. */
@@ -1795,11 +1851,12 @@ public class OrgCommands {
      * ({@link Organization#getAllowSharedSites()}; null = leave it alone) -- and {@code registerTarget},
      * where a shared site's Register link sends a visitor ({@link SharedSiteRegisterTarget} name; null =
      * leave it alone, an unknown name = the default). The default is stored as null, like {@code allowShared},
-     * so every existing row already holds it.
+     * so every existing row already holds it. {@code customDomain} (site admins only, like the slug; null =
+     * leave it alone, blank = clear) is the org's tier-2 domain, validated by {@link #applyCustomDomain}.
      */
     public boolean saveOrgEdits(final String orgId, final String name, final String abbreviation,
             final String contactEmail, final List<String> domains, final String defaultDomain,
-            final String slug, final Boolean allowShared, final String registerTarget) {
+            final String slug, final Boolean allowShared, final String registerTarget, final String customDomain) {
         final Organization fresh = freshOrg(orgId);
         if (fresh == null) {
             return fail("Unable to save", "Unknown organization.");
@@ -1809,7 +1866,7 @@ public class OrgCommands {
         fresh.setContactEmail(contactEmail);
         if (caller().isSiteAdmin()) {
             fresh.setMailDomains(cleanDomains(domains));
-            if (!applySlug(fresh, slug)) {
+            if (!applySlug(fresh, slug) || !applyCustomDomain(fresh, customDomain)) {
                 return false;
             }
         }
@@ -1978,6 +2035,40 @@ public class OrgCommands {
         return true;
     }
 
+    /**
+     * Applies the site-admin's custom-domain edit onto the org being saved (AFTER its slug, which it needs), or
+     * refuses (growl + false); null leaves it alone, blank clears it (online, like a slug). The rules are
+     * {@link CustomDomains#claimProblem}. Clearing the slug clears the domain: an org without a site has no address.
+     */
+    private boolean applyCustomDomain(final Organization org, final String customDomain) {
+        final boolean hasSite = org.getSlug() != null && !org.getSlug().isBlank();
+        final String wanted = CustomDomains.normalize(customDomain);
+        if (!hasSite || (customDomain != null && wanted == null)) {
+            // The form re-posts the stored domain beside a cleared slug: that is the clear, not a new claim.
+            final boolean asked = wanted != null && !wanted.equals(CustomDomains.normalize(org.getCustomDomain()));
+            org.setCustomDomain(null);
+            return hasSite || !asked || fail("Subdomain needed first", CustomDomains.NEEDS_SLUG);
+        }
+        if (customDomain == null) {
+            return true;
+        }
+        final String problem = CustomDomains.claimProblem(wanted, org.getId(), DAO.getInstance().getOrganizations(
+                Cached.NO), new ConfigCommands().getString(KnownSettings.SITE_ORGSITES_BASE_DOMAIN),
+                sharedSendingDomains());
+        if (problem != null) {
+            return fail("Invalid custom domain", problem);
+        }
+        org.setCustomDomain(wanted);
+        return true;
+    }
+
+    /** The org's stored custom domain for the site-admin editor ("" when it has none). */
+    public String storedCustomDomain(final String orgId) {
+        final Organization org = findOrganization(orgId);
+        final String domain = (org == null) ? null : CustomDomains.normalize(org.getCustomDomain());
+        return domain == null ? "" : domain;
+    }
+
     /** Null (never restricted) for an empty pick, else the lower-cased, de-duplicated list. */
     private static List<String> cleanDomains(final List<String> domains) {
         if (domains == null) {
@@ -2002,16 +2093,22 @@ public class OrgCommands {
     }
 
     /**
-     * The organization whose mail settings drive the merge page for this caller, or null. Deliberately
-     * null for a SITE admin: they hold emailAdmin everywhere, so "the first org alphabetically" would be
-     * an arbitrary tenant's contact address and allow-list standing in for the whole site.
+     * The organization whose mail settings drive the merge page for this caller, or null. For a SITE admin
+     * it is the org whose own site this request is on, and null on a shared host: they hold emailAdmin
+     * everywhere, so "the first org alphabetically" would be an arbitrary tenant's contact address and
+     * allow-list standing in for the whole site.
      */
     public Organization mailingOrg() {
-        return caller().isSiteAdmin() ? null
-                : orgsWithPriv(PrivilegeCommands.EMAIL_ADMIN).stream().findFirst().orElse(null);
+        if (caller().isSiteAdmin()) {
+            // On an org's own site the site admin is mailing as THAT org (its domains, its contact); on a
+            // shared host there is no single org to stand in, so the site rung (shared domains) applies.
+            final SiteContext here = SiteContext.current();
+            return here.isOrg() ? findOrganization(here.orgId().getValue()) : null;
+        }
+        return orgsWithPriv(PrivilegeCommands.EMAIL_ADMIN).stream().findFirst().orElse(null);
     }
 
-    /** The domains the mail-merge From composer offers: the caller's org allow-list, or all verified. */
+    /** The domains the mail-merge From composer offers: the caller's org allow-list, or the shared domains. */
     public List<String> mergeMailDomains() {
         return allowedDomains(mailingOrg());
     }

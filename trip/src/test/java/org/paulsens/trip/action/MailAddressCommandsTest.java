@@ -246,6 +246,14 @@ public class MailAddressCommandsTest {
     }
 
     @Test
+    public void siteFromComposersOfferOnlyTheSharedDomains() {
+        assertEquals(MailAddressCommands.sharedOnly(MailCommands.LOCAL_SENDING_DOMAINS, new ConfigCommands()),
+                List.of("example.com", "unitetrip.com", "visitqueenofpeace.com"),
+                "site mail goes out for every org, so never on one tenant's domain");
+        assertEquals(MailAddressCommands.sharedOnly(List.of("other.org"), new ConfigCommands()), List.of());
+    }
+
+    @Test
     public void modeOptionsOfferOrgOnlyWhereItExists() {
         final MailAddressCommands mailAddr = commands();
         final List<Map<String, String>> withOrg = mailAddr.modeOptions(slot(mailAddr, "tx.notify.email"));

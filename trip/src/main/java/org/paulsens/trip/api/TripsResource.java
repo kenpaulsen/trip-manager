@@ -902,6 +902,12 @@ public class TripsResource extends BaseResource {
                 && !List.of("ORGANIZATION", "PAYER").contains(config.feesPaidBy().trim())) {
             return "paymentConfig.feesPaidBy must be ORGANIZATION or PAYER.";
         }
+        // The trip editor's composer offers only the owning org's domains; the API must not be the way around
+        // it (a From on another tenant's domain would send as that tenant).
+        if (config.mailFrom() != null && !config.mailFrom().isBlank()
+                && !new OrgCommands().isOrgFromSendable(orgId, config.mailFrom())) {
+            return "paymentConfig.mailFrom must be an address on one of this organization's sending domains.";
+        }
         return processorProblem(config.processorConfigId(), orgId);
     }
 

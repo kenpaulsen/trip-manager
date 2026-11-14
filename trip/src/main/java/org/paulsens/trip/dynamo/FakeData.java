@@ -552,7 +552,29 @@ public final class FakeData {
                 throw new IllegalStateException("Fake org seed: could not seed the home page of " + orgId);
             }
         }
+        seedSitePages(admin);
     }
+
+    /** The address of Acme's seeded site page (its About menu), for the webtests. */
+    public static final String ACME_SITE_PAGE = "mission";
+
+    /**
+     * Acme's Site Pages, through the real commands as the admin: one PAGE in the About menu (with its starter
+     * text) and one LINK in the Help menu, so acme.localhost shows both menus and the admin page has rows.
+     */
+    private static void seedSitePages(final Person admin) {
+        final org.paulsens.trip.action.SitePageCommands pages = new org.paulsens.trip.action.SitePageCommands(
+                () -> new org.paulsens.trip.action.Caller(admin.getId(), true,
+                        org.paulsens.trip.audit.AuditActor.system(),
+                        new org.paulsens.trip.action.PrivilegeCommands()));
+        if (!pages.addPage(ACME_ORG_ID, "Our Mission", ACME_SITE_PAGE, "ABOUT")
+                || !pages.addLink(ACME_ORG_ID, "Partner Site", "https://example.org/", "HELP")) {
+            throw new IllegalStateException("Fake org seed: could not seed Acme's site pages");
+        }
+    }
+
+    /** Beta Corp's custom domain (the {@code .test} TLD is reserved, so it can never be a real site). */
+    public static final String BETA_CUSTOM_DOMAIN = "beta-corp.test";
 
     /** Fixed id of the seeded Acme trip, so webtests and re-seeds agree (the fixed-UUID convention). */
     public static final String ACME_TRIP_ID = "3f7a9c15-6d28-4e0b-8a54-1c9e7b3d5f82";
@@ -725,6 +747,10 @@ public final class FakeData {
         values.put(KnownSettings.API_TOKEN_ENABLED.getName(), "true");
         values.put(KnownSettings.PAYMENT_RETURN_URL_PREFIXES.getName(),
                 KnownSettings.PAYMENT_RETURN_URL_PREFIXES.getDefaultValue() + ",unitetrip://pay/return/");
+        // The fake SES list adds example.com, the domain the local fixtures send from (no real mailbox is ever
+        // involved); sharing it keeps every From composer usable locally, as the shared domains are in production.
+        values.put(KnownSettings.MAIL_SHARED_DOMAINS.getName(),
+                "example.com, " + KnownSettings.MAIL_SHARED_DOMAINS.getDefaultValue());
         if (!new ConfigCommands().saveKnown(values, "local-seed")) {
             throw new IllegalStateException("Fake seed: could not enable API tokens for local mode");
         }
@@ -844,6 +870,11 @@ public final class FakeData {
                     .created(LocalDateTime.now())
                     .build();
             org.setSlug(slug);
+            if (BETA_ORG_ID.equals(id)) {
+                // Beta also answers on a tier-2 custom domain: the webtests map it to loopback, so the
+                // custom-host routing and its canonical links are exercised as well as the subdomain.
+                org.setCustomDomain(BETA_CUSTOM_DOMAIN);
+            }
             final boolean saved = DAO.getInstance().saveOrganization(org);
             if (!saved) {
                 throw new IllegalStateException("Fake org seed: could not save " + name);

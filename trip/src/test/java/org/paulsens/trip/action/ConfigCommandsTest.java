@@ -91,6 +91,17 @@ public class ConfigCommandsTest {
     }
 
     @Test
+    public void theSitesPaymentFromMustBeOnASharedDomain() {
+        final String from = KnownSettings.PAYMENT_MAIL_FROM.getName();
+        Assert.assertNull(config.rejection(of(from, "Site <no-reply@visitqueenofpeace.com>", Config.Type.STRING)));
+        Assert.assertNull(config.rejection(of(from, "", Config.Type.STRING)), "blank is unset");
+        final String tenant = config.rejection(of(from, "no-reply@centerforpeacewest.com", Config.Type.STRING));
+        Assert.assertNotNull(tenant, "one organization's own domain is not the site's to send from");
+        Assert.assertTrue(tenant.contains("shared sending domain"), tenant);
+        Assert.assertNull(config.rejection(of("some.other.key", "x@centerforpeacewest.com", Config.Type.STRING)));
+    }
+
+    @Test
     public void anEmailSettingMustHoldOneAddress() {
         final String treasurer = KnownSettings.FINANCE_TREASURER_EMAIL.getName();
         Assert.assertNull(config.rejection(of(treasurer, "", Config.Type.STRING)), "blank is unset");

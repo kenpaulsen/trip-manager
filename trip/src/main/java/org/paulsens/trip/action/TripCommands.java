@@ -801,9 +801,10 @@ public class TripCommands {
 
     /**
      * Whether a trip may appear in this site's menu. An organization's site lists only its own trips,
-     * whoever is looking. A SHARED site's menus list only the organizations that SHARE it: an org with a
-     * site of its own (or one that opted out of shared sites) never appears here -- not for its members,
-     * not for a site admin; they see that content on the org's own site. The site admin's org selector
+     * whoever is looking. A SHARED site's menus list the organizations that share it plus any hosted org its
+     * page curates ({@link ListingScope#listsSiteWide}); an uncurated org with a site of its own (or one that
+     * opted out of shared sites) never appears here -- not for its members, not for a site admin; they see
+     * that content on the org's own site. The site admin's org selector
      * (the topbar chip, {@code sessionScope.currentOrgId}) then narrows the menus to one sharing org; the
      * menu's own public/member/admin guard still applies on top. Properties of the site and the selector,
      * never permissions.
@@ -814,7 +815,7 @@ public class TripCommands {
         if (site.isOrg()) {
             return site.admits(trip.getOrgId());
         }
-        if (!ListingScope.forSite().shows(trip.getOrgId())) {
+        if (!ListingScope.forSite().listsSiteWide(trip.getOrgId())) {
             return false;
         }
         return selectedOrgId == null || selectedOrgId.isBlank() || selectedOrgId.equals(trip.getOrgId());
@@ -890,7 +891,7 @@ public class TripCommands {
      */
     public List<Trip> getPublicTrips() {
         final ListingScope scope = ListingScope.forSite();
-        return publicTripsAnywhere().stream().filter(trip -> scope.shows(trip.getOrgId())).toList();
+        return publicTripsAnywhere().stream().filter(trip -> scope.listsSiteWide(trip.getOrgId())).toList();
     }
 
     /** Every publicly-listed trip regardless of site: the raw index the site-scoped views narrow. */

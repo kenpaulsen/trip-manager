@@ -33,15 +33,18 @@ public final class OrgSettingsTabs {
 
     /**
      * The branding settings that moved OFF the Appearance tab onto a tab about what they mean: the contact
-     * name and phone sit with the contact email on Profile, and the donate link with the rest of the home page.
+     * name and phone sit with the contact email on Profile, and the donate card and the sidebar heading with the
+     * rest of the home page.
      */
     static final List<SettingDef> MOVED_OFF_APPEARANCE = List.of(
-            KnownSettings.SITE_CONTACT_NAME, KnownSettings.SITE_CONTACT_PHONE, KnownSettings.SITE_DONATE_URL);
+            KnownSettings.SITE_CONTACT_NAME, KnownSettings.SITE_CONTACT_PHONE, KnownSettings.SITE_DONATE_URL,
+            KnownSettings.SITE_DONATE_TITLE, KnownSettings.SITE_DONATE_TEXT, KnownSettings.SITE_SIDEBAR_TITLE);
 
     private static final Map<String, List<SettingDef>> GENERIC_ROWS = Map.of(
             PROFILE, List.of(KnownSettings.SITE_CONTACT_NAME, KnownSettings.SITE_CONTACT_PHONE),
             HOME, List.of(KnownSettings.HOME_PHOTOS_WINDOW_DAYS, KnownSettings.HOME_PHOTOS_MIN_COUNT,
-                    KnownSettings.HOME_COUNTDOWN_SOON_DAYS, KnownSettings.SITE_DONATE_URL,
+                    KnownSettings.HOME_COUNTDOWN_SOON_DAYS, KnownSettings.SITE_SIDEBAR_TITLE,
+                    KnownSettings.SITE_DONATE_URL, KnownSettings.SITE_DONATE_TITLE, KnownSettings.SITE_DONATE_TEXT,
                     KnownSettings.SITE_ANALYTICS_ID),
             TRIPS, List.of(KnownSettings.REG_ALLOW_EDITS, KnownSettings.LODGING_AUTO_RECOMPUTE,
                     KnownSettings.FINANCE_TREASURER_EMAIL),

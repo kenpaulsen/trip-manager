@@ -5,6 +5,7 @@ import java.util.Optional;
 import org.mockito.Mockito;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.audit.RequestContext;
+import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.content.OrgPageBootstrap;
 import org.paulsens.trip.content.V2PageBootstrap;
 import org.paulsens.trip.dynamo.DAO;
@@ -108,6 +109,36 @@ public class SiteCommandsTest {
         Assert.assertEquals(SiteCommands.orgSiteUrl("acme", local), "http://acme.localhost:8080/");
         Assert.assertEquals(SiteCommands.orgSiteUrl("acme", (HttpServletRequest) null),
                 "https://acme.unitetrip.com/");
+    }
+
+    @Test
+    public void aCustomDomainIsTheOrgSiteLinkExceptOnALaptop() {
+        Assert.assertEquals(SiteCommands.orgSiteUrl("beta", "www.visitqueenofpeace.com", 443, "unitetrip.com",
+                slug -> "beta-corp.test"), "https://beta-corp.test/");
+        Assert.assertEquals(SiteCommands.orgSiteUrl("beta", "localhost", 8080, "unitetrip.com",
+                slug -> "beta-corp.test"), "http://beta.localhost:8080/", "a laptop keeps the subdomain");
+        Assert.assertEquals(SiteCommands.orgSiteUrl("acme", null, -1, "unitetrip.com", slug -> null),
+                "https://acme.unitetrip.com/", "no custom domain: the subdomain");
+        Assert.assertEquals(SiteCommands.orgSiteUrl("no-such-slug", null, -1, "unitetrip.com"),
+                "https://no-such-slug.unitetrip.com/", "the cached lookup finds no org: the subdomain");
+    }
+
+    @Test
+    public void anOrgSitesOwnTitleOutranksItsName() throws Exception {
+        final Organization org = new Organization();
+        org.setName("Center for Peace West");
+        final SiteContext site = SiteContext.org(org.getId(), "cfpw", "centerforpeacewest.com");
+        Assert.assertNull(SiteCommands.siteTitleOf(site, id -> Optional.of(org)), "unset");
+        org.getSettingsOverrides().put(KnownSettings.SITE_TITLE.getName(), "  Visit Medjugorje ");
+        Assert.assertEquals(SiteCommands.siteTitleOf(site, id -> Optional.of(org)), "Visit Medjugorje");
+        Assert.assertNull(SiteCommands.siteTitleOf(SiteContext.shared("x"), id -> Optional.of(org)));
+        Assert.assertNull(SiteCommands.siteTitleOf(site, id -> Optional.empty()));
+        Assert.assertNull(SiteCommands.siteTitleOf(site, SiteCommandsTest::cacheDown),
+                "a failed read falls back to the org name");
+    }
+
+    private static Optional<Organization> cacheDown(final Organization.Id id) {
+        throw new IllegalStateException("cache down");
     }
 
     @Test

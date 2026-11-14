@@ -42,6 +42,20 @@ public final class KnownSettings {
                     + "when DNS and the certificate already cover the new domain's wildcard.");
 
     /**
+     * The sending domains EVERY organization may use. Any other SES-verified domain belongs to the one
+     * organization whose custom domain it is ({@code Organization.customDomain}) and is offered to nobody else; a
+     * verified domain that is neither shared nor anyone's custom domain is offered to nobody (deny by default,
+     * so verifying a customer's domain in SES never lends it to every tenant). Also the domains no organization
+     * may claim as its custom domain. Comma-separated.
+     */
+    public static final SettingDef MAIL_SHARED_DOMAINS = new SettingDef(
+            "mail.sharedDomains", Config.Type.STRING, "unitetrip.com, visitqueenofpeace.com",
+            "Shared sending domains",
+            "The verified sending domains every organization may send from, comma-separated. Any other verified "
+                    + "domain is the custom domain of exactly one organization and only it may send from that "
+                    + "domain. The site's own From addresses use these domains only.");
+
+    /**
      * Org-EXPLICIT (see {@link SettingDef#isOrgOnly()}): the shared site's property must never collect an
      * organization site's traffic, so an org host emits a tag only when the org set its own id. The tag
      * itself (and its consent banner) is wired by the branding phase; this declares the value and its rule.
@@ -183,6 +197,35 @@ public final class KnownSettings {
             "site.donate.url", Config.Type.STRING, "", "Donate link URL",
             "The http or https page the Donate card and the Donate menu entry send people to. Never inherited from "
                     + "the shared site: blank means neither is shown.").withOrgOnly().withHttpUrl();
+
+    /**
+     * The donate card's own words. Blank keeps the plain card (heading "Donate", no text), so every org that set
+     * only the URL keeps exactly the card it had.
+     */
+    public static final SettingDef SITE_DONATE_TITLE = new SettingDef(
+            "site.donate.title", Config.Type.STRING, "", "Donate card heading",
+            "The heading of the Donate card in the sidebar, for example Make a Donation. Blank shows Donate. The "
+                    + "card itself appears only when a donate link URL is set.").withOrgOnly();
+
+    public static final SettingDef SITE_DONATE_TEXT = new SettingDef(
+            "site.donate.text", Config.Type.STRING, "", "Donate card text",
+            "A short line of plain text above the Donate button, saying what a gift supports. Blank shows the "
+                    + "button alone.").withOrgOnly();
+
+    /**
+     * The org site's browser title. Pages that name themselves (a trip page, a site page) still use their own
+     * title; this replaces the ORG NAME that the home page, the sign-in pages and the installed-app name show.
+     */
+    public static final SettingDef SITE_TITLE = new SettingDef(
+            "site.title", Config.Type.STRING, "", "Site title",
+            "The title browsers show in the tab and bookmarks for the organization's site, and the name of the "
+                    + "site when installed on a phone's home screen. Blank uses the organization's name.")
+            .withOrgOnly();
+
+    public static final SettingDef SITE_SIDEBAR_TITLE = new SettingDef(
+            "site.sidebar.title", Config.Type.STRING, "", "Sidebar trips heading",
+            "The heading over the list of upcoming trips in the sidebar of the organization's site, for example "
+                    + "Pilgrimages or Retreats. Blank shows Trips.").withOrgOnly();
 
     // --- home page ---
 
@@ -743,7 +786,7 @@ public final class KnownSettings {
 
     private static final List<SettingSection> SECTIONS = List.of(
             new SettingSection("Site", null,
-                    List.of(SITE_ORG_NAME, SITE_ORGSITES_BASE_DOMAIN, SITE_ANALYTICS_ID)),
+                    List.of(SITE_ORG_NAME, SITE_ORGSITES_BASE_DOMAIN, MAIL_SHARED_DOMAINS, SITE_ANALYTICS_ID)),
             new SettingSection(BRANDING_SECTION,
                     "The look of an ORGANIZATION's own site, set by the organization on its Appearance page. "
                             + "An org site never inherits the shared site's look, and the shared site's "
@@ -753,7 +796,8 @@ public final class KnownSettings {
                             SITE_OG_IMAGE_URL,
                             SITE_BACKGROUND_URL, SITE_BACKGROUND_COLOR, SITE_FOOTER_TITLE, SITE_FOOTER_TITLE_COLOR,
                             SITE_FOOTER_TEXT, SITE_FOOTER_TEXT_COLOR, SITE_FOOTER_LINKS_COLOR,
-                            SITE_CONTACT_NAME, SITE_CONTACT_PHONE, SITE_DONATE_URL)),
+                            SITE_CONTACT_NAME, SITE_CONTACT_PHONE, SITE_DONATE_URL, SITE_DONATE_TITLE,
+                            SITE_DONATE_TEXT, SITE_TITLE, SITE_SIDEBAR_TITLE)),
             new SettingSection(EMAIL_ADDRESSES_SECTION,
                     "Every address the application sends with or to. From addresses must be on an "
                             + "SES-verified domain; recipients and Reply-To may be any address.",

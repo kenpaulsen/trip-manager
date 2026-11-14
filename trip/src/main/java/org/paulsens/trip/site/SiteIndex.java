@@ -28,6 +28,8 @@ import org.paulsens.trip.model.Organization;
  * <p>Host grammar, checked against the configured base domain and, for local development, {@code localhost}
  * (Chromium resolves {@code *.localhost} to loopback natively):
  * <ul>
+ *   <li>an org's custom domain ({@code Organization.customDomain}) or its {@code www.} form &rarr; that org's
+ *       site, FIRST: an exact match outranks every rule below (tier 2, mapped online like a slug);</li>
  *   <li>{@code {base}} and {@code www.{base}} &rarr; MARKETING ({@code localhost} itself stays SHARED --
  *       every local page, test, and script depends on it rendering the classic site);</li>
  *   <li>{@code {label}.{base}} &rarr; ORG when the label is some org's slug, else UNKNOWN (multi-level
@@ -73,6 +75,10 @@ public final class SiteIndex {
         }
         final String host = normalize(rawHost);
         final Snapshot snap = current();
+        final OrgSite custom = snap.customHosts().get(host);
+        if (custom != null) {
+            return SiteContext.org(custom.orgId(), custom.slug(), host);
+        }
         final SiteContext underBase = resolveUnder(host, snap.baseDomain(), false, snap);
         if (underBase != null) {
             return underBase;
@@ -150,13 +156,16 @@ public final class SiteIndex {
         final String base = baseDomain(snap);
         try {
             final Map<String, Organization.Id> slugs = new HashMap<>();
+            final Map<String, OrgSite> customHosts = new HashMap<>();
             for (final Organization org : orgLoader.get()) {
                 final String slug = org.getSlug();
                 if (slug != null && !slug.isBlank()) {
-                    slugs.put(slug.trim().toLowerCase(Locale.ROOT), org.getId());
+                    final String label = slug.trim().toLowerCase(Locale.ROOT);
+                    slugs.put(label, org.getId());
+                    addCustomHosts(customHosts, org, label);
                 }
             }
-            final Snapshot fresh = new Snapshot(Map.copyOf(slugs), base,
+            final Snapshot fresh = new Snapshot(Map.copyOf(slugs), Map.copyOf(customHosts), base,
                     clock.get() + REFRESH_INTERVAL.toMillis());
             snapshot = fresh;
             return fresh;
@@ -164,10 +173,26 @@ public final class SiteIndex {
             log.warn("SiteIndex rebuild failed; serving the previous snapshot", ex);
             // Keep the base either way: with it, an unresolvable org label answers UNKNOWN (a cheap 404)
             // rather than falling through to SHARED and rendering the wrong tenant's site.
-            final Snapshot fallback = new Snapshot((snap != null) ? snap.slugs() : Map.of(), base,
-                    clock.get() + FAILURE_RETRY.toMillis());
+            final Snapshot fallback = new Snapshot((snap != null) ? snap.slugs() : Map.of(),
+                    (snap != null) ? snap.customHosts() : Map.of(), base, clock.get() + FAILURE_RETRY.toMillis());
             snapshot = fallback;
             return fallback;
+        }
+    }
+
+    /**
+     * Maps an org's custom domain and its {@code www.} form. Only an org WITH a slug serves one (the domain is a
+     * second address of its site, never a site of its own), and a domain normalized to nothing is skipped -- the
+     * writer validates, but a hand-edited row must not take the index down.
+     */
+    private static void addCustomHosts(final Map<String, OrgSite> customHosts, final Organization org,
+            final String slug) {
+        final String domain = CustomDomains.normalize(org.getCustomDomain());
+        if (domain == null) {
+            return;
+        }
+        for (final String host : CustomDomains.hostsOf(domain)) {
+            customHosts.put(host, new OrgSite(org.getId(), slug));
         }
     }
 
@@ -182,6 +207,11 @@ public final class SiteIndex {
         }
     }
 
-    private record Snapshot(Map<String, Organization.Id> slugs, String baseDomain, long staleAt) {
+    private record Snapshot(Map<String, Organization.Id> slugs, Map<String, OrgSite> customHosts,
+            String baseDomain, long staleAt) {
+    }
+
+    /** What a custom host resolves to: the org and the slug its site is keyed by. */
+    private record OrgSite(Organization.Id orgId, String slug) {
     }
 }

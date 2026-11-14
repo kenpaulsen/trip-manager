@@ -13,6 +13,7 @@ import org.paulsens.trip.content.OrgPageBootstrap;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Trip;
+import org.paulsens.trip.site.CustomDomains;
 import org.paulsens.trip.site.ListingScope;
 import org.paulsens.trip.site.SiteContext;
 
@@ -106,9 +107,9 @@ public class SiteCommands {
 
     /**
      * The host prefix a link to something owned by {@code orgId} needs from THIS site: empty when the
-     * current site reaches the org (a plain site-relative link works), else the org's own site
-     * ({@code https://{slug}.{base}}, no trailing slash) -- for the org-admin pages, which a site admin may
-     * open on the shared host for a hosted org whose trips that host does not list (see
+     * current site reaches the org (a plain site-relative link works), else the org's own site (its custom
+     * domain or {@code https://{slug}.{base}}, no trailing slash) -- for the org-admin pages, which a site admin
+     * may open on the shared host for a hosted org whose trips that host does not list (see
      * {@code docs/org-admin.md}, "What a site can reach"). An org with no site of its own answers empty too:
      * there is nowhere else to send the link.
      */
@@ -144,9 +145,10 @@ public class SiteCommands {
     }
 
     /**
-     * The public URL of an organization's site, for links on the admin pages: {@code https://{slug}.{base}}
-     * in production, and {@code http://{slug}.localhost[:port]} when the request itself came in on localhost
-     * (the org-site base domain does not resolve on a laptop; {@code *.localhost} does).
+     * The public URL of an organization's site, for links on the admin pages: its custom domain
+     * ({@code https://{customDomain}/}) or {@code https://{slug}.{base}/} in production, and
+     * {@code http://{slug}.localhost[:port]} when the request itself came in on localhost (neither the org-site
+     * base domain nor a customer's domain resolves on a laptop; {@code *.localhost} does).
      */
     public String orgSiteUrl(final String slug) {
         final FacesContext ctx = FacesContext.getCurrentInstance();
@@ -165,14 +167,36 @@ public class SiteCommands {
         return orgSiteUrl(slug, null, -1, baseDomain());
     }
 
-    /** {@link #orgSiteUrl(String)} on explicit request facts (the testable half). */
+    /** {@link #orgSiteUrl(String)} on explicit request facts, the custom domain read from the cached orgs. */
     static String orgSiteUrl(final String slug, final String requestHost, final int requestPort,
             final String baseDomain) {
+        return orgSiteUrl(slug, requestHost, requestPort, baseDomain, SiteCommands::customDomainOfSlug);
+    }
+
+    /** {@link #orgSiteUrl(String)} on explicit request facts and an explicit custom-domain lookup (testable). */
+    static String orgSiteUrl(final String slug, final String requestHost, final int requestPort,
+            final String baseDomain, final Function<String, String> customDomainOfSlug) {
         if (requestHost != null && requestHost.endsWith("localhost")) {
             final String port = requestPort > 0 && requestPort != 80 ? ":" + requestPort : "";
             return "http://" + slug + ".localhost" + port + "/";
         }
-        return "https://" + slug + "." + baseDomain + "/";
+        final String domain = customDomainOfSlug.apply(slug);
+        return domain != null ? "https://" + domain + "/" : "https://" + slug + "." + baseDomain + "/";
+    }
+
+    /** The normalized custom domain of the org holding {@code slug}, or null (none, or unreadable orgs). */
+    private static String customDomainOfSlug(final String slug) {
+        try {
+            return DAO.getInstance().getOrganizations(Cached.YES).stream()
+                    .filter(org -> slug != null && slug.equals(org.getSlug()))
+                    .map(org -> CustomDomains.normalize(org.getCustomDomain()))
+                    .filter(domain -> domain != null)
+                    .findFirst()
+                    .orElse(null);
+        } catch (final RuntimeException ex) {
+            log.warn("Unable to read the organizations for the custom domain of '{}'", slug, ex);
+            return null;
+        }
     }
 
     private static String baseDomain() {
@@ -186,8 +210,28 @@ public class SiteCommands {
     public String pageTitle(final String sharedTitle) {
         final SiteContext current = getCurrent();
         if (current.isOrg()) {
-            return getOrgName();
+            final String own = siteTitleOf(current, id -> DAO.getInstance().getOrganization(id, Cached.YES));
+            return own != null ? own : getOrgName();
         }
         return current.isMarketing() ? MARKETING_TITLE : sharedTitle;
+    }
+
+    /**
+     * The org site's own title setting ({@code site.title}, org-only), or null when unset, off an org site, or
+     * unreadable -- the caller then falls back to the org's name.
+     */
+    static String siteTitleOf(final SiteContext current,
+            final Function<Organization.Id, Optional<Organization>> lookup) {
+        if (!current.isOrg()) {
+            return null;
+        }
+        try {
+            final Organization org = lookup.apply(current.orgId()).orElse(null);
+            final String own = org == null ? null : new ConfigCommands().getString(KnownSettings.SITE_TITLE, org);
+            return (own == null || own.isBlank()) ? null : own.trim();
+        } catch (final RuntimeException ex) {
+            log.error("Unable to read the site title of " + current.host(), ex);
+            return null;
+        }
     }
 }

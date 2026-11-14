@@ -61,6 +61,36 @@ public class SiteIndexTest {
     }
 
     @Test
+    public void aCustomDomainAndItsWwwResolveToItsOrganizationFirst() {
+        final Organization cfpw = orgWithSlug("Center for Peace West", "cfpw");
+        cfpw.setCustomDomain("CenterForPeaceWest.com");
+        final SiteIndex index = index(List.of(cfpw, orgWithSlug("Acme", "acme")));
+        for (final String host : List.of("centerforpeacewest.com", "www.centerforpeacewest.com",
+                "WWW.CenterForPeaceWest.com.")) {
+            final SiteContext site = index.resolve(host);
+            Assert.assertTrue(site.isOrg(), host);
+            Assert.assertEquals(site.orgId(), cfpw.getId(), host);
+            Assert.assertEquals(site.slug(), "cfpw", host);
+        }
+        Assert.assertEquals(index.resolve("centerforpeacewest.com").host(), "centerforpeacewest.com");
+        Assert.assertEquals(index.resolve("cfpw.unitetrip.com").orgId(), cfpw.getId(), "the subdomain still serves");
+        Assert.assertTrue(index.resolve("visitqueenofpeace.com").isShared(), "an unmapped host stays shared");
+        Assert.assertTrue(index.resolve("shop.centerforpeacewest.com").isShared(),
+                "only the domain and its www are mapped");
+    }
+
+    @Test
+    public void aCustomDomainWithoutASlugIsNotServed() {
+        // A hand-edited row: the writer refuses this, and the index must not invent a site for it.
+        final Organization stray = orgWithSlug("Stray", null);
+        stray.setCustomDomain("stray.example.org");
+        Assert.assertTrue(index(List.of(stray)).resolve("stray.example.org").isShared());
+        final Organization blank = orgWithSlug("Blank", "blank");
+        blank.setCustomDomain("  ");
+        Assert.assertTrue(index(List.of(blank)).resolve("blank.unitetrip.com").isOrg());
+    }
+
+    @Test
     public void unknownLabelsUnderTheBaseAreUnknownNeverShared() {
         // Serving the shared site on a typo'd label would look like an endorsement of the address --
         // and once orgs exist, it would render OTHER tenants' data under an org-shaped hostname.

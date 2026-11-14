@@ -38,6 +38,19 @@ public class SiteUrlsTest {
     }
 
     @Test
+    public void anOrgWithACustomDomainIsAddressedThere() {
+        final Organization cfpw = new Organization();
+        cfpw.setSlug("cfpw");
+        cfpw.setCustomDomain("www.CenterForPeaceWest.com");
+        Assert.assertEquals(SiteUrls.baseUrl(cfpw, KnownSettings.REG_MAIL_BASE_URL, config),
+                "https://centerforpeacewest.com", "the custom domain is the site's canonical address");
+        Assert.assertEquals(SiteUrls.orgSiteUrl(cfpw, config), "https://centerforpeacewest.com");
+        cfpw.setSlug(null);
+        Assert.assertEquals(SiteUrls.baseUrl(cfpw, KnownSettings.REG_MAIL_BASE_URL, config),
+                config.getString(KnownSettings.REG_MAIL_BASE_URL), "no site, no address: the site rung");
+    }
+
+    @Test
     public void everyOtherOrgKeepsTheSiteSetting() {
         final String regBase = KnownSettings.REG_MAIL_BASE_URL.getDefaultValue();
         Assert.assertEquals(SiteUrls.baseUrl(null, KnownSettings.REG_MAIL_BASE_URL, config), regBase);

@@ -104,7 +104,10 @@ shared `/WEB-INF/mailFromComposer.xhtml` — mailbox typed, domain picked from t
 SES-verified domains. `OrgCommands.applyPaymentFrom` composes and validates it on Done / Send Test /
 Preview, refusing (growl, config untouched, dialog stays open via the `payFromOk` callback param) rather
 than storing an address SES will bounce. `replyTo` and `bcc` stay free text — they are not SES-bound.
-See the sending-domain section of `org-admin.md` for the allow-list itself.
+See the sending-domain section of `org-admin.md` for the allow-list itself. The trips API applies the same rule
+to `paymentConfig.mailFrom` (refused unless it is on one of the owning org's allowed domains, 2026-11-13), and
+the site's own `payment.mail.from` setting must be on a shared sending domain: payment mail with no trip or org
+From goes out for every organization.
 
 ## The money rules (user-locked; the golden test is `PaymentRecorderTest`)
 

@@ -83,6 +83,26 @@ public final class Organization implements Serializable {
     private String slug;
 
     /**
+     * The org's own domain (service tier 2): {@code example.org} makes both {@code example.org} and
+     * {@code www.example.org} serve this org's site, the same site its {@link #slug} serves, and it becomes the
+     * site's canonical address in mail and links. Stored lowercase without a leading {@code www.}; null = none.
+     * Requires a slug (a custom domain is a second address of an org site, never a site of its own), site-admin
+     * only, and validated by {@code OrgCommands} (sole writer): hostname grammar, unique across orgs, never the
+     * org-site base domain or a shared sending domain. The domain is also this org's own sending domain: no
+     * other organization may send from it. Its TLS certificate is provisioned outside the app (the private
+     * repo's {@code org-custom-domain.sh}); mapping or clearing it here is an ONLINE change like a slug.
+     */
+    private String customDomain;
+
+    /**
+     * The pages and links of the org site's menu, in menu order (see {@link SitePage}). Null or empty = none.
+     * Org-admin managed on the Site Pages page through {@code OrgCommands}; a PAGE's content lives in the
+     * {@code content} table under {@code page:org:{id}:{name}}, not here. Setter-populated, outside the 8-arg
+     * creator like {@link #paymentDefaults}; the getter never lazy-inits, so an untouched row stays untouched.
+     */
+    private List<SitePage> sitePages;
+
+    /**
      * The subdomain label of the PLATFORM's own organization -- the one whose site is
      * {@code www.{base}} and the base domain's apex (the product's marketing site). Exactly one org may
      * hold it (slugs are unique), a site admin assigns it, and {@code SiteContext.isMarketing()} is true

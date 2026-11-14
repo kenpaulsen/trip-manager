@@ -754,6 +754,14 @@ public class TripsResourceTest extends ResourceTestSupport {
                 ApiErrors.VALIDATION_FAILED);
         assertError(resource.update(TRIP_ID, CSRF_OK, paymentBody(new org.paulsens.trip.api.dto.TripPaymentConfigDto(
                 null, "SPLIT", null, null, null, null, null, null, null))), 400, ApiErrors.VALIDATION_FAILED);
+        // A From on a domain this trip's org may not send from (another tenant's custom domain) is refused too;
+        // a shared domain is fine.
+        assertError(resource.update(TRIP_ID, CSRF_OK, paymentBody(new org.paulsens.trip.api.dto.TripPaymentConfigDto(
+                null, null, null, null, null, "x@centerforpeacewest.com", null, null, null))), 400,
+                ApiErrors.VALIDATION_FAILED);
+        assertOk(resource.update(TRIP_ID, CSRF_OK, paymentBody(new org.paulsens.trip.api.dto.TripPaymentConfigDto(
+                null, null, null, null, null, "Org <no-reply@unitetrip.com>", null, null, null))));
+        Assert.assertEquals(existing.getPaymentConfig().getMailFrom(), "Org <no-reply@unitetrip.com>");
         Assert.assertNull(existing.getPaymentConfig().getProcessorConfigId());
 
         // Read-back: the site admin (a manager) sees it, a plain member does not.

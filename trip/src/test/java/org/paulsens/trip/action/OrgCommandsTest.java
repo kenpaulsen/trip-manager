@@ -1696,16 +1696,95 @@ public class OrgCommandsTest {
 
     // ------------------------------------------------------------------ sending domains
 
+    /** The local shared domains (FakeData's seed adds example.com), as SES-verified: everything but cfpw. */
+    private static final List<String> SHARED = List.of("example.com", "unitetrip.com", "visitqueenofpeace.com");
+
     @Test
-    public void anUnrestrictedOrgMayUseEveryVerifiedDomain() throws IOException {
+    public void anUnrestrictedOrgMayUseEverySharedDomain() throws IOException {
         final Organization acme = orgWithAdmin(savedPerson());
         final String orgId = acme.getId().getValue();
         assertEquals(admin().storedMailDomains(orgId), List.of(), "a new org is never restricted");
-        assertEquals(admin().mailDomains(orgId), MailCommands.LOCAL_SENDING_DOMAINS);
+        assertEquals(admin().mailDomains(orgId), SHARED,
+                "verified but nobody's custom domain (centerforpeacewest.com locally) is offered to nobody");
+        assertEquals(admin().candidateDomains(orgId), SHARED);
         assertEquals(admin().mailDomainsLabel(acme), "any verified");
         assertEquals(admin().defaultMailDomain(orgId), "", "nothing preferred yet");
-        // An unknown org is not a hole: it falls back to the site-wide list, never to "anything goes".
-        assertEquals(admin().mailDomains("no-such-org"), MailCommands.LOCAL_SENDING_DOMAINS);
+        // An unknown org is not a hole: it falls back to the shared list, never to "anything goes".
+        assertEquals(admin().mailDomains("no-such-org"), SHARED);
+        assertEquals(admin().siteMailDomains(), SHARED);
+        assertTrue(admin().isSharedDomain(" UniteTrip.com "));
+        assertFalse(admin().isSharedDomain("centerforpeacewest.com"));
+        assertFalse(admin().isSharedDomain(null));
+    }
+
+    @Test
+    public void anOrgsCustomDomainIsSendableByThatOrgOnly() throws IOException {
+        final Organization cfpw = orgWithAdmin(savedPerson());
+        final Organization other = orgWithAdmin(savedPerson());
+        final String cfpwId = cfpw.getId().getValue();
+        final String otherId = other.getId().getValue();
+        assertTrue(admin().saveOrgEdits(cfpwId, cfpw.getName(), null, null, null, null, "cfpw" + unique().toLowerCase(),
+                null, null, "https://www.CenterForPeaceWest.com/"));
+        assertEquals(admin().storedCustomDomain(cfpwId), "centerforpeacewest.com", "stored in one spelling");
+        assertEquals(admin().candidateDomains(cfpwId), MailCommands.LOCAL_SENDING_DOMAINS,
+                "its own domain joins the shared ones");
+        assertEquals(admin().candidateDomains(otherId), SHARED);
+        // A stale allow-list naming another tenant's domain grants nothing: candidates bound every list.
+        assertTrue(admin().saveOrgMailDomains(otherId, List.of("centerforpeacewest.com", "example.com"), null));
+        assertEquals(admin().mailDomains(otherId), List.of("example.com"));
+        assertFalse(admin().isOrgFromSendable(otherId, "x@centerforpeacewest.com"));
+        assertTrue(admin().isOrgFromSendable(cfpwId, "Ken <ken@centerforpeacewest.com>"));
+        assertTrue(admin().isOrgFromSendable(null, "a@unitetrip.com"), "a blank org is the shared rung");
+        assertFalse(admin().isOrgFromSendable(null, "a@centerforpeacewest.com"));
+
+        // A site admin mailing on CFPW's own site mails as CFPW; on a shared host, as the site.
+        final SiteContext cfpwSite = SiteContext.org(cfpw.getId(), "cfpw", "centerforpeacewest.com");
+        try {
+            assertEquals(onSite(cfpwSite, () -> admin().mergeMailDomains()), MailCommands.LOCAL_SENDING_DOMAINS);
+            assertEquals(onSite(cfpwSite, () -> admin().mailingOrg().getId()), cfpw.getId());
+            assertEquals(onSite(SiteContext.shared("visitqueenofpeace.com"), () -> admin().mergeMailDomains()),
+                    SHARED);
+        } catch (final Exception ex) {
+            throw new AssertionError(ex);
+        }
+    }
+
+    @Test
+    public void aCustomDomainNeedsASubdomainAndMayBeClaimedOnce() throws IOException {
+        final Person orgAdmin = savedPerson();
+        final Organization org = orgWithAdmin(orgAdmin);
+        final Organization rival = orgWithAdmin(savedPerson());
+        final String orgId = org.getId().getValue();
+        final String rivalId = rival.getId().getValue();
+        final String domain = unique().toLowerCase() + ".example.org";
+
+        assertFalse(admin().saveOrgEdits(orgId, org.getName(), null, null, null, null, null, null, null, domain),
+                "no subdomain yet");
+        assertEquals(admin().storedCustomDomain(orgId), "");
+        final String slug = "cd" + unique().toLowerCase();
+        assertTrue(admin().saveOrgEdits(orgId, org.getName(), null, null, null, null, slug, null, null, domain));
+        assertEquals(admin().storedCustomDomain(orgId), domain);
+        assertTrue(admin().saveOrgEdits(rivalId, rival.getName(), null, null, null, null, "rv" + unique().toLowerCase(),
+                null, null, null));
+        assertFalse(admin().saveOrgEdits(rivalId, rival.getName(), null, null, null, null, null, null, null,
+                "www." + domain), "the same domain in another spelling is still taken");
+        assertFalse(admin().saveOrgEdits(rivalId, rival.getName(), null, null, null, null, null, null, null,
+                "visitqueenofpeace.com"), "a shared domain is nobody's");
+        assertFalse(admin().saveOrgEdits(rivalId, rival.getName(), null, null, null, null, null, null, null,
+                "not a domain"));
+
+        // An org admin's post carries the field and is ignored, like the slug.
+        assertTrue(commandsFor(orgAdmin).saveOrgEdits(orgId, org.getName(), "ORG", null, null, null, null, null, null,
+                "hijack.example.org"));
+        assertEquals(admin().storedCustomDomain(orgId), domain);
+
+        // Re-posting the stored domain beside a cleared subdomain is the clear, not a refused claim.
+        assertTrue(admin().saveOrgEdits(orgId, org.getName(), null, null, null, null, "", null, null, domain));
+        assertEquals(admin().storedCustomDomain(orgId), "", "no site, no address");
+        assertTrue(admin().saveOrgEdits(orgId, org.getName(), null, null, null, null, slug, null, null, domain));
+        assertTrue(admin().saveOrgEdits(orgId, org.getName(), null, null, null, null, null, null, null, " "));
+        assertEquals(admin().storedCustomDomain(orgId), "", "blank clears it");
+        assertEquals(admin().storedCustomDomain("no-such-org"), "");
     }
 
     @Test
@@ -1768,16 +1847,16 @@ public class OrgCommandsTest {
                 "EXAMPLE.com"));
         assertEquals(admin().defaultMailDomain(orgId), "example.com");
         assertEquals(admin().defaultMailDomainForTrip(trip), "example.com");
-        assertEquals(admin().mailDomainsForTrip(trip), MailCommands.LOCAL_SENDING_DOMAINS);
+        assertEquals(admin().mailDomainsForTrip(trip), SHARED);
 
         // Narrowing the allow-list past the preferred domain drops it rather than leaving a default the
         // dropdown cannot offer (a preselected-but-absent item silently posts back as the first option).
         assertTrue(admin().saveOrgEdits(orgId, acme.getName(), null, null,
-                List.of("centerforpeacewest.com"), "example.com"));
+                List.of("unitetrip.com"), "example.com"));
         assertEquals(admin().defaultMailDomain(orgId), "");
-        assertEquals(admin().mailDomainsForTrip(trip), List.of("centerforpeacewest.com"));
+        assertEquals(admin().mailDomainsForTrip(trip), List.of("unitetrip.com"));
         assertEquals(admin().defaultMailDomainForTrip(null), "", "an org-less trip has no preference");
-        assertEquals(admin().mailDomainsForTrip(null), MailCommands.LOCAL_SENDING_DOMAINS);
+        assertEquals(admin().mailDomainsForTrip(null), SHARED, "an org-less trip gets the shared domains");
     }
 
     @Test
@@ -1795,7 +1874,7 @@ public class OrgCommandsTest {
         assertEquals(asSender.mailingOrg().getId(), acme.getId());
         assertNull(admin().mailingOrg(), "a site admin is not standing in any one tenant");
         assertEquals(asSender.mergeMailDomains(), List.of("example.com"));
-        assertEquals(admin().mergeMailDomains(), MailCommands.LOCAL_SENDING_DOMAINS);
+        assertEquals(admin().mergeMailDomains(), SHARED, "off an org site a site admin mails as the site");
 
         assertEquals(asSender.composeMergeFrom("Acme", "no-reply", "example.com"),
                 "Acme <no-reply@example.com>");

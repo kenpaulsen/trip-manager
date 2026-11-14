@@ -41,12 +41,12 @@ pattern; absent opens the first):
 
 | `?tab=` | Tab | What is on it |
 |---------|-----|---------------|
-| `profile` | Profile | name, abbreviation, contact email, contact name and phone, subdomain + the live-site link (site-admin only), "Shared sites", and the shared-site Register target (below) |
+| `profile` | Profile | name, abbreviation, contact email, contact name and phone, subdomain + the live-site link and the custom domain (both site-admin only), "Shared sites", and the shared-site Register target (below) |
 | `appearance` | Appearance | palette, dark mode, layout, logo, favicon, background, link preview image, footer; with the uploads and the server-rendered preview ("The Appearance page and its live preview") |
-| `home` | Home page | `home.photos.windowDays`, `home.photos.minCount`, `home.countdown.soonDays`, `site.donate.url`, `site.analytics.id` |
+| `home` | Home page | `home.photos.windowDays`, `home.photos.minCount`, `home.countdown.soonDays`, `site.sidebar.title`, `site.donate.url`, `site.donate.title`, `site.donate.text`, `site.analytics.id`, and a link to Site Pages |
 | `trips` | Trips & money | `reg.allowEdits`, `lodging.bills.autoRecompute`, `finance.treasurer.email` |
 | `chat` | Chat | `chat.background.colors`, `chat.background.image`, `chat.reactions.palette` (each trip's chat can still override them in its own settings) |
-| `email` | Email | sending domains (site-admin only), default domain, a link to the org's email templates |
+| `email` | Email | sending domains (site-admin only; the choices are the shared domains plus the org's own custom domain, "Sending domains"), default domain, a link to the org's email templates |
 | `privileges` | Privileges | the allow-list ("The per-org allow-list"), who holds which org-scoped privilege, pointers to where trip roles and Hotel Operators are granted, and for site admins a link (`toOrgPrivs`) to the raw row editor |
 
 Each tab has its own Save (`saveProfile`, `saveHome`, `saveTrips`, `saveChat`, `saveEmail`,
@@ -335,23 +335,34 @@ trip Payment Settings dialog (`WEB-INF/tripPaymentDialog.xhtml`). The free-text 
 two carried are gone: they accepted any domain and the send then failed at SES with nothing on screen
 explaining why.
 
-Which domains the dropdown offers is a **per-org allow-list**, `Organization.mailDomains`:
+**Who may use which domain (2026-11-13).** A domain is either SHARED (`KnownSettings.MAIL_SHARED_DOMAINS`,
+`mail.sharedDomains`, default `unitetrip.com, visitqueenofpeace.com`: every organization may send from it) or
+ONE organization's own, its custom domain (`Organization.customDomain`, "Custom domains" below): only that
+org may send from it. An org's **candidates** (`OrgCommands.candidateDomains`) are the shared domains plus its
+own domain, as SES verifies them now; a verified domain that is neither shared nor anyone's custom domain is
+offered to NOBODY, so verifying a customer's domain in SES never lends it to every tenant. Site-level mail (the
+Settings page's Email addresses, `payment.mail.from`, an org-less trip) gets the shared domains only, because it
+goes out for every organization (`MailAddressCommands.sharedOnly`). A site admin's mail merge on an org's own
+site mails as that org (`mailingOrg`), and on a shared host as the site.
 
-- `null` OR **empty** = never restricted: every SES-verified domain is offered. Unlike
+Within its candidates, the dropdown offers what the **per-org allow-list**, `Organization.mailDomains`, allows:
+
+- `null` OR **empty** = never narrowed: every candidate domain is offered. Unlike
   `grantablePrivileges`, empty is NOT "nothing allowed" — an org that may send from no domain cannot
   send at all, so restriction is only ever expressed by listing the domains that ARE allowed. No
   migration was needed and no existing org changed behavior.
 - The list is **site-admin only** (it decides which tenant may send as which domain). It is edited on
-  `admin/organizations.jsf`, and rendered-but-disabled on the settings page's Email tab; both pages share
-  `/WEB-INF/orgProfileFields.xhtml`, and `OrgCommands.saveOrgEdits` silently **ignores** the field for a
-  non-site-admin rather than refusing the post — that is what makes one shared include safe for both.
+  `admin/organizations.jsf` and on the settings page's Email tab (disabled there for org admins); both render
+  `/WEB-INF/orgMailDomainFields.xhtml`, and `OrgCommands.saveOrgEdits` / `saveOrgMailDomains` silently
+  **ignore** the field for a non-site-admin rather than refusing the post, which is what makes one shared
+  include safe for both.
 - `Organization.defaultMailDomain` is the org admins' own choice among what they are allowed; it only
   preselects a dropdown, so it is not an authorization control. It is dropped whenever the allow-list
   stops permitting it — a preselected item the dropdown does not offer silently posts back as the first
   option, which is how a From address changes with nobody touching it.
-- Effective list = the allow-list narrowed to what SES verifies **right now**
-  (`OrgCommands.mailDomains(orgId)` / `.mailDomainsForTrip(trip)`); a domain dropped in SES stops being
-  offered even while still listed.
+- Effective list = the allow-list narrowed to the candidates, i.e. to what SES verifies **right now** and to
+  the org's own and the shared domains (`OrgCommands.mailDomains(orgId)` / `.mailDomainsForTrip(trip)`); a
+  domain dropped in SES, or another org's domain still named in a stale list, is not offered.
 
 Enforcement is server-side, not just in the widget: `OrgCommands.sendMerge` refuses a From outside
 `mergeMailDomains()`, and `applyPaymentFrom` refuses one outside the owning org's list, leaving the
@@ -411,7 +422,7 @@ list.
 ## Organization sites (subdomains, 2026-09)
 
 An org can have its **own site** at `{slug}.unitetrip.com` (service tier 1 of three: subdomain, custom
-domain (later), or listed on a shared site as today). Everything about it is an ONLINE admin act — no
+domain (tier 2, "Custom domains" below, 2026-11-13), or listed on a shared site as today). Everything about it is an ONLINE admin act — no
 script, no DNS step, no deploy (wildcard DNS and the wildcard certificate already cover every label):
 
 - `Organization.slug` — site-admin only (a public namespace grant, like the sending-domain allow-list);
@@ -437,9 +448,13 @@ script, no DNS step, no deploy (wildcard DNS and the wildcard certificate alread
   the admin menu's org list (`visibleOrgs`). Editing happens on the org's site, in the same edit mode as
   the shared page; the org-scoped `contentAdmin@{org}` grant is a later phase — until then site admins /
   global `contentAdmin` edit org pages.
-- **A shared site's MENUS** (the Trips menu, `TripCommands.getMenuTrips/getMenuOldTrips`) name only the
-  orgs that SHARE the site: a hosted org's trips never appear there — not for their members, not for a
-  site admin, who sees them on the org's own host. The site admin's topbar org selector
+- **A shared site's MENUS** (the Trips menu, `TripCommands.getMenuTrips/getMenuOldTrips`, and the sidebar,
+  countdown, home albums and the open-trips API, all through `ListingScope.listsSiteWide`) name the orgs that
+  SHARE the site plus any hosted org that a section of the site's own page curates (`includeOrgs`, the org
+  still allowing shared sites). Owner decision 2026-11-13, when CFPW got its own site but stayed on
+  visitqueenofpeace.com: a shared site that lists an org's trips in its sections lists them in its menus too.
+  An uncurated hosted org's trips never appear there, not for their members, not for a site admin, who sees
+  them on the org's own host. The site admin's topbar org selector
   (`sessionScope.currentOrgId`, offered only on shared sites and only over `OrgCommands.switchableOrgs()`
   = orgs without a site of their own) narrows the menus to one sharing org. The page's SECTIONS are
   curated separately (below).
@@ -530,6 +545,54 @@ script, no DNS step, no deploy (wildcard DNS and the wildcard certificate alread
   library document; Matt (user6) is Acme's SITE editor (`contentAdmin`+`mediaAdmin` scoped to Acme) and
   Kevin (user3) its org admin WITHOUT the grant. `OwnedFixturePolicyIT` ratchets which webtests may
   reference the seeded orgs.
+
+## Custom domains (tier 2, 2026-11-13, issue #51)
+
+An org with a site may also answer on its own domain: `Organization.customDomain` (`example.org`; stored
+lowercase without `www.`, and `www.example.org` serves too). It is a SECOND address of the org's site, never a
+site of its own, so it needs the slug first; everything that asks "does this org have its own site?" still asks
+about the slug.
+
+- **Writing it**: site admins only, on the shared profile include beside the subdomain (`orgProfileFields.xhtml`,
+  `saveOrgEdits`' 10th argument; null = leave alone, blank = clear). `site/CustomDomains` holds the grammar:
+  `normalize` strips scheme, path, port, trailing dot and `www.`; `problem` refuses a non-host, a `.local` or
+  `localhost` name, the org-site base domain and anything under it, and the shared sending domains;
+  `claimProblem` adds uniqueness across orgs. Clearing the slug clears the domain.
+- **Serving it**: `SiteIndex` maps the domain and its `www.` form to the org (and its slug) FIRST, before the
+  base-domain rules; rebuilt on every org save like slugs, so mapping and unmapping are online.
+- **Its canonical address**: `SiteUrls.baseUrl/orgSiteUrl` (mail, tickets, QR codes, invites),
+  `SiteCommands.hostFor/orgSiteUrl` and `OrgsResource`'s `siteUrl` answer `https://{customDomain}` when set
+  (a localhost request still gets `{slug}.localhost`). The subdomain keeps serving the same site for links
+  already sent. Payment return URLs need nothing: `PaymentsResource.isOrgHost` asks `SiteIndex`.
+- **Cookies and passkeys**: host-only on a custom domain (`SiteCookieProcessor` widens only under the base
+  domain), so a session there is separate from `*.unitetrip.com`; passkeys bind to the registrable domain
+  (`PasskeyService.rpIdFor`).
+- **Mail**: the domain is the org's own sending domain ("Sending domains" above): no other org may send from it.
+- **The certificate** is provisioned outside the app and outside CDK by the private repo's
+  `scripts/org-custom-domain.sh` (request, the org's DNS records, `--attach` to both ALB listeners); the
+  site admin sets the field once the certificate is attached. Domains the CDK certificates already cover
+  (centerforpeacewest.com) need no script.
+- Local fixture: Beta Corp answers on `beta-corp.test` (`FakeData.BETA_CUSTOM_DOMAIN`), which the webtests map
+  to loopback.
+
+## Site Pages: an org site's own pages and menu (2026-11-13)
+
+`Organization.sitePages` is the org site's menu beyond Home and Trips: an ordered list of `SitePage` entries,
+each a PAGE (an editable content page, `/page.jsf?name={name}`, content under `page:org:{orgId}:{name}`, the
+named-page key) or a LINK (any http(s) URL or site path). Each has a placement: the About submenu (shown only
+when it has entries), the Help submenu (beside Donate and Make Payment), or HIDDEN (served, reached only by a
+link, such as a novena's day pages). A page's NAME is its address and content key, fixed at creation.
+
+- **The list is the org admins'** (`admin/orgPages.xhtml`, "Site Pages", a hub card and a link on the settings
+  page's Home tab; `SitePageCommands` as `#{orgPages}`: add a page or a link, settings dialog, up/down, delete
+  with confirmation). **The words are a content editor's**: a page is edited in place on the org's site, the
+  ordinary privilege-only edit mode (`contentAdmin` for the org), and the admin page says which the viewer has.
+- A new page gets one starter text block unless content already sits under its key (then adopted as-is); a
+  deleted page takes its rows and its containers' children with it (`DAO.deleteContent`, one row at a time).
+- `page.xhtml` renders only a PAGE the CURRENT org site lists; anything else (a shared host, a link, a deleted
+  or malformed name) gets `WEB-INF/noSuchPage.xhtml`, chosen at build time, so a crafted name never reaches the
+  content key. Signed in, the name survives postbacks in `viewScope.pageName` (pinned by `contentPage.xhtml`).
+- The shared sites keep their hand-written pages and literal menus.
 
 ## Shared-site Register target (2026-10-29)
 
@@ -1014,8 +1077,8 @@ on `acme.localhost` and restores the setting afterwards.
 One Person, one login: a session established on any host under the org-site base domain
 (`unitetrip.com`, `www.unitetrip.com`, every `{slug}.unitetrip.com`) is the same session on all of them,
 because the session cookie carries `Domain=unitetrip.com` there. The shared hosts
-(`visitqueenofpeace.com`, `centerforpeacewest.com`, `localhost`) keep host-only cookies, and a login on
-one of them never reaches the org sites (cross-registrable-domain SSO is deferred).
+(`visitqueenofpeace.com`, `localhost`) and every org's custom domain keep host-only cookies, and a login on
+one of them never reaches the other sites (cross-registrable-domain SSO is deferred).
 
 - **The domain is stamped by the container, not the application.** Tomcat writes the `JSESSIONID`
   `Set-Cookie` below any servlet-level wrapper, and a static `sessionCookieDomain` would stamp the org

@@ -492,7 +492,25 @@ public class ConfigCommands {
         if (!parsesAs(raw, config.getType())) {
             return "'" + raw + "' is not a valid " + config.getType() + ".";
         }
-        return KnownSettings.find(config.getName()).map(def -> declarationRejection(def, raw)).orElse(null);
+        final String declared = KnownSettings.find(config.getName()).map(def -> declarationRejection(def, raw))
+                .orElse(null);
+        return declared != null ? declared : sharedFromRejection(config.getName(), raw);
+    }
+
+    /**
+     * The site's payment-mail From is site-level mail sent for every organization, so like every site From it may
+     * only use a shared sending domain ({@link KnownSettings#MAIL_SHARED_DOMAINS}); it is the one site From that is
+     * still a free-text row rather than the Email addresses composer.
+     */
+    private String sharedFromRejection(final String name, final String raw) {
+        if (!KnownSettings.PAYMENT_MAIL_FROM.getName().equals(name)) {
+            return null;
+        }
+        final String domain = MailAddressCommands.domainOf(raw);
+        final List<String> shared = org.paulsens.trip.site.CustomDomains.parseList(
+                getString(KnownSettings.MAIL_SHARED_DOMAINS));
+        return shared.contains(domain) ? null : "'" + raw + "' must be an address on a shared sending domain ("
+                + String.join(", ", shared) + "), because payment mail goes out for every organization.";
     }
 
     private static boolean parsesAs(final String raw, final Config.Type type) {
