@@ -6,7 +6,7 @@
         </encoder>
     </appender>
 
-    <!-- AWS SDK HTTP wire logging — very verbose, keep WARN unless debugging -->
+    <!-- AWS SDK HTTP wire logging, very verbose, keep WARN unless debugging -->
     <logger name="software.amazon.awssdk" level="WARN"/>
     <logger name="io.netty" level="WARN"/>
 

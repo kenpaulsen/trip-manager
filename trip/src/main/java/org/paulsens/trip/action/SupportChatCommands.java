@@ -397,7 +397,7 @@ public class SupportChatCommands {
                 "<p><b>" + MailTemplates.escape(describe(me)) + "</b> created trip <b>"
                         + MailTemplates.escape(title) + "</b> (" + MailTemplates.escape(orgName)
                         + ") but could not be granted: <b>" + MailTemplates.escape(roles)
-                        + "</b> &mdash; withheld by the organization's allow-list.</p>"
+                        + "</b>: withheld by the organization's allow-list.</p>"
                         + "<p><a href=\"" + baseUrl() + "/trip/edit.jsf?id=" + tripId
                         + "\">Grant the roles on the trip</a> or adjust the allow-list on <a href=\""
                         + baseUrl() + "/admin/organizations.jsf\">the Organizations page</a>.</p>",

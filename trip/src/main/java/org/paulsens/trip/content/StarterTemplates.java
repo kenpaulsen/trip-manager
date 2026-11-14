@@ -419,7 +419,7 @@ public final class StarterTemplates {
                 <p>The next step is approval: we review every registration, and you will hear from us once
                 yours is confirmed.</p>
                 <p><a href="{{tripUrl}}">See the trip details</a></p>
-                <p>Questions? Just reach out&mdash;reply to this email and we will get back to you.</p>
+                <p>Questions? Just reply to this email and we will get back to you.</p>
                 """;
         return mail(REGISTRATION_RECEIVED_ID, "Registration received - {{tripTitle}}",
                 "Sent to the registrant (the account owner for a family) when a registration is submitted. "
@@ -431,12 +431,12 @@ public final class StarterTemplates {
     private static ContentTemplate registrationApproved() {
         final String body = """
                 <p>Welcome to <b>{{tripTitle}}</b>, {{firstName}}!</p>
-                <p>Your registration has been approved&mdash;we are so glad you are coming.</p>
+                <p>Your registration has been approved. We are so glad you are coming.</p>
                 {{ticketBlock}}
                 <p><a href="{{itineraryUrl}}">See your trip</a></p>
                 <p>Please make sure <a href="{{profileUrl}}">your profile</a> is complete (passport,
                 birthdate, emergency contact): we need it for travel arrangements.</p>
-                <p>Questions? Just reach out&mdash;reply to this email and we will get back to you.</p>
+                <p>Questions? Just reply to this email and we will get back to you.</p>
                 """;
         return mail(REGISTRATION_APPROVED_ID, "You're confirmed - {{tripTitle}}",
                 "Sent to a person (or, if they have no email, their family's managers) when their "

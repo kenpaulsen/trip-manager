@@ -309,7 +309,7 @@ public class ChatDigestSender {
     private MailTemplates.Raw messageBlock(final Candidate candidate) {
         if (!ChatNotifications.includeContent(candidate.channel())) {
             return new MailTemplates.Raw(
-                    "<p style=\"color:#666;\">Open the chat to read them — this chat does not keep messages "
+                    "<p style=\"color:#666;\">Open the chat to read them; this chat does not keep messages "
                             + "long enough to include them here.</p>");
         }
         final PersonCommands people = PersonCommands.getPersonCommands();
