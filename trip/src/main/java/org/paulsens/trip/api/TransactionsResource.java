@@ -17,7 +17,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.stream.Stream;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.AuditCommands;
 import org.paulsens.trip.action.BindingCommands;
@@ -409,8 +408,11 @@ public class TransactionsResource extends BaseResource {
         if (body.groupId() == null || body.groupId().isBlank()) {
             return true;
         }
+        // mayKeepInGroup has already held every kept member's row to mayWriteRow; only the rows of members
+        // being dropped are left. Reading the kept members again cost each of them one more uncached query.
         final TransactionsCommands transactions = Beans.get(TransactionsCommands.class);
-        return Stream.concat(members.stream(), ids(body.originalPeople()).stream())
+        return ids(body.originalPeople()).stream()
+                .filter(member -> !members.contains(member))
                 .distinct()
                 .map(member -> transactions.getGroupTransactionForUser(member, body.groupId()))
                 .flatMap(Optional::stream)

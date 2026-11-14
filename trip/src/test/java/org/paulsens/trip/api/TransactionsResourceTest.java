@@ -633,6 +633,8 @@ public class TransactionsResourceTest extends ResourceTestSupport {
                 ArgumentMatchers.anyList())).thenReturn(true);
         assertOk(admin.saveGroup(CSRF_OK, mine.getId(), group(null, List.of(member.getValue()))));
         assertOk(admin.saveGroup(CSRF_OK, mine.getId(), group("group-mine", List.of(member.getValue()))));
+        // A kept member's row was judged once, by mayKeepInGroup; only a dropped member's is read again.
+        Mockito.verify(transactions, Mockito.never()).getGroupTransactionForUser(member, "group-mine");
         assertError(admin.groupMembers("group-mine", member.getValue(), theirs.getId()), 403, ApiErrors.FORBIDDEN);
     }
 
