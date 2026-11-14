@@ -77,9 +77,13 @@ email to signed-in viewers -- unless the person set that field PRIVATE, which wi
   `privMaskedText` placeholder, and the placeholder's click adds `privRevealed` to the wrapper in the browser
   (`trip.css` swaps which one shows). The wrapper is a span, so masked values sit inline. A masked inplace
   editor is always rendered, so Save submits its value unchanged unless it was revealed and edited.
-  `WEB-INF/privacyRevealAll.xhtml` is a "Show private values" link that reveals every mask in its fieldset
-  (the profile's Address, Travel Info and Contact Info). A list item cannot be masked: Manage People's person
-  pickers put an email or cell in the label only where the verdict is not HIDE
+  A read-only display passes HIDE for an EMPTY value (`empty person.cell ? 'HIDE' : pv.cell`), so nobody is
+  offered a "private value" that reveals nothing: every mask on trip Contacts, Org People and the admin
+  person page does this (an editor keeps its verdict, so staff can still fill an empty field).
+  `WEB-INF/privacyRevealAll.xhtml` is a "Show private values" link that reveals every mask in its scope: the
+  nearest `privScope` element, else its fieldset (the profile's Address, Travel Info and Contact Info; Manage
+  People's two-person compare grid carries `privScope` and the link in its header). A list item cannot be
+  masked: Manage People's person pickers put an email or cell in the label only where the verdict is not HIDE
   (`PersonCommands.adminPickerLabel`).
 - **Derived leaks handled in Java**: chat roster name-collision labels never use a private email
   (`ChatCommands.labelFor` falls to the id rung); the "via manager" contact fallback skips managers whose
@@ -98,4 +102,6 @@ to co-travelers where it used to be tripAdmin-only), `admin/people.xhtml`, `admi
 
 Webtest: `PrivacyPwIT` (hide → peer loses it and it is not in the page, admin gets it masked and a click
 shows it with no request, "Show private values" reveals a fieldset, street knob locks to city, View As from
-`admin/person.xhtml` hides the subject's sign-in fieldsets).
+`admin/person.xhtml` hides the subject's sign-in fieldsets, an empty private value offers nothing to reveal,
+and a profile saved with every mask closed keeps its birthdate, passport dates and cell exactly as stored);
+`AdminManagePersonPwIT` proves the same save rule for Save Person 1 and the compare grid's one-click reveal.
