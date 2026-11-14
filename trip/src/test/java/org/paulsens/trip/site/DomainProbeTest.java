@@ -1,5 +1,8 @@
 package org.paulsens.trip.site;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
@@ -16,6 +19,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import org.slf4j.LoggerFactory;
 import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.Test;
@@ -130,16 +134,31 @@ public class DomainProbeTest {
 
     /**
      * A host that sends its headers and then stalls the body is held to the same deadline as one that never
-     * answers: the request timeout stops at the headers, so the probe's own deadline must cover the read.
+     * answers: the request timeout stops at the headers, so the probe's own deadline must cover the read. The
+     * interrupt that ends the read is the deadline, not a failure, so nothing is logged as one (the scope waits
+     * for its subtask before {@code probe} returns, so the log is complete by then).
      */
     @Test
     public void aHostThatStallsItsBodyIsRefusedWithinTheDeadline() throws IOException {
         final String origin = serve(this::headersThenStall);
-        final long started = System.nanoTime();
-        final String problem = DomainProbe.probe(HTTP, origin, "example.org", "abc", Duration.ofMillis(500));
-        final Duration took = Duration.ofNanos(System.nanoTime() - started);
-        Assert.assertTrue(problem.contains("did not answer"), problem);
-        Assert.assertTrue(took.compareTo(Duration.ofSeconds(4)) < 0, "gave up after " + took);
+        final Logger probeLog = (Logger) LoggerFactory.getLogger(DomainProbe.class);
+        final ListAppender<ILoggingEvent> logged = new ListAppender<>();
+        logged.start();
+        probeLog.addAppender(logged);
+        try {
+            final long started = System.nanoTime();
+            final String problem = DomainProbe.probe(HTTP, origin, "example.org", "abc", Duration.ofMillis(500));
+            final Duration took = Duration.ofNanos(System.nanoTime() - started);
+            Assert.assertTrue(problem.contains("did not answer"), problem);
+            Assert.assertTrue(took.compareTo(Duration.ofSeconds(4)) < 0, "gave up after " + took);
+            Assert.assertTrue(logged.list.stream().noneMatch(DomainProbeTest::isFailureLine), logged.list.toString());
+        } finally {
+            probeLog.detachAppender(logged);
+        }
+    }
+
+    private static boolean isFailureLine(final ILoggingEvent event) {
+        return event.getMessage().contains("failed");
     }
 
     @Test

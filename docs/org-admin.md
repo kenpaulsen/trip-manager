@@ -579,7 +579,8 @@ about the slug.
   base-domain rules; rebuilt on every org save like slugs, so mapping and unmapping are online.
 - **Its canonical address**: `SiteUrls.baseUrl/orgSiteUrl` (mail, tickets, QR codes, push links) and the admin
   pages' one builder, `SiteCommands.orgSiteUrlOf(org)` (behind `hostFor`, `orgSiteUrl(slug)`, the Site Pages
-  View link and `OrgsResource`'s `siteUrl`), answer `https://{customDomain}` when set; a localhost request
+  View link and `OrgsResource`'s `siteUrl`, the last two through its no-slash form `orgSiteRoot(org, request)`
+  with the org in hand), answer `https://{customDomain}` when set; a localhost request
   still gets `{slug}.localhost`. The subdomain keeps serving the same site for links already sent. The ONE
   exception is a link the apps must open: chat invites are minted on the subdomain
   (`SiteUrls.appLinkBaseUrl`), because the apps claim `*.unitetrip.com` and never a customer's domain

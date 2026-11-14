@@ -95,7 +95,7 @@ public class OrgsResource extends BaseResource {
     private OrgDirectoryEntryDto directoryEntry(final Organization org) {
         final String slug = org.getSlug();
         return new OrgDirectoryEntryDto(org.getId().getValue(), org.getName(), org.getAbbreviation(), slug,
-                slug == null ? null : trimSlash(SiteCommands.orgSiteUrl(slug, request)));
+                slug == null ? null : SiteCommands.orgSiteRoot(org, request));
     }
 
     /**
@@ -115,7 +115,7 @@ public class OrgsResource extends BaseResource {
 
     private OrgSummaryDto summary(final Organization org, final Person me) {
         final String slug = org.getSlug();
-        final String siteUrl = slug == null ? null : trimSlash(SiteCommands.orgSiteUrl(slug, request));
+        final String siteUrl = slug == null ? null : SiteCommands.orgSiteRoot(org, request);
         final boolean member = me != null && me.getOrgIds().contains(org.getId());
         final boolean admin = (me != null && org.isAdmin(me.getId())) || privileges().isSiteAdmin();
         final BrandCommands brand = Beans.get(BrandCommands.class);
@@ -123,10 +123,6 @@ public class OrgsResource extends BaseResource {
         return new OrgSummaryDto(org.getId().getValue(), org.getName(), org.getAbbreviation(), slug, siteUrl,
                 member, admin, org.allowsSharedSites(), org.registerTarget().name(), org.getContactEmail(),
                 OrgBrandingDto.of(look, brand.themeNameOf(look)));
-    }
-
-    private static String trimSlash(final String url) {
-        return url != null && url.endsWith("/") ? url.substring(0, url.length() - 1) : url;
     }
 
     /** Creates an organization (site admin only). 409 covers a duplicate name, the one expected refusal. */
