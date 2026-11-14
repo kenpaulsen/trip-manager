@@ -171,15 +171,28 @@ answers the blank trip for one the caller may not pick (the menu's validation al
 list). Batch Transactions' menu is `getRecentTripsWith(privilege, n, viewScope.openedTripId)`: the trip the editor
 was OPENED for (pinned once in initPage) stays a choice even past the recent 100, or the menu would post its first
 option ("none") and the save would drop the trip; keyed on the pinned id rather than the menu's live value, so
-moving the menu away and back still validates. A trip LIST that is not a picker follows the same boundary: the
-admin person page's Registrations list is `TripCommands.getRecentTripsInMyOrgs(n)`, the recent trips of the
-viewer's own organizations (every organization they are a member of; a site admin gets every trip the host
-reaches), and its Trips list is `getTripsForUserInMyOrgs(id)`, the subject's trips narrowed the same way. That
-page's gate is per subject, so an org's people admin reaches a member who belongs to another organization too, and
-that organization's trips are not theirs to read. The Registrations list over-fetches like the org Trips page, so
-other tenants' trips do not push the viewer's own out of it; both keep the latest-ending trips under their cap.
-`medjugorje/webtest/.../TripPickerPolicyIT` fails a page that calls `trip.getRecentTrips(` outside its shrink-only
-allow-list (the health probe's count), and an `admin/` page that calls `trip.getTripsForUser(`.
+moving the menu away and back still validates.
+
+**A person's trips and ledger rows on the admin people pages: ONE reach** (`PeopleReach`, 2026-11-14). A site admin
+sees everything, rows with no organization included; anyone else sees only the organizations they manage or hold
+`peopleAdmin` in (`OrgCommands.canViewOrgPeople`), and never a row with no organization. Membership alone reaches
+nothing: it is self-grantable (choosing a default organization in the app, registering for one of the
+organization's trips), so a people admin of one organization who joined another as a plain member would otherwise
+read that organization's trips and balances. The pages' gate is per subject (`canAdminPerson`: `peopleAdmin` in an
+organization the SUBJECT belongs to), so a people admin reaches a member who also belongs to another organization,
+and these lists are what keep that organization's data out of view. Every list built on it:
+- the People page's Trips column and Manage People's trip lists: `OrgCommands.visibleTripsOf(person)`;
+- the admin person page's Registrations list: `TripCommands.getRecentTripsInPeopleReach(n)`, and its Trips list:
+  `getTripsForUserInPeopleReach(id)`, both site-gated like every trip list;
+- the admin person page's transaction count and balance: `TransactionsCommands.getTransactionsInPeopleReach(id)`
+  (the site-listed rows of `getTransactions`, narrowed the same way).
+
+The Registrations list and the org Trips page (`getTripsForOrg`) cut their organization filter from one over-sized
+recent window (`TripCommands.tenantFilterWindow`, 4x the cap), so other tenants' trips do not push the viewer's own
+out of it; both keep the latest-ending trips under their cap, an undated (ongoing) trip ranking as ending last, as
+the recency index scores it. `medjugorje/webtest/.../TripPickerPolicyIT` fails a page that calls
+`trip.getRecentTrips(` outside its shrink-only allow-list (the health probe's count), and an `admin/` page that
+calls `trip.getTripsForUser(`.
 
 `registrationAdmin@trip` (display name "Registration Admin") opens the trip's Registrations tab and the
 whole `admin/tripRegistrations.jsf` page — approve, move, rooms, approval mail — for non-site-admins

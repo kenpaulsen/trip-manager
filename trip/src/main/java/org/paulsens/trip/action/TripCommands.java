@@ -57,6 +57,9 @@ public class TripCommands {
     /** How long a finished pilgrimage stays on the public landing page (user-set product rule). */
     private static final int PUBLIC_PAST_DAYS = 7;
 
+    /** How many times its cap an organization-filtered recent list fetches: {@link #tenantFilterWindow}. */
+    private static final int TENANT_FILTER_OVER_FETCH = 4;
+
     /** How a refused event's start is spelled back to the manager, e.g. "Oct 13, 2026 6:55 PM". */
     private static final DateTimeFormatter EVENT_WHEN = DateTimeFormatter.ofPattern("MMM d, yyyy h:mm a");
 
@@ -127,10 +130,9 @@ public class TripCommands {
 
     /**
      * The org's {@code limit} latest-ending trips, in display order (by start), for its Trips page. View-gated
-     * like the page itself. The raw fetch is over-sized because the org filter runs after the recency cap -- one
-     * busy tenant must not push another tenant's trips out of their own list -- and the cap keeps the
-     * latest-ending trips of that window (a plain {@code limit} on the start-ordered list kept the earliest). Legacy
-     * trips with no orgId never appear here (expected).
+     * like the page itself. Cut from the over-sized {@link #tenantFilterWindow}, and the cap keeps the
+     * latest-ending trips of that window (a plain {@code limit} on the start-ordered list kept the earliest).
+     * Legacy trips with no orgId never appear here (expected).
      */
     public List<Trip> getTripsForOrg(final String orgId, final int limit) {
         if (orgId == null || orgId.isBlank() || !orgSource.get().canViewOrgTrips(orgId)) {
@@ -139,7 +141,7 @@ public class TripCommands {
         // Deliberately NOT site-gated: the org's own trips page is keyed and gated by the org, and a site
         // admin opens it from the shared host's Organizations page; the page links each trip to the host
         // that reaches it (SiteCommands.hostFor) rather than this list going empty there.
-        return latestEnding(recentTripsAnywhere(limit * 4).stream()
+        return latestEnding(tenantFilterWindow(limit).stream()
                 .filter(trip -> orgId.equals(trip.getOrgId()))
                 .toList(), limit);
     }
@@ -1323,73 +1325,50 @@ public class TripCommands {
     }
 
     /**
-     * The recent trips of the signed-in caller's OWN organizations, in display order: every trip of every
-     * organization they are a member of ({@code Person.orgIds}, the membership {@code OrgCommands.canAdminPerson}
-     * reads; an org admin is always a member). A site admin gets {@link #getRecentTrips}. For the admin person
-     * page's Registrations list, whose gate is per subject: an org's people admin opening a member who also
-     * belongs to another organization read the titles of that organization's trips (owner decision 2026-11-14:
-     * the list shows the viewer's own organizations' trips). Over-fetched like {@link #getTripsForOrg}, so
-     * another tenant's busy calendar does not push the caller's own trips out of their list; site-gated like
-     * every list here. Nobody signed in, or an unknown caller, gets nothing.
+     * The recent trips of the organizations whose people data the signed-in viewer may see ({@link PeopleReach}:
+     * those they manage or hold {@code peopleAdmin} in), in display order; a site admin gets {@link
+     * #getRecentTrips}. For the admin person page's Registrations list, whose gate is per subject: an org's people
+     * admin opening a member who also belongs to another organization read the titles of that organization's trips
+     * (owner decision 2026-11-14). Cut from {@link #tenantFilterWindow} like {@link #getTripsForOrg}, and
+     * site-gated like every list here. Nobody signed in, or a viewer with no such organization, gets nothing.
      */
-    public List<Trip> getRecentTripsInMyOrgs(final int limit) {
-        final Caller caller = callerSource.get();
-        if (caller.isSiteAdmin()) {
+    public List<Trip> getRecentTripsInPeopleReach(final int limit) {
+        final PeopleReach reach = PeopleReach.of(orgSource.get());
+        if (reach.isEverything()) {
             return getRecentTrips(limit);
         }
-        final Set<String> mine = ownOrgIds(caller);
-        if (mine.isEmpty()) {
+        if (reach.isNone()) {
             return List.of();
         }
-        return latestEnding(here(recentTripsAnywhere(limit > 0 ? limit * 4 : limit)).stream()
-                .filter(trip -> mine.contains(trip.getOrgId()))
+        return latestEnding(here(tenantFilterWindow(limit)).stream()
+                .filter(trip -> reach.admits(trip.getOrgId()))
                 .toList(), limit);
     }
 
     /**
-     * {@link #getTripsForUser} narrowed to the signed-in caller's OWN organizations' trips, by the rule of
-     * {@link #getRecentTripsInMyOrgs}; a site admin gets them all. For the admin person page's Trips list: the
-     * subject's rosters may include another organization's trips, which are not an org people admin's to read
-     * (owner decision 2026-11-14).
+     * {@link #getTripsForUser} narrowed by {@link PeopleReach}, the rule of {@link #getRecentTripsInPeopleReach};
+     * a site admin gets them all. For the admin person page's Trips list: the subject's rosters may include
+     * another organization's trips, which are not an org people admin's to read (owner decision 2026-11-14).
      */
-    public List<Trip> getTripsForUserInMyOrgs(final Person.Id userId) {
-        final Caller caller = callerSource.get();
-        if (caller.isSiteAdmin()) {
-            return getTripsForUser(userId);
-        }
-        final Set<String> mine = ownOrgIds(caller);
-        if (mine.isEmpty()) {
-            return List.of();
-        }
-        return getTripsForUser(userId).stream().filter(trip -> mine.contains(trip.getOrgId())).toList();
-    }
-
-    /** The ids of the organizations the caller belongs to ({@code Person.orgIds}); none for nobody or a stranger. */
-    private static Set<String> ownOrgIds(final Caller caller) {
-        if (caller.personId() == null) {
-            return Set.of();
-        }
-        return DAO.getInstance().getPerson(caller.personId(), Cached.YES)
-                .map(TripCommands::orgIdsOf)
-                .orElse(Set.of());
-    }
-
-    private static Set<String> orgIdsOf(final Person person) {
-        return person.getOrgIds().stream().map(Organization.Id::getValue).collect(Collectors.toSet());
+    public List<Trip> getTripsForUserInPeopleReach(final Person.Id userId) {
+        final PeopleReach reach = PeopleReach.of(orgSource.get());
+        return reach.isNone() ? List.of() : reach.filter(getTripsForUser(userId), Trip::getOrgId);
     }
 
     /**
      * The {@code limit} trips that end last, kept in the list's display order (non-positive: all of them). The
      * recency fetch arrives sorted by START date, so a plain {@code limit} would keep the earliest-starting
-     * trips of the over-fetched window rather than the most recent.
+     * trips of the over-fetched window rather than the most recent. A trip with no end date ranks as ending
+     * LAST (ongoing), as the recency index scores it ({@code TripDAO.NO_END_DATE}), so the cap never drops it
+     * first. Package-private for its test.
      */
-    private static List<Trip> latestEnding(final List<Trip> trips, final int limit) {
+    static List<Trip> latestEnding(final List<Trip> trips, final int limit) {
         if (limit <= 0 || trips.size() <= limit) {
             return trips;
         }
         final Set<String> kept = trips.stream()
                 .sorted(Comparator.comparing(Trip::getEndDate,
-                        Comparator.nullsFirst(Comparator.<LocalDateTime>naturalOrder())).reversed())
+                        Comparator.nullsLast(Comparator.<LocalDateTime>naturalOrder())).reversed())
                 .limit(limit)
                 .map(Trip::getId)
                 .collect(Collectors.toSet());
@@ -1414,6 +1393,16 @@ public class TripCommands {
     private static boolean holdsOnTrip(final Caller caller, final String privilege, final String tripId) {
         return privilege != null && PrivilegeCommands.TRIP_SCOPED_BASES.contains(privilege)
                 && caller.has(privilege, tripId);
+    }
+
+    /**
+     * The recent window an organization-filtered list is cut from: {@link #TENANT_FILTER_OVER_FETCH} times its
+     * {@code limit} (non-positive: every trip), before the site gate. The organization filter runs AFTER the
+     * recency index's cap, so a window of only {@code limit} would let one busy tenant's newer trips crowd
+     * another tenant's out of its own list.
+     */
+    private List<Trip> tenantFilterWindow(final int limit) {
+        return recentTripsAnywhere(limit * TENANT_FILTER_OVER_FETCH);
     }
 
     /** {@link #getRecentTrips} before the site gate -- for the org-keyed reads, which bound themselves. */

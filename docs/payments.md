@@ -39,10 +39,14 @@ on acme.unitetrip.com showing up on visitqueenofpeace.com; now:
 
 - `TransactionsCommands.getTransactions(userId)` — the ONE read behind the Balance page
   (`trip/transactions.jsf`, sorted/family variants), the trip transaction views, the registration/party
-  amounts, `admin/person.jsf`, `GET /api/transactions/...` — returns only the rows whose `orgId` the site
+  amounts, `GET /api/transactions/...` — returns only the rows whose `orgId` the site
   reaches: an org host lists that org's rows; a shared host lists the rows of the orgs it lists plus
   org-less legacy rows (a row with no `orgId`). `getTransaction(userId, txId)` answers null for a row the
   site does not list, exactly like a row that does not exist.
+- The admin person page (`admin/person.jsf`) narrows those rows further, for its transaction count and
+  balance: `getTransactionsInPeopleReach(userId)` keeps only the rows of organizations the viewer manages or
+  holds `peopleAdmin` in, and hides org-less rows from everyone but a site admin (`org-admin.md`, "A person's
+  trips and ledger rows on the admin people pages: ONE reach"; 2026-11-14).
 - **Totals and balances shown on a site are computed from the listed rows only** (`getBalance`,
   `getFamilyBalance`, the pages' running columns): a person's vqop balance is their balance with the
   organizations vqop lists, and their Acme balance lives on Acme's site. There is no all-sites total on any

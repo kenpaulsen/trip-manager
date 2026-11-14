@@ -13,9 +13,11 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.api.Beans;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.BindingType;
@@ -35,6 +37,18 @@ public class TransactionsCommands {
 
     @Inject
     private AuditCommands audit;
+
+    /** For {@link #getTransactionsInPeopleReach}: whose people data the viewer may see. */
+    private final Supplier<OrgCommands> orgSource;
+
+    public TransactionsCommands() {
+        this(() -> Beans.get(OrgCommands.class));
+    }
+
+    /** Test seam (the {@code TripCommands} pattern): {@code Beans.get} needs a CDI container. */
+    TransactionsCommands(final Supplier<OrgCommands> orgSource) {
+        this.orgSource = orgSource;
+    }
 
     public Transaction createTransaction(final Person.Id userId) {
         return new Transaction(userId, null, null);
@@ -89,6 +103,18 @@ public class TransactionsCommands {
             log.error("Error querying transactions for user {}: ", userId.getValue(), ex);
             return Collections.emptyList();
         }
+    }
+
+    /**
+     * {@link #getTransactions} narrowed by {@link PeopleReach}: a site admin gets every row the site lists; anyone
+     * else only the rows of an organization they manage or hold {@code peopleAdmin} in, and never a row with no
+     * organization (legacy content). For the admin person page's transaction count and balance, whose gate is per
+     * subject: an org's people admin reaches a member who may also travel with another organization, whose ledger
+     * rows are not theirs to read (owner decision 2026-11-14).
+     */
+    public List<Transaction> getTransactionsInPeopleReach(final Person.Id userId) {
+        final PeopleReach reach = PeopleReach.of(orgSource.get());
+        return reach.isNone() ? List.of() : reach.filter(getTransactions(userId), Transaction::getOrgId);
     }
 
     /**

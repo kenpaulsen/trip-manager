@@ -204,18 +204,11 @@ public class OrgCommands {
     }
 
     /**
-     * The admin People page's Trips column: this person's trips that the viewer may see. A site admin sees them
-     * all; anyone else (an org people admin) only trips of an organization whose people they may view, so a
-     * person's trips in ANOTHER tenant never show. A trip with no organization is site admins' only.
+     * The admin People page's Trips column: this person's trips that the viewer may see, by {@link PeopleReach}
+     * (the admin person page's lists use the same rule), so a person's trips in ANOTHER tenant never show.
      */
     public List<Trip> visibleTripsOf(final Person person) {
-        if (person == null) {
-            return List.of();
-        }
-        final boolean siteAdmin = caller().isSiteAdmin();
-        return person.getTrips().stream()
-                .filter(trip -> siteAdmin || (trip.getOrgId() != null && canViewOrgPeople(trip.getOrgId())))
-                .toList();
+        return person == null ? List.of() : PeopleReach.of(this).filter(person.getTrips(), Trip::getOrgId);
     }
 
     /** Membership rows resolved to people, org-roster order (by person id -- stable, not name-sorted). */
