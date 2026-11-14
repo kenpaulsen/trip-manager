@@ -124,18 +124,20 @@ public class OrgHomePageSeedingTest {
         final Organization org = newOrg(admin, "Register Target " + UUID.randomUUID());
         final String id = org.getId().getValue();
         Assert.assertEquals(admin.storedRegisterTarget(id), "DETAIL_PAGE", "the default");
-        Assert.assertTrue(admin.saveOrgEdits(id, org.getName(), null, null, null, null, null, null, "ORG_HOME"));
+        Assert.assertTrue(admin.saveOrgEdits(id, org.getName(), null, null, null, null, null, null, "ORG_HOME", null));
         Assert.assertEquals(admin.storedRegisterTarget(id), "ORG_HOME");
         Assert.assertEquals(reread(org).registerTarget(), SharedSiteRegisterTarget.ORG_HOME);
         Assert.assertTrue(admin.saveOrgEdits(id, org.getName(), null, null, null, null, null, Boolean.FALSE),
                 "the 8-arg save leaves the target alone");
         Assert.assertEquals(admin.storedRegisterTarget(id), "ORG_HOME");
-        Assert.assertTrue(admin.saveOrgEdits(id, org.getName(), null, null, null, null, null, null, "ORG_TRIP_PAGE"));
+        Assert.assertTrue(admin.saveOrgEdits(id, org.getName(), null, null, null, null, null, null, "ORG_TRIP_PAGE",
+                null));
         Assert.assertEquals(reread(org).getSharedSiteRegisterTarget(), "ORG_TRIP_PAGE");
-        Assert.assertTrue(admin.saveOrgEdits(id, org.getName(), null, null, null, null, null, null, "bogus"));
+        Assert.assertTrue(admin.saveOrgEdits(id, org.getName(), null, null, null, null, null, null, "bogus", null));
         Assert.assertNull(reread(org).getSharedSiteRegisterTarget(), "an unknown name stores the null default");
-        Assert.assertTrue(admin.saveOrgEdits(id, org.getName(), null, null, null, null, null, null, "ORG_HOME"));
-        Assert.assertTrue(admin.saveOrgEdits(id, org.getName(), null, null, null, null, null, null, "DETAIL_PAGE"));
+        Assert.assertTrue(admin.saveOrgEdits(id, org.getName(), null, null, null, null, null, null, "ORG_HOME", null));
+        Assert.assertTrue(admin.saveOrgEdits(id, org.getName(), null, null, null, null, null, null, "DETAIL_PAGE",
+                null));
         Assert.assertNull(reread(org).getSharedSiteRegisterTarget(), "the default is stored as null");
         Assert.assertEquals(admin.storedRegisterTarget("no-such-org"), "DETAIL_PAGE");
     }

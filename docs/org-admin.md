@@ -422,7 +422,7 @@ list.
 ## Organization sites (subdomains, 2026-09)
 
 An org can have its **own site** at `{slug}.unitetrip.com` (service tier 1 of three: subdomain, custom
-domain (tier 2, "Custom domains" below, 2026-11-13), or listed on a shared site as today). Everything about it is an ONLINE admin act — no
+domain (tier 2, "Custom domains" below, 2026-11-13), or listed on a shared site as today). Everything about it is an ONLINE admin act: no
 script, no DNS step, no deploy (wildcard DNS and the wildcard certificate already cover every label):
 
 - `Organization.slug` — site-admin only (a public namespace grant, like the sending-domain allow-list);
@@ -446,8 +446,8 @@ script, no DNS step, no deploy (wildcard DNS and the wildcard certificate alread
   org's page key, its name as the page title, only its own public trips, albums, documents and Trips-menu
   entries (`TripCommands.getMenuTrips/getMenuOldTrips`, seeded by `template.xhtml`), and only that org in
   the admin menu's org list (`visibleOrgs`). Editing happens on the org's site, in the same edit mode as
-  the shared page; the org-scoped `contentAdmin@{org}` grant is a later phase — until then site admins /
-  global `contentAdmin` edit org pages.
+  the shared page, by a site admin, a global `contentAdmin`, or the org-scoped `contentAdmin@{org}` grant
+  (`SitePageCommands.canEditContent`; "Site Pages" below).
 - **A shared site's MENUS** (the Trips menu, `TripCommands.getMenuTrips/getMenuOldTrips`, and the sidebar,
   countdown, home albums and the open-trips API, all through `ListingScope.listsSiteWide`) name the orgs that
   SHARE the site plus any hosted org that a section of the site's own page curates (`includeOrgs`, the org
@@ -456,7 +456,8 @@ script, no DNS step, no deploy (wildcard DNS and the wildcard certificate alread
   An uncurated hosted org's trips never appear there, not for their members, not for a site admin, who sees
   them on the org's own host. The site admin's topbar org selector
   (`sessionScope.currentOrgId`, offered only on shared sites and only over `OrgCommands.switchableOrgs()`
-  = orgs without a site of their own) narrows the menus to one sharing org. The page's SECTIONS are
+  = the orgs `ListingScope.listsSiteWide` lists: no site of their own, or curated by this site's page)
+  narrows the menus to one listed org. The page's SECTIONS are
   curated separately (below).
 - **Shared sites and the org's content — the double gate** (`site/ListingScope`, see
   `content-templates.md` "Organization sites"): a shared site's sections list a hosted org only when the
@@ -554,24 +555,41 @@ site of its own, so it needs the slug first; everything that asks "does this org
 about the slug.
 
 - **Writing it**: site admins only, on the shared profile include beside the subdomain (`orgProfileFields.xhtml`,
-  `saveOrgEdits`' 10th argument; null = leave alone, blank = clear). `site/CustomDomains` holds the grammar:
-  `normalize` strips scheme, path, port, trailing dot and `www.`; `problem` refuses a non-host, a `.local` or
-  `localhost` name, the org-site base domain and anything under it, and the shared sending domains;
-  `claimProblem` adds uniqueness across orgs. Clearing the slug clears the domain.
+  `saveOrgEdits`' 10th argument; null = leave alone, blank = clear). The pages post an emptied Subdomain or
+  Custom Domain field as blank: the live web.xml decodes an empty field as null
+  (`INTERPRET_EMPTY_STRING_SUBMITTED_VALUES_AS_NULL`), which the save would read as "leave alone", so the save
+  scripts turn it back into blank (before that fix a cleared domain silently stayed). `site/CustomDomains`
+  holds the grammar: `normalize` strips scheme, path, port, trailing dot and `www.`; `problem` refuses a
+  non-host, a `.local` or `localhost` name, the org-site base domain and anything under it, and the shared
+  sending domains; `claimProblem` adds uniqueness across orgs. Clearing the slug clears the domain.
+- **The live probe** (`site/DomainProbe`, owner decision 2026-11-13): a NEW claim (not a re-save of the stored
+  domain, not a clear) stands only when `https://{domain}/.well-known/trip-site-check?code={nonce}` answers 200
+  with that one-time code, over normal TLS certificate validation, 5-second timeouts and no redirects. Only
+  this server echoes its own outstanding codes (`web/SiteCheckServlet`, an exact mapping in the live web.xml,
+  anonymous and session-free), so the echo proves the domain's DNS reaches this service AND the load balancer
+  holds a valid certificate for it: a typo, a domain saved before `--attach`, or one pointing elsewhere is
+  refused with a growl naming which. The codes live in the JVM (production runs ONE task); during a
+  blue/green deploy a probe can land on the other task and fail, and saving again afterwards succeeds. Local
+  mode skips the probe (`DomainProbe.useCheck` is the test seam). A domain that lapses LATER is not
+  re-checked: the probe guards the claim, and taking an org off a dead domain is a site admin clearing the
+  field.
 - **Serving it**: `SiteIndex` maps the domain and its `www.` form to the org (and its slug) FIRST, before the
   base-domain rules; rebuilt on every org save like slugs, so mapping and unmapping are online.
-- **Its canonical address**: `SiteUrls.baseUrl/orgSiteUrl` (mail, tickets, QR codes, invites),
-  `SiteCommands.hostFor/orgSiteUrl` and `OrgsResource`'s `siteUrl` answer `https://{customDomain}` when set
-  (a localhost request still gets `{slug}.localhost`). The subdomain keeps serving the same site for links
-  already sent. Payment return URLs need nothing: `PaymentsResource.isOrgHost` asks `SiteIndex`.
+- **Its canonical address**: `SiteUrls.baseUrl/orgSiteUrl` (mail, tickets, QR codes, push links) and the admin
+  pages' one builder, `SiteCommands.orgSiteUrlOf(org)` (behind `hostFor`, `orgSiteUrl(slug)`, the Site Pages
+  View link and `OrgsResource`'s `siteUrl`), answer `https://{customDomain}` when set; a localhost request
+  still gets `{slug}.localhost`. The subdomain keeps serving the same site for links already sent. The ONE
+  exception is a link the apps must open: chat invites are minted on the subdomain
+  (`SiteUrls.appLinkBaseUrl`), because the apps claim `*.unitetrip.com` and never a customer's domain
+  (`chat-invites.md`). Payment return URLs need nothing: `PaymentsResource.isOrgHost` asks `SiteIndex`.
 - **Cookies and passkeys**: host-only on a custom domain (`SiteCookieProcessor` widens only under the base
   domain), so a session there is separate from `*.unitetrip.com`; passkeys bind to the registrable domain
   (`PasskeyService.rpIdFor`).
 - **Mail**: the domain is the org's own sending domain ("Sending domains" above): no other org may send from it.
 - **The certificate** is provisioned outside the app and outside CDK by the private repo's
   `scripts/org-custom-domain.sh` (request, the org's DNS records, `--attach` to both ALB listeners); the
-  site admin sets the field once the certificate is attached. Domains the CDK certificates already cover
-  (centerforpeacewest.com) need no script.
+  site admin sets the field once the certificate is attached, and the live probe refuses it before then.
+  Domains the CDK certificates already cover (centerforpeacewest.com) need no script.
 - Local fixture: Beta Corp answers on `beta-corp.test` (`FakeData.BETA_CUSTOM_DOMAIN`), which the webtests map
   to loopback.
 

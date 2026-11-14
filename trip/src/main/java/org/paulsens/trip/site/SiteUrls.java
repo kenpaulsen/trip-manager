@@ -20,7 +20,8 @@ import org.paulsens.trip.model.Trip;
  * {@code https://{slug}.{org-site base domain}}, and every other org at the site-wide setting the caller
  * names ({@code reg.mail.baseUrl}, {@code chat.mail.baseUrl}). An org with a tier-2 custom domain is addressed
  * there instead ({@code https://{customDomain}}): it is the site's canonical name, and the subdomain keeps
- * serving the same site for links already sent. The stored setting is thus the shared-site rung only.
+ * serving the same site for links already sent. The stored setting is thus the shared-site rung only. The one
+ * exception is a link the native apps must open ({@link #appLinkBaseUrl}), which stays on the subdomain.
  *
  * <p>Every entry point takes the organization (or the entity it hangs off) EXPLICITLY. The senders that need
  * these run under the system request context -- the digest scheduler, notification fan-out -- where no host
@@ -61,6 +62,29 @@ public final class SiteUrls {
     /** {@link #baseUrl} for the organization owning {@code trip} (null or org-less trip = site rung). */
     public static String baseUrlForTrip(final Trip trip, final SettingDef siteSetting, final ConfigCommands config) {
         return baseUrlForOrgId(trip == null ? null : trip.getOrgId(), siteSetting, config);
+    }
+
+    /**
+     * The base URL for a link the native apps must open rather than the browser (a chat invite,
+     * {@code docs/chat-invites.md}): {@link #baseUrl}, except that an org with a subdomain is addressed THERE even
+     * when it has a custom domain. The apps claim {@code *.unitetrip.com} and the shared hosts, and a customer's
+     * own domain is added online with no app release, so a link on it would open the browser.
+     */
+    public static String appLinkBaseUrl(final Organization org, final SettingDef siteSetting,
+            final ConfigCommands config) {
+        final String slug = (org == null) ? null : org.getSlug();
+        if (slug != null && !slug.isBlank()) {
+            return orgSiteUrl(slug, config);
+        }
+        return withoutTrailingSlash(config.getString(siteSetting));
+    }
+
+    /** {@link #appLinkBaseUrl} for the organization owning {@code trip} (null or org-less trip = site rung). */
+    public static String appLinkBaseUrlForTrip(final Trip trip, final SettingDef siteSetting,
+            final ConfigCommands config) {
+        final String orgId = (trip == null) ? null : trip.getOrgId();
+        return appLinkBaseUrl(orgOf(orgId, id -> DAO.getInstance().getOrganization(id, Cached.YES)), siteSetting,
+                config);
     }
 
     /**

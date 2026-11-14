@@ -2052,9 +2052,10 @@ public class ChatCommands {
 
     private String inviteUrl(final String tripId, final String selector, final String validator) {
         // The trip's org's own site when it has one, else the chat base-URL setting: the guest must land on
-        // the site the trip lives on, whatever host the inviter was browsing.
+        // the site the trip lives on, whatever host the inviter was browsing. Its SUBDOMAIN, never its custom
+        // domain: the link must open the app, and the apps claim *.unitetrip.com (docs/chat-invites.md).
         final Trip trip = dao().getTrip(tripId, Cached.YES).orElse(null);
-        final String prefix = org.paulsens.trip.site.SiteUrls.baseUrlForTrip(trip,
+        final String prefix = org.paulsens.trip.site.SiteUrls.appLinkBaseUrlForTrip(trip,
                 KnownSettings.CHAT_MAIL_BASE_URL, config);
         return prefix + org.paulsens.trip.chat.InviteLinks.shortPath(tripId, selector, validator);
     }

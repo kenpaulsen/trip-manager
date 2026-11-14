@@ -26,7 +26,6 @@ import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.SitePage;
 import org.paulsens.trip.model.SitePage.Placement;
 import org.paulsens.trip.site.SiteContext;
-import org.paulsens.trip.site.SiteUrls;
 
 /**
  * An organization site's own pages and menu links ({@link Organization#getSitePages()}), managed on the org's
@@ -148,7 +147,8 @@ public class SitePageCommands {
         if (org == null || org.getSlug() == null || org.getSlug().isBlank()) {
             return null;
         }
-        return SiteUrls.orgSiteUrl(org, new ConfigCommands()) + PAGE_PATH + page.name();
+        // The admin pages' one org-site builder: it keeps the *.localhost rule, so a laptop's link stays local.
+        return new SiteCommands().orgSiteUrlOf(org) + PAGE_PATH.substring(1) + page.name();
     }
 
     /** Whether the caller may edit page CONTENT on this org's site (the content edit mode's own gate). */

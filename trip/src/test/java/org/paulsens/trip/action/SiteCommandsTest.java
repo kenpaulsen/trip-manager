@@ -93,15 +93,18 @@ public class SiteCommandsTest {
 
     @Test
     public void orgSiteLinksFollowWhereTheAdminIsBrowsingFrom() {
-        Assert.assertEquals(SiteCommands.orgSiteUrl("acme", "www.visitqueenofpeace.com", 443, "unitetrip.com"),
+        final Organization acme = orgWith("acme", null);
+        final ConfigCommands config = new ConfigCommands();
+        Assert.assertEquals(SiteCommands.orgSiteUrl(acme, "www.visitqueenofpeace.com", 443, config),
                 "https://acme.unitetrip.com/");
-        Assert.assertEquals(SiteCommands.orgSiteUrl("acme", null, -1, "unitetrip.com"),
+        Assert.assertEquals(SiteCommands.orgSiteUrl(acme, null, -1, config),
                 "https://acme.unitetrip.com/", "off-request: the production shape");
-        Assert.assertEquals(SiteCommands.orgSiteUrl("acme", "localhost", 8080, "unitetrip.com"),
+        Assert.assertEquals(SiteCommands.orgSiteUrl(acme, "localhost", 8080, config),
                 "http://acme.localhost:8080/", "a laptop cannot resolve the base domain; *.localhost it can");
-        Assert.assertEquals(SiteCommands.orgSiteUrl("acme", "cfpw.localhost", 80, "unitetrip.com"),
+        Assert.assertEquals(SiteCommands.orgSiteUrl(acme, "cfpw.localhost", 80, config),
                 "http://acme.localhost/");
         Assert.assertEquals(site.orgSiteUrl("acme"), "https://acme.unitetrip.com/", "no FacesContext here");
+        Assert.assertEquals(site.orgSiteUrlOf(acme), "https://acme.unitetrip.com/");
 
         final HttpServletRequest local = Mockito.mock(HttpServletRequest.class);
         Mockito.when(local.getServerName()).thenReturn("localhost");
@@ -112,15 +115,29 @@ public class SiteCommandsTest {
     }
 
     @Test
-    public void aCustomDomainIsTheOrgSiteLinkExceptOnALaptop() {
-        Assert.assertEquals(SiteCommands.orgSiteUrl("beta", "www.visitqueenofpeace.com", 443, "unitetrip.com",
-                slug -> "beta-corp.test"), "https://beta-corp.test/");
-        Assert.assertEquals(SiteCommands.orgSiteUrl("beta", "localhost", 8080, "unitetrip.com",
-                slug -> "beta-corp.test"), "http://beta.localhost:8080/", "a laptop keeps the subdomain");
-        Assert.assertEquals(SiteCommands.orgSiteUrl("acme", null, -1, "unitetrip.com", slug -> null),
-                "https://acme.unitetrip.com/", "no custom domain: the subdomain");
-        Assert.assertEquals(SiteCommands.orgSiteUrl("no-such-slug", null, -1, "unitetrip.com"),
-                "https://no-such-slug.unitetrip.com/", "the cached lookup finds no org: the subdomain");
+    public void aCustomDomainIsTheOrgSiteLinkExceptOnALaptop() throws Exception {
+        final Organization beta = orgWith("beta", "www.Beta-Corp.test");
+        final ConfigCommands config = new ConfigCommands();
+        Assert.assertEquals(SiteCommands.orgSiteUrl(beta, "www.visitqueenofpeace.com", 443, config),
+                "https://beta-corp.test/");
+        Assert.assertEquals(SiteCommands.orgSiteUrl(beta, "localhost", 8080, config),
+                "http://beta.localhost:8080/", "a laptop keeps the subdomain");
+        // The slug-taking entry points find the org that holds the slug, and build from it.
+        final String slug = "cd" + Long.toString(System.nanoTime(), 36);
+        final Organization saved = orgWith(slug, slug + ".example.org");
+        saved.setName("Custom Domain " + slug);
+        Assert.assertTrue(DAO.getInstance().saveOrganization(saved));
+        Assert.assertEquals(SiteCommands.orgSiteUrl(slug, (HttpServletRequest) null),
+                "https://" + slug + ".example.org/");
+        Assert.assertEquals(SiteCommands.orgSiteUrl("no-such-slug", (HttpServletRequest) null),
+                "https://no-such-slug.unitetrip.com/", "no org holds the slug: its subdomain shape");
+    }
+
+    private static Organization orgWith(final String slug, final String customDomain) {
+        final Organization org = new Organization();
+        org.setSlug(slug);
+        org.setCustomDomain(customDomain);
+        return org;
     }
 
     @Test
