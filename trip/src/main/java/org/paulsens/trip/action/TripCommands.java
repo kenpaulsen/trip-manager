@@ -126,9 +126,11 @@ public class TripCommands {
     }
 
     /**
-     * The org's trips, newest first, for its Trips page. View-gated like the page itself. The raw fetch is
-     * over-sized because the org filter runs after the recency cap -- one busy tenant must not push another
-     * tenant's trips out of their own list. Legacy trips with no orgId never appear here (expected).
+     * The org's {@code limit} latest-ending trips, in display order (by start), for its Trips page. View-gated
+     * like the page itself. The raw fetch is over-sized because the org filter runs after the recency cap -- one
+     * busy tenant must not push another tenant's trips out of their own list -- and the cap keeps the
+     * latest-ending trips of that window (a plain {@code limit} on the start-ordered list kept the earliest). Legacy
+     * trips with no orgId never appear here (expected).
      */
     public List<Trip> getTripsForOrg(final String orgId, final int limit) {
         if (orgId == null || orgId.isBlank() || !orgSource.get().canViewOrgTrips(orgId)) {
@@ -137,10 +139,9 @@ public class TripCommands {
         // Deliberately NOT site-gated: the org's own trips page is keyed and gated by the org, and a site
         // admin opens it from the shared host's Organizations page; the page links each trip to the host
         // that reaches it (SiteCommands.hostFor) rather than this list going empty there.
-        return recentTripsAnywhere(limit * 4).stream()
+        return latestEnding(recentTripsAnywhere(limit * 4).stream()
                 .filter(trip -> orgId.equals(trip.getOrgId()))
-                .limit(limit)
-                .toList();
+                .toList(), limit);
     }
 
     /** Trip count for the org hub's card. Same gate as {@link #getTripsForOrg}. */
@@ -1336,16 +1337,41 @@ public class TripCommands {
         if (caller.isSiteAdmin()) {
             return getRecentTrips(limit);
         }
-        final Set<String> mine = caller.personId() == null ? Set.of()
-                : DAO.getInstance().getPerson(caller.personId(), Cached.YES)
-                        .map(TripCommands::orgIdsOf)
-                        .orElse(Set.of());
+        final Set<String> mine = ownOrgIds(caller);
         if (mine.isEmpty()) {
             return List.of();
         }
         return latestEnding(here(recentTripsAnywhere(limit > 0 ? limit * 4 : limit)).stream()
                 .filter(trip -> mine.contains(trip.getOrgId()))
                 .toList(), limit);
+    }
+
+    /**
+     * {@link #getTripsForUser} narrowed to the signed-in caller's OWN organizations' trips, by the rule of
+     * {@link #getRecentTripsInMyOrgs}; a site admin gets them all. For the admin person page's Trips list: the
+     * subject's rosters may include another organization's trips, which are not an org people admin's to read
+     * (owner decision 2026-11-14).
+     */
+    public List<Trip> getTripsForUserInMyOrgs(final Person.Id userId) {
+        final Caller caller = callerSource.get();
+        if (caller.isSiteAdmin()) {
+            return getTripsForUser(userId);
+        }
+        final Set<String> mine = ownOrgIds(caller);
+        if (mine.isEmpty()) {
+            return List.of();
+        }
+        return getTripsForUser(userId).stream().filter(trip -> mine.contains(trip.getOrgId())).toList();
+    }
+
+    /** The ids of the organizations the caller belongs to ({@code Person.orgIds}); none for nobody or a stranger. */
+    private static Set<String> ownOrgIds(final Caller caller) {
+        if (caller.personId() == null) {
+            return Set.of();
+        }
+        return DAO.getInstance().getPerson(caller.personId(), Cached.YES)
+                .map(TripCommands::orgIdsOf)
+                .orElse(Set.of());
     }
 
     private static Set<String> orgIdsOf(final Person person) {
