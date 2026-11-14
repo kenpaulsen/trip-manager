@@ -1122,6 +1122,78 @@ public class TripsResourceTest extends ResourceTestSupport {
     }
 
     /**
+     * The payment From follows the trip too: a From the old organization could send from is checked against the
+     * new one on a move, whether the body sent it or it was stored before, exactly like the processor above.
+     */
+    @Test
+    public void aMovedTripDoesNotKeepAFromItsNewOrganizationMayNotSendFrom() throws IOException {
+        final String home = orgAdministeredBy();
+        final String away = orgAdministeredBy();
+        final String tripId = UUID.randomUUID().toString();
+        final Trip existing = trip(tripId, ME);
+        existing.setOrgId(home);
+        existing.getPaymentConfig().setMailFrom("Home <no-reply@centerforpeacewest.com>");
+        tripExists(existing);
+        Mockito.when(trips.saveTrip(ArgumentMatchers.eq(existing), ArgumentMatchers.any())).thenReturn(true);
+        signedInAsSiteAdmin(ME);
+
+        assertError(resource.update(tripId, CSRF_OK, orgBody(away)), 400, ApiErrors.VALIDATION_FAILED);
+        Assert.assertEquals(existing.getOrgId(), home, "a stored From the new owner may not use blocks the move");
+        assertError(resource.update(tripId, CSRF_OK, moveWithFrom(away, existing.getPaymentConfig().getMailFrom())),
+                400, ApiErrors.VALIDATION_FAILED);
+        Assert.assertEquals(existing.getOrgId(), home, "...and so does echoing it back");
+
+        assertOk(resource.update(tripId, CSRF_OK, moveWithFrom(away, "Away <no-reply@unitetrip.com>")));
+        Assert.assertEquals(existing.getOrgId(), away, "replaced in the same body: the move goes through");
+        Assert.assertEquals(existing.getPaymentConfig().getMailFrom(), "Away <no-reply@unitetrip.com>");
+        assertOk(resource.update(tripId, CSRF_OK, orgBody(home)));
+        Assert.assertEquals(existing.getOrgId(), home, "a shared-domain From moves with the trip");
+        existing.getPaymentConfig().setMailFrom("Home <no-reply@centerforpeacewest.com>");
+        assertOk(resource.update(tripId, CSRF_OK, moveWithFrom(away, "")));
+        Assert.assertEquals(existing.getOrgId(), away, "cleared in the same body: the move goes through");
+        Assert.assertNull(existing.getPaymentConfig().getMailFrom());
+    }
+
+    /**
+     * An echoed From is not a payment write (docs/api-contract.md): a client that sends back the From it read,
+     * stored when the rule was wider, keeps saving its other edits; a CHANGED From is still checked.
+     */
+    @Test
+    public void anEchoedFromIsNotRecheckedButAChangedOneIs() throws IOException {
+        final String orgId = orgAdministeredBy();
+        final String tripId = UUID.randomUUID().toString();
+        final Trip existing = trip(tripId, ME);
+        existing.setOrgId(orgId);
+        existing.getPaymentConfig().setMailFrom("Old <no-reply@centerforpeacewest.com>");
+        tripExists(existing);
+        Mockito.when(trips.saveTrip(ArgumentMatchers.eq(existing), ArgumentMatchers.any())).thenReturn(true);
+        signedInAsSiteAdmin(ME);
+
+        final TripDto echo = new TripDto(null, "Renamed", null, null, false, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null,
+                new TripPaymentConfigDto(null, null, null, null, null, " Old <no-reply@centerforpeacewest.com> ",
+                        null, null, null));
+        assertOk(resource.update(tripId, CSRF_OK, echo));
+        Assert.assertEquals(existing.getTitle(), "Renamed", "the title edit is not lost to the stored From");
+        assertError(resource.update(tripId, CSRF_OK, paymentBody(new TripPaymentConfigDto(null, null, null, null,
+                null, "New <no-reply@centerforpeacewest.com>", null, null, null))), 400, ApiErrors.VALIDATION_FAILED);
+        Assert.assertEquals(existing.getPaymentConfig().getMailFrom(), "Old <no-reply@centerforpeacewest.com>");
+
+        // A new trip has nothing stored: its From is always checked.
+        Mockito.when(trips.createTrip()).thenReturn(trip("new-from-trip", ME));
+        final TripDto create = new TripDto(null, "Rome 2027", null, null, false, null, null, null, null, orgId, null,
+                null, null, null, null, null, null, null, null, null, null, null,
+                new TripPaymentConfigDto(null, null, null, null, null, "x@centerforpeacewest.com", null, null, null));
+        assertError(resource.create(CSRF_OK, create), 400, ApiErrors.VALIDATION_FAILED);
+    }
+
+    private static TripDto moveWithFrom(final String orgId, final String mailFrom) {
+        return new TripDto(null, null, null, null, false, null, null, null, null, orgId, null, null, null, null,
+                null, null, null, null, null, null, null, null,
+                new TripPaymentConfigDto(null, null, null, null, null, mailFrom, null, null, null));
+    }
+
+    /**
      * F7: the trip editor shows Payment Settings only to the organization's payments admins. The API took
      * them from any Editor Admin: one PUT made every payer pay the fee and copied every confirmation, with
      * the payer's name and amount, to an outside address.

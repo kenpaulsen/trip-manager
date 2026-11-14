@@ -75,15 +75,24 @@ public class SettingDef implements Serializable {
      * refuse anything else, and the reading code re-checks before sending to it.
      */
     boolean email;
+    /**
+     * Whether a non-blank value is a SITE-level From address: one address on a sending domain that SES verifies
+     * AND that is shared ({@code KnownSettings.MAIL_SHARED_DOMAINS}) -- the domains the Settings page's From
+     * composers offer. Site mail goes out for every organization, so it must never wear one tenant's custom
+     * domain, and a From on an unverified domain bounces at SES with nothing on screen. Both save paths refuse
+     * anything else.
+     */
+    boolean siteFrom;
 
     public SettingDef(final String name, final Config.Type type, final String defaultValue, final String label,
             final String description) {
-        this(name, type, defaultValue, label, description, false, false, List.of(), false, false, false);
+        this(name, type, defaultValue, label, description, false, false, List.of(), false, false, false, false);
     }
 
     private SettingDef(final String name, final Config.Type type, final String defaultValue, final String label,
             final String description, final boolean orgOverridable, final boolean orgOnly,
-            final List<String> choices, final boolean httpUrl, final boolean hexColor, final boolean email) {
+            final List<String> choices, final boolean httpUrl, final boolean hexColor, final boolean email,
+            final boolean siteFrom) {
         this.name = name;
         this.type = type;
         this.defaultValue = defaultValue;
@@ -95,42 +104,49 @@ public class SettingDef implements Serializable {
         this.httpUrl = httpUrl;
         this.hexColor = hexColor;
         this.email = email;
+        this.siteFrom = siteFrom;
     }
 
     /** This declaration, marked as one an organization may override on its own site. */
     public SettingDef withOrgOverride() {
         return new SettingDef(name, type, defaultValue, label, description, true, false, choices, httpUrl,
-                hexColor, email);
+                hexColor, email, siteFrom);
     }
 
     /** This declaration, marked org-explicit: an org host never inherits the site's value (see {@link #orgOnly}). */
     public SettingDef withOrgOnly() {
         return new SettingDef(name, type, defaultValue, label, description, true, true, choices, httpUrl,
-                hexColor, email);
+                hexColor, email, siteFrom);
     }
 
     /** This declaration, restricted to exactly these values (see {@link #choices}); blank stays "unset". */
     public SettingDef withChoices(final String... allowed) {
         return new SettingDef(name, type, defaultValue, label, description, orgOverridable, orgOnly,
-                List.of(allowed), httpUrl, hexColor, email);
+                List.of(allowed), httpUrl, hexColor, email, siteFrom);
     }
 
     /** This declaration, requiring a non-blank value to be an {@code http(s)} URL (see {@link #httpUrl}). */
     public SettingDef withHttpUrl() {
         return new SettingDef(name, type, defaultValue, label, description, orgOverridable, orgOnly, choices,
-                true, hexColor, email);
+                true, hexColor, email, siteFrom);
     }
 
     /** This declaration, requiring a non-blank value to be a CSS hex color (see {@link #hexColor}). */
     public SettingDef withHexColor() {
         return new SettingDef(name, type, defaultValue, label, description, orgOverridable, orgOnly, choices,
-                httpUrl, true, email);
+                httpUrl, true, email, siteFrom);
     }
 
     /** This declaration, requiring a non-blank value to be one email address (see {@link #email}). */
     public SettingDef withEmail() {
         return new SettingDef(name, type, defaultValue, label, description, orgOverridable, orgOnly, choices,
-                httpUrl, hexColor, true);
+                httpUrl, hexColor, true, siteFrom);
+    }
+
+    /** This declaration, requiring a non-blank value to be a site-level From address (see {@link #siteFrom}). */
+    public SettingDef withSiteFrom() {
+        return new SettingDef(name, type, defaultValue, label, description, orgOverridable, orgOnly, choices,
+                httpUrl, hexColor, email, true);
     }
 
     /**

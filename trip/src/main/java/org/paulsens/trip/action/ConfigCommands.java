@@ -492,25 +492,7 @@ public class ConfigCommands {
         if (!parsesAs(raw, config.getType())) {
             return "'" + raw + "' is not a valid " + config.getType() + ".";
         }
-        final String declared = KnownSettings.find(config.getName()).map(def -> declarationRejection(def, raw))
-                .orElse(null);
-        return declared != null ? declared : sharedFromRejection(config.getName(), raw);
-    }
-
-    /**
-     * The site's payment-mail From is site-level mail sent for every organization, so like every site From it may
-     * only use a shared sending domain ({@link KnownSettings#MAIL_SHARED_DOMAINS}); it is the one site From that is
-     * still a free-text row rather than the Email addresses composer.
-     */
-    private String sharedFromRejection(final String name, final String raw) {
-        if (!KnownSettings.PAYMENT_MAIL_FROM.getName().equals(name)) {
-            return null;
-        }
-        final String domain = MailAddressCommands.domainOf(raw);
-        final List<String> shared = org.paulsens.trip.site.CustomDomains.parseList(
-                getString(KnownSettings.MAIL_SHARED_DOMAINS));
-        return shared.contains(domain) ? null : "'" + raw + "' must be an address on a shared sending domain ("
-                + String.join(", ", shared) + "), because payment mail goes out for every organization.";
+        return KnownSettings.find(config.getName()).map(def -> declarationRejection(def, raw)).orElse(null);
     }
 
     private static boolean parsesAs(final String raw, final Config.Type type) {
@@ -524,7 +506,7 @@ public class ConfigCommands {
     }
 
     /** The declaration's own rules on a non-blank, type-valid value; null when it passes. */
-    private static String declarationRejection(final SettingDef def, final String raw) {
+    private String declarationRejection(final SettingDef def, final String raw) {
         if (!def.allows(raw)) {
             return "'" + raw + "' is not one of the choices for " + def.getLabel() + ": "
                     + String.join(", ", def.getChoices()) + ".";
@@ -539,7 +521,20 @@ public class ConfigCommands {
             return "'" + raw + "' is not a hex color like #333333 or #fc0, which " + def.getLabel()
                     + " requires.";
         }
-        return null;
+        return def.isSiteFrom() ? siteFromRejection(def, raw) : null;
+    }
+
+    /**
+     * A site From must be on a domain the Settings page's From composers offer: SES-verified AND shared. Site mail
+     * goes out for every organization (so never on one tenant's custom domain), and a From SES has not verified
+     * bounces at send time with nothing on screen.
+     */
+    private String siteFromRejection(final SettingDef def, final String raw) {
+        final MailAddressCommands addresses = new MailAddressCommands(this);
+        final List<String> allowed = addresses.getSendingDomains();
+        return addresses.isSendable(raw, allowed) ? null : "'" + raw + "' must be an address on a verified, shared "
+                + "sending domain (" + String.join(", ", allowed) + "), which " + def.getLabel() + " requires: it "
+                + "goes out for every organization.";
     }
 
     private static boolean parses(final String raw, final java.util.function.Function<String, Number> parser) {

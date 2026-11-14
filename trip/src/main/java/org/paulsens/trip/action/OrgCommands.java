@@ -1648,7 +1648,7 @@ public class OrgCommands {
 
     /** The shared sending domains (every org may use them), as configured; never null. */
     public List<String> sharedSendingDomains() {
-        return CustomDomains.parseList(new ConfigCommands().getString(KnownSettings.MAIL_SHARED_DOMAINS));
+        return MailAddressCommands.sharedDomains(new ConfigCommands());
     }
 
     /**
@@ -1663,11 +1663,6 @@ public class OrgCommands {
     /** Whether {@code domain} is a shared sending domain (the Email tab's label: "shared" vs "this org's"). */
     public boolean isSharedDomain(final String domain) {
         return domain != null && sharedSendingDomains().contains(domain.trim().toLowerCase(Locale.ROOT));
-    }
-
-    /** The domains site-level From addresses (the Settings page's Email addresses) may use: shared only. */
-    public List<String> siteMailDomains() {
-        return candidates(null);
     }
 
     /** The domains this organization's From addresses may use -- its allow-list within its {@link

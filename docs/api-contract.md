@@ -78,12 +78,15 @@ paymentConfig{processorConfigId, feesPaidBy (ORGANIZATION|PAYER), donationEnable
 confirmationTemplateId, mailFrom, replyTo, bcc, extraTokens{}} (2026-11: the trip's OWN payment settings,
 the trip rung of the ladder in `docs/payments.md`; absent from lists; on `POST`/`PUT` an absent field is left
 alone and `""` clears it back to inherit; `processorConfigId` must name one of the trip's organization's
-configurations, else 400 `VALIDATION_FAILED`). Since 2026-11-12 it is read AND written only by a payments admin
-of the trip's organization (`paymentsAdmin@org`, or a site admin), the trip editor's own Payment Settings rule:
-a single-trip GET omits it for anyone else, a trip manager included, and a `POST`/`PUT` whose `paymentConfig`
-would CHANGE a value answers 403 `FORBIDDEN` without that grant. A body that omits it, sends it empty, or echoes
-the stored values unchanged is not a payment write and is saved as before. `page` (the trip page's look) is still
-read by the trip's managers.
+configurations, else 400 `VALIDATION_FAILED`; since 2026-11-13 a `mailFrom` that differs from the stored one must
+be an address on one of the organization's sending domains (the shared domains plus its own custom domain, within
+its allow-list), else 400 `VALIDATION_FAILED`, and on a move to another organization the From the trip carries is
+checked against the new one the same way, sent or stored). Since 2026-11-12 it is read AND written only by a
+payments admin of the trip's organization (`paymentsAdmin@org`, or a site admin), the trip editor's own Payment
+Settings rule: a single-trip GET omits it for anyone else, a trip manager included, and a `POST`/`PUT` whose
+`paymentConfig` would CHANGE a value answers 403 `FORBIDDEN` without that grant. A body that omits it, sends it
+empty, or echoes the stored values unchanged is not a payment write and is saved as before. `page` (the trip page's
+look) is still read by the trip's managers.
 
 `PUT /api/trips/{id}` and the trip's organization (2026-11-12): an `orgId` different from the trip's own moves the
 trip to another organization, which a trip manager may not do: 403 `FORBIDDEN` unless the caller is a site admin or
