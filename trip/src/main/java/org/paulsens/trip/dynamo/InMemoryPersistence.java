@@ -74,7 +74,8 @@ public class InMemoryPersistence implements Persistence {
             // pages edit both). Their scan caches rebuild against this store whenever local mode runs on a real
             // Valkey (the pipeline's integration test), and a rebuild removes what its scan does not return:
             // unregistered, every scan came back empty and the first full read removed every seeded role
-            // (pipeline run f3752b04). ScanCachedDAOTest now fails for any scan-cached table missing here.
+            // (pipeline run f3752b04). ScanCachedDAOTest fails for any scan-cached table missing here: it reads
+            // through every DAO holding a PartitionScanCache, and counts them so that a new one cannot be left out.
             Map.entry(PrivilegesDAO.PRIVILEGE_TABLE, new TableKeys(PrivilegesDAO.NAME, null)),
             Map.entry(ConfigDAO.CONFIG_TABLE, new TableKeys(ConfigDAO.NAME, null)),
             // Auth tokens (remember-me, API refresh/access) work fully in local mode (the webtest deletes

@@ -200,8 +200,7 @@ public class TransactionsCommands {
     public static boolean mayKeepInGroup(final TripFinanceGate gate, final String tripId, final Person.Id member,
             final String groupId) {
         final Transaction existing = isNullOrEmpty(groupId) || member == null ? null
-                : DAO.getInstance().getTransactions(member, Cached.NO).stream()
-                        .filter(tx -> groupId.equals(tx.getGroupId())).findAny().orElse(null);
+                : groupRowOf(member, groupId).orElse(null);
         return existing == null ? gate.mayCharge(tripId, member) : gate.mayWriteRow(tripId, existing);
     }
 
@@ -635,6 +634,14 @@ public class TransactionsCommands {
      * @return  Optionally the matching live {@code Transaction}.
      */
     public Optional<Transaction> getGroupTransactionForUser(final Person.Id userId, final String groupId) {
+        return groupRowOf(userId, groupId);
+    }
+
+    /**
+     * The one group-row lookup, static so {@link #mayKeepInGroup} judges the very row a group save then edits.
+     * {@link #getGroupTransactionForUser} stays an instance method: tests stub and override it.
+     */
+    private static Optional<Transaction> groupRowOf(final Person.Id userId, final String groupId) {
         return DAO.getInstance().getTransactions(userId, Cached.NO).stream()
                 .filter(tx -> groupId.equals(tx.getGroupId())).findAny();
     }

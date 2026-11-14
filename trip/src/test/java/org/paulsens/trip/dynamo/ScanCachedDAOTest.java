@@ -1,14 +1,19 @@
 package org.paulsens.trip.dynamo;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Stream;
 import org.mockito.AdditionalAnswers;
 import org.mockito.Mockito;
 import org.paulsens.trip.cache.CacheClient;
 import org.paulsens.trip.cache.InMemoryCacheClient;
+import org.paulsens.trip.cache.PartitionScanCache;
 import org.paulsens.trip.model.Config;
 import org.paulsens.trip.model.MediaItem;
 import org.paulsens.trip.model.Privilege;
@@ -51,8 +56,43 @@ public class ScanCachedDAOTest {
      */
     @Test
     public void everyLoaderBehindAScanCacheAsksForAConsistentScan() {
-        final RecordingPersistence store = new RecordingPersistence();
+        final List<ScanRequest> scans = scansOfEveryScanCachedDao();
 
+        Assert.assertEquals(scans.stream().map(ScanRequest::tableName).toList(),
+                List.of("privs", "config", MediaDAO.MEDIA_TABLE, TemplateDAO.TEMPLATES_TABLE,
+                        ContentDAO.CONTENT_TABLE, OrganizationDAO.ORG_TABLE, LodgingDAO.ACCOMMODATIONS_TABLE));
+        Assert.assertTrue(scans.stream().allMatch(scan -> Boolean.TRUE.equals(scan.consistentRead())),
+                "every one of them is consistent: " + scans);
+    }
+
+    /**
+     * In local mode on a real Valkey (the pipeline's integration test) the scan caches rebuild against
+     * InMemoryPersistence, and a rebuild removes what its scan does not return: an unregistered table scans empty
+     * and its seeded rows vanish on the first full read. Media, then templates and content, then privileges and
+     * config (run f3752b04) each did.
+     */
+    @Test
+    public void everyScanCachedTableIsKeptByTheLocalFake() {
+        final List<ScanRequest> scans = scansOfEveryScanCachedDao();
+
+        Assert.assertTrue(scans.stream().map(ScanRequest::tableName).allMatch(InMemoryPersistence::isRegistered),
+                "every scan-cached table must be in InMemoryPersistence.TABLES: " + scans);
+    }
+
+    /**
+     * The two checks above see only the DAOs {@link #scansOfEveryScanCachedDao} reads through, so a new DAO
+     * holding a {@code PartitionScanCache} that is not added there would pass both unread. Counting the scan
+     * caches the package declares makes leaving one out fail here instead.
+     */
+    @Test
+    public void everyScanCacheInThePackageIsReadByTheseChecks() throws Exception {
+        Assert.assertEquals(scanCacheFieldsInThisPackage(), scansOfEveryScanCachedDao().size(),
+                "a DAO holds a PartitionScanCache that scansOfEveryScanCachedDao does not read through");
+    }
+
+    /** One cold read through every DAO with a scan cache, each on a cache that takes the scan path. */
+    private List<ScanRequest> scansOfEveryScanCachedDao() {
+        final RecordingPersistence store = new RecordingPersistence();
         new PrivilegesDAO(mapper, store, valkeyLike()).getGlobalPrivileges();
         new ConfigDAO(mapper, store, valkeyLike()).getAllConfig();
         new MediaDAO(mapper, store, valkeyLike()).getAllMedia();
@@ -60,18 +100,26 @@ public class ScanCachedDAOTest {
         new ContentDAO(mapper, store, valkeyLike()).getContentForSection("home");
         new OrganizationDAO(mapper, store, valkeyLike()).getOrganizations();
         new LodgingDAO(mapper, store, valkeyLike()).getAccommodations();
+        return store.scans;
+    }
 
-        Assert.assertEquals(store.scans.stream().map(ScanRequest::tableName).toList(),
-                List.of("privs", "config", MediaDAO.MEDIA_TABLE, TemplateDAO.TEMPLATES_TABLE,
-                        ContentDAO.CONTENT_TABLE, OrganizationDAO.ORG_TABLE, LodgingDAO.ACCOMMODATIONS_TABLE));
-        Assert.assertTrue(store.scans.stream().allMatch(scan -> Boolean.TRUE.equals(scan.consistentRead())),
-                "every one of them is consistent: " + store.scans);
-        // And every one of them is a table the local fake keeps. In local mode on a real Valkey (the pipeline's
-        // integration test) these caches rebuild against InMemoryPersistence, and a rebuild removes what its
-        // scan does not return: an unregistered table scans empty and its seeded rows vanish on the first full
-        // read. Media, then templates and content, then privileges and config (run f3752b04) each did.
-        Assert.assertTrue(store.scans.stream().map(ScanRequest::tableName).allMatch(InMemoryPersistence::isRegistered),
-                "every scan-cached table must be in InMemoryPersistence.TABLES: " + store.scans);
+    /** The PartitionScanCache fields declared by the main (not test) classes of this package. */
+    private static long scanCacheFieldsInThisPackage() throws Exception {
+        final Path root = Path.of(InMemoryPersistence.class.getProtectionDomain().getCodeSource().getLocation()
+                .toURI());
+        final String pkg = InMemoryPersistence.class.getPackageName();
+        final List<Path> classFiles;
+        try (Stream<Path> files = Files.list(root.resolve(pkg.replace('.', '/')))) {
+            classFiles = files.filter(file -> file.toString().endsWith(".class")).toList();
+        }
+        long count = 0;
+        for (final Path file : classFiles) {
+            final String simple = file.getFileName().toString().replace(".class", "");
+            final Class<?> type = Class.forName(pkg + "." + simple, false, InMemoryPersistence.class.getClassLoader());
+            count += Arrays.stream(type.getDeclaredFields())
+                    .filter(field -> field.getType() == PartitionScanCache.class).count();
+        }
+        return count;
     }
 
     // --- PrivilegesDAO ---
