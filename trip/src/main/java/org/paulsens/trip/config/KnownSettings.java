@@ -692,7 +692,9 @@ public final class KnownSettings {
             "payment.mail.from", Config.Type.STRING, "",
             "Payment confirmation From address",
             "Site-wide fallback From for payment confirmation email, for example Site Name <no-reply@site.org>. The "
-                    + "trip's payment settings, then the organization's defaults, win when set.");
+                    + "trip's payment settings, then the organization's defaults, win when set. Must be on a "
+                    + "verified, shared sending domain, because it goes out for every organization.")
+            .withSiteFrom();
 
     public static final SettingDef PAYMENT_CONFIRM_TEMPLATE = new SettingDef(
             "payment.confirm.templateId", Config.Type.STRING, "payment-confirmation",

@@ -485,7 +485,7 @@ public class TripsResource extends BaseResource {
         if (badValue != null) {
             return error(400, ApiErrors.VALIDATION_FAILED, badValue);
         }
-        final String paymentProblem = paymentConfigProblem(body, orgId);
+        final String paymentProblem = paymentConfigProblem(body, orgId, null);
         if (paymentProblem != null) {
             return error(400, ApiErrors.VALIDATION_FAILED, paymentProblem);
         }
@@ -554,7 +554,7 @@ public class TripsResource extends BaseResource {
         // Payment settings and people are checked against the org the trip will END UP in, not the one it
         // is leaving (applyPeople reads the body's orgId the same way).
         final String toOrg = moved ? body.orgId() : fromOrg;
-        final String paymentProblem = paymentConfigProblem(body, toOrg);
+        final String paymentProblem = paymentConfigProblem(body, toOrg, trip.getPaymentConfig().getMailFrom());
         if (paymentProblem != null) {
             return error(400, ApiErrors.VALIDATION_FAILED, paymentProblem);
         }
@@ -563,10 +563,10 @@ public class TripsResource extends BaseResource {
         if (writesPaymentConfig(body, trip) && !isPaymentsAdminOf(toOrg)) {
             return error(403, ApiErrors.FORBIDDEN, PAYMENTS_ADMIN_REQUIRED);
         }
-        final String carried = moved
-                ? processorProblem(paymentConfigAfter(body, trip).getProcessorConfigId(), toOrg) : null;
+        final String carried = moved ? carriedPaymentProblem(paymentConfigAfter(body, trip), toOrg) : null;
         if (carried != null) {
-            // The override named the OLD org's processor account; it does not follow the trip to a new owner.
+            // The overrides named the OLD org's processor account or sending domain; neither follows the trip
+            // to a new owner.
             return error(400, ApiErrors.VALIDATION_FAILED, carried);
         }
         if (body.kind() != null && isConference(body.kind()) != trip.isConference()
@@ -893,7 +893,7 @@ public class TripsResource extends BaseResource {
      * another tenant's account), and {@code feesPaidBy} must be a known value. Checked before anything is
      * mutated, so a refused write changes nothing.
      */
-    private static String paymentConfigProblem(final TripDto body, final String orgId) {
+    private static String paymentConfigProblem(final TripDto body, final String orgId, final String storedFrom) {
         final TripPaymentConfigDto config = (body == null) ? null : body.paymentConfig();
         if (config == null) {
             return null;
@@ -903,12 +903,34 @@ public class TripsResource extends BaseResource {
             return "paymentConfig.feesPaidBy must be ORGANIZATION or PAYER.";
         }
         // The trip editor's composer offers only the owning org's domains; the API must not be the way around
-        // it (a From on another tenant's domain would send as that tenant).
-        if (config.mailFrom() != null && !config.mailFrom().isBlank()
-                && !new OrgCommands().isOrgFromSendable(orgId, config.mailFrom())) {
-            return "paymentConfig.mailFrom must be an address on one of this organization's sending domains.";
+        // it (a From on another tenant's domain would send as that tenant). Only a CHANGED From is checked: an
+        // echo of the stored one is not a payment write, and a From saved under an older, wider rule must not
+        // make every PUT that sends it back fail. A move re-checks the carried From (carriedPaymentProblem).
+        final String from = blankToNull(config.mailFrom());
+        if (from != null && !from.equals(blankToNull(storedFrom))) {
+            final String problem = mailFromProblem(from, orgId);
+            if (problem != null) {
+                return problem;
+            }
         }
         return processorProblem(config.processorConfigId(), orgId);
+    }
+
+    /**
+     * Why the payment settings a trip carries into {@code toOrg} on a move cannot go with it, or null: a
+     * processor override must be one of the new org's configurations and a From override on one of its sending
+     * domains, whether the body sent them or they were stored before.
+     */
+    private static String carriedPaymentProblem(final TripPaymentConfig carried, final String toOrg) {
+        final String processor = processorProblem(carried.getProcessorConfigId(), toOrg);
+        return (processor != null || carried.getMailFrom() == null) ? processor
+                : mailFromProblem(carried.getMailFrom(), toOrg);
+    }
+
+    /** Why a trip of {@code orgId} cannot send payment mail from {@code from}, or null. */
+    private static String mailFromProblem(final String from, final String orgId) {
+        return new OrgCommands().isOrgFromSendable(orgId, from) ? null
+                : "paymentConfig.mailFrom must be an address on one of this organization's sending domains.";
     }
 
     /** Why a trip of {@code orgId} cannot name this processor configuration, or null (blank names none). */

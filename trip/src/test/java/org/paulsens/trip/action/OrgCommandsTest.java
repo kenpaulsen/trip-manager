@@ -1711,7 +1711,6 @@ public class OrgCommandsTest {
         assertEquals(admin().defaultMailDomain(orgId), "", "nothing preferred yet");
         // An unknown org is not a hole: it falls back to the shared list, never to "anything goes".
         assertEquals(admin().mailDomains("no-such-org"), SHARED);
-        assertEquals(admin().siteMailDomains(), SHARED);
         assertTrue(admin().isSharedDomain(" UniteTrip.com "));
         assertFalse(admin().isSharedDomain("centerforpeacewest.com"));
         assertFalse(admin().isSharedDomain(null));

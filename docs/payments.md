@@ -105,9 +105,15 @@ SES-verified domains. `OrgCommands.applyPaymentFrom` composes and validates it o
 Preview, refusing (growl, config untouched, dialog stays open via the `payFromOk` callback param) rather
 than storing an address SES will bounce. `replyTo` and `bcc` stay free text — they are not SES-bound.
 See the sending-domain section of `org-admin.md` for the allow-list itself. The trips API applies the same rule
-to `paymentConfig.mailFrom` (refused unless it is on one of the owning org's allowed domains, 2026-11-13), and
-the site's own `payment.mail.from` setting must be on a shared sending domain: payment mail with no trip or org
-From goes out for every organization.
+to `paymentConfig.mailFrom` (refused unless it is on one of the owning org's allowed domains, 2026-11-13). Only a
+CHANGED From is checked, so a client echoing back a From stored under the older, wider rule keeps saving its other
+edits; but moving a trip to another organization re-checks the From it carries, sent or stored, the same way the
+carried processor override is re-checked. The site's own `payment.mail.from` setting must be on a sending domain
+that SES verifies AND that is shared (what the Settings page's From composers offer; the declaration's
+`withSiteFrom()` flag, checked by `ConfigCommands` on save): payment mail with no trip or org From goes out for
+every organization. At send time `PaymentMailer` checks the effective From once more against the trip's
+organization and, when that organization may not send from it (a row stored before the move check, a custom
+domain that changed hands), sends from the site's `payment.mail.from` instead, else the Site email, and logs it.
 
 ## The money rules (user-locked; the golden test is `PaymentRecorderTest`)
 

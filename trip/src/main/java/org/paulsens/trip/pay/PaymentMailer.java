@@ -7,10 +7,14 @@ import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.action.Caller;
 import org.paulsens.trip.action.ConfigCommands;
+import org.paulsens.trip.action.MailAddressCommands;
 import org.paulsens.trip.action.MailCommands;
+import org.paulsens.trip.action.OrgCommands;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.chat.MailTemplates;
+import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.content.StarterTemplates;
 import org.paulsens.trip.model.Payment;
 import org.paulsens.trip.model.Person;
@@ -31,10 +35,12 @@ public class PaymentMailer {
     private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("MMMM d, yyyy");
     private final MailCommands mail;
     private final Function<Person.Id, Person> people;
+    private final OrgCommands orgs;
 
     public PaymentMailer(final MailCommands mail, final Function<Person.Id, Person> people) {
         this.mail = mail;
         this.people = people;
+        this.orgs = new OrgCommands(Caller::current, () -> mail);
     }
 
     /** Sends per the EFFECTIVE config; false when unconfigured/unsendable (logged, never thrown). */
@@ -57,7 +63,7 @@ public class PaymentMailer {
         // creation. The trip is the fallback for a legacy org-less row.
         return mail.sendManagedTemplateForOrg(effective.getConfirmationTemplateId(), orgOf(payment, trip),
                 values(payment, trip, effective, payer, orgName, processorName),
-                payer.getEmail(), effective.getMailFrom(), effective.getReplyTo(), bcc, actor);
+                payer.getEmail(), fromFor(trip, effective), effective.getReplyTo(), bcc, actor);
     }
 
     /**
@@ -80,7 +86,7 @@ public class PaymentMailer {
         final Map<String, Object> values = values(payment, trip, effective, payer, orgName, processorName);
         values.put("failureReason", reason == null ? "" : reason);
         return mail.sendManagedTemplateForOrg(StarterTemplates.PAYMENT_FAILED_ID, orgOf(payment, trip), values,
-                payer.getEmail(), effective.getMailFrom(), effective.getReplyTo(), effective.getBcc(), actor);
+                payer.getEmail(), fromFor(trip, effective), effective.getReplyTo(), effective.getBcc(), actor);
     }
 
     /**
@@ -103,8 +109,27 @@ public class PaymentMailer {
         final Map<String, Object> values = values(payment, trip, effective, payer, orgName, processorName);
         values.putAll(checkoutValues(payment, trip, processorName));
         return mail.sendManagedTemplateForOrg(StarterTemplates.CHECKOUT_CONFIRMATION_ID, orgOf(payment, trip), values,
-                payer.getEmail(), effective.getMailFrom(), effective.getReplyTo(),
+                payer.getEmail(), fromFor(trip, effective), effective.getReplyTo(),
                 joinAddresses(effective.getBcc(), notifyEmail), actor);
+    }
+
+    /**
+     * The From to send with: the effective one while the trip's organization may send from it, else the site's
+     * payment From, else the Site email. The trips API re-checks a From when a trip moves to another
+     * organization, but a row stored before that check, or a domain that has since stopped being the
+     * organization's (a custom domain moved or dropped), must not mail its registrants as another tenant.
+     */
+    String fromFor(final Trip trip, final TripPaymentConfig effective) {
+        final String from = effective.getMailFrom();
+        if (from == null || orgs.isOrgFromSendable(trip == null ? null : trip.getOrgId(), from)) {
+            return from;
+        }
+        final ConfigCommands config = new ConfigCommands();
+        final String site = config.getString(KnownSettings.PAYMENT_MAIL_FROM);
+        final String fallback = (site == null || site.isBlank()) ? new MailAddressCommands(config).siteFrom() : site;
+        log.warn("Trip {}: payment From {} is not on its organization's sending domains; sending as {}",
+                trip == null ? null : trip.getId(), from, fallback);
+        return fallback;
     }
 
     /**

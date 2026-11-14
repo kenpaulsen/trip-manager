@@ -2,15 +2,21 @@ package org.paulsens.trip.action;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 import org.paulsens.trip.audit.RequestContext;
 import org.paulsens.trip.cache.Cached;
+import org.paulsens.trip.content.V2PageBootstrap;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.FakeData;
+import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.MediaItem;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
+import org.paulsens.trip.site.ListingScope;
 import org.paulsens.trip.site.SiteContext;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
@@ -99,6 +105,62 @@ public class SiteScopedMenuAndMediaTest {
         Assert.assertTrue(acmeMenu.stream().allMatch(t -> FakeData.ACME_ORG_ID.equals(t.getOrgId())));
         final List<Trip> acmeOld = onSite(ACME_SITE, () -> trips.getMenuOldTrips(null, true, 1, 100));
         Assert.assertTrue(acmeOld.stream().allMatch(t -> FakeData.ACME_ORG_ID.equals(t.getOrgId())));
+    }
+
+    /**
+     * The owner decision of 2026-11-13: a shared site lists a hosted org its page CURATES on every site-wide
+     * surface (the Trips menu, the public trips behind the sidebar and countdown, the home albums, the site
+     * admin's selector), and drops it again once the curation is gone. Asserted at each call site, so a revert
+     * of any one of them to {@code ListingScope.shows} fails here.
+     */
+    @Test
+    public void aCuratedHostedOrgListsOnTheSharedSitesMenusAlbumsAndSelector() throws Exception {
+        final String sectionId = "ssm-curation-" + UUID.randomUUID();
+        final Trip acmeOpen = Trip.builder().id("ssm-acme-" + UUID.randomUUID()).title("Acme open house")
+                .startDate(LocalDateTime.now().minusDays(1)).endDate(LocalDateTime.now().plusDays(5)).build();
+        acmeOpen.setOrgId(FakeData.ACME_ORG_ID);
+        acmeOpen.setOpenToPublic(true);
+        Assert.assertTrue(DAO.getInstance().saveTrip(acmeOpen));
+        try {
+            Assert.assertFalse(onSite(SHARED, () -> listsAcme(acmeOpen)), "uncurated, a hosted org stays off");
+            Assert.assertTrue(DAO.getInstance().saveContent(new ContentInstance(sectionId, V2PageBootstrap.PAGE_KEY,
+                    "Trips", "pilgrimages", 1, new HashMap<>(Map.of(ListingScope.INCLUDE_ORGS_PROPERTY,
+                    FakeData.ACME_ORG_ID)), null, 99, 0, null, null), 1));
+            onSite(SHARED, () -> {
+                Assert.assertTrue(trips.listsInMenu(acmeOpen, null, false), "curated: on the menu");
+                Assert.assertTrue(ids(trips.getMenuTrips(1, null, false)).contains(acmeOpen.getId()));
+                Assert.assertTrue(ids(trips.getPublicTrips()).contains(acmeOpen.getId()), "sidebar, countdown");
+                Assert.assertTrue(media.getHomeAlbums(3650, 0).stream()
+                        .anyMatch(album -> acmeOpen.getId().equals(album.trip().getId())), "home albums");
+                Assert.assertTrue(switchableIds().contains(FakeData.ACME_ORG_ID), "the admin's selector");
+                Assert.assertFalse(switchableIds().contains(FakeData.BETA_ORG_ID), "only the curated org");
+                return null;
+            });
+            DAO.getInstance().deleteContent(sectionId);
+            Assert.assertFalse(onSite(SHARED, () -> listsAcme(acmeOpen)), "the curation left with the section");
+        } finally {
+            DAO.getInstance().deleteContent(sectionId);
+            DAO.getInstance().deleteTrip(acmeOpen);
+        }
+    }
+
+    /** Whether ANY of the shared site's site-wide surfaces lists Acme or this Acme trip. */
+    private boolean listsAcme(final Trip acmeTrip) {
+        return trips.listsInMenu(acmeTrip, null, false)
+                || ids(trips.getMenuTrips(1, null, true)).contains(acmeTrip.getId())
+                || ids(trips.getPublicTrips()).contains(acmeTrip.getId())
+                || media.getHomeAlbums(3650, 0).stream().anyMatch(album -> acmeTrip.getId().equals(album.trip()
+                        .getId()))
+                || switchableIds().contains(FakeData.ACME_ORG_ID);
+    }
+
+    private static List<String> ids(final List<Trip> list) {
+        return list.stream().map(Trip::getId).toList();
+    }
+
+    private static List<String> switchableIds() {
+        return new OrgCommands(TestCallers::siteAdmin).switchableOrgs().stream().map(o -> o.getId().getValue())
+                .toList();
     }
 
     @Test

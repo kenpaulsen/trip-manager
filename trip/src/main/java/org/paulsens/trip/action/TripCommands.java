@@ -776,8 +776,9 @@ public class TripCommands {
     /** {@link #getMenuTrips(int, Person.Id, boolean)} narrowed by the site admin's org selector. */
     public List<Trip> getMenuTrips(final int pastDaysToCountAsActive, final Person.Id userId,
             final boolean showAll, final String selectedOrgId) {
+        final ListingScope scope = ListingScope.forSite();
         return activeTripsAnywhere(pastDaysToCountAsActive).stream()
-                .filter(trip -> listsInMenu(trip, userId, showAll, selectedOrgId))
+                .filter(trip -> listsInMenu(trip, selectedOrgId, scope))
                 .toList();
     }
 
@@ -790,8 +791,9 @@ public class TripCommands {
     /** {@link #getMenuOldTrips(Person.Id, boolean, int, int)} narrowed by the site admin's org selector. */
     public List<Trip> getMenuOldTrips(final Person.Id userId, final boolean showAll,
             final int pastDaysStillActive, final int limit, final String selectedOrgId) {
+        final ListingScope scope = ListingScope.forSite();
         return getInactiveTrips(userId, true, pastDaysStillActive, limit).stream()
-                .filter(trip -> listsInMenu(trip, userId, showAll, selectedOrgId))
+                .filter(trip -> listsInMenu(trip, selectedOrgId, scope))
                 .toList();
     }
 
@@ -811,11 +813,19 @@ public class TripCommands {
      */
     boolean listsInMenu(final Trip trip, final Person.Id userId, final boolean showAll,
             final String selectedOrgId) {
+        return listsInMenu(trip, selectedOrgId, ListingScope.forSite());
+    }
+
+    /**
+     * {@link #listsInMenu(Trip, Person.Id, boolean, String)} with the site's scope built by the caller: a menu
+     * list builds it ONCE, so the shared page's curation is read once per list rather than once per trip.
+     */
+    private static boolean listsInMenu(final Trip trip, final String selectedOrgId, final ListingScope scope) {
         final SiteContext site = SiteContext.current();
         if (site.isOrg()) {
             return site.admits(trip.getOrgId());
         }
-        if (!ListingScope.forSite().listsSiteWide(trip.getOrgId())) {
+        if (!scope.listsSiteWide(trip.getOrgId())) {
             return false;
         }
         return selectedOrgId == null || selectedOrgId.isBlank() || selectedOrgId.equals(trip.getOrgId());

@@ -7,8 +7,11 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
 import org.paulsens.trip.action.MailCommands;
+import org.paulsens.trip.action.OrgCommands;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.chat.MailTemplates;
+import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.model.FeesPaidBy;
 import org.paulsens.trip.model.Payment;
 import org.paulsens.trip.model.Person;
@@ -34,7 +37,7 @@ public class PaymentMailerTest {
 
         final TripPaymentConfig effective = TripPaymentConfig.builder()
                 .confirmationTemplateId("payment-confirmation")
-                .mailFrom("CFPW <no-reply@x.org>").replyTo("info@x.org").bcc("books@x.org")
+                .mailFrom("CFPW <no-reply@unitetrip.com>").replyTo("info@x.org").bcc("books@x.org")
                 .build();
         assertTrue(mailer.sendConfirmation(payment(payer), trip(), effective, "CFPW", "PayPal",
                 "notify@x.org", AuditActor.system()));
@@ -42,7 +45,7 @@ public class PaymentMailerTest {
         final ArgumentCaptor<String> bcc = ArgumentCaptor.forClass(String.class);
         Mockito.verify(mail).sendManagedTemplateForOrg(ArgumentMatchers.eq("payment-confirmation"),
                 ArgumentMatchers.any(), ArgumentMatchers.anyMap(), ArgumentMatchers.eq("joe@example.com"),
-                ArgumentMatchers.eq("CFPW <no-reply@x.org>"), ArgumentMatchers.eq("info@x.org"),
+                ArgumentMatchers.eq("CFPW <no-reply@unitetrip.com>"), ArgumentMatchers.eq("info@x.org"),
                 bcc.capture(), ArgumentMatchers.any());
         assertEquals(bcc.getValue(), "books@x.org,notify@x.org",
                 "The org copy and the site notification ride as bcc");
@@ -57,7 +60,7 @@ public class PaymentMailerTest {
         final Person payer = person("Joe", "joe@example.com");
         final PaymentMailer mailer = new PaymentMailer(mail, id -> payer);
         final TripPaymentConfig effective = TripPaymentConfig.builder()
-                .mailFrom("CFPW <no-reply@x.org>").bcc("books@x.org").build();
+                .mailFrom("CFPW <no-reply@unitetrip.com>").bcc("books@x.org").build();
 
         assertTrue(mailer.sendPaymentFailed(payment(payer), trip(), effective, "CFPW", "Stripe",
                 "the bank returned the debit", AuditActor.system()));
@@ -65,7 +68,7 @@ public class PaymentMailerTest {
         final ArgumentCaptor<java.util.Map<String, Object>> values = ArgumentCaptor.forClass(java.util.Map.class);
         Mockito.verify(mail).sendManagedTemplateForOrg(ArgumentMatchers.eq("payment-failed"),
                 ArgumentMatchers.any(), values.capture(), ArgumentMatchers.eq("joe@example.com"),
-                ArgumentMatchers.eq("CFPW <no-reply@x.org>"), ArgumentMatchers.any(),
+                ArgumentMatchers.eq("CFPW <no-reply@unitetrip.com>"), ArgumentMatchers.any(),
                 ArgumentMatchers.eq("books@x.org"), ArgumentMatchers.any());
         assertEquals(values.getValue().get("failureReason"), "the bank returned the debit");
         assertEquals(values.getValue().get("processorName"), "Stripe");
@@ -91,7 +94,7 @@ public class PaymentMailerTest {
         final Payment ownedPayment = payment(payer);
         ownedPayment.setOrgId("org-of-the-payment");
         final TripPaymentConfig effective = TripPaymentConfig.builder()
-                .confirmationTemplateId("payment-confirmation").mailFrom("x <y@z.org>").build();
+                .confirmationTemplateId("payment-confirmation").mailFrom("x <y@unitetrip.com>").build();
 
         assertTrue(new PaymentMailer(mail, id -> payer).sendConfirmation(ownedPayment, trip(), effective,
                 "CFPW", "PayPal", null, AuditActor.system()));
@@ -109,13 +112,48 @@ public class PaymentMailerTest {
         assertNull(PaymentMailer.orgOf(payment(payer), null));
     }
 
+    /**
+     * A From the trip's organization may not send from (stored before a move to another organization was
+     * checked, or on a domain that stopped being the org's) is never used: the send falls back to the site's
+     * payment From, which is on a shared domain.
+     */
+    @Test
+    public void aFromTheTripsOrganizationMayNotUseFallsBackToTheSites() {
+        DAO.getInstance();
+        final MailCommands mail = Mockito.mock(MailCommands.class);
+        Mockito.when(mail.sendManagedTemplateForOrg(ArgumentMatchers.anyString(), ArgumentMatchers.any(),
+                ArgumentMatchers.anyMap(), ArgumentMatchers.anyString(), ArgumentMatchers.anyString(),
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any())).thenReturn(true);
+        final Person payer = person("Joe", "joe@example.com");
+        final PaymentMailer mailer = new PaymentMailer(mail, id -> payer);
+        final Trip moved = trip();
+        moved.setOrgId(FakeData.BETA_ORG_ID);
+        final String tenants = "CFPW <no-reply@centerforpeacewest.com>";
+        final TripPaymentConfig carried = TripPaymentConfig.builder()
+                .confirmationTemplateId("payment-confirmation").mailFrom(tenants).build();
+
+        final String fallback = mailer.fromFor(moved, carried);
+        assertFalse(fallback.contains("centerforpeacewest.com"), "never another tenant's domain: " + fallback);
+        assertTrue(new OrgCommands().isOrgFromSendable(null, fallback), "the site's From, on a shared domain");
+        assertTrue(mailer.sendConfirmation(payment(payer), moved, carried, "Beta", "PayPal", null,
+                AuditActor.system()));
+        Mockito.verify(mail).sendManagedTemplateForOrg(ArgumentMatchers.anyString(), ArgumentMatchers.any(),
+                ArgumentMatchers.anyMap(), ArgumentMatchers.anyString(), ArgumentMatchers.eq(fallback),
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any());
+
+        final TripPaymentConfig shared = TripPaymentConfig.builder().mailFrom("Beta <no-reply@unitetrip.com>").build();
+        assertEquals(mailer.fromFor(moved, shared), "Beta <no-reply@unitetrip.com>", "a sendable From is kept");
+        assertEquals(mailer.fromFor(null, shared), "Beta <no-reply@unitetrip.com>", "no trip: the site's domains");
+        assertNull(mailer.fromFor(moved, TripPaymentConfig.builder().build()), "no From stays no From");
+    }
+
     @Test
     public void refusalsAreQuietAndNeverThrow() {
         final MailCommands mail = Mockito.mock(MailCommands.class);
         final Person noAddress = person("Nobody", null);
         final PaymentMailer mailer = new PaymentMailer(mail, id -> noAddress);
         final TripPaymentConfig effective = TripPaymentConfig.builder()
-                .confirmationTemplateId("payment-confirmation").mailFrom("x <y@z.org>").build();
+                .confirmationTemplateId("payment-confirmation").mailFrom("x <y@unitetrip.com>").build();
 
         assertFalse(mailer.sendConfirmation(payment(noAddress), trip(), effective, "CFPW", "PayPal",
                 null, AuditActor.system()), "No payer address, no send");
@@ -168,7 +206,7 @@ public class PaymentMailerTest {
         final PaymentMailer mailer = new PaymentMailer(mail,
                 id -> id.equals(payer.getId()) ? payer : null);
         final TripPaymentConfig noBcc = TripPaymentConfig.builder()
-                .confirmationTemplateId("payment-confirmation").mailFrom("x <y@z.org>").build();
+                .confirmationTemplateId("payment-confirmation").mailFrom("x <y@unitetrip.com>").build();
 
         final ArgumentCaptor<String> bcc = ArgumentCaptor.forClass(String.class);
         assertTrue(mailer.sendConfirmation(payment(payer), trip(), noBcc, "CFPW", "PayPal",
@@ -209,7 +247,8 @@ public class PaymentMailerTest {
         final Trip trip = trip();
         trip.setStartDate(LocalDateTime.of(2027, 3, 5, 8, 0));
         trip.setEndDate(LocalDateTime.of(2027, 3, 7, 17, 0));
-        final TripPaymentConfig effective = TripPaymentConfig.builder().mailFrom("CFPW <no-reply@x.org>").build();
+        final TripPaymentConfig effective = TripPaymentConfig.builder().mailFrom("CFPW <no-reply@unitetrip.com>")
+                .build();
 
         assertTrue(mailer.sendCheckoutConfirmation(payment, trip, effective, "CFPW", "PayPal", "office@x.org",
                 AuditActor.system()));

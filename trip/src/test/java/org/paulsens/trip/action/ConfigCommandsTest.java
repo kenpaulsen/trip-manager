@@ -4,6 +4,7 @@ import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import org.mockito.Mockito;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.model.Config;
 import org.paulsens.trip.model.SettingDef;
@@ -99,6 +100,26 @@ public class ConfigCommandsTest {
         Assert.assertNotNull(tenant, "one organization's own domain is not the site's to send from");
         Assert.assertTrue(tenant.contains("shared sending domain"), tenant);
         Assert.assertNull(config.rejection(of("some.other.key", "x@centerforpeacewest.com", Config.Type.STRING)));
+        Assert.assertTrue(KnownSettings.PAYMENT_MAIL_FROM.isSiteFrom(), "the rule hangs off the declaration");
+        Assert.assertTrue(KnownSettings.PAYMENT_MAIL_FROM.withChoices().withOrgOverride().isSiteFrom(),
+                "the flag survives the other builders");
+    }
+
+    /** Shared is not enough: SES must verify the domain too, exactly what the From composers offer. */
+    @Test
+    public void theSitesPaymentFromMustBeOnAVerifiedSharedDomain() {
+        final ConfigCommands listsUnverified = Mockito.spy(new ConfigCommands());
+        Mockito.doReturn("unitetrip.com, not-yet-verified.org").when(listsUnverified)
+                .getString(KnownSettings.MAIL_SHARED_DOMAINS);
+        final String from = KnownSettings.PAYMENT_MAIL_FROM.getName();
+        Assert.assertNull(listsUnverified.rejection(of(from, "no-reply@unitetrip.com", Config.Type.STRING)));
+        final String unverified = listsUnverified.rejection(of(from, "no-reply@not-yet-verified.org",
+                Config.Type.STRING));
+        Assert.assertNotNull(unverified, "listed as shared but SES has not verified it: it would bounce");
+        Assert.assertTrue(unverified.contains("(unitetrip.com)"), unverified);
+        Assert.assertNotNull(listsUnverified.rejection(of(from, "no-reply@visitqueenofpeace.com",
+                Config.Type.STRING)), "verified, but no longer listed as shared");
+        Assert.assertNotNull(config.rejection(of(from, "not an address", Config.Type.STRING)));
     }
 
     @Test

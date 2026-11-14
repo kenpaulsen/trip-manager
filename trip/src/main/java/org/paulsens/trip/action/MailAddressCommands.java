@@ -14,6 +14,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.SettingDef;
@@ -93,8 +94,7 @@ public class MailAddressCommands {
 
     public MailAddressCommands() {
         // Lazy on purpose: resolution paths never touch SES; only the Settings page and applyEdits do.
-        this(ConfigCommands::new, () -> sharedOnly(
-                org.paulsens.trip.api.Beans.get(MailCommands.class).verifiedSendingDomains(), new ConfigCommands()));
+        this(ConfigCommands::new, () -> siteFromDomains(new ConfigCommands()));
     }
 
     /**
@@ -103,8 +103,28 @@ public class MailAddressCommands {
      * class existed.
      */
     public MailAddressCommands(final ConfigCommands config) {
-        this(() -> config, () -> sharedOnly(
-                org.paulsens.trip.api.Beans.get(MailCommands.class).verifiedSendingDomains(), config));
+        this(() -> config, () -> siteFromDomains(config));
+    }
+
+    /**
+     * The shared sending domains ({@link KnownSettings#MAIL_SHARED_DOMAINS}: every organization may send from
+     * them), as configured, whether or not SES verifies them; never null. THE reader of that setting, so a
+     * change to how the list is read is made once.
+     */
+    public static List<String> sharedDomains(final ConfigCommands config) {
+        return org.paulsens.trip.site.CustomDomains.parseList(config.getString(KnownSettings.MAIL_SHARED_DOMAINS));
+    }
+
+    /**
+     * The domains a SITE-level From address may use, right now: SES-verified AND shared. What the Settings
+     * page's From composers offer and what a {@link SettingDef#isSiteFrom() site From} setting is checked
+     * against, so the two cannot disagree. Throws when SES cannot be asked ({@link #getSendingDomains} logs).
+     */
+    public static List<String> siteFromDomains(final ConfigCommands config) {
+        // Local mode answers the fixed fake list without resolving the mail bean (OrgCommands.siteSendingDomains
+        // does the same): Beans.get needs a CDI container the unit-test JVM does not have.
+        return sharedOnly(FakeData.isLocal() ? MailCommands.LOCAL_SENDING_DOMAINS
+                : org.paulsens.trip.api.Beans.get(MailCommands.class).verifiedSendingDomains(), config);
     }
 
     /**
@@ -113,8 +133,7 @@ public class MailAddressCommands {
      * custom domain; see {@code OrgCommands.candidateDomains} for the per-org rule.
      */
     static List<String> sharedOnly(final List<String> verified, final ConfigCommands config) {
-        final List<String> shared = org.paulsens.trip.site.CustomDomains.parseList(
-                config.getString(KnownSettings.MAIL_SHARED_DOMAINS));
+        final List<String> shared = sharedDomains(config);
         return verified.stream().filter(shared::contains).toList();
     }
 
