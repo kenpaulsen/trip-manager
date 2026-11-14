@@ -1008,7 +1008,7 @@ public final class FakeData {
                 null, 0, 0, null, "fake-seed"));
         saveContent(new ContentInstance("fake-intro", PAGE_KEY, "Introduction",
                 StarterTemplates.TEXT_ONLY_ID, 1,
-                new HashMap<>(Map.of("body", "<p>Welcome to Visit Queen of Peace — fake local intro.</p>")),
+                new HashMap<>(Map.of("body", "<p>Welcome to Visit Queen of Peace (fake local intro).</p>")),
                 null, 1, 0, null, "fake-seed"));
         // The Events container: eventAdmin may manage its CHILDREN; the container row itself lives under
         // the page key, so retitling or deleting the container stays contentAdmin-only.
@@ -1017,7 +1017,7 @@ public final class FakeData {
                 null, 2, 0, null, "fake-seed", List.of("eventAdmin"), null));
         saveContent(new ContentInstance("fake-event-future", "events", "Monthly Prayer Group Meeting",
                 StarterTemplates.TEXT_ONLY_ID, 1,
-                new HashMap<>(Map.of("body", "First Saturday of every month, 10am — all are welcome.")),
+                new HashMap<>(Map.of("body", "First Saturday of every month at 10am. All are welcome.")),
                 now.plusDays(30), 0, 0, null, "fake-seed"));
         saveContent(new ContentInstance("fake-event-past", "events", "Past Peace Mass",
                 StarterTemplates.TEXT_ONLY_ID, 1,
@@ -1237,7 +1237,7 @@ public final class FakeData {
                 .openToPublic(false)
                 // Rich HTML like the office writes on the site: the pages render it unescaped and the app
                 // must too (images, an embedded video, formatting), so the local fixture carries all three.
-                .description("<p>Join us for the <b>Spring Demo Trip</b> &mdash; ten days in Medjugorje.</p>"
+                .description("<p>Join us for the <b>Spring Demo Trip</b>: ten days in Medjugorje.</p>"
                         + "<p><img src=\"/resources/images/mary-sm.png\" alt=\"Our Lady of Medjugorje\" /></p>"
                         + "<ul><li>Daily Mass at St. James</li><li>Climb <i>Apparition Hill</i></li></ul>"
                         + "<p><iframe src=\"https://www.youtube.com/embed/jNQXAC9IVRw\" title=\"Video\" "
