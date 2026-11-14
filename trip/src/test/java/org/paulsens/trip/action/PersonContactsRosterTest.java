@@ -151,6 +151,14 @@ public class PersonContactsRosterTest {
         assertEquals(people.adminPickerLabel(null), "");
     }
 
+    @Test
+    public void anAdminPickerLabelNeverPrintsNullForAMissingNamePart() {
+        final Person noFirst = Person.builder().last("Picker").cell(" ").build();
+        assertEquals(people.adminPickerLabel(noFirst), "Picker", "a null first name is left out, not \"null\"");
+        final Person noLast = Person.builder().first("Bare").cell(" ").build();
+        assertEquals(people.adminPickerLabel(noLast), "Bare");
+    }
+
     private static List<Person.Id> ids(final PeopleResult result) {
         return result.rows().stream().map(Person::getId).toList();
     }

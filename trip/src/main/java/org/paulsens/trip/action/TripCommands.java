@@ -797,10 +797,6 @@ public class TripCommands {
                 .toList();
     }
 
-    boolean listsInMenu(final Trip trip, final Person.Id userId, final boolean showAll) {
-        return listsInMenu(trip, userId, showAll, null);
-    }
-
     /**
      * Whether a trip may appear in this site's menu. An organization's site lists only its own trips,
      * whoever is looking. A SHARED site's menus list the organizations that share it plus any hosted org its
@@ -809,16 +805,15 @@ public class TripCommands {
      * that content on the org's own site. The site admin's org selector
      * (the topbar chip, {@code sessionScope.currentOrgId}) then narrows the menus to one sharing org; the
      * menu's own public/member/admin guard still applies on top. Properties of the site and the selector,
-     * never permissions.
+     * never permissions -- which is why the viewer is not an argument.
      */
-    boolean listsInMenu(final Trip trip, final Person.Id userId, final boolean showAll,
-            final String selectedOrgId) {
+    boolean listsInMenu(final Trip trip, final String selectedOrgId) {
         return listsInMenu(trip, selectedOrgId, ListingScope.forSite());
     }
 
     /**
-     * {@link #listsInMenu(Trip, Person.Id, boolean, String)} with the site's scope built by the caller: a menu
-     * list builds it ONCE, so the shared page's curation is read once per list rather than once per trip.
+     * {@link #listsInMenu(Trip, String)} with the site's scope built by the caller: a menu list builds it ONCE,
+     * so the shared page's curation is read once per list rather than once per trip.
      */
     private static boolean listsInMenu(final Trip trip, final String selectedOrgId, final ListingScope scope) {
         final SiteContext site = SiteContext.current();

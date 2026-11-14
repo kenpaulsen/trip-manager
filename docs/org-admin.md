@@ -564,7 +564,8 @@ about the slug.
   sending domains; `claimProblem` adds uniqueness across orgs. Clearing the slug clears the domain.
 - **The live probe** (`site/DomainProbe`, owner decision 2026-11-13): a NEW claim (not a re-save of the stored
   domain, not a clear) stands only when `https://{domain}/.well-known/trip-site-check?code={nonce}` answers 200
-  with that one-time code, over normal TLS certificate validation, 5-second timeouts and no redirects. Only
+  with that one-time code, over normal TLS certificate validation, 5-second timeouts (one deadline over the
+  whole exchange, body read included, since the request timeout stops at the headers) and no redirects. Only
   this server echoes its own outstanding codes (`web/SiteCheckServlet`, an exact mapping in the live web.xml,
   anonymous and session-free), so the echo proves the domain's DNS reaches this service AND the load balancer
   holds a valid certificate for it: a typo, a domain saved before `--attach`, or one pointing elsewhere is
@@ -621,8 +622,8 @@ content key, fixed at creation.
   THE SAME MENU, so every click changes what visitors see. **The words are a content editor's**: a page is
   edited in place on the org's site, the ordinary privilege-only edit mode (`contentAdmin` for the org, the
   gate `ContentCommands.canEdit`), and the admin page says which the viewer has. The View/Edit link to the org's
-  own site is built by `SiteCommands.orgSiteUrl(slug, request)`, so a localhost admin page links to
-  `{slug}.localhost`.
+  own site is built from the org in hand by `SiteCommands.orgSiteRoot(org, request)`, so a localhost admin
+  page links to `{slug}.localhost`.
 - **Deleting a page deletes its content, without the content privilege** (owner decision 2026-11-13):
   managing the list includes removing a page; writing the words stays privilege-only. The delete goes through
   the content delete cascade (`ContentCommands.deleteWithChildren`): every section and every container's

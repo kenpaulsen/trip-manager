@@ -122,8 +122,7 @@ public class SiteCommands {
         if (org == null || org.getSlug() == null || org.getSlug().isBlank()) {
             return "";
         }
-        final String url = orgSiteUrlOf(org);
-        return url.endsWith("/") ? url.substring(0, url.length() - 1) : url;
+        return orgSiteRoot(org, facesRequest());
     }
 
     /** The current org site's organization name (its slug if the org cannot be read); null elsewhere. */
@@ -173,18 +172,31 @@ public class SiteCommands {
 
     /** {@link #orgSiteUrlOf} for an explicit request (null off-request). */
     public static String orgSiteUrl(final Organization org, final HttpServletRequest request) {
-        return request == null ? orgSiteUrl(org, null, -1, new ConfigCommands())
-                : orgSiteUrl(org, request.getServerName(), request.getServerPort(), new ConfigCommands());
+        return orgSiteRoot(org, request) + "/";
     }
 
     /** {@link #orgSiteUrlOf} on explicit request facts (the testable half). */
     static String orgSiteUrl(final Organization org, final String requestHost, final int requestPort,
             final ConfigCommands config) {
+        return orgSiteRoot(org, requestHost, requestPort, config) + "/";
+    }
+
+    /**
+     * {@link #orgSiteUrl(Organization, HttpServletRequest)} WITHOUT the trailing slash: the prefix a path is
+     * appended to ({@link #hostFor}, the Site Pages View link).
+     */
+    static String orgSiteRoot(final Organization org, final HttpServletRequest request) {
+        return request == null ? orgSiteRoot(org, null, -1, new ConfigCommands())
+                : orgSiteRoot(org, request.getServerName(), request.getServerPort(), new ConfigCommands());
+    }
+
+    private static String orgSiteRoot(final Organization org, final String requestHost, final int requestPort,
+            final ConfigCommands config) {
         if (requestHost != null && requestHost.endsWith("localhost")) {
             final String port = requestPort > 0 && requestPort != 80 ? ":" + requestPort : "";
-            return "http://" + org.getSlug() + ".localhost" + port + "/";
+            return "http://" + org.getSlug() + ".localhost" + port;
         }
-        return SiteUrls.orgSiteUrl(org, config) + "/";
+        return SiteUrls.orgSiteUrl(org, config);
     }
 
     /**
@@ -208,7 +220,7 @@ public class SiteCommands {
     }
 
     /** The servlet request behind the current FacesContext, or null off a Faces request. */
-    private static HttpServletRequest facesRequest() {
+    static HttpServletRequest facesRequest() {
         final FacesContext ctx = FacesContext.getCurrentInstance();
         final Object request = ctx == null ? null : ctx.getExternalContext().getRequest();
         return request instanceof HttpServletRequest http ? http : null;

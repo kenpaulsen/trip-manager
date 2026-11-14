@@ -14,6 +14,8 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.Test;
@@ -28,10 +30,17 @@ public class DomainProbeTest {
     private static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build();
 
     private HttpServer server;
+    /**
+     * Holds a stalling handler until its test is done, so the server can stop without waiting on it. Fresh per
+     * test: TestNG runs every method on one instance.
+     */
+    private CountDownLatch release = new CountDownLatch(1);
 
     @AfterMethod(alwaysRun = true)
     public void cleanUp() {
         DomainProbe.useCheck(null);
+        release.countDown();
+        release = new CountDownLatch(1);
         if (server != null) {
             server.stop(0);
             server = null;
@@ -119,6 +128,20 @@ public class DomainProbeTest {
         Assert.assertTrue(problem.contains("could not be reached"), problem);
     }
 
+    /**
+     * A host that sends its headers and then stalls the body is held to the same deadline as one that never
+     * answers: the request timeout stops at the headers, so the probe's own deadline must cover the read.
+     */
+    @Test
+    public void aHostThatStallsItsBodyIsRefusedWithinTheDeadline() throws IOException {
+        final String origin = serve(this::headersThenStall);
+        final long started = System.nanoTime();
+        final String problem = DomainProbe.probe(HTTP, origin, "example.org", "abc", Duration.ofMillis(500));
+        final Duration took = Duration.ofNanos(System.nanoTime() - started);
+        Assert.assertTrue(problem.contains("did not answer"), problem);
+        Assert.assertTrue(took.compareTo(Duration.ofSeconds(4)) < 0, "gave up after " + took);
+    }
+
     @Test
     public void anInterruptedProbeKeepsTheInterrupt() throws IOException {
         final String origin = serve(exchange -> answer(exchange, 200, codeOf(exchange)));
@@ -147,6 +170,18 @@ public class DomainProbeTest {
         } catch (final IOException ignored) {
             // The probe already gave up; nothing to answer.
         }
+    }
+
+    /** Status and headers for a chunked body, then nothing until the test releases it. */
+    private void headersThenStall(final HttpExchange exchange) throws IOException {
+        exchange.sendResponseHeaders(200, 0);
+        exchange.getResponseBody().flush();
+        try {
+            release.await(30, TimeUnit.SECONDS);
+        } catch (final InterruptedException ex) {
+            Thread.currentThread().interrupt();
+        }
+        exchange.close();
     }
 
     private String serve(final HttpHandler handler) throws IOException {

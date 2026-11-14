@@ -18,6 +18,7 @@ import java.util.Base64;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
+import java.util.concurrent.StructuredTaskScope;
 import javax.net.ssl.SSLException;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.dynamo.LocalMode;
@@ -51,7 +52,7 @@ public final class DomainProbe {
     public static final String PATH = "/.well-known/trip-site-check";
     /** How long an issued code is answered: one probe's round trip, with room for a slow load balancer. */
     static final Duration CODE_LIFETIME = Duration.ofSeconds(30);
-    /** Connect and whole-request budgets: an admin is waiting on the Save button. */
+    /** Connect and whole-exchange (body included) budgets: an admin is waiting on the Save button. */
     static final Duration TIMEOUT = Duration.ofSeconds(5);
     /** A code is 22 characters; anything this long is not our answer, so the rest is never read. */
     private static final int MAX_ANSWER = 256;
@@ -151,10 +152,39 @@ public final class DomainProbe {
      * 200 with exactly {@code code}, else why not, worded for the admin who pressed Save.
      */
     static String probe(final HttpClient http, final String origin, final String domain, final String code) {
+        return probe(http, origin, domain, code, TIMEOUT);
+    }
+
+    /**
+     * {@link #probe(HttpClient, String, String, String)} with the whole exchange, body included, under {@code
+     * deadline}. {@link HttpRequest#timeout} alone is not enough: this JDK stops that timer once the headers
+     * arrive, so a host that sends headers and then stalls would hold the Save request (and its code) forever.
+     * The exchange runs in a scope with a timeout instead; on expiry the scope interrupts it, which unblocks the
+     * body read, and the admin hears that the domain did not answer.
+     */
+    static String probe(final HttpClient http, final String origin, final String domain, final String code,
+            final Duration deadline) {
         final HttpRequest request = HttpRequest.newBuilder(URI.create(origin + PATH + "?code=" + code))
-                .timeout(TIMEOUT)
+                .timeout(deadline)
                 .GET()
                 .build();
+        try (var scope = StructuredTaskScope.open(StructuredTaskScope.Joiner.<String>awaitAllSuccessfulOrThrow(),
+                config -> config.withTimeout(deadline))) {
+            final StructuredTaskScope.Subtask<String> answered = scope.fork(() -> exchange(http, request, domain,
+                    code));
+            scope.join();
+            return answered.get();
+        } catch (final StructuredTaskScope.TimeoutException ex) {
+            return notAnswered(domain);
+        } catch (final InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            return interrupted(domain);
+        }
+    }
+
+    /** The request and the bounded body read, run inside {@link #probe}'s deadline. */
+    private static String exchange(final HttpClient http, final HttpRequest request, final String domain,
+            final String code) {
         try {
             final HttpResponse<InputStream> response = http.send(request, HttpResponse.BodyHandlers.ofInputStream());
             final String answer = readAnswer(response.body());
@@ -167,8 +197,16 @@ public final class DomainProbe {
             return problemOf(domain, ex);
         } catch (final InterruptedException ex) {
             Thread.currentThread().interrupt();
-            return "Interrupted while checking " + domain + ".";
+            return interrupted(domain);
         }
+    }
+
+    private static String notAnswered(final String domain) {
+        return domain + " did not answer over HTTPS. Check that its DNS points here.";
+    }
+
+    private static String interrupted(final String domain) {
+        return "Interrupted while checking " + domain + ".";
     }
 
     /**
@@ -184,7 +222,7 @@ public final class DomainProbe {
             return domain + " does not resolve. Add its DNS records first.";
         }
         if (causedBy(ex, HttpTimeoutException.class) || causedBy(ex, ConnectException.class)) {
-            return domain + " did not answer over HTTPS. Check that its DNS points here.";
+            return notAnswered(domain);
         }
         log.info("Custom domain probe of {} failed", domain, ex);
         return domain + " could not be reached over HTTPS (" + ex.getClass().getSimpleName() + ").";

@@ -162,7 +162,7 @@ public class SitePageCommands {
 
     /**
      * Where a page can be seen and edited: its address on THIS host when this is the org's site, else on the
-     * org's own site as the admin pages' links build it ({@link SiteCommands#orgSiteUrl(String,
+     * org's own site as the admin pages' links build it ({@link SiteCommands#orgSiteRoot(Organization,
      * HttpServletRequest)}: {@code {slug}.localhost} from a localhost request, else the custom domain or the
      * subdomain); null when the org has no site yet. A link answers its URL.
      */
@@ -177,8 +177,7 @@ public class SitePageCommands {
         if (org == null || org.getSlug() == null || org.getSlug().isBlank()) {
             return null;
         }
-        final String site = SiteCommands.orgSiteUrl(org.getSlug(), currentRequest());
-        return (site.endsWith("/") ? site.substring(0, site.length() - 1) : site) + PAGE_PATH + page.name();
+        return SiteCommands.orgSiteRoot(org, SiteCommands.facesRequest()) + PAGE_PATH + page.name();
     }
 
     /** Whether the caller may edit page CONTENT on this org's site: the content edit mode's own gate. */
@@ -505,13 +504,6 @@ public class SitePageCommands {
             return PageFeedback.refuse("Content not fully deleted", "The page is gone from the menu, but its "
                     + "sections could not be deleted. They are unreachable and harmless.");
         }
-    }
-
-    /** The current request (null off a JSF request): what the cross-site View link's host rule reads. */
-    private static HttpServletRequest currentRequest() {
-        final FacesContext ctx = FacesContext.getCurrentInstance();
-        final Object request = ctx == null ? null : ctx.getExternalContext().getRequest();
-        return request instanceof HttpServletRequest http ? http : null;
     }
 
     private static List<SitePage> entries(final Organization org) {

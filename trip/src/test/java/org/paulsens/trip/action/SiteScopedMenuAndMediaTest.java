@@ -60,33 +60,26 @@ public class SiteScopedMenuAndMediaTest {
         final Trip orgless = trip(null, true, null);
 
         // Shared site: CFPW (no site of its own) lists; hosted Acme NEVER does -- not for its members, not
-        // for a site admin: a hosted org's content is seen on its own site.
-        Assert.assertTrue(trips.listsInMenu(cfpwPublic, null, false));
-        Assert.assertTrue(trips.listsInMenu(orgless, null, false));
-        Assert.assertFalse(trips.listsInMenu(acmePublic, null, false), "hosted org off the shared menu");
-        Assert.assertFalse(trips.listsInMenu(acmeMine, me, false), "...even for a member of the trip");
-        Assert.assertFalse(trips.listsInMenu(acmePublic, null, true), "...even for a site admin");
+        // for a site admin: a hosted org's content is seen on its own site. The rule takes no viewer, so the
+        // member and admin cases are the ones the menu lists below prove.
+        Assert.assertTrue(trips.listsInMenu(cfpwPublic, null));
+        Assert.assertTrue(trips.listsInMenu(orgless, null));
+        Assert.assertFalse(trips.listsInMenu(acmePublic, null), "hosted org off the shared menu");
+        Assert.assertFalse(trips.listsInMenu(acmeMine, null), "...even a members-only trip");
         // The site admin's org selector narrows the shared menus to one sharing org.
-        Assert.assertTrue(trips.listsInMenu(cfpwPublic, null, true, FakeData.CFPW_ORG_ID));
-        Assert.assertFalse(trips.listsInMenu(cfpwPublic, null, true, FakeData.BETA_ORG_ID));
-        Assert.assertFalse(trips.listsInMenu(orgless, null, true, FakeData.CFPW_ORG_ID),
-                "a selection means that org only");
-        Assert.assertFalse(trips.listsInMenu(acmePublic, null, true, FakeData.ACME_ORG_ID),
+        Assert.assertTrue(trips.listsInMenu(cfpwPublic, FakeData.CFPW_ORG_ID));
+        Assert.assertFalse(trips.listsInMenu(cfpwPublic, FakeData.BETA_ORG_ID));
+        Assert.assertFalse(trips.listsInMenu(orgless, FakeData.CFPW_ORG_ID), "a selection means that org only");
+        Assert.assertFalse(trips.listsInMenu(acmePublic, FakeData.ACME_ORG_ID),
                 "selecting a hosted org still shows nothing of it here");
-        Assert.assertTrue(trips.listsInMenu(cfpwPublic, null, false, " "), "blank = no selection");
+        Assert.assertTrue(trips.listsInMenu(cfpwPublic, " "), "blank = no selection");
         Assert.assertTrue(trips.getMenuTrips(1, null, true, FakeData.CFPW_ORG_ID).stream()
                 .allMatch(t -> FakeData.CFPW_ORG_ID.equals(t.getOrgId())));
         Assert.assertTrue(trips.getMenuOldTrips(null, true, 1, 100, FakeData.CFPW_ORG_ID).stream()
                 .allMatch(t -> FakeData.CFPW_ORG_ID.equals(t.getOrgId())));
 
         // Acme's site: Acme's trips only, whoever is looking.
-        onSite(ACME_SITE, () -> {
-            Assert.assertTrue(trips.listsInMenu(acmePublic, null, false));
-            Assert.assertTrue(trips.listsInMenu(acmeMine, null, false));
-            Assert.assertFalse(trips.listsInMenu(cfpwPublic, me, true), "not even a site admin on a CFPW trip");
-            Assert.assertFalse(trips.listsInMenu(orgless, null, true), "org-less legacy trips are nobody's");
-            return null;
-        });
+        onSite(ACME_SITE, () -> assertAcmeSiteListsOnlyAcme(acmePublic, acmeMine, cfpwPublic, orgless));
 
         final List<Trip> sharedMenu = trips.getMenuTrips(1, null, false);
         Assert.assertTrue(sharedMenu.stream().noneMatch(t -> FakeData.ACME_ORG_ID.equals(t.getOrgId())));
@@ -101,6 +94,8 @@ public class SiteScopedMenuAndMediaTest {
         Assert.assertFalse(switchable.contains(FakeData.BETA_ORG_ID));
         Assert.assertTrue(new OrgCommands(() -> TestCallers.person(me)).switchableOrgs().isEmpty(),
                 "the selector is a site admin's");
+        Assert.assertTrue(trips.getMenuOldTrips(me, false, 1, 100).stream()
+                .noneMatch(t -> FakeData.ACME_ORG_ID.equals(t.getOrgId())), "member: still no hosted org");
         final List<Trip> acmeMenu = onSite(ACME_SITE, () -> trips.getMenuTrips(1, null, true));
         Assert.assertTrue(acmeMenu.stream().allMatch(t -> FakeData.ACME_ORG_ID.equals(t.getOrgId())));
         final List<Trip> acmeOld = onSite(ACME_SITE, () -> trips.getMenuOldTrips(null, true, 1, 100));
@@ -126,16 +121,7 @@ public class SiteScopedMenuAndMediaTest {
             Assert.assertTrue(DAO.getInstance().saveContent(new ContentInstance(sectionId, V2PageBootstrap.PAGE_KEY,
                     "Trips", "pilgrimages", 1, new HashMap<>(Map.of(ListingScope.INCLUDE_ORGS_PROPERTY,
                     FakeData.ACME_ORG_ID)), null, 99, 0, null, null), 1));
-            onSite(SHARED, () -> {
-                Assert.assertTrue(trips.listsInMenu(acmeOpen, null, false), "curated: on the menu");
-                Assert.assertTrue(ids(trips.getMenuTrips(1, null, false)).contains(acmeOpen.getId()));
-                Assert.assertTrue(ids(trips.getPublicTrips()).contains(acmeOpen.getId()), "sidebar, countdown");
-                Assert.assertTrue(media.getHomeAlbums(3650, 0).stream()
-                        .anyMatch(album -> acmeOpen.getId().equals(album.trip().getId())), "home albums");
-                Assert.assertTrue(switchableIds().contains(FakeData.ACME_ORG_ID), "the admin's selector");
-                Assert.assertFalse(switchableIds().contains(FakeData.BETA_ORG_ID), "only the curated org");
-                return null;
-            });
+            onSite(SHARED, () -> assertListsCuratedAcme(acmeOpen));
             DAO.getInstance().deleteContent(sectionId);
             Assert.assertFalse(onSite(SHARED, () -> listsAcme(acmeOpen)), "the curation left with the section");
         } finally {
@@ -144,9 +130,39 @@ public class SiteScopedMenuAndMediaTest {
         }
     }
 
+    /** On Acme's site: Acme's trips list, whoever is looking; another org's and org-less trips never do. */
+    private Void assertAcmeSiteListsOnlyAcme(final Trip acmePublic, final Trip acmeMine, final Trip cfpwPublic,
+            final Trip orgless) {
+        Assert.assertTrue(trips.listsInMenu(acmePublic, null));
+        Assert.assertTrue(trips.listsInMenu(acmeMine, null));
+        Assert.assertFalse(trips.listsInMenu(cfpwPublic, null), "never a CFPW trip on Acme's site");
+        Assert.assertFalse(trips.listsInMenu(orgless, null), "org-less legacy trips are nobody's");
+        return null;
+    }
+
+    /** Every site-wide surface of the shared site lists the curated Acme trip, and the selector only Acme. */
+    private Void assertListsCuratedAcme(final Trip acmeOpen) {
+        Assert.assertTrue(trips.listsInMenu(acmeOpen, null), "curated: on the menu");
+        Assert.assertTrue(ids(trips.getMenuTrips(1, null, false)).contains(acmeOpen.getId()));
+        Assert.assertTrue(ids(trips.getPublicTrips()).contains(acmeOpen.getId()), "sidebar, countdown");
+        Assert.assertTrue(media.getHomeAlbums(3650, 0).stream()
+                .anyMatch(album -> acmeOpen.getId().equals(album.trip().getId())), "home albums");
+        Assert.assertTrue(switchableIds().contains(FakeData.ACME_ORG_ID), "the admin's selector");
+        Assert.assertFalse(switchableIds().contains(FakeData.BETA_ORG_ID), "only the curated org");
+        return null;
+    }
+
+    /** On Acme's site: Acme's items are discoverable, the site-level ones are not. */
+    private static Void assertAcmeSiteDiscoversOnlyAcme(final MediaItem siteLevel, final MediaItem acmes) {
+        Assert.assertTrue(MediaCommands.discoverable(acmes));
+        Assert.assertFalse(MediaCommands.discoverable(siteLevel), "org site: never the site's");
+        Assert.assertEquals(MediaCommands.siteOrgId(), FakeData.ACME_ORG_ID);
+        return null;
+    }
+
     /** Whether ANY of the shared site's site-wide surfaces lists Acme or this Acme trip. */
     private boolean listsAcme(final Trip acmeTrip) {
-        return trips.listsInMenu(acmeTrip, null, false)
+        return trips.listsInMenu(acmeTrip, null)
                 || ids(trips.getMenuTrips(1, null, true)).contains(acmeTrip.getId())
                 || ids(trips.getPublicTrips()).contains(acmeTrip.getId())
                 || media.getHomeAlbums(3650, 0).stream().anyMatch(album -> acmeTrip.getId().equals(album.trip()
@@ -180,12 +196,7 @@ public class SiteScopedMenuAndMediaTest {
         Assert.assertTrue(MediaCommands.discoverable(siteLevel), "shared site: site-level items");
         Assert.assertFalse(MediaCommands.discoverable(acmes), "shared site: never a tenant's");
         Assert.assertNull(MediaCommands.siteOrgId());
-        onSite(ACME_SITE, () -> {
-            Assert.assertTrue(MediaCommands.discoverable(acmes));
-            Assert.assertFalse(MediaCommands.discoverable(siteLevel), "org site: never the site's");
-            Assert.assertEquals(MediaCommands.siteOrgId(), FakeData.ACME_ORG_ID);
-            return null;
-        });
+        onSite(ACME_SITE, () -> assertAcmeSiteDiscoversOnlyAcme(siteLevel, acmes));
         Assert.assertEquals(acmes.withHidden(true).getOrgId(), FakeData.ACME_ORG_ID, "copies keep the owner");
         Assert.assertNull(new MediaItem("x", "k", "t", null, "c", 1L, null, 0, null, "u", null).getOrgId());
 

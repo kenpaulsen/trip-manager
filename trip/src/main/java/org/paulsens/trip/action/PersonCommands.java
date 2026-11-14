@@ -330,7 +330,7 @@ public class PersonCommands {
         final String cell = (view.getCell() == PrivacyView.State.HIDE) ? null : person.getCell();
         final String contact = Stream.of(email, cell).filter(value -> value != null && !value.isBlank())
                 .collect(Collectors.joining(" / "));
-        final String name = person.getLast() + ", " + person.getFirst();
+        final String name = ChatRoster.displayName(person, person.getId());
         return contact.isEmpty() ? name : name + " - " + contact;
     }
 
