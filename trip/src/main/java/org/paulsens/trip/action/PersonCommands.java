@@ -316,6 +316,25 @@ public class PersonCommands {
     }
 
     /**
+     * A person picker's label on Manage People, "Last, First - email / cell": the email and cell are added only
+     * where the current viewer may see them ({@link PrivacyView} not {@code HIDE}). A list item cannot be masked,
+     * so a value is either in the label or absent. {@code adminView} is true because the page is a people-admin
+     * page and its search ({@link #adminSearchPeople}) returns only people the viewer administers.
+     */
+    public String adminPickerLabel(final Person person) {
+        if (person == null) {
+            return "";
+        }
+        final PrivacyView view = privacyView(person, true);
+        final String email = (view.getEmail() == PrivacyView.State.HIDE) ? null : person.getEmail();
+        final String cell = (view.getCell() == PrivacyView.State.HIDE) ? null : person.getCell();
+        final String contact = Stream.of(email, cell).filter(value -> value != null && !value.isBlank())
+                .collect(Collectors.joining(" / "));
+        final String name = person.getLast() + ", " + person.getFirst();
+        return contact.isEmpty() ? name : name + " - " + contact;
+    }
+
+    /**
      * Where to reach this person for DISPLAY: their own address when it works, otherwise their family's
      * mailable managers ({@link #mailableManagers}, the same list the approval email is sent to), comma-joined
      * -- MINUS any manager who keeps their email private. Privacy hides an address from viewers; it does not
@@ -616,52 +635,6 @@ public class PersonCommands {
             return PeopleResult.NEEDS_QUERY;
         }
         return listOrSearch(existingPeople(roster), query, PrivacyView.searchReach(getCurrentPerson(), adminView));
-    }
-
-    /** The most masked values one view remembers revealing; past it the oldest is forgotten (masked again). */
-    static final int MAX_REVEALS = 100;
-
-    /**
-     * Whether the viewer clicked to reveal {@code field} of this person in this view ({@code WEB-INF/privacyMask
-     * .xhtml}). The answer only GRANTS nothing: the page renders the value solely when its {@link PrivacyView}
-     * state is {@code MASK} (the viewer is entitled to it) AND it was revealed, so a forged reveal of a HIDE value
-     * renders nothing. {@code reveals} is the view's own scalar record, {@code |personId:field|...}.
-     */
-    public boolean isRevealed(final String reveals, final String personId, final String field) {
-        final String key = revealKey(personId, field);
-        return key != null && reveals != null && reveals.contains("|" + key + "|");
-    }
-
-    /**
-     * {@code reveals} with this person's {@code field} added (the reveal link's command). A key that could not
-     * have come from a page (a separator, or longer than an id) is ignored, and the record keeps only the newest
-     * {@value #MAX_REVEALS} entries, so a scripted flood cannot grow the view, and with it the session, unbounded.
-     */
-    public String withReveal(final String reveals, final String personId, final String field) {
-        final String key = revealKey(personId, field);
-        if (key == null || isRevealed(reveals, personId, field)) {
-            return reveals;
-        }
-        final List<String> keys = new ArrayList<>(reveals == null ? List.of()
-                : Arrays.stream(reveals.split("\\|")).filter(entry -> !entry.isEmpty()).toList());
-        keys.add(key);
-        final List<String> kept = keys.subList(Math.max(0, keys.size() - MAX_REVEALS), keys.size());
-        return "|" + String.join("|", kept) + "|";
-    }
-
-    private static String revealKey(final String personId, final String field) {
-        if (!revealPart(personId, 64) || !revealPart(field, 32)) {
-            return null;
-        }
-        return personId + ":" + field;
-    }
-
-    /** Letters, digits and dashes only (UUIDs, field names), non-empty and within {@code max} characters. */
-    private static boolean revealPart(final String part, final int max) {
-        if (part == null || part.isEmpty() || part.length() > max) {
-            return false;
-        }
-        return part.chars().allMatch(c -> Character.isLetterOrDigit(c) || c == '-');
     }
 
     /**

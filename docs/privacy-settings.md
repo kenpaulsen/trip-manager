@@ -45,9 +45,11 @@ email to signed-in viewers -- unless the person set that field PRIVATE, which wi
 - **Self and family managers**: privacy never hides anything from them. Exception: staff **notes** follow
   `AccessLevel.seesNotes()` — a manager does not get them (hidden on pages, absent over REST).
 - **Trip admins (`tripMgr`) and site admins**: may get the real values, but withheld fields render
-  **masked**: a placeholder, with the value NOT in the page. A click is a server round trip that records the
-  reveal in the view and re-renders that one value (owner decision 2026-11-12, reversing the earlier UI-only
-  blur, whose real value sat in the HTML source for anyone to read). No audit of reveals. `tripFinView` keeps
+  **masked**: the value is in the page, hidden behind a "private value" placeholder, and a click shows it in
+  the browser with no server round trip. No audit of reveals. (Owner decision 2026-11-13. The 2026-11-12
+  round kept a masked value out of the page until an ajax click fetched it; a round trip per value was a
+  usability problem, and these viewers are entitled to the value anyway. A viewer who may NOT see a value
+  still never gets it in the page: that is `HIDE`, below.) `tripFinView` keeps
   its `account/person.xhtml?trip=` access (they mail checks / validate identity).
   A trip admin is the admin of a trip the PERSON is on: over REST (`GET /api/people/{id}?trip=`) the role
   counts only when the person is on that trip's roster or holds a registration there that is not
@@ -70,17 +72,21 @@ email to signed-in viewers -- unless the person set that field PRIVATE, which wi
 - **Pages**: `PrivacyView.of(viewer, subject, adminView)` (`#{people.privacyView(person, adminBool)}`)
   answers `SHOW | MASK | HIDE` per field group; `adminView` is the page's own privilege verdict.
   `PrivacyViewTest` pins the page matrix. Every masked value goes through ONE template,
-  `WEB-INF/privacyMask.xhtml` (`ui:decorate`, the value as its body): SHOW renders the body, HIDE nothing,
-  MASK a `privMaskedText` placeholder whose ajax click adds `personId:field` to `viewScope.privReveals` (a
-  scalar, `people.withReveal`, bounded) and re-renders. The body renders only for MASK plus a recorded reveal,
-  so a forged reveal of a HIDE value shows nothing. A revealed inplace editor stays rendered for the life of
-  the view, so its edit is applied at Save; an unrevealed one is not rendered at all, so Save cannot
-  clobber it.
+  `WEB-INF/privacyMask.xhtml` (`ui:decorate`, the value as its body, one `verdict` param): SHOW renders the
+  body; HIDE, or no verdict at all, renders nothing; MASK renders the body inside a hidden span next to a
+  `privMaskedText` placeholder, and the placeholder's click adds `privRevealed` to the wrapper in the browser
+  (`trip.css` swaps which one shows). The wrapper is a span, so masked values sit inline. A masked inplace
+  editor is always rendered, so Save submits its value unchanged unless it was revealed and edited.
+  `WEB-INF/privacyRevealAll.xhtml` is a "Show private values" link that reveals every mask in its fieldset
+  (the profile's Address, Travel Info and Contact Info). A list item cannot be masked: Manage People's person
+  pickers put an email or cell in the label only where the verdict is not HIDE
+  (`PersonCommands.adminPickerLabel`).
 - **Derived leaks handled in Java**: chat roster name-collision labels never use a private email
   (`ChatCommands.labelFor` falls to the id rung); the "via manager" contact fallback skips managers whose
   own email is private (`PersonCommands.primaryManagerOf`); gravatars are suppressed for viewers who may
-  not see the email (the gravatar URL is a hash OF the address, fetched by the viewer's browser) —
-  initials/icon avatar instead; and people SEARCHES look at cell and email only where the viewer may see
+  not see the email at all (the gravatar URL is a hash OF the address, fetched by the viewer's browser);
+  they get initials or an icon avatar instead. A MASK viewer may see the address, so a gravatar may use it while it is
+  masked (owner decision 2026-11-13; the profile page's own gravatar is shown that way). People SEARCHES look at cell and email only where the viewer may see
   them (`PersonMatch.Reach`, `PrivacyView.searchReach`), since a row that stays as digits are typed would
   reveal a hidden number one digit at a time.
 
@@ -90,4 +96,6 @@ email to signed-in viewers -- unless the person set that field PRIVATE, which wi
 hidden from non-admin managers), `trip/tripContacts.xhtml` (knob-aware cells; an opted-in street now shows
 to co-travelers where it used to be tripAdmin-only), `admin/people.xhtml`, `admin/person.xhtml`.
 
-Webtest: `PrivacyPwIT` (hide → peer loses it, admin masks it, reveal toggles, street knob locks to city).
+Webtest: `PrivacyPwIT` (hide → peer loses it and it is not in the page, admin gets it masked and a click
+shows it with no request, "Show private values" reveals a fieldset, street knob locks to city, View As from
+`admin/person.xhtml` hides the subject's sign-in fieldsets).

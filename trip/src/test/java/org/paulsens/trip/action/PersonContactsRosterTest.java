@@ -134,25 +134,21 @@ public class PersonContactsRosterTest {
         assertSame(people.adminSearch("  "), PeopleResult.NEEDS_QUERY);
     }
 
+    /**
+     * Manage People's picker labels carry the email and cell an admin may see. A masked value cannot be masked
+     * inside a list item, so it is in the label or absent, and only HIDE leaves it out.
+     */
     @Test
-    public void aRevealIsRememberedPerPersonAndFieldAndBounded() {
-        final String id = needle.getId().getValue();
-        assertFalse(people.isRevealed(null, id, "cell"));
-        final String one = people.withReveal(null, id, "cell");
-        assertTrue(people.isRevealed(one, id, "cell"));
-        assertFalse(people.isRevealed(one, id, "email"), "per field");
-        assertSame(people.withReveal(one, id, "cell"), one, "already there");
-        assertSame(people.withReveal(one, "bad|id", "cell"), one, "a forged separator is ignored");
-        assertSame(people.withReveal(one, id, ""), one);
-        assertSame(people.withReveal(one, null, "cell"), one);
-        assertFalse(people.isRevealed(one, id, "x:y"));
-        String many = one;
-        for (int i = 0; i < PersonCommands.MAX_REVEALS + 5; i++) {
-            many = people.withReveal(many, id, "f" + i);
-        }
-        assertFalse(people.isRevealed(many, id, "cell"), "the oldest is forgotten past the bound");
-        assertTrue(people.isRevealed(many, id, "f" + (PersonCommands.MAX_REVEALS + 4)));
-        assertTrue(many.split("\\|").length <= PersonCommands.MAX_REVEALS + 1);
+    public void anAdminPickerLabelCarriesTheContactAnAdminMaySee() throws IOException {
+        final Person shy = saved("Shy", "Picker" + RandomData.genAlpha(5), null, "(555) 210-0000");
+        shy.getPrivacy().setEmail(PrivacySettings.Visibility.PRIVATE);
+        assertEquals(people.adminPickerLabel(shy), shy.getLast() + ", Shy - " + shy.getEmail() + " / (555) 210-0000",
+                "a private email is MASK for an admin, so it is in the label");
+        final Person noCell = saved("Nocell", "Picker" + RandomData.genAlpha(5), null, null);
+        assertEquals(people.adminPickerLabel(noCell), noCell.getLast() + ", Nocell - " + noCell.getEmail());
+        final Person nothing = Person.builder().first("Bare").last("Picker").cell(" ").build();
+        assertEquals(people.adminPickerLabel(nothing), "Picker, Bare", "no contact, no dash");
+        assertEquals(people.adminPickerLabel(null), "");
     }
 
     private static List<Person.Id> ids(final PeopleResult result) {

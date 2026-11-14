@@ -14,9 +14,9 @@ import org.paulsens.trip.model.PrivacySettings;
  *
  * <ul>
  *   <li>{@code SHOW} -- render the value plainly (self, family manager, or a field the subject shares);</li>
- *   <li>{@code MASK} -- admin viewing a withheld field: render a placeholder, and the value only after they
- *       click it (a server round trip, {@code WEB-INF/privacyMask.xhtml}; never in the page before);</li>
- *   <li>{@code HIDE} -- render nothing at all.</li>
+ *   <li>{@code MASK} -- admin viewing a withheld field, who MAY see it: the value is in the page but hidden
+ *       behind a placeholder that a click reveals in the browser ({@code WEB-INF/privacyMask.xhtml});</li>
+ *   <li>{@code HIDE} -- render nothing at all: the value never reaches the page.</li>
  * </ul>
  *
  * <p>{@code fixed} covers the always-private fields (birthdate, passport, TSA, emergency contacts); {@code notes}

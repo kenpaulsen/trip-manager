@@ -77,6 +77,9 @@ Every page that lists or searches people follows one rule (owner decision 2026-1
   own members, search every field (they see private ones masked); trip Contacts and check-in use the viewer's own
   `PrivacyView.searchReach`; every other directory search (pickers, the mention typeahead) only what the subject
   shares with every signed-in user (`SHARED_FIELDS`).
+- **Showing** a private value goes through `WEB-INF/privacyMask.xhtml` with the viewer's `people.privacyView`
+  verdict: HIDE never reaches the page, MASK is in the page and a click reveals it in the browser. Manage People's
+  picker labels use `people.adminPickerLabel`. Rules: `docs/privacy-settings.md`.
 - **Listing** is `people.listOrSearch` (a `PeopleResult`): a blank query shows everyone when they fit
   `PersonCommands.PEOPLE_LIST_LIMIT` (60), otherwise asks for a search; matches are capped at the same limit and
   flagged `truncated`. Org People (`org.searchMembers`), trip Contacts (`people.contactsSearch`) and the admin People
