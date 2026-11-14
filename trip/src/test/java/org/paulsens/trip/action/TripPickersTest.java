@@ -173,6 +173,27 @@ public class TripPickersTest {
     }
 
     @Test
+    public void aTripFinanceAdminKeepsTheTripTheEditorWasOpenedForPastTheRecentCap() throws Exception {
+        // The same past-the-cap pin for a caller who is not a site admin: a trip's Finance Admin opening the
+        // group editor for an old trip they hold the role on. Narrowing the pin to site admins would leave
+        // their menu on "none", and Save would drop the group's trip binding.
+        final Trip old = saveTrip("Picker old trip", FakeData.CFPW_ORG_ID, 2001);
+        final String oldId = old.getId();
+        final Person.Id oldTripFinAdmin = Person.Id.newInstance();
+        final PrivilegeCommands priv = new PrivilegeCommands();
+        Assert.assertTrue(priv.savePrivilege(priv.getOrCreate(FIN_ADMIN, oldId, FIN_ADMIN)
+                .withNewPerson(oldTripFinAdmin)));
+
+        final TripCommands theirs = as(TestCallers.person(oldTripFinAdmin));
+        final List<String> recent = ids(onShared(() -> theirs.getRecentTripsFor(FIN_ADMIN, 1)));
+        Assert.assertFalse(recent.contains(oldId), "precondition: the recent 1 does not reach the 2001 trip");
+
+        final List<String> choices = ids(onShared(() -> theirs.getRecentTripsWith(FIN_ADMIN, 1, oldId)));
+        Assert.assertEquals(choices.getFirst(), oldId, "the trip the editor was opened for comes first");
+        Assert.assertEquals(choices.subList(1, choices.size()), recent, "then their recent trips, unchanged");
+    }
+
+    @Test
     public void noTripAtAllCostsNoLookup() throws Exception {
         // The editor's menu holds "none" once a group has no trip, and every render and every validation of
         // the menu asks again: a lookup of a key that cannot exist is an uncached DynamoDB miss each time.
