@@ -1,9 +1,15 @@
 package org.paulsens.trip.content;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -13,6 +19,7 @@ import java.util.function.ToIntFunction;
 import java.util.regex.Pattern;
 import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.Organization;
+import org.paulsens.trip.model.SitePage;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.site.SiteContext;
 
@@ -30,6 +37,11 @@ import org.paulsens.trip.site.SiteContext;
  * <p>Seeding runs through {@code OrgCommands.ensureHomePage} (the normal DAO save path, versions assigned
  * on write) exactly once per org -- the org row records when -- so an org that later empties its page is
  * never re-seeded behind its back.
+ *
+ * <p>Every other page of an org site is a Site Page ({@link SitePage}, served by {@code page.xhtml}). A new site
+ * also starts with the {@link #starterPages() starter Site Pages} (About Us, Board of Directors), seeded once by
+ * {@code SitePageCommands.ensureStarterPages}. Their definition is the resource {@value #STARTER_PAGES_RESOURCE},
+ * which the private repo's backfill script for sites that predate them reads too, so the two cannot drift.
  */
 public final class OrgPageBootstrap {
 
@@ -196,6 +208,77 @@ public final class OrgPageBootstrap {
                 row(key, "Upcoming Trips", StarterTemplates.PILGRIMAGES_ID, templateVersion, 1,
                         Map.of("language", "English", "cfpwOnly", "false")),
                 row(key, "Pictures", StarterTemplates.PHOTO_ALBUMS_ID, templateVersion, 2, Map.of()));
+    }
+
+    /** The classpath resource holding the starter Site Pages: one JSON list of {@link StarterPage}. */
+    public static final String STARTER_PAGES_RESOURCE = "/content/starter-site-pages.json";
+
+    /**
+     * One starter Site Page: its menu entry ({@code name} is its address and content key, {@code placement} a
+     * {@link SitePage.Placement} name) and the rows its content starts with.
+     */
+    public record StarterPage(String name, String title, String placement, List<StarterRow> rows) {
+
+        /** The page's menu entry. */
+        public SitePage entry() {
+            return new SitePage(name, title, null, placement);
+        }
+    }
+
+    /**
+     * One row of a starter page, in page order. {@code slot} names the row within its page (its id derives from
+     * the org, the page and the slot); {@code allowedChildTemplateIds} is a container's child allow-list, or null.
+     */
+    public record StarterRow(String slot, String title, String templateId, Map<String, String> values,
+            List<String> allowedChildTemplateIds) {
+    }
+
+    /** The starter Site Pages, in menu order, read from {@link #STARTER_PAGES_RESOURCE} once. */
+    public static List<StarterPage> starterPages() {
+        return StarterPagesHolder.PAGES;
+    }
+
+    /** Lazy holder: the resource is parsed on first use, and a broken resource fails that use loudly. */
+    private static final class StarterPagesHolder {
+        static final List<StarterPage> PAGES = readStarterPages();
+    }
+
+    static List<StarterPage> readStarterPages() {
+        try (InputStream in = OrgPageBootstrap.class.getResourceAsStream(STARTER_PAGES_RESOURCE)) {
+            if (in == null) {
+                throw new IllegalStateException("Missing resource " + STARTER_PAGES_RESOURCE);
+            }
+            return List.copyOf(new ObjectMapper().readValue(in, new TypeReference<List<StarterPage>>() { }));
+        } catch (final IOException ex) {
+            throw new UncheckedIOException("Unreadable resource " + STARTER_PAGES_RESOURCE, ex);
+        }
+    }
+
+    /**
+     * The rows {@code page} starts with on {@code orgId}'s site, unsaved and pinned like {@link #rows}. Row ids are
+     * DETERMINISTIC per org, page and slot ({@link #starterRowId}), so a retried seed rewrites the same rows.
+     */
+    public static List<ContentInstance> starterRows(final Organization.Id orgId, final StarterPage page,
+            final ToIntFunction<String> templateVersion) {
+        final String key = pageKey(orgId, page.name());
+        final List<ContentInstance> rows = new ArrayList<>();
+        for (int position = 0; position < page.rows().size(); position++) {
+            final StarterRow spec = page.rows().get(position);
+            rows.add(new ContentInstance(starterRowId(orgId, page.name(), spec.slot()), key, spec.title(),
+                    spec.templateId(), templateVersion.applyAsInt(spec.templateId()),
+                    spec.values() == null ? new HashMap<>() : new HashMap<>(spec.values()), null, position, 0, null,
+                    SEED_AUTHOR, null, spec.allowedChildTemplateIds()));
+        }
+        return rows;
+    }
+
+    /**
+     * A starter row's fixed id: {@code UUID.nameUUIDFromBytes("site-page:{orgId}:{page}:{slot}")}, which the
+     * backfill script reproduces (a version-3 UUID of the MD5 of those bytes).
+     */
+    static String starterRowId(final Organization.Id orgId, final String page, final String slot) {
+        return UUID.nameUUIDFromBytes(("site-page:" + orgId.getValue() + ":" + page + ":" + slot)
+                .getBytes(StandardCharsets.UTF_8)).toString();
     }
 
     /**

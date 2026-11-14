@@ -598,18 +598,45 @@ about the slug.
 `Organization.sitePages` is the org site's menu beyond Home and Trips: an ordered list of `SitePage` entries,
 each a PAGE (an editable content page, `/page.jsf?name={name}`, content under `page:org:{orgId}:{name}`, the
 named-page key) or a LINK (any http(s) URL or site path). Each has a placement: the About submenu (shown only
-when it has entries), the Help submenu (beside Donate and Make Payment), or HIDDEN (served, reached only by a
-link, such as a novena's day pages). A page's NAME is its address and content key, fixed at creation.
+when it has entries), the Help submenu (above Donate and Make Payment, each entry with an icon), or HIDDEN
+(served, reached only by a link, such as the steps of a multi-page guide). A page's NAME is its address and
+content key, fixed at creation.
 
+- **Everything is a Site Page on an org site** (issue medjugorje#124): an org site's content pages exist only
+  as these entries. `/board/index.jsf` on an org host redirects to `/page.jsf?name=board`; it renders
+  `page:shared:board` on a shared host only. `SitePagePolicyIT` keeps every other page from hosting
+  `WEB-INF/contentPage.xhtml` (`docs/content-templates.md`, "Named pages").
+- **Starter pages**: a new site starts with About Us (`about`) and Board of Directors (`board`), both in the
+  About menu, defined once in the resource `content/starter-site-pages.json` (`OrgPageBootstrap.starterPages()`).
+  `SitePageCommands.ensureStarterPages` seeds them beside `ensureHomePage` when a slug is saved
+  (`OrgCommands.saveOrgEdits`), ONCE per org: `Organization.sitePagesSeededAt` records it, so a starter page an
+  admin deletes never comes back. A starter whose name the list already has is left alone; a starter's content
+  is written only when its key is empty, so rows already there (a hand-built board) are adopted as-is. The
+  platform org (the marketing site, which shows no Site Pages) is only marked. Orgs hosted before 2026-11-13
+  are backfilled by `medjugorje/scripts/seed-starter-site-pages.py` (dry run by default; it skips an org whose
+  row is already marked, which the CFPW cut-over sets).
 - **The list is the org admins'** (`admin/orgPages.xhtml`, "Site Pages", a hub card and a link on the settings
-  page's Home tab; `SitePageCommands` as `#{orgPages}`: add a page or a link, settings dialog, up/down, delete
-  with confirmation). **The words are a content editor's**: a page is edited in place on the org's site, the
-  ordinary privilege-only edit mode (`contentAdmin` for the org), and the admin page says which the viewer has.
-- A new page gets one starter text block unless content already sits under its key (then adopted as-is); a
-  deleted page takes its rows and its containers' children with it (`DAO.deleteContent`, one row at a time).
-- `page.xhtml` renders only a PAGE the CURRENT org site lists; anything else (a shared host, a link, a deleted
-  or malformed name) gets `WEB-INF/noSuchPage.xhtml`, chosen at build time, so a crafted name never reaches the
-  content key. Signed in, the name survives postbacks in `viewScope.pageName` (pinned by `contentPage.xhtml`).
+  page's Home tab; `SitePageCommands` as `#{orgPages}`: add a page or a link, settings dialog, up/down,
+  delete with confirmation). The table is grouped by menu, and Up/Down swap an entry with its neighbor IN
+  THE SAME MENU, so every click changes what visitors see. **The words are a content editor's**: a page is
+  edited in place on the org's site, the ordinary privilege-only edit mode (`contentAdmin` for the org, the
+  gate `ContentCommands.canEdit`), and the admin page says which the viewer has. The View/Edit link to the org's
+  own site is built by `SiteCommands.orgSiteUrl(slug, request)`, so a localhost admin page links to
+  `{slug}.localhost`.
+- **Deleting a page deletes its content, without the content privilege** (owner decision 2026-11-13):
+  managing the list includes removing a page; writing the words stays privilege-only. The delete goes through
+  the content delete cascade (`ContentCommands.deleteWithChildren`): every section and every container's
+  children, one row at a time, each with its own CONTENT audit line, beside the ORGANIZATION line "Site page
+  ... deleted". The confirmation says the page and everything on it are deleted.
+- A new page gets one starter text block unless content already sits under its key (then adopted as-is).
+- `page.xhtml` renders only a PAGE the CURRENT org site lists, and hands the content host the STORED name (so
+  `?name=mission%20` is the page, never a 500); anything else (a shared host, a link, a deleted or malformed
+  name) gets `WEB-INF/noSuchPage.xhtml`, chosen at build time, which answers HTTP 404 through `/notFound`
+  (`SitePageCommands.answerNotFound`). Signed in, the name survives postbacks in `viewScope.pageName` (pinned
+  by `contentPage.xhtml`).
+- The address of a new page follows its title in the dialog (one client-side implementation in the page;
+  the server only checks the result). An address typed by hand stops following, and a refused Save keeps it
+  (`viewScope.dlgNameTouched`); the dialog's kind (page or link) is pinned when it opens (`viewScope.dlgIsLink`).
 - The shared sites keep their hand-written pages and literal menus.
 
 ## Shared-site Register target (2026-10-29)

@@ -1,9 +1,14 @@
 package org.paulsens.trip.action;
 
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.faces.context.FacesContext;
 import jakarta.inject.Named;
-import java.text.Normalizer;
+import jakarta.servlet.http.HttpServletRequest;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -12,13 +17,10 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
-import org.paulsens.trip.audit.Audit;
-import org.paulsens.trip.model.AuditAction;
-import org.paulsens.trip.audit.AuditEventBuilder;
-import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.content.ContentRenderer;
 import org.paulsens.trip.content.OrgPageBootstrap;
+import org.paulsens.trip.content.OrgPageBootstrap.StarterPage;
 import org.paulsens.trip.content.StarterTemplates;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.ContentInstance;
@@ -30,13 +32,17 @@ import org.paulsens.trip.site.SiteContext;
 /**
  * An organization site's own pages and menu links ({@link Organization#getSitePages()}), managed on the org's
  * Site Pages admin page ({@code admin/orgPages.xhtml}) and read by the menu ({@code WEB-INF/menu.xhtml}) and the
- * page host ({@code page.xhtml}).
+ * page host ({@code page.xhtml}). Everything is a Site Page on an org site (issue medjugorje#124): an org site's
+ * content pages exist only as these entries, and a new site starts with the starter pages
+ * ({@link #ensureStarterPages}).
  *
  * <p>Two audiences, two gates. The LIST (which pages exist, their titles, menu placement and order) belongs to
  * the org's admins ({@link OrgCommands#canManageOrg}); a page's CONTENT is edited on the org's site in the
  * ordinary content edit mode, which stays privilege-only ({@code contentAdmin} for the org, docs/org-admin.md
  * "Org-site editors"). So an org admin can add, rename, move and delete pages, and the Site Pages page tells
- * them when someone else has to write the words.
+ * them when someone else has to write the words. Deleting a page deletes its content too, without the content
+ * privilege (owner decision 2026-11-13: managing the list includes removing a page), and each deleted row gets
+ * its own audit line, as a content editor's delete does.
  *
  * <p>Identity, never position: every row command names the page by its {@link SitePage#name()}, fixed at
  * creation. Reads go through the cached org; writes re-read it uncached, apply the change and save through
@@ -55,7 +61,8 @@ public class SitePageCommands {
     private static final String PAGE_PATH = "/page.jsf?name=";
 
     private final Supplier<Caller> callerSource;
-    private final Supplier<OrgCommands> orgSource;
+    private final OrgCommands orgs;
+    private final ContentCommands content;
 
     public SitePageCommands() {
         this(Caller::current);
@@ -64,14 +71,24 @@ public class SitePageCommands {
     /** Test seam: {@code Caller.current()} needs a FacesContext. */
     public SitePageCommands(final Supplier<Caller> callerSource) {
         this.callerSource = callerSource;
-        this.orgSource = () -> new OrgCommands(callerSource);
+        this.orgs = new OrgCommands(callerSource);
+        this.content = new ContentCommands();
+        this.content.setCallerSource(callerSource);
     }
 
     // ------------------------------------------------------------------ reads
 
-    /** The org's pages and links in menu order (the admin page's table); empty for an unknown org. */
+    /** The org's pages and links in stored order; empty for an unknown org. */
     public List<SitePage> pagesOf(final String orgId) {
-        return cachedOrg(orgId).map(SitePageCommands::entries).orElse(List.of());
+        return entries(orgs.findOrganization(orgId));
+    }
+
+    /**
+     * The admin page's table: the org's entries grouped by placement (About, Help, then the ones out of the menu),
+     * each group in its menu order. Up and Down move an entry within its own group ({@link #movePage}).
+     */
+    public List<SitePage> tableOf(final String orgId) {
+        return pagesOf(orgId).stream().sorted(Comparator.comparing(SitePage::where)).toList();
     }
 
     /** One of the org's entries by name (the settings dialog's seed), or null. */
@@ -83,6 +100,13 @@ public class SitePageCommands {
     public List<SitePage> pagesIn(final String orgId, final String placement) {
         final Placement where = Placement.from(placement);
         return pagesOf(orgId).stream().filter(page -> page.where() == where).toList();
+    }
+
+    /** Whether Up ({@code delta} -1) or Down (+1) would move {@code page}: it is not at that end of its menu. */
+    public boolean canMove(final String orgId, final SitePage page, final int delta) {
+        final List<SitePage> pages = pagesOf(orgId);
+        final int index = page == null ? -1 : indexOf(pages, page.name());
+        return index >= 0 && neighborIndex(pages, index, delta) >= 0;
     }
 
     /** Where an entry shows, in the admin page's words. */
@@ -110,14 +134,13 @@ public class SitePageCommands {
         if (!site.isOrg() || site.isMarketing()) {
             return List.of();
         }
-        return cachedOrg(site.orgId().getValue()).map(SitePageCommands::entries).orElse(List.of()).stream()
-                .filter(page -> page.where() == where)
-                .toList();
+        return pagesOf(site.orgId().getValue()).stream().filter(page -> page.where() == where).toList();
     }
 
     /**
      * The PAGE called {@code name} on the current org site, or null: off an org site, an unknown name, or a
-     * LINK (a link has no page to show). What {@code page.xhtml} renders, or answers "no such page" for.
+     * LINK (a link has no page to show). What {@code page.xhtml} renders, or answers 404 for. Surrounding blanks
+     * are forgiven (a pasted link), which is why the page host passes on the STORED name, never the parameter.
      */
     public SitePage currentPage(final String name) {
         final SiteContext site = SiteContext.current();
@@ -132,9 +155,16 @@ public class SitePageCommands {
         return page.isLink() ? page.url() : PAGE_PATH + page.name();
     }
 
+    /** The Help menu's icon for an entry, like the built-in items have: a page here, or a link elsewhere. */
+    public String iconOf(final SitePage page) {
+        return page.isLink() ? "pi pi-external-link" : "pi pi-file";
+    }
+
     /**
      * Where a page can be seen and edited: its address on THIS host when this is the org's site, else on the
-     * org's own site (custom domain or subdomain); null when the org has no site yet. A link answers its URL.
+     * org's own site as the admin pages' links build it ({@link SiteCommands#orgSiteUrl(String,
+     * HttpServletRequest)}: {@code {slug}.localhost} from a localhost request, else the custom domain or the
+     * subdomain); null when the org has no site yet. A link answers its URL.
      */
     public String viewUrl(final String orgId, final SitePage page) {
         if (page.isLink()) {
@@ -143,33 +173,39 @@ public class SitePageCommands {
         if (SiteContext.current().isSiteOf(orgId)) {
             return PAGE_PATH + page.name();
         }
-        final Organization org = cachedOrg(orgId).orElse(null);
+        final Organization org = orgs.findOrganization(orgId);
         if (org == null || org.getSlug() == null || org.getSlug().isBlank()) {
             return null;
         }
-        // The admin pages' one org-site builder: it keeps the *.localhost rule, so a laptop's link stays local.
-        return new SiteCommands().orgSiteUrlOf(org) + PAGE_PATH.substring(1) + page.name();
+        final String site = SiteCommands.orgSiteUrl(org.getSlug(), currentRequest());
+        return (site.endsWith("/") ? site.substring(0, site.length() - 1) : site) + PAGE_PATH + page.name();
     }
 
-    /** Whether the caller may edit page CONTENT on this org's site (the content edit mode's own gate). */
+    /** Whether the caller may edit page CONTENT on this org's site: the content edit mode's own gate. */
     public boolean canEditContent(final String orgId) {
         final Caller current = callerSource.get();
-        return current.isSiteAdmin() || current.has(PrivilegeCommands.CONTENT_ADMIN)
-                || current.has(PrivilegeCommands.CONTENT_ADMIN, orgId);
+        if (orgId == null || orgId.isBlank() || !current.isAuthenticated()) {
+            return false;
+        }
+        return content.canEdit(OrgPageBootstrap.pageKey(Organization.Id.from(orgId.trim())), current.personId());
     }
 
-    /** A page address suggested from a title ({@code "Pray the Divine Mercy"} -> {@code pray-the-divine-mercy}). */
-    public String suggestName(final String title) {
-        final String ascii = Normalizer.normalize(title == null ? "" : title, Normalizer.Form.NFD)
-                .replaceAll("\\p{M}", "").toLowerCase(Locale.ROOT);
-        String name = ascii.replaceAll("[^a-z0-9]+", "-").replaceAll("^-+|-+$", "");
-        if (name.length() > 40) {
-            name = name.substring(0, 40).replaceAll("-+$", "");
+    /**
+     * {@code page.xhtml}'s answer for a name the current site does not serve: HTTP 404 through the container's
+     * error page ({@code /notFound}), like every other unknown address, so a removed page drops out of search
+     * indexes and a sweep of made-up names costs no JSF render.
+     */
+    public void answerNotFound() {
+        final FacesContext ctx = FacesContext.getCurrentInstance();
+        if (ctx == null || ctx.getResponseComplete()) {
+            return;
         }
-        if (name.isEmpty() || !Character.isLetter(name.charAt(0))) {
-            name = "page" + (name.isEmpty() ? "" : "-" + name);
+        try {
+            ctx.getExternalContext().responseSendError(404, null);
+        } catch (final IOException ex) {
+            throw new UncheckedIOException("Unable to answer 404", ex);
         }
-        return name.length() > 40 ? name.substring(0, 40).replaceAll("-+$", "") : name;
+        ctx.responseComplete();
     }
 
     // ------------------------------------------------------------------ writes
@@ -222,13 +258,10 @@ public class SitePageCommands {
                 "updated");
     }
 
-    /** Moves an entry to another place in the menu (the row's own placement select). */
-    public boolean setPlacement(final String orgId, final String name, final String placement) {
-        return change(orgId, name, (pages, index) -> place(pages, index, placement),
-                "moved to " + Placement.from(placement).name().toLowerCase(Locale.ROOT));
-    }
-
-    /** Moves an entry one place up ({@code delta} -1) or down (+1) in the menu order; the ends are no-ops. */
+    /**
+     * Moves an entry one place up ({@code delta} -1) or down (+1) WITHIN ITS OWN MENU: it swaps with the nearest
+     * entry of the same placement, so every click changes what visitors see. The ends are no-ops.
+     */
     public boolean movePage(final String orgId, final String name, final int delta) {
         return change(orgId, name, (pages, index) -> reorder(pages, index, delta),
                 delta < 0 ? "moved up" : "moved down");
@@ -236,8 +269,10 @@ public class SitePageCommands {
 
     /**
      * Deletes an entry; for a PAGE also its content (every section and every container's children), which is
-     * what the confirmation says. The org row is saved first: a content delete that then fails leaves orphaned
-     * rows nobody can reach, never a menu entry pointing at a half-deleted page.
+     * what the confirmation says. An org admin may do this without the content privilege; each deleted row is
+     * audited on its own ({@link ContentCommands#deleteWithChildren}). The org row is saved first: a content
+     * delete that then fails leaves orphaned rows nobody can reach, never a menu entry pointing at a
+     * half-deleted page.
      */
     public boolean deletePage(final String orgId, final String name) {
         final SitePage[] removed = new SitePage[1];
@@ -246,6 +281,43 @@ public class SitePageCommands {
             return saved;
         }
         return deleteContent(OrgPageBootstrap.pageKey(Organization.Id.from(orgId.trim()), removed[0].name()));
+    }
+
+    /**
+     * Seeds the org site's starter Site Pages ({@link OrgPageBootstrap#starterPages()}) ONCE: on the subdomain's
+     * first assignment ({@code OrgCommands.saveOrgEdits}, beside {@code ensureHomePage}) and for the local
+     * fixture's sites; {@code scripts/seed-starter-site-pages.py} in the private repo does the same for sites
+     * hosted before starters existed. Each starter the list lacks is appended and gets its starter content only
+     * when nothing is stored under its key yet, so rows already there (a hand-built board) are adopted as-is; a
+     * starter whose name the list already has is left alone. The org row records the seeding, so a starter page
+     * deleted later never comes back. The platform org's site is the marketing site, which shows no Site Pages,
+     * so it is only marked.
+     *
+     * @return whether the org now has (or already had) its starters; false without a subdomain, for a caller who
+     *         may not manage the org, or when a save failed (with a growl)
+     */
+    public boolean ensureStarterPages(final String orgId) {
+        final Organization fresh = orgs.freshOrg(orgId);
+        if (fresh == null || fresh.getSlug() == null || fresh.getSlug().isBlank()) {
+            return false;
+        }
+        if (fresh.getSitePagesSeededAt() != null) {
+            return true;
+        }
+        if (!orgs.canManageOrg(orgId)) {
+            return false;
+        }
+        final List<String> added = fresh.isPlatform() ? List.of() : addStarters(fresh);
+        if (added == null) {
+            return false;
+        }
+        fresh.setSitePagesSeededAt(LocalDateTime.now());
+        if (!orgs.saveOrganization(fresh)) {
+            return false;
+        }
+        orgs.audit(callerSource.get(), fresh, "Starter site pages seeded for the site '" + fresh.getSlug() + "': "
+                + (added.isEmpty() ? "none added" : String.join(", ", added)));
+        return true;
     }
 
     // ------------------------------------------------------------------ internals
@@ -268,19 +340,25 @@ public class SitePageCommands {
         return true;
     }
 
-    private static boolean place(final List<SitePage> pages, final int index, final String placement) {
-        final SitePage page = pages.get(index);
-        pages.set(index, page.withDetails(page.title(), page.url(), Placement.from(placement)));
+    /** Swaps the entry with its neighbor in the same menu; at either end of that menu it stays put (a success). */
+    private static boolean reorder(final List<SitePage> pages, final int index, final int delta) {
+        final int target = neighborIndex(pages, index, delta);
+        if (target >= 0) {
+            pages.set(index, pages.set(target, pages.get(index)));
+        }
         return true;
     }
 
-    /** Swaps the entry with its neighbour; at either end of the list it stays put (still a success). */
-    private static boolean reorder(final List<SitePage> pages, final int index, final int delta) {
-        final int target = index + Integer.signum(delta);
-        if (target >= 0 && target < pages.size()) {
-            pages.add(target, pages.remove(index));
+    /** The index of the nearest entry beyond {@code index} in {@code delta}'s direction with the same placement. */
+    static int neighborIndex(final List<SitePage> pages, final int index, final int delta) {
+        final Placement where = pages.get(index).where();
+        final int step = Integer.signum(delta);
+        for (int i = index + step; step != 0 && i >= 0 && i < pages.size(); i += step) {
+            if (pages.get(i).where() == where) {
+                return i;
+            }
         }
-        return true;
+        return -1;
     }
 
     private static boolean removeInto(final List<SitePage> pages, final int index, final SitePage[] removed) {
@@ -305,11 +383,11 @@ public class SitePageCommands {
         }
         pages.add(new SitePage(entry.name(), cleanTitle, entry.url(), entry.placement()));
         fresh.setSitePages(pages);
-        if (!orgSource.get().saveOrganization(fresh)) {
+        if (!orgs.saveOrganization(fresh)) {
             return false;
         }
-        audit(fresh, "Site " + (entry.isLink() ? "link" : "page") + " '" + cleanTitle + "' ("
-                + entry.name() + ") added");
+        orgs.audit(callerSource.get(), fresh, "Site " + (entry.isLink() ? "link" : "page") + " '" + cleanTitle
+                + "' (" + entry.name() + ") added");
         if (seed && !seedPage(OrgPageBootstrap.pageKey(fresh.getId(), entry.name()))) {
             return PageFeedback.refuse("Page added without content", "The page was added, but its starter "
                     + "text could not be saved. Open the page and add a section.");
@@ -333,25 +411,59 @@ public class SitePageCommands {
             return false;
         }
         fresh.setSitePages(pages.isEmpty() ? null : pages);
-        if (!orgSource.get().saveOrganization(fresh)) {
+        if (!orgs.saveOrganization(fresh)) {
             return false;
         }
-        audit(fresh, "Site page '" + title + "' (" + name + ") " + what);
+        orgs.audit(callerSource.get(), fresh, "Site page '" + title + "' (" + name + ") " + what);
         return true;
     }
 
     /** A fresh org the caller may manage, or null (with a growl). */
     private Organization editable(final String orgId) {
-        if (!orgSource.get().canManageOrg(orgId)) {
+        if (!orgs.canManageOrg(orgId)) {
             PageFeedback.refuse("Not allowed", "Only this organization's admins can change its site pages.");
             return null;
         }
-        final Organization fresh = DAO.getInstance().getOrganization(Organization.Id.from(orgId.trim()), Cached.NO)
-                .orElse(null);
+        final Organization fresh = orgs.freshOrg(orgId);
         if (fresh == null) {
             PageFeedback.refuse("Unable to save", "Unknown organization.");
         }
         return fresh;
+    }
+
+    /**
+     * Appends the starters {@code org}'s list lacks (their content first, only into an empty key) and answers
+     * their names; null when a starter's content could not be saved (growled), leaving the list as it was.
+     */
+    private static List<String> addStarters(final Organization org) {
+        final List<SitePage> pages = new ArrayList<>(entries(org));
+        final List<String> added = new ArrayList<>();
+        for (final StarterPage starter : OrgPageBootstrap.starterPages()) {
+            final boolean wanted = find(pages, starter.name()).isEmpty() && pages.size() < MAX_PAGES;
+            if (wanted && !seedStarter(org.getId(), starter)) {
+                return null;
+            }
+            if (wanted) {
+                pages.add(starter.entry());
+                added.add(starter.name());
+            }
+        }
+        org.setSitePages(pages.isEmpty() ? null : pages);
+        return added;
+    }
+
+    private static boolean seedStarter(final Organization.Id orgId, final StarterPage starter) {
+        final String key = OrgPageBootstrap.pageKey(orgId, starter.name());
+        try {
+            if (OrgCommands.seedIfEmpty(key, OrgPageBootstrap.starterRows(orgId, starter,
+                    OrgCommands::currentTemplateVersion))) {
+                return true;
+            }
+        } catch (final RuntimeException ex) {
+            log.error("Unable to seed the starter site page {}", key, ex);
+        }
+        return PageFeedback.refuse("Starter pages not created", "The starter page '" + starter.title()
+                + "' could not be saved.");
     }
 
     private static String cleanTitle(final String title) {
@@ -378,16 +490,13 @@ public class SitePageCommands {
         }
     }
 
-    /** Deletes every row of a page and every container's children, through the DAO's single-row removal. */
-    private static boolean deleteContent(final String pageKey) {
-        final DAO dao = DAO.getInstance();
+    /** Deletes every section of a page through the content delete cascade, one audit line per row. */
+    private boolean deleteContent(final String pageKey) {
+        final Caller caller = callerSource.get();
         try {
             boolean all = true;
-            for (final ContentInstance section : dao.getContentForSection(pageKey, Cached.NO)) {
-                for (final ContentInstance child : dao.getContentForSection(section.getId(), Cached.NO)) {
-                    all &= Boolean.TRUE.equals(dao.deleteContent(child.getId()));
-                }
-                all &= Boolean.TRUE.equals(dao.deleteContent(section.getId()));
+            for (final ContentInstance section : DAO.getInstance().getContentForSection(pageKey, Cached.NO)) {
+                all &= ContentCommands.deleteWithChildren(caller, section);
             }
             return all || PageFeedback.refuse("Content not fully deleted", "The page is gone from the menu, but "
                     + "some of its sections could not be deleted. They are unreachable and harmless.");
@@ -398,29 +507,15 @@ public class SitePageCommands {
         }
     }
 
-    private void audit(final Organization org, final String message) {
-        Audit.builder(AuditAction.ORGANIZATION, AuditOutcome.SUCCESS)
-                .actor(callerSource.get().auditActor())
-                .target(AuditEventBuilder.TARGET_ORGANIZATION, org.getId().getValue())
-                .org(org.getId().getValue())
-                .message(message)
-                .log();
-    }
-
-    private static Optional<Organization> cachedOrg(final String orgId) {
-        if (orgId == null || orgId.isBlank()) {
-            return Optional.empty();
-        }
-        try {
-            return DAO.getInstance().getOrganization(Organization.Id.from(orgId.trim()), Cached.YES);
-        } catch (final RuntimeException ex) {
-            log.error("Unable to read organization {} for its site pages", orgId, ex);
-            return Optional.empty();
-        }
+    /** The current request (null off a JSF request): what the cross-site View link's host rule reads. */
+    private static HttpServletRequest currentRequest() {
+        final FacesContext ctx = FacesContext.getCurrentInstance();
+        final Object request = ctx == null ? null : ctx.getExternalContext().getRequest();
+        return request instanceof HttpServletRequest http ? http : null;
     }
 
     private static List<SitePage> entries(final Organization org) {
-        return org.getSitePages() == null ? List.of() : org.getSitePages();
+        return org == null || org.getSitePages() == null ? List.of() : org.getSitePages();
     }
 
     private static Optional<SitePage> find(final List<SitePage> pages, final String name) {

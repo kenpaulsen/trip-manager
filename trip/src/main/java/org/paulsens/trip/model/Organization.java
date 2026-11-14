@@ -120,6 +120,14 @@ public final class Organization implements Serializable {
     private LocalDateTime homePageSeededAt;
 
     /**
+     * When the org site's starter Site Pages ({@code OrgPageBootstrap.starterPages()}) were added to
+     * {@link #sitePages}; null until the org first gets a subdomain. Once only, like {@link #homePageSeededAt}: a
+     * starter page its admins delete stays deleted. Setter-populated, outside the 8-arg creator like
+     * {@link #paymentDefaults}.
+     */
+    private LocalDateTime sitePagesSeededAt;
+
+    /**
      * The org side of the double gate on SHARED sites: whether this org's public content (trips, albums)
      * may appear on a shared site's sections at all. {@code null} = allow (the default; the site side's own
      * pick list is already opt-in), {@code false} = never, whatever a shared site's curation says. Org-admin
