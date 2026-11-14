@@ -113,16 +113,25 @@ A site has more content pages than its home page. A **named page** is a lower-ca
 | an organization's site | `page:org:{uuid}:home` | `page:org:{uuid}:{name}` |
 | marketing host | `page:unitetrip-home` | `page:unitetrip:{name}` |
 
-So every site has its OWN copy of a named page: `/board/index.jsf` on an org's subdomain is that org's
-board (empty until its editors write one), never the shared site's. `OrgPageBootstrap.orgOf` recognizes
+So every site has its OWN copy of a named page, never the shared site's. `OrgPageBootstrap.orgOf` recognizes
 every `page:org:{uuid}:{name}` key and `isMarketingPageKey` every marketing one, so an org-scoped
 `contentAdmin` edits all of its org's pages and the platform org's editor all of the marketing host's,
 through the unchanged `canEdit`/`mayEdit` rules.
 
-**Adding a page** is one thin host file composing `WEB-INF/contentPage.xhtml` with three ui:params --
-`pageName`, `pageTitle` (the shared-host title; org sites show the org's name), `selfUrl` -- plus, when the
-page must start with content, a bootstrap script for production and a `FakeData` seed (see
-`medjugorje/scripts/bootstrap-board-page.sh` and `FakeData.addFakeBoardPage`). `contentPage.xhtml` is the
+**Everything is a Site Page on an org site** (owner decision 2026-11-13, issue medjugorje#124). An org site's
+named pages exist only as `Organization.sitePages` entries, served by `page.xhtml` (`/page.jsf?name={name}`)
+and managed on its Site Pages admin page (`docs/org-admin.md`, "Site Pages"). Before this, the hand-written
+`board/index.xhtml` rendered `page:org:{uuid}:board` without being in that list, so an admin adding a Site Page
+named `board` silently took its rows over. Now `/board/index.jsf` on an org host only redirects to
+`/page.jsf?name=board` (same key, so no row moved), and every new site starts with a `board` Site Page (the
+starter pages, `OrgPageBootstrap.starterPages()`).
+
+**Adding a page**: on an org site, add a Site Page; never a new host file. The only hosts of
+`WEB-INF/contentPage.xhtml` are `page.xhtml` and, on a SHARED host, `board/index.xhtml` (rendering
+`page:shared:board`, its production rows from `medjugorje/scripts/bootstrap-board-page.sh`, locally
+`FakeData.addFakeBoardPage`); `SitePagePolicyIT` (webtest) fails on any other. A host composes it with three
+ui:params -- `pageName`, `pageTitle` (the shared-host title; org sites show the org's name), `selfUrl` -- and
+`page.xhtml` hands over the STORED page name, never the request parameter. `contentPage.xhtml` is the
 home host's initPage and edit toggle without its home-only parts (banner, library uploads, photo viewer).
 Its initPage reads the `pageName` ui:param directly: a jsft `initPage` runs during Facelets tag
 application against the FaceletContext, where the composition's params are still visible. Only the LATER

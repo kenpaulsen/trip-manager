@@ -1,0 +1,39 @@
+[
+  {
+    "name": "about",
+    "title": "About Us",
+    "placement": "ABOUT",
+    "rows": [
+      {
+        "slot": "intro",
+        "title": "About Us",
+        "templateId": "text-only",
+        "values": {
+          "body": "<h2>About Us</h2><p>Tell visitors who you are: what your organization does, who it serves and how to reach you. This is a starter page. Open its edit mode to replace this text, or delete the page on the Site Pages admin page if you do not need it.</p>"
+        }
+      }
+    ]
+  },
+  {
+    "name": "board",
+    "title": "Board of Directors",
+    "placement": "ABOUT",
+    "rows": [
+      {
+        "slot": "heading",
+        "title": "Heading",
+        "templateId": "text-only",
+        "values": {
+          "body": "<h2>Board of Directors</h2><p>Introduce the people who lead your organization. This is a starter page. Open its edit mode and add each director to the list below, or delete the page on the Site Pages admin page if you do not need it.</p>"
+        }
+      },
+      {
+        "slot": "directors",
+        "title": "",
+        "templateId": "people-list",
+        "values": {},
+        "allowedChildTemplateIds": ["person"]
+      }
+    ]
+  }
+]

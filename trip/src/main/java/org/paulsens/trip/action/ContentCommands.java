@@ -659,8 +659,8 @@ public class ContentCommands {
 
     /**
      * Deletes an instance (all versions); refused without edit rights on its section. Deleting a CONTAINER
-     * instance cascades to its children first -- each through the DAO's surgical single-row delete, never a
-     * cache invalidation.
+     * instance cascades to its children first ({@link #deleteWithChildren}) -- each through the DAO's surgical
+     * single-row delete, never a cache invalidation.
      */
     public boolean deleteContent(final String id) {
         final ContentInstance existing;
@@ -678,20 +678,39 @@ public class ContentCommands {
             log.warn("Refusing content delete in '{}': caller lacks edit rights", existing.getSection());
             return false;
         }
-        final ContentTemplate template = resolveTemplate(existing);
-        if (template != null && template.getKind() == TemplateKind.CONTAINER) {
-            for (final ContentInstance child : readSection(id)) {
-                if (DAO.getInstance().deleteContent(child.getId())) {
-                    audit(caller, child.getId(), "Deleted '" + child.getTitle()
-                            + "' with its container '" + existing.getTitle() + "'");
-                }
+        try {
+            return deleteWithChildren(caller, existing);
+        } catch (final RuntimeException ex) {
+            log.error("Unable to delete content: " + id, ex);
+            return false;
+        }
+    }
+
+    /**
+     * THE delete cascade, ungated (callers check their own right first): the row's children, if it has any (a
+     * container's), then the row itself, each through the DAO's surgical single-row delete and each with its
+     * own audit line, so the trail names every row that was destroyed. Shared with
+     * {@code SitePageCommands.deletePage}, which deletes a whole page this way. Children are read uncached and
+     * for every row, not only a CONTAINER's: a row whose template no longer resolves must not leave its
+     * children behind.
+     *
+     * @return whether the row and all of its children were deleted
+     */
+    static boolean deleteWithChildren(final Caller caller, final ContentInstance row) {
+        boolean all = true;
+        for (final ContentInstance child : DAO.getInstance().getContentForSection(row.getId(), Cached.NO)) {
+            final boolean gone = Boolean.TRUE.equals(DAO.getInstance().deleteContent(child.getId()));
+            if (gone) {
+                audit(caller, child.getId(), "Deleted '" + child.getTitle()
+                        + "' with its container '" + row.getTitle() + "'");
             }
+            all &= gone;
         }
-        final boolean deleted = DAO.getInstance().deleteContent(id);
+        final boolean deleted = Boolean.TRUE.equals(DAO.getInstance().deleteContent(row.getId()));
         if (deleted) {
-            audit(caller, id, "Deleted '" + existing.getTitle() + "' from " + existing.getSection());
+            audit(caller, row.getId(), "Deleted '" + row.getTitle() + "' from " + row.getSection());
         }
-        return deleted;
+        return all && deleted;
     }
 
     /**
@@ -1407,7 +1426,7 @@ public class ContentCommands {
         return config.getInt(KnownSettings.CONTENT_VERSIONS_RETAINED, 0, 50);
     }
 
-    private void audit(final Caller caller, final String id, final String message) {
+    private static void audit(final Caller caller, final String id, final String message) {
         Audit.builder(AuditAction.CONTENT, AuditOutcome.SUCCESS)
                 .actor(caller.auditActor())
                 .target(AuditEventBuilder.TARGET_CONTENT, id)

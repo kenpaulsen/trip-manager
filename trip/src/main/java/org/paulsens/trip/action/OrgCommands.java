@@ -334,7 +334,7 @@ public class OrgCommands {
     }
 
     /** An uncached read of the org to edit -- an edit seed must never come from the shared cache. */
-    private Organization freshOrg(final String orgId) {
+    Organization freshOrg(final String orgId) {
         if (orgId == null || orgId.isBlank()) {
             return null;
         }
@@ -1883,9 +1883,9 @@ public class OrgCommands {
             return false;
         }
         if (fresh.getSlug() != null) {
-            // A subdomain's first assignment also gives the site something to show (once; see
-            // ensureHomePage). A seeding failure growls on its own -- the profile itself did save.
+            // A subdomain's first assignment seeds the home page and starter Site Pages, each once (growls on failure).
             ensureHomePage(orgId);
+            new SitePageCommands(callerSource).ensureStarterPages(orgId);
         }
         return true;
     }
@@ -2954,7 +2954,7 @@ public class OrgCommands {
         }
     }
 
-    private void audit(final Caller current, final Organization org, final String message) {
+    void audit(final Caller current, final Organization org, final String message) {
         Audit.builder(AuditAction.ORGANIZATION, AuditOutcome.SUCCESS)
                 .actor(current.auditActor())
                 .target(AuditEventBuilder.TARGET_ORGANIZATION, org.getId().getValue())

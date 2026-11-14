@@ -122,4 +122,38 @@ public class OrgPageBootstrapTest {
         Assert.assertTrue(body.contains("Replace this introduction"), "obviously a placeholder");
         Assert.assertEquals(OrgPageBootstrap.escape(null), "");
     }
+
+    @Test
+    public void theStarterSitePagesAreAboutAndTheBoard() {
+        final List<OrgPageBootstrap.StarterPage> starters = OrgPageBootstrap.starterPages();
+        Assert.assertEquals(starters.stream().map(OrgPageBootstrap.StarterPage::name).toList(),
+                List.of("about", "board"));
+        Assert.assertSame(OrgPageBootstrap.starterPages(), starters, "read once");
+        Assert.assertEquals(OrgPageBootstrap.readStarterPages(), starters);
+        final OrgPageBootstrap.StarterPage board = starters.get(1);
+        Assert.assertEquals(board.entry().title(), "Board of Directors");
+        Assert.assertFalse(board.entry().isLink());
+        final List<ContentInstance> rows = OrgPageBootstrap.starterRows(ORG, board, id -> 3);
+        Assert.assertEquals(rows.size(), 2);
+        Assert.assertEquals(rows.get(0).getSection(), OrgPageBootstrap.pageKey(ORG, "board"));
+        Assert.assertEquals(rows.get(1).getPosition(), 1);
+        Assert.assertEquals(rows.get(1).getTemplateVersion(), 3, "pinned to the version it is handed");
+        Assert.assertEquals(rows.get(1).getTemplateId(), StarterTemplates.PEOPLE_LIST_ID);
+        Assert.assertEquals(rows, OrgPageBootstrap.starterRows(ORG, board, id -> 3), "fixed ids: a retry rewrites");
+        for (final OrgPageBootstrap.StarterPage starter : starters) {
+            Assert.assertTrue(OrgPageBootstrap.isPageName(starter.name()));
+            for (final ContentInstance row : OrgPageBootstrap.starterRows(ORG, starter, id -> 1)) {
+                final String body = row.getValues().getOrDefault("body", "");
+                Assert.assertFalse(body.contains("\u2014") || body.toLowerCase().contains("pilgrimage"), body);
+            }
+        }
+    }
+
+    @Test
+    public void aStarterRowIdIsTheOneTheBackfillScriptComputes() {
+        // medjugorje/scripts/seed-starter-site-pages.py: uuid.UUID(bytes=md5(...).digest(), version=3).
+        Assert.assertEquals(OrgPageBootstrap.starterRowId(
+                Organization.Id.from("5f0c2a4e-9d31-4a8e-8f34-6d2f19c7b0a1"), "board", "heading"),
+                "0fbc93fc-17d3-30c5-a74a-4d6e58004128");
+    }
 }

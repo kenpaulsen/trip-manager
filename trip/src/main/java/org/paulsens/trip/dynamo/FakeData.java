@@ -544,29 +544,30 @@ public final class FakeData {
         seedLocalApiAccess();
         seedOrgScopedPrivileges(commands, kevin);
         seedOrgSiteEditor(commands);
-        // Each org SITE gets its default home page through the same once-only seeding a slug assignment
-        // triggers in production, so acme.localhost / beta.localhost show what a new tenant sees. Runs after
-        // addFakeContent: the starter rows pin the starter templates' current versions.
+        // Each org SITE gets its default home page and its starter Site Pages (About Us, Board of Directors)
+        // through the same once-only seeding a slug assignment triggers in production, so acme.localhost /
+        // beta.localhost show what a new tenant sees. Runs after addFakeContent: the starter rows pin the
+        // starter templates' current versions.
+        final org.paulsens.trip.action.SitePageCommands pages = new org.paulsens.trip.action.SitePageCommands(
+                () -> new org.paulsens.trip.action.Caller(admin.getId(), true,
+                        org.paulsens.trip.audit.AuditActor.system(),
+                        new org.paulsens.trip.action.PrivilegeCommands()));
         for (final String orgId : List.of(ACME_ORG_ID, BETA_ORG_ID)) {
-            if (!commands.ensureHomePage(orgId)) {
-                throw new IllegalStateException("Fake org seed: could not seed the home page of " + orgId);
+            if (!commands.ensureHomePage(orgId) || !pages.ensureStarterPages(orgId)) {
+                throw new IllegalStateException("Fake org seed: could not seed the site of " + orgId);
             }
         }
-        seedSitePages(admin);
+        seedSitePages(pages);
     }
 
     /** The address of Acme's seeded site page (its About menu), for the webtests. */
     public static final String ACME_SITE_PAGE = "mission";
 
     /**
-     * Acme's Site Pages, through the real commands as the admin: one PAGE in the About menu (with its starter
-     * text) and one LINK in the Help menu, so acme.localhost shows both menus and the admin page has rows.
+     * Acme's own Site Pages beside its starters, through the real commands as the admin: one more PAGE in the
+     * About menu (with its starter text) and one LINK in the Help menu, so acme.localhost shows both menus.
      */
-    private static void seedSitePages(final Person admin) {
-        final org.paulsens.trip.action.SitePageCommands pages = new org.paulsens.trip.action.SitePageCommands(
-                () -> new org.paulsens.trip.action.Caller(admin.getId(), true,
-                        org.paulsens.trip.audit.AuditActor.system(),
-                        new org.paulsens.trip.action.PrivilegeCommands()));
+    private static void seedSitePages(final org.paulsens.trip.action.SitePageCommands pages) {
         if (!pages.addPage(ACME_ORG_ID, "Our Mission", ACME_SITE_PAGE, "ABOUT")
                 || !pages.addLink(ACME_ORG_ID, "Partner Site", "https://example.org/", "HELP")) {
             throw new IllegalStateException("Fake org seed: could not seed Acme's site pages");
