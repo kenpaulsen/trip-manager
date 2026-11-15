@@ -181,10 +181,13 @@ organization's trips), so a people admin of one organization who joined another 
 read that organization's trips and balances. The pages' gate is per subject (`canAdminPerson`: `peopleAdmin` in an
 organization the SUBJECT belongs to), so a people admin reaches a member who also belongs to another organization,
 and these lists are what keep that organization's data out of view. Every list built on it:
-- a person's trips, wherever an admin people page lists them (the People page's Trips column, Manage People's trip
-  lists, the admin person page's Trips list): ONE helper, `TripCommands.getTripsForUserInPeopleReach(id)`,
-  site-gated like every trip list, so a hosted organization's trip, whose link opens blank on another host, is
-  left out on every page alike (the People page's column skipped the site gate until 2026-11-15);
+- a person's trips on the People page's Trips column and the admin person page's Trips list: ONE helper,
+  `TripCommands.getTripsForUserInPeopleReach(id)`, site-gated like every trip list, so a hosted organization's
+  trip, whose link opens blank on another host, is left out on both alike (the People page's column skipped the
+  site gate until 2026-11-15);
+- Manage People's merge comparison is the one exception: there a person's trips are the evidence for which record
+  to keep, so it lists `getTripsForUserInPeopleReachOnAnySite(id)` (the same reach, no site gate) and names a trip
+  this site does not serve (`reachesThisSite`) as plain text marked "(other site)", with no link;
 - the admin person page's Registrations list: `TripCommands.getRecentTripsInPeopleReach(n)`, site-gated too;
 - the admin person page's transaction count and balance: `TransactionsCommands.getTransactionsInPeopleReach(id)`
   (the site-listed rows of `getTransactions`, narrowed the same way).

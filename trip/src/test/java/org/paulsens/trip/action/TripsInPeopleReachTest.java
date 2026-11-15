@@ -24,12 +24,12 @@ import org.testng.annotations.Test;
 /**
  * {@link PeopleReach} and the admin people pages' lists built on it: {@code TripCommands
  * .getRecentTripsInPeopleReach} (the admin person page's Registrations), {@code getTripsForUserInPeopleReach} (its
- * Trips, and the People and Manage People pages' Trips columns) and {@code
- * TransactionsCommands.getTransactionsInPeopleReach} (its transaction count and balance). A site admin sees
- * everything; anyone else only the organizations they manage or hold {@code peopleAdmin} in, never one they merely
- * belong to, since membership is self-grantable (owner decision 2026-11-14). Also the cap of {@code
- * getTripsForOrg}, which shares their latest-ending rule. The trips are dated centuries out so they lead the
- * recency index whatever else the suite has saved.
+ * Trips, and the People page's Trips column), {@code getTripsForUserInPeopleReachOnAnySite} (Manage People's merge
+ * comparison) and {@code TransactionsCommands.getTransactionsInPeopleReach} (the person page's transaction count
+ * and balance). A site admin sees everything; anyone else only the organizations they manage or hold {@code
+ * peopleAdmin} in, never one they merely belong to, since membership is self-grantable (owner decision
+ * 2026-11-14). Also the cap of {@code getTripsForOrg}, which shares their latest-ending rule. The trips are dated
+ * centuries out so they lead the recency index whatever else the suite has saved.
  */
 public class TripsInPeopleReachTest {
 
@@ -210,6 +210,28 @@ public class TripsInPeopleReachTest {
                 "a site admin sees every trip the subject is on: " + admin);
 
         Assert.assertEquals(on(SHARED, () -> as(nobody()).getTripsForUserInPeopleReach(subject)), List.of());
+    }
+
+    /**
+     * Manage People's merge comparison: the same reach on every site, so a hosted organization's trip still shows
+     * (as plain text) on the shared host, where {@code reachesThisSite} says it would not link.
+     */
+    @Test
+    public void theMergeComparisonListsTheReachOnEverySite() throws Exception {
+        final TripCommands mine = as(viewer);
+        final List<String> anySite = ids(on(SHARED, () -> mine.getTripsForUserInPeopleReachOnAnySite(subject)));
+        Assert.assertTrue(anySite.contains(ownNewer.getId()) && anySite.contains(acmeTrip.getId()),
+                "the own org's trip and the hosted Acme trip, which the site-gated list leaves out: " + anySite);
+        Assert.assertFalse(anySite.contains(otherOrgTrip.getId()), "never outside the reach: " + anySite);
+        Assert.assertEquals(ids(on(SHARED, () -> mine.getTripsForUserInPeopleReach(subject))),
+                List.of(ownNewer.getId()), "the site-gated list is the same set narrowed to this site");
+        Assert.assertFalse(on(SHARED, () -> mine.reachesThisSite(acmeTrip)), "no link to Acme's trip here");
+        Assert.assertTrue(on(ACME_SITE, () -> mine.reachesThisSite(acmeTrip)), "a link on Acme's own site");
+        Assert.assertTrue(on(SHARED, () -> mine.reachesThisSite(ownNewer)));
+        Assert.assertFalse(mine.reachesThisSite(null));
+        Assert.assertEquals(on(SHARED, () -> mine.getTripsForUserInPeopleReachOnAnySite(null)), List.of());
+        Assert.assertEquals(on(SHARED, () -> as(nobody()).getTripsForUserInPeopleReachOnAnySite(subject)),
+                List.of(), "nobody signed in");
     }
 
     /** The admin person page's transaction count and balance: the same reach, and org-less rows hidden. */
