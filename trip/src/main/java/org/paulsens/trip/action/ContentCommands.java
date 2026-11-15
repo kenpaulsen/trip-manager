@@ -149,7 +149,7 @@ public class ContentCommands {
         guardContainerConfig(caller, instance);
         // A Stay on Latest instance is saved against the CURRENT version (the template may have moved on while the
         // dialog was open, and a script or the API may send an older one): the checks below read that version.
-        followLatest(instance, Cached.NO);
+        reportCarry(instance, followLatest(instance, Cached.NO), false);
         final String problem = validateForSave(instance);
         if (problem != null) {
             log.warn("Refusing content save of '{}': {}", instance.getId(), problem);
@@ -647,44 +647,71 @@ public class ContentCommands {
     }
 
     /**
-     * The template an instance renders with: a Stay on Latest instance's CURRENT version (its own cached field,
-     * {@code DAO.getLatestTemplate}); otherwise, and whenever that finds nothing, {@link #resolvePinned}.
+     * The template an instance renders with: a Stay on Latest instance's CURRENT version, when it may follow it
+     * ({@link #mayFollow}); otherwise, and whenever that finds nothing, {@link #resolvePinned}.
      */
     private ContentTemplate resolveTemplate(final ContentInstance instance) {
         if (instance.getTemplateId() == null) {
             return null;
         }
+        final ContentTemplate saved = savedAgainst(instance);
         if (instance.isStayOnLatest()) {
-            final ContentTemplate latest = latestTemplate(instance.getTemplateId(), Cached.YES);
-            if (latest != null) {
+            final ContentTemplate latest = currentTemplate(instance.getTemplateId(), Cached.YES);
+            if (latest != null && mayFollow(saved, latest)) {
                 return latest;
             }
         }
-        return resolvePinned(instance);
+        return saved != null ? saved : guardedFallback(instance);
     }
 
     /**
      * The version the instance's VALUES were saved against ({@code templateVersion}), falling back to the
-     * template's latest when that version has aged out of retention, and to null when the template is gone.
+     * template's latest when that version has aged out of retention (only where {@link #mayFollow} allows), and to
+     * null when the template is gone.
      */
     private ContentTemplate resolvePinned(final ContentInstance instance) {
         if (instance.getTemplateId() == null) {
             return null;
         }
-        try {
-            return DAO.getInstance().getTemplate(instance.getTemplateId(), instance.getTemplateVersion(), Cached.YES)
-                    .or(() -> DAO.getInstance().getTemplate(instance.getTemplateId(), Cached.YES))
-                    .orElse(null);
-        } catch (final RuntimeException ex) {
-            log.error("Unable to resolve the template of content: " + instance.getId(), ex);
-            return null;
-        }
+        final ContentTemplate saved = savedAgainst(instance);
+        return saved != null ? saved : guardedFallback(instance);
     }
 
-    /** A template's current version from its cached latest field, or null (unknown id, or the read failed). */
-    private static ContentTemplate latestTemplate(final String templateId, final Cached cached) {
+    /**
+     * An instance whose saved-against version aged out of retention: the template's current version, when
+     * {@link #mayFollow} lets it (the saved-against organization being unknown, only a shared one).
+     */
+    private static ContentTemplate guardedFallback(final ContentInstance instance) {
+        final ContentTemplate latest = currentTemplate(instance.getTemplateId(), Cached.YES);
+        return latest != null && mayFollow(null, latest) ? latest : null;
+    }
+
+    /**
+     * Whether an instance whose values were saved against {@code saved} may render {@code latest}: only when both
+     * belong to the same organization (or both are shared). Who may use a template is decided when content is ADDED
+     * ({@link #getTemplateChoicesFor}); a template whose scope later moved to another organization must not carry
+     * that organization's markup onto pages it was never offered to, so following stops there and the instance
+     * renders as pinned. When the saved-against version is no longer retained its organization is unknown, and only
+     * a SHARED latest (which every site may use) is followed.
+     */
+    private static boolean mayFollow(final ContentTemplate saved, final ContentTemplate latest) {
+        return Objects.equals(orgIdOf(saved), orgIdOf(latest));
+    }
+
+    private static String orgIdOf(final ContentTemplate template) {
+        return template == null || !template.isOrgOwned() ? null : template.getOrgId();
+    }
+
+    /**
+     * A template's current version: its cached latest field, or, when that field is missing (the first rebuild
+     * after this build is deployed, a template written behind the app's back), the row-backed unversioned lookup
+     * the render path used before the field existed. Null when the template is gone or the read failed.
+     */
+    private static ContentTemplate currentTemplate(final String templateId, final Cached cached) {
         try {
-            return DAO.getInstance().getLatestTemplate(templateId, cached).orElse(null);
+            return DAO.getInstance().getLatestTemplate(templateId, cached)
+                    .or(() -> DAO.getInstance().getTemplate(templateId, cached))
+                    .orElse(null);
         } catch (final RuntimeException ex) {
             log.error("Unable to read the latest version of template " + templateId, ex);
             return null;
@@ -694,12 +721,14 @@ public class ContentCommands {
     /**
      * Carries a Stay on Latest instance's values from the version they were saved against to the template's
      * CURRENT version, IN PLACE ({@link TemplateValueMigrator}'s rules, the version menu's), and moves its
-     * {@code templateVersion} along. A no-op for a pinned instance, one already on the current version, or one
-     * whose template is gone. When the saved-against version has aged out of retention only same-named values
-     * carry, the same pairing a pinned instance gets from its fallback to the latest version.
+     * {@code templateVersion} along. A no-op for a pinned instance, one already on (or, from a lagging cache,
+     * apparently past) the current version, one whose template is gone, and one {@link #mayFollow} keeps pinned:
+     * values are never carried backward or across organizations. When the saved-against version has aged out of
+     * retention only same-named values carry, the same pairing a pinned instance gets from its fallback.
      *
      * <p>Callers decide whether this is ever written: the render path applies it to the fresh objects every
-     * section read deserializes and never saves them; only {@link #saveContent} stores the result.
+     * section read deserializes and never saves them; only {@link #saveContent} stores the result, and it and the
+     * dialog's open ({@link #getContent}) say what moved ({@link #reportCarry}).
      *
      * @return what moved and what was dropped, or null when nothing changed.
      */
@@ -707,12 +736,16 @@ public class ContentCommands {
         if (instance == null || !instance.isStayOnLatest() || instance.getTemplateId() == null) {
             return null;
         }
-        final ContentTemplate latest = latestTemplate(instance.getTemplateId(), cached);
-        if (latest == null || latest.getVersion() == instance.getTemplateVersion()) {
+        final ContentTemplate latest = currentTemplate(instance.getTemplateId(), cached);
+        if (latest == null || latest.getVersion() <= instance.getTemplateVersion()) {
+            return null;
+        }
+        final ContentTemplate saved = loadTemplateVersion(instance.getTemplateId(), instance.getTemplateVersion(),
+                cached);
+        if (!mayFollow(saved, latest)) {
             return null;
         }
         final List<Placeholder> to = ProgrammaticTypes.placeholdersOf(latest);
-        final ContentTemplate saved = savedAgainst(instance, cached);
         final TemplateValueMigrator.Result result = TemplateValueMigrator.migrate(
                 saved == null ? to : ProgrammaticTypes.placeholdersOf(saved), to, instance.getValues());
         instance.setTemplateVersion(latest.getVersion());
@@ -720,21 +753,29 @@ public class ContentCommands {
         return result;
     }
 
-    /** {@link #followLatest} as a mapping step ({@link #getContent}): the instance itself, carried forward. */
+    /** {@link #followLatest} as a mapping step ({@link #getContent}): the instance carried forward, and said so. */
     private ContentInstance followingLatest(final ContentInstance instance) {
-        followLatest(instance, Cached.NO);
+        reportCarry(instance, followLatest(instance, Cached.NO), true);
         return instance;
     }
 
-    /** The exact version an instance's values were saved against, or null when it is no longer retained. */
-    private static ContentTemplate savedAgainst(final ContentInstance instance, final Cached cached) {
-        try {
-            return DAO.getInstance().getTemplate(instance.getTemplateId(), instance.getTemplateVersion(), cached)
-                    .orElse(null);
-        } catch (final RuntimeException ex) {
-            log.error("Unable to read the saved-against template of content: " + instance.getId(), ex);
-            return null;
+    /**
+     * Tells the editor what carrying a Stay on Latest item forward did to its values, when it renamed or dropped
+     * any: {@link TemplateValueMigrator}'s contract, since a value lost silently on open is lost for good on the
+     * next Apply. Silent when every value carried unchanged, and on the render path, which never calls this.
+     * {@code cancelUndoes}: whether the dialog's Cancel still keeps the stored values (on open; not after a save).
+     */
+    private static void reportCarry(final ContentInstance instance, final TemplateValueMigrator.Result result,
+            final boolean cancelUndoes) {
+        if (result != null && (!result.renamed().isEmpty() || !result.dropped().isEmpty())) {
+            PageFeedback.warn("This item follows the latest template, now v" + instance.getTemplateVersion()
+                    + " -- " + migrationSummary(result, cancelUndoes));
         }
+    }
+
+    /** The exact version an instance's values were saved against (render path), or null when not retained. */
+    private static ContentTemplate savedAgainst(final ContentInstance instance) {
+        return loadTemplateVersion(instance.getTemplateId(), instance.getTemplateVersion(), Cached.YES);
     }
 
     /**
@@ -1371,7 +1412,29 @@ public class ContentCommands {
         return versions.stream().distinct().sorted(Comparator.reverseOrder()).toList();
     }
 
+    /**
+     * Every retained version of a template, read ONCE per request: the version menu asks for it from several EL
+     * calls per row (show it, its values, each label, the hint), in several JSF phases, on every dialog now.
+     */
     private List<ContentTemplate> retainedTemplates(final String templateId) {
+        final FacesContext ctx = FacesContext.getCurrentInstance();
+        final Map<String, Object> requestMap = ctx == null ? null : ctx.getExternalContext().getRequestMap();
+        final String key = "retainedTemplates:" + templateId;
+        if (requestMap != null && requestMap.get(key) instanceof RetainedVersions memo) {
+            return memo.versions();
+        }
+        final List<ContentTemplate> versions = readRetainedTemplates(templateId);
+        if (requestMap != null) {
+            requestMap.put(key, new RetainedVersions(versions));
+        }
+        return versions;
+    }
+
+    /** The request memo of {@link #retainedTemplates}; a record so the map's value has a type to test for. */
+    private record RetainedVersions(List<ContentTemplate> versions) {
+    }
+
+    private static List<ContentTemplate> readRetainedTemplates(final String templateId) {
         try {
             return DAO.getInstance().getTemplateRecord(templateId, Cached.NO)
                     .map(TemplateRecord::getAllVersions).orElse(List.of());
@@ -1443,7 +1506,7 @@ public class ContentCommands {
         if (wanted == instance.getTemplateVersion()) {
             return pinInPlace(instance);
         }
-        final ContentTemplate to = loadTemplateVersion(instance.getTemplateId(), wanted);
+        final ContentTemplate to = loadTemplateVersion(instance.getTemplateId(), wanted, Cached.NO);
         if (to == null) {
             PageFeedback.error("Version unavailable",
                     "v" + wanted + " of this template is no longer retained.");
@@ -1456,9 +1519,14 @@ public class ContentCommands {
 
     /** "Stay on Latest": the copy moves to the template's newest version and is marked to follow it. */
     private boolean retargetToLatest(final ContentInstance instance) {
-        final ContentTemplate to = latestTemplate(instance.getTemplateId(), Cached.NO);
+        final ContentTemplate to = currentTemplate(instance.getTemplateId(), Cached.NO);
         if (to == null) {
             PageFeedback.error("Version unavailable", "This template no longer exists.");
+            return false;
+        }
+        if (!mayFollow(loadTemplateVersion(instance.getTemplateId(), instance.getTemplateVersion(), Cached.NO), to)) {
+            PageFeedback.error("Version unavailable",
+                    "The newest version of this template belongs to another organization; pick a numbered version.");
             return false;
         }
         moveValues(instance, to);
@@ -1472,7 +1540,7 @@ public class ContentCommands {
             return false;
         }
         instance.setStayOnLatest(false);
-        PageFeedback.info("Now editing v" + instance.getTemplateVersion() + " -- every value carried over unchanged");
+        PageFeedback.info("Now editing v" + instance.getTemplateVersion() + " -- " + UNCHANGED);
         return true;
     }
 
@@ -1489,24 +1557,30 @@ public class ContentCommands {
         instance.setValues(result.values());
         // The whole report goes in the SUMMARY: this site's growl renders details only for the
         // URL-parameter messages (template.xhtml's hasDetail), so a detail-only warning is invisible.
-        PageFeedback.info("Now editing v" + to.getVersion() + " -- " + migrationSummary(result));
+        PageFeedback.info("Now editing v" + to.getVersion() + " -- " + migrationSummary(result, true));
     }
 
-    private static String migrationSummary(final TemplateValueMigrator.Result result) {
+    /** The migration summary when nothing was renamed or dropped. */
+    private static final String UNCHANGED = "every value carried over unchanged";
+
+    /** What a migration did, for a growl; {@code cancelUndoes} adds that the dialog's Cancel keeps the old values. */
+    private static String migrationSummary(final TemplateValueMigrator.Result result, final boolean cancelUndoes) {
         final StringBuilder summary = new StringBuilder();
         result.renamed().forEach((oldName, newName) -> summary.append(oldName).append(" moved to ")
                 .append(newName).append("; "));
         if (!result.dropped().isEmpty()) {
-            summary.append("DROPPED (nowhere to put it): ").append(String.join(", ", result.dropped()))
-                    .append("; Cancel keeps the old version");
+            summary.append("DROPPED (nowhere to put it): ").append(String.join(", ", result.dropped()));
+            if (cancelUndoes) {
+                summary.append("; Cancel keeps the old version");
+            }
         }
-        return summary.isEmpty() ? "every value carried over unchanged"
-                : summary.toString().replaceAll("; $", "");
+        return summary.isEmpty() ? UNCHANGED : summary.toString().replaceAll("; $", "");
     }
 
-    private ContentTemplate loadTemplateVersion(final String templateId, final int version) {
+    private static ContentTemplate loadTemplateVersion(final String templateId, final int version,
+            final Cached cached) {
         try {
-            return DAO.getInstance().getTemplate(templateId, version, Cached.NO).orElse(null);
+            return DAO.getInstance().getTemplate(templateId, version, cached).orElse(null);
         } catch (final RuntimeException ex) {
             log.error("Unable to load template " + templateId + " v" + version, ex);
             return null;
@@ -1530,7 +1604,9 @@ public class ContentCommands {
 
     /** An instance's title by id, for the arrange dialog's row labels (admin path; point read is fine). */
     public String titleOf(final String id) {
-        final String title = getContent(id).getTitle();
+        // The stored row, not getContent: the arrange dialog's labels must not carry a Stay on Latest row (and
+        // report the carry) once per row.
+        final String title = DAO.getInstance().getContent(id, Cached.NO).map(ContentInstance::getTitle).orElse(null);
         return title == null || title.isBlank() ? id : title;
     }
 

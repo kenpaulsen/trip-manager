@@ -84,9 +84,12 @@ hostname**, resolved once per request into a `SiteContext` (`org.paulsens.trip.s
 - **Template scope**: `ContentTemplate.orgId` — null = site-level/shared, else one organization's own.
   Sharing is an AUTHORING-time choice: the Add dialog (`getTemplateChoicesFor`) offers an org site the shared
   templates plus its own (`SiteContext.isSiteOf`), any other site only the shared ones; an instance then
-  pins whichever it chose, so rendering never consults the field and the zero-live-read rule below is
-  untouched. The template manager's Scope column/menu (`TemplateCommands.scopeChoices`/`scopeLabel`) sets
-  it; a blank menu choice saves as null; an unknown org is refused.
+  pins whichever it chose. Rendering reads the field in one place only: an instance moves to a version other
+  than the one its values were saved against (Stay on Latest, or the aged-out fallback) only when that version
+  has the SAME organization (`ContentCommands.mayFollow`; below), and the field rides the cached template, so
+  the zero-live-read rule below is untouched. The template manager's Scope column/menu
+  (`TemplateCommands.scopeChoices`/`scopeLabel`) sets it; a blank menu choice saves as null; an unknown org is
+  refused.
   **Customizing a shared template for one org is a COPY** (`TemplateCommands.customize(id, orgId)`, the
   manager's "Customize" button in an org scope): the clone is org-scoped at version 1 with the same
   kind/body/placeholders; the shared row stays shared and read-only to the org's editor
@@ -318,16 +321,27 @@ registry never changes at runtime.
   applied to each row a section listing returns, to the dialog's copy, and by `render` to a row read any other
   way) and never writes; the next save stores the carried values (`saveContent` carries a stale Stay on Latest
   copy forward before validating, so a template saved while the dialog was open, or an older row from a script,
-  saves against the current version). A saved-against version that aged out of retention carries same-named
-  values only, which is what a pinned instance gets from its own fallback; a deleted template falls back
-  exactly as a pinned instance does (the pinned version, then nothing). Containers too: a Stay on Latest
+  saves against the current version). When a carry on the dialog's open or on a save renames or drops a value,
+  the editor is told (a warning growl with the migration summary; the Edit openers update the growl). Values
+  never move backward (a lagging cache answering an older "latest" changes nothing). A saved-against version
+  that aged out of retention carries same-named values only, which is what a pinned instance gets from its own
+  fallback; a deleted template falls back exactly as a pinned instance does (the pinned version, then nothing).
+  **Tenancy** (owner decision 2026-11-15): an instance follows the latest version only when its organization
+  (`ContentTemplate.orgId`, null = shared) equals that of the version its values were saved against;
+  otherwise it renders as pinned, and choosing Stay on Latest is refused. The aged-out fallback of EVERY
+  instance has the same guard, and since the saved-against organization is then unknown it falls back only to
+  a SHARED latest (an org-owned one renders nothing, a container its built-in row). Who may use a template is
+  decided when content is added; a template re-scoped to an organization later must not carry that
+  organization's markup onto pages it was never offered to. Containers too: a Stay on Latest
   container's row, wrapper and title slot follow the template. **Cost**: the template's current version has
   its own cache field (`CacheKeys.templateLatestField`, `id#latest`, beside the `id#vN` fields in the same
   hash; written by every save and the scan rebuild, removed by a delete), read through
-  `DAO.getLatestTemplate`: one cached hash-field read, the same as a pinned lookup (heap-served under
-  `Cached.YES`), and zero DynamoDB reads on a warm cache (`RenderPathCacheTest`). Only a row whose stored
-  values lag the current version adds one more cached field read (the saved-against version) and an in-memory
-  migration per section read.
+  `DAO.getLatestTemplate` (and, only while that field is missing, as right after this build's first deploy or
+  for a template a script wrote, the row-backed `getTemplate(id)` the render path used before; the aged-out
+  fallback of a pinned instance reads the same way): one cached hash-field read, the same as a pinned lookup
+  (heap-served under `Cached.YES`), and zero DynamoDB reads on a warm cache (`RenderPathCacheTest`). Only a row
+  whose stored values lag the current version adds one more cached field read (the saved-against version) and an
+  in-memory migration per section read.
 - **Growl messages must carry everything in the SUMMARY**: `template.xhtml` renders message details only for
   the URL-parameter messages (`hasDetail`), so a detail-only explanation is invisible to the user. Found by
   clicking through the container; no test can see it.
@@ -505,8 +519,8 @@ container template's row (above). Markup added here instead is markup a content 
 **The public render path performs no live DynamoDB reads** (beyond first-request cache warming):
 section listings and child lists are cached partitions, template lookups hit the versioned template cache
 (`id#vN`, or `id#latest` for a Stay on Latest instance), media/trips come from their own caches.
-`RenderPathCacheTest` enforces zero persistence reads against a warm cache — keep it passing. Uncached point reads (`getContent`, container resolution in
-`canEdit`, `titleOf`) are edit-mode/admin paths only.
+`RenderPathCacheTest` enforces zero persistence reads against a warm cache -- keep it passing. Uncached point
+reads (`getContent`, container resolution in `canEdit`, `titleOf`) are edit-mode/admin paths only.
 
 ## Versioning / undo (unchanged from v1)
 
