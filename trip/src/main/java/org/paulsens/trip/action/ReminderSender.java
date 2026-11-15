@@ -249,7 +249,7 @@ public class ReminderSender {
             final Map<String, String> values = ReminderRecipients.valuesFor(target, addressee);
             allSent &= mailer.send(from, addressee.getEmail(), replyTo,
                     ReminderText.renderPlain(reminder.getSubject(), values),
-                    ReminderText.render(reminder.getBody(), values), who);
+                    ReminderText.render(ReminderHtml.clean(reminder.getBody()), values), who);
             if (reminder.isPush()) {
                 pusher.push(trip, reminder, addressee.getId(),
                         ReminderText.renderPlain(reminder.getSubject(), values),

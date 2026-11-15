@@ -89,6 +89,14 @@ substitution with no EL, like the managed MAIL templates, so a facilitator's tex
 and it renders on the scheduler's thread. A message with an unknown token is refused at save. The body is
 HTML-escaped per value (`render`); the subject and the push text are plain text (`renderPlain`).
 
+The body is cleaned by `ReminderHtml.clean`, an ALLOWLIST: a facilitator (who may hold no privilege) writes it,
+and it is rendered unescaped to every reviewer, admins included, and mailed to travelers. Only the tags the
+editor writes are kept, each rebuilt with no attributes except a link's checked address (`http://`, `https://`,
+`mailto:` or exactly one `{{...Link}}` placeholder) and Quill's own `ql-` classes; inline styles, images and
+every unknown tag are dropped. It runs when a message is saved and again where the body is written out (preview,
+test send, send). Never clean this body with `WaiverHtml.sanitize`: that is a blocklist for text only an org
+admin writes, and the first review found three bodies it passes unchanged (`ReminderHtmlTest` pins them).
+
 Tokens: `firstName`, `travelerName`, `tripTitle`, `tripDates`, `daysUntilDeparture`, `balanceDue`,
 `balanceDueOn`, `documentList`, `passportIssue`, `orgName`, `tripLink`, `paymentLink`, `documentsLink`,
 `itineraryLink`, `profileLink`. Links are built on the trip's owning organization's site (`SiteUrls`).

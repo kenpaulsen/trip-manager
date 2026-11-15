@@ -358,11 +358,15 @@ public class ReminderCommands {
         return true;
     }
 
-    /** Quill may percent-encode a token typed as a link address; put the braces back, then drop anything live. */
+    /**
+     * The body as it is stored: Quill may percent-encode a placeholder typed as a link address, so the braces
+     * are put back first, and then everything not on {@link ReminderHtml}'s allowlist is removed. A facilitator
+     * writes this text and admins read it unescaped, so it is an allowlist, never a blocklist.
+     */
     static String cleanBody(final String html) {
         final String braces = (html == null) ? "" : html.replace("%7B%7B", "{{").replace("%7D%7D", "}}")
                 .replace("%7b%7b", "{{").replace("%7d%7d", "}}");
-        return WaiverHtml.sanitize(braces);
+        return ReminderHtml.clean(braces);
     }
 
     private static String formProblem(final ReminderViews.Form form) {
@@ -588,7 +592,9 @@ public class ReminderCommands {
     /** The body HTML as one recipient reads it; see {@link #previewSubject}. */
     public String previewBody(final String tripId, final String reminderId) {
         final TripReminder reminder = reminderOf(tripId, reminderId);
-        return (reminder == null) ? "" : ReminderText.render(reminder.getBody(), previewValues(tripId, reminderId));
+        // Cleaned again on the way out: this is the one place the body is written into an admin's page unescaped.
+        return (reminder == null) ? ""
+                : ReminderText.render(ReminderHtml.clean(reminder.getBody()), previewValues(tripId, reminderId));
     }
 
     /** The app notification text as one recipient reads it; "" when the message sends none. */
@@ -654,7 +660,7 @@ public class ReminderCommands {
         final Map<String, String> values = previewValues(tripId, reminderId);
         final boolean sent = new MailCommands().send(from, address, null, ReminderSender.effectiveReplyTo(trip, plan),
                 "[Test] " + ReminderText.renderPlain(reminder.getSubject(), values),
-                ReminderText.render(reminder.getBody(), values), caller().auditActor()) != null;
+                ReminderText.render(ReminderHtml.clean(reminder.getBody()), values), caller().auditActor()) != null;
         if (!sent) {
             return refuse("The test email could not be sent.");
         }

@@ -305,7 +305,40 @@ public class ReminderCommandsTest {
         final ReminderViews.Form form = form("Clean", TODAY);
         form.setBody("<p onclick=\"x()\">Pay <a href=\"%7B%7BpaymentLink%7D%7D\">here</a></p><script>bad()</script>");
         final String id = saved(trip, form);
-        assertEquals(stored(trip, id).getBody(), "<p>Pay <a href=\"{{paymentLink}}\">here</a></p>");
+        assertEquals(stored(trip, id).getBody(),
+                "<p>Pay <a href=\"{{paymentLink}}\" rel=\"noopener noreferrer\" target=\"_blank\">here</a></p>");
+    }
+
+    /** The three bodies the first review found passing the old blocklist (trip-manager fc749fd22f81 F1). */
+    @Test
+    public void aHostileBodyIsStoredAndPreviewedInert() throws IOException {
+        final Trip trip = newTrip();
+        final ReminderViews.Form form = form("Hostile", TODAY);
+        form.setBody("<p>Hi</p><img src=\"x\"onerror=\"fetch('/x')\"><svg/onload=alert(1)></svg>"
+                + "<a href=\"jav&#97;script:alert(1)\">go</a>");
+        final String id = saved(trip, form);
+        final String storedBody = stored(trip, id).getBody();
+        assertEquals(storedBody, "<p>Hi</p><a>go</a>");
+        final String preview = admin().previewBody(trip.getId(), id);
+        for (final String live : List.of("onerror", "onload", "script", "<img", "<svg")) {
+            assertFalse(preview.contains(live), live + " reached the page: " + preview);
+        }
+    }
+
+    /** A body that reached the store some other way is still cleaned where it is written into the page. */
+    @Test
+    public void aStoredBodyIsCleanedAgainWhenItIsPreviewedAndSent() throws IOException {
+        final Trip trip = newTrip();
+        final Person ann = newPerson("Ann", "ann." + RandomData.genAlpha(6) + "@example.com");
+        register(trip, ann, Registration.Status.CONFIRMED);
+        final TripReminder raw = TripReminder.builder().id("raw").name("Raw").anchor(TripReminder.Anchor.FIXED_DATE)
+                .fixedDate(TODAY).subject("s").body("<p>Hi {{firstName}}</p><img src=x onerror=alert(1)>").build()
+                .approved(trip, TestCallers.SITE_ADMIN_ID, NOW);
+        assertTrue(DAO.getInstance().saveReminderPlan(TripReminderPlan.builder().tripId(trip.getId()).orgId(orgId)
+                .reminders(List.of(raw)).build()));
+        assertEquals(admin().previewBody(trip.getId(), "raw"), "<p>Hi Ann</p>");
+        assertTrue(admin().sendNow(trip.getId(), "raw"));
+        assertEquals(mailTo(ann.getEmail()).get(0).body(), "<p>Hi Ann</p>");
     }
 
     @Test
