@@ -68,19 +68,24 @@ public class AuditPage implements Serializable {
     }
 
     /**
-     * The cursor for the next page: ask for events strictly older than the oldest one here.
+     * The cursor for the next page.
      *
-     * <p>An EMPTY page is not necessarily the end: a filter can match nothing in one 60-day window while
-     * older matches exist beyond it. In that case the cursor continues from {@link #searchedBackTo}, so
-     * "Older" keeps walking instead of dead-ending on the first quiet stretch. Null -- no further paging --
-     * means the walk genuinely has nowhere left to look: it either filled the page budget with nothing
-     * beyond it ({@link #complete} without events cannot happen) or reached the start of recorded history.
+     * <p>A {@link #complete} page filled up before its budget ran out, possibly part way through a day, so
+     * the next page asks for events strictly older than the oldest one here.
+     *
+     * <p>Any other page searched every day back to {@link #searchedBackTo} and shows everything it found
+     * there, so the next page continues from that date. That holds for an EMPTY page (a filter can match
+     * nothing in one 60-day window while older matches exist beyond it, so "Older" keeps walking instead of
+     * dead-ending on the first quiet stretch) AND for a page holding a few records: continuing from its
+     * oldest record instead re-searched the same window, so one "Older" click showed an empty page that had
+     * searched back exactly as far as before (found by AuditPagePwIT in full suite runs). Null -- no further
+     * paging -- means the walk reached the start of recorded history.
      */
     public java.time.Instant nextCursor() {
-        if (!events.isEmpty()) {
-            return events.get(events.size() - 1).getTimestamp();
+        if (complete) {
+            return events.isEmpty() ? null : events.get(events.size() - 1).getTimestamp();
         }
-        if (complete || !searchedBackTo.isAfter(AuditQuery.EARLIEST)) {
+        if (!searchedBackTo.isAfter(AuditQuery.EARLIEST)) {
             return null;
         }
         return searchedBackTo.atStartOfDay(java.time.ZoneOffset.UTC).toInstant();

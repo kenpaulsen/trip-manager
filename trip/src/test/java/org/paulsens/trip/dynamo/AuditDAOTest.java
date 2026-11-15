@@ -203,6 +203,27 @@ public class AuditDAOTest {
     }
 
     @Test
+    public void aPartPageContinuesFromWhereItsWalkStoppedNotFromItsOldestRecord() {
+        // A page holding fewer records than its limit searched its whole window. Continuing from its oldest
+        // record re-searched that window, so one "Older" click showed nothing new and the same "searched back
+        // to" date. The next page must start where this walk stopped and reach strictly further back.
+        final Instant now = Instant.parse("2026-07-26T12:00:00Z");
+        dao.saveAuditEvent(event(now.minusSeconds(5), AuditAction.LOGIN, AuditOutcome.SUCCESS, "recent@x"));
+        dao.saveAuditEvent(event(now.minus(70, ChronoUnit.DAYS), AuditAction.LOGIN, AuditOutcome.SUCCESS, "old@x"));
+
+        final AuditPage first = page(AuditQuery.builder().before(now).build());
+        assertEquals(first.getEvents().size(), 1);
+        assertFalse(first.isComplete(), "One record cannot fill a page; the walk ran its whole budget");
+        assertEquals(first.nextCursor(), first.getSearchedBackTo().atStartOfDay(java.time.ZoneOffset.UTC).toInstant(),
+                "A part page should continue from where its walk stopped");
+
+        final AuditPage second = page(AuditQuery.builder().before(first.nextCursor()).build());
+        assertTrue(second.getSearchedBackTo().isBefore(first.getSearchedBackTo()),
+                "The next page must search further back, not the same window again");
+        assertEquals(second.getEvents().stream().map(AuditEvent::getActorEmail).toList(), List.of("old@x"));
+    }
+
+    @Test
     public void theCursorStopsAtTheStartOfHistory() {
         // Once the walk has reached the beginning of recorded history there is nothing left to page to;
         // offering a cursor would let "Older" spin forever over the same empty window.
