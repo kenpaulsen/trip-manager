@@ -258,8 +258,9 @@ registry never changes at runtime.
 - `#{content}` helpers drive the include: `getForView`, `childrenFor`, `getKind`, `typeId`, `render`
   (STANDARD only; "" otherwise), `renderTitle`, `isVisibleNow`, `getTemplateChoicesFor`,
   `autoStartContent`, `getChoices`, `idsFor`, `titleOf`, `canEdit`, `canEditPage`, `applyOrder`,
-  `frameClass`, `completeEditorPriv`, `getEditorPrivNamesJson`, `getTemplateVersions`, `pinnedVersion`,
-  `versionLabel`, `isTemplateOutdated`, `retargetTemplateVersion`.
+  `frameClass`, `completeEditorPriv`, `getEditorPrivNamesJson`, `offersVersionMenu`, `versionChoices`,
+  `choiceLabel`, `getTemplateVersions`, `pinnedVersion`, `versionLabel`, `isTemplateOutdated`,
+  `retargetTemplateVersion`.
 - **Privileges**: contentAdmin (or a site admin) edits everything. A container instance may name
   `editorPrivileges` (only contentAdmin can set them — the save path guards the field): holders of ANY
   listed privilege may add/edit/reorder/delete that container's CHILDREN (the landing page grants
@@ -297,13 +298,36 @@ registry never changes at runtime.
     its intended spot (this is a real bug that shipped: an image caption escaped its paragraph). `saveTemplate`
     warns about it (`RichTextRules.richTextTokensInsideParagraph`) without blocking, and `RichTextRulesTest`
     holds the shipped starters to the rule.
-- **Changing an instance's template version**: the content dialog shows a "Template version" menu for saved
-  instances whose template has more than one retained version, with the pinned one selected, the newest
-  marked, and an amber note when a newer one exists. Switching calls `retargetTemplateVersion`, which runs
+- **Changing an instance's template version**: the content dialog shows a "Template version" menu for EVERY
+  instance whose template exists (`offersVersionMenu`): new ones and one-version templates included. Its first
+  choice is **Stay on Latest** (below), then each retained version, newest marked "(latest)" and a pinned
+  instance's own "(in use)"; the selected value is `pinnedVersion`, and an amber note shows when a newer
+  version exists (never for a Stay on Latest instance). Switching calls `retargetTemplateVersion`, which runs
   `TemplateValueMigrator` over the values: same name is kept, then same label (case-insensitive), then a lone
   same-type survivor on each side; anything left is DROPPED and named in the growl. New placeholders arrive
   declared-but-empty. Nothing is stored until Apply, so Cancel abandons a bad migration. The version menu's
-  remoteCommand processes the WHOLE form so typed-but-unsaved values migrate too.
+  remoteCommand processes the WHOLE form so typed-but-unsaved values migrate too. A new instance is still
+  pinned to the newest version at creation unless the editor picks Stay on Latest.
+- **Stay on Latest** (`ContentInstance.stayOnLatest`, JSON `stayOnLatest`, written only when true; absent =
+  pinned, every row written before 2026-11-14): the instance renders with its template's CURRENT version, so a
+  template save shows on every such instance with no edit of it. Picking it retargets the working copy to the
+  newest version exactly like picking that version (same migration, same growl) and marks it; Apply stores the
+  mark with `templateVersion` = that version. Picking a number pins it again, even the number it is already on.
+  `templateVersion` keeps meaning "the version the stored values were saved against": when the template has
+  moved on, every READ carries the values across in memory with the same migrator (`ContentCommands.followLatest`,
+  applied to each row a section listing returns, to the dialog's copy, and by `render` to a row read any other
+  way) and never writes; the next save stores the carried values (`saveContent` carries a stale Stay on Latest
+  copy forward before validating, so a template saved while the dialog was open, or an older row from a script,
+  saves against the current version). A saved-against version that aged out of retention carries same-named
+  values only, which is what a pinned instance gets from its own fallback; a deleted template falls back
+  exactly as a pinned instance does (the pinned version, then nothing). Containers too: a Stay on Latest
+  container's row, wrapper and title slot follow the template. **Cost**: the template's current version has
+  its own cache field (`CacheKeys.templateLatestField`, `id#latest`, beside the `id#vN` fields in the same
+  hash; written by every save and the scan rebuild, removed by a delete), read through
+  `DAO.getLatestTemplate`: one cached hash-field read, the same as a pinned lookup (heap-served under
+  `Cached.YES`), and zero DynamoDB reads on a warm cache (`RenderPathCacheTest`). Only a row whose stored
+  values lag the current version adds one more cached field read (the saved-against version) and an in-memory
+  migration per section read.
 - **Growl messages must carry everything in the SUMMARY**: `template.xhtml` renders message details only for
   the URL-parameter messages (`hasDetail`), so a detail-only explanation is invisible to the user. Found by
   clicking through the container; no test can see it.
@@ -373,13 +397,14 @@ Rules worth knowing before changing this:
   / `childRowAfter` are the two EL calls; `ui:repeat`'s `varStatus.index` supplies the index.
 - **A body that has lost its slot falls back to the default row.** Dropping every child silently is the
   one container failure an editor cannot see or diagnose, so it must not be reachable by mis-saving.
-- **The row resolves the version the container instance PINNED**, like every other template lookup, so
-  editing the row changes nothing on a page until each container is moved to the new version through the
-  version menu on its own edit dialog. Reading the LATEST would be friendlier (a container has no values
-  of its own to protect) and was tried — but the only unversioned lookup, `TemplateDAO.getTemplate(id)`,
-  falls back to `getAllTemplates()`, which rescans the whole table whenever the cache is not
-  authoritative. That is a live read per child per public page view; `RenderPathCacheTest` now pins both
-  halves of this, including a guard that fails if the unversioned lookup ever becomes cache-served.
+- **The row resolves the version the container instance renders with**, like every other template lookup:
+  the version it PINNED, so editing the row changes nothing on a pinned container's page until it is moved
+  to the new version through the version menu on its own edit dialog, or the template's current version for a
+  container set to Stay on Latest (above). Making the latest the default was tried and refused: the
+  unversioned lookup, `TemplateDAO.getTemplate(id)`, falls back to `getAllTemplates()`, which rescans the
+  whole table whenever the cache is not authoritative, a live read per child per public page view. Stay on
+  Latest reads its own cached field instead (`getLatestTemplate`); `RenderPathCacheTest` pins both, including
+  a guard that fails if the unversioned lookup ever becomes cache-served.
 - **CONTAINER bodies edit as raw HTML only** (`templateDialog.xhtml` hides the visual editor for the
   kind): Quill rewrites structural markup and would move the `{{child}}` marker out of place.
 - `.contentTitle:empty` is `display:none` in `trip.css` — the row writes the heading unconditionally, so
@@ -479,8 +504,8 @@ container template's row (above). Markup added here instead is markup a content 
 
 **The public render path performs no live DynamoDB reads** (beyond first-request cache warming):
 section listings and child lists are cached partitions, template lookups hit the versioned template cache
-(`id#vN`), media/trips come from their own caches. `RenderPathCacheTest` enforces zero persistence reads
-against a warm cache — keep it passing. Uncached point reads (`getContent`, container resolution in
+(`id#vN`, or `id#latest` for a Stay on Latest instance), media/trips come from their own caches.
+`RenderPathCacheTest` enforces zero persistence reads against a warm cache — keep it passing. Uncached point reads (`getContent`, container resolution in
 `canEdit`, `titleOf`) are edit-mode/admin paths only.
 
 ## Versioning / undo (unchanged from v1)

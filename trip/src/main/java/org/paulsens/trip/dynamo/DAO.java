@@ -729,6 +729,10 @@ public final class DAO {
     public Optional<ContentTemplate> getTemplate(final String id, final int version, final Cached cached) {
         return NearCacheContext.call(cached, () -> templateDao.getTemplate(id, version));
     }
+    /** A template's CURRENT version from its own cache field: the render path's lookup for Stay on Latest content. */
+    public Optional<ContentTemplate> getLatestTemplate(final String id, final Cached cached) {
+        return NearCacheContext.call(cached, () -> templateDao.getLatestTemplate(id));
+    }
     public Optional<TemplateRecord> getTemplateRecord(final String id, final Cached cached) {
         return NearCacheContext.call(cached, () -> templateDao.getTemplateRecord(id));
     }

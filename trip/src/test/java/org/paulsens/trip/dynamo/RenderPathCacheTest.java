@@ -162,6 +162,8 @@ public class RenderPathCacheTest {
         templates.getTemplate(StarterTemplates.BAND_HERO_ID, 1);
         templates.getTemplate(StarterTemplates.BAND_FEATURES_ID, 1);
         templates.getTemplate(StarterTemplates.FEATURE_CARD_ID, 1);
+        templates.getLatestTemplate(StarterTemplates.TEXT_ONLY_ID);
+        templates.getLatestTemplate(StarterTemplates.CONTAINER_ID);
 
         // The render pass: what an anonymous page view executes, twice for good measure.
         counting.reads.set(0);
@@ -192,16 +194,21 @@ public class RenderPathCacheTest {
             templates.getTemplate(StarterTemplates.PERSON_ID, 1);
             templates.getTemplate(StarterTemplates.TRIP_SCHEDULE_ID, 1);
             templates.getTemplate(StarterTemplates.TRIP_REGISTRATION_ID, 1);
+            // A Stay on Latest instance (and a Stay on Latest container's row) resolves the template's
+            // latest field instead: one cached field, exactly like a pinned lookup.
+            templates.getLatestTemplate(StarterTemplates.TEXT_ONLY_ID);
+            templates.getLatestTemplate(StarterTemplates.CONTAINER_ID);
         }
         Assert.assertEquals(counting.reads.get(), 0,
                 "the warm render path must answer entirely from cache -- no live store reads");
 
-        // Why childRow must NOT reach for the friendlier unversioned lookup: it rescans the whole table
-        // whenever the cache is not authoritative, which on the render path would be once per child.
+        // Why the render path must NOT reach for the unversioned lookup, and following the latest has its own
+        // field (getLatestTemplate): this one rescans the whole table whenever the cache is not authoritative,
+        // which on the render path would be once per child.
         counting.reads.set(0);
         templates.getTemplate(StarterTemplates.CONTAINER_ID);
         Assert.assertTrue(counting.reads.get() > 0,
-                "if this ever becomes cache-served, childRow may resolve the LATEST row instead");
+                "if this ever becomes cache-served, the latest field may be folded into it");
     }
 
     private static ContentInstance instance(final String id, final String section, final String templateId,

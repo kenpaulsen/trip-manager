@@ -1,6 +1,7 @@
 package org.paulsens.trip.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.io.Serial;
 import java.io.Serializable;
@@ -23,7 +24,8 @@ import lombok.Data;
  * A filled-in {@link ContentTemplate} placed in a page section: the Events list, the Introduction, and any
  * future template-driven spot. {@link #templateVersion} pins the template version the values were authored
  * against, so a later template edit cannot silently reshape published content -- the instance keeps
- * rendering its own version until someone re-saves it.
+ * rendering its own version until someone re-saves it. An editor may instead choose {@link #stayOnLatest}: the
+ * instance then always renders with the template's CURRENT version.
  *
  * <p>Mutable ({@code @Data}) because the content dialog edits it in place. Like {@code ContentTemplate},
  * this is one version; {@code ContentRecord} carries the undo history.
@@ -83,16 +85,35 @@ public final class ContentInstance implements Serializable {
      */
     @JsonProperty("allowedChildTemplateIds")
     private List<String> allowedChildTemplateIds;
+    /**
+     * The content dialog's "Stay on Latest" choice: the instance renders with its template's CURRENT version,
+     * whatever {@link #templateVersion} says, and {@link #templateVersion} only records the version its values
+     * were last saved against (a render carries them across IN MEMORY, {@code TemplateValueMigrator}'s rules,
+     * and never writes). False, which is also every row written before the choice existed, pins the instance
+     * to {@link #templateVersion} as before. Written only when true, so a pinned row's JSON is unchanged.
+     */
+    @JsonProperty("stayOnLatest")
+    @JsonInclude(JsonInclude.Include.NON_DEFAULT)
+    private boolean stayOnLatest;
 
     private ContentInstance() {
     }
 
-    /** Compatibility constructor for pre-v2 call sites: no editor privileges, no child allow-list. */
+    /** Compatibility constructor for pre-v2 call sites: no editor privileges, no child allow-list, pinned. */
     public ContentInstance(final String id, final String section, final String title, final String templateId,
             final int templateVersion, final Map<String, String> values, final LocalDateTime eventDate,
             final int position, final int version, final LocalDateTime modified, final String modifiedBy) {
         this(id, section, title, templateId, templateVersion, values, eventDate, position, version,
-                modified, modifiedBy, null, null);
+                modified, modifiedBy, null, null, false);
+    }
+
+    /** Compatibility constructor for call sites that predate {@link #stayOnLatest}: a new row is pinned. */
+    public ContentInstance(final String id, final String section, final String title, final String templateId,
+            final int templateVersion, final Map<String, String> values, final LocalDateTime eventDate,
+            final int position, final int version, final LocalDateTime modified, final String modifiedBy,
+            final List<String> editorPrivileges, final List<String> allowedChildTemplateIds) {
+        this(id, section, title, templateId, templateVersion, values, eventDate, position, version,
+                modified, modifiedBy, editorPrivileges, allowedChildTemplateIds, false);
     }
 
     public Map<String, String> getValues() {
@@ -209,6 +230,6 @@ public final class ContentInstance implements Serializable {
         return new ContentInstance(id, section, title, templateId, templateVersion,
                 new HashMap<>(getValues()), eventDate, position, version, modified, modifiedBy,
                 editorPrivileges == null ? null : new ArrayList<>(editorPrivileges),
-                allowedChildTemplateIds == null ? null : new ArrayList<>(allowedChildTemplateIds));
+                allowedChildTemplateIds == null ? null : new ArrayList<>(allowedChildTemplateIds), stayOnLatest);
     }
 }

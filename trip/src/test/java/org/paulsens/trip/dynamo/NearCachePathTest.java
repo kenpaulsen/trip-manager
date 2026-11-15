@@ -85,6 +85,8 @@ public class NearCachePathTest {
         templates.getTemplate(StarterTemplates.CONTAINER_ID, 1);
         templates.getTemplate(StarterTemplates.PILGRIMAGES_ID, 1);
         templates.getTemplate(StarterTemplates.CONTAINER_ID, 1);
+        // A Stay on Latest instance's lookup: the template's latest field, heap-served like a pinned one.
+        templates.getLatestTemplate(StarterTemplates.TEXT_ONLY_ID);
         return null;
     }
 

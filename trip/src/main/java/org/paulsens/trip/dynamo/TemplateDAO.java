@@ -31,6 +31,12 @@ import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
  * they were authored against, so a page rendering old content finds its exact template version in cache even
  * after the template has moved on. The soft TTL is five minutes ({@link CacheKeys#CONTENT_SOFT_TTL}): stale
  * reads still answer from cache while a background rebuild refreshes it.
+ *
+ * <p>Beside the versioned fields, each template has one more entry, {@link CacheKeys#templateLatestField}: a copy
+ * of its CURRENT version, for content that follows the latest ("Stay on Latest"). The only other way to find the
+ * current version, {@link #getTemplate(String)}, reads the whole partition or scans the table, which the public
+ * render path may not do; this keeps that lookup to one field, like a pinned one. Writes and the scan rebuild
+ * maintain it exactly as they maintain the versioned fields.
  */
 @Slf4j
 public class TemplateDAO {
@@ -41,7 +47,19 @@ public class TemplateDAO {
 
     private final ObjectMapper mapper;
     private final Persistence persistence;
-    private final PartitionScanCache<ContentTemplate> cache;
+    private final PartitionScanCache<Entry> cache;
+
+    /**
+     * One cache entry: a template version, and whether it is the {@link CacheKeys#templateLatestField latest}
+     * copy rather than its versioned field. The flag only decides the FIELD an entry is written to (on a save and
+     * in the scan rebuild); a read knows which field it asked for, so a deserialized entry never needs it.
+     */
+    private record Entry(ContentTemplate template, boolean latest) {
+        private String field() {
+            return latest ? CacheKeys.templateLatestField(template.getId())
+                    : CacheKeys.templateField(template.getId(), template.getVersion());
+        }
+    }
 
     protected TemplateDAO(final ObjectMapper mapper, final Persistence persistence) {
         this(mapper, persistence, new InMemoryCacheClient());
@@ -51,18 +69,18 @@ public class TemplateDAO {
             final CacheClient cacheClient) {
         this.mapper = mapper;
         this.persistence = persistence;
-        this.cache = PartitionScanCache.<ContentTemplate>builder()
+        this.cache = PartitionScanCache.<Entry>builder()
                 .cache(cacheClient)
                 .keyPrefix(CacheKeys.TEMPLATE_PREFIX)
                 .loadedKey(CacheKeys.TEMPLATE_LOADED)
                 .softTtl(CacheKeys.CONTENT_SOFT_TTL)
                 .softRevalidate(CacheSupport.softRevalidateEnabled(cacheClient))
-                .loader(this::loadAllVersions)
-                .partitioner(t -> CacheKeys.TEMPLATE_PARTITION)
-                // Versioned field: one cache entry per retained version, never a mixed pairing.
-                .fielder(t -> CacheKeys.templateField(t.getId(), t.getVersion()))
-                .serializer(this::toJson)
-                .deserializer(this::parseTemplate)
+                .loader(this::loadAllEntries)
+                .partitioner(entry -> CacheKeys.TEMPLATE_PARTITION)
+                // Versioned field: one cache entry per retained version, never a mixed pairing; plus the latest copy.
+                .fielder(Entry::field)
+                .serializer(entry -> toJson(entry.template()))
+                .deserializer(this::parseEntry)
                 .build();
     }
 
@@ -93,12 +111,12 @@ public class TemplateDAO {
         final List<ContentTemplate> trimmed =
                 previous.size() > retain ? previous.subList(0, Math.max(0, retain)) : previous;
         final TemplateRecord row = new TemplateRecord(edited.getId(), edited, trimmed);
-        return putRecord(row) && cache.put(edited);
+        return putRecord(row) && cache.put(new Entry(edited, false)) && cache.put(new Entry(edited, true));
     }
 
     /** The latest version of every template, for pickers and the manager page. */
     protected List<ContentTemplate> getAllTemplates() {
-        List<ContentTemplate> versions = cache.getPartition(CacheKeys.TEMPLATE_PARTITION);
+        List<ContentTemplate> versions = templatesOf(cache.getPartition(CacheKeys.TEMPLATE_PARTITION));
         if (!cache.isAuthoritative()) {
             // The partition answers this whole-table read only when a scan populated it. Where nothing ever
             // rebuilds it (soft revalidate off -- local mode), a cleared cache plus any single save leaves a
@@ -131,7 +149,23 @@ public class TemplateDAO {
             return Optional.empty();
         }
         return cache.getOne(CacheKeys.TEMPLATE_PARTITION, CacheKeys.templateField(id, version),
-                () -> pointReadRecord(id).map(rec -> rec.findVersion(version)));
+                () -> pointReadRecord(id).map(rec -> rec.findVersion(version)).map(t -> new Entry(t, false)))
+                .map(Entry::template);
+    }
+
+    /**
+     * The CURRENT version of one template, from its {@link CacheKeys#templateLatestField latest} field: one field
+     * read, like {@link #getTemplate(String, int)}, so content that stays on the latest version renders from cache
+     * (see the class comment for why {@link #getTemplate(String)} cannot serve the render path). Empty when the id
+     * is unknown.
+     */
+    protected Optional<ContentTemplate> getLatestTemplate(final String id) {
+        if (id == null || id.isBlank()) {
+            return Optional.empty();
+        }
+        return cache.getOne(CacheKeys.TEMPLATE_PARTITION, CacheKeys.templateLatestField(id),
+                () -> pointReadRecord(id).map(TemplateRecord::getCurrent).map(t -> new Entry(t, true)))
+                .map(Entry::template);
     }
 
     /** The whole row -- current plus history -- for the admin history dialog. Uncached (admin path). */
@@ -158,6 +192,7 @@ public class TemplateDAO {
                 cache.removeOne(CacheKeys.TEMPLATE_PARTITION,
                         CacheKeys.templateField(version.getId(), version.getVersion()));
             }
+            cache.removeOne(CacheKeys.TEMPLATE_PARTITION, CacheKeys.templateLatestField(id));
         }
         return deleted;
     }
@@ -192,6 +227,22 @@ public class TemplateDAO {
     }
 
     private List<ContentTemplate> loadAllVersions() {
+        return loadAllRecords().stream().flatMap(rec -> rec.getAllVersions().stream()).toList();
+    }
+
+    /** The cache's loader: every retained version of every row, plus each row's latest copy. */
+    private List<Entry> loadAllEntries() {
+        final List<Entry> entries = new ArrayList<>();
+        for (final TemplateRecord rec : loadAllRecords()) {
+            rec.getAllVersions().forEach(version -> entries.add(new Entry(version, false)));
+            if (rec.getCurrent() != null) {
+                entries.add(new Entry(rec.getCurrent(), true));
+            }
+        }
+        return entries;
+    }
+
+    private List<TemplateRecord> loadAllRecords() {
         // A consistent scan: the rebuild REMOVES what this does not return (PartitionScanCache's loader).
         return persistence.scanAll(b -> b.consistentRead(true).limit(1000).tableName(TEMPLATES_TABLE).build())
                 .stream()
@@ -199,8 +250,17 @@ public class TemplateDAO {
                 .filter(content -> content != null)
                 .map(content -> parseRecord(content.s()))
                 .filter(rec -> rec != null)
-                .flatMap(rec -> rec.getAllVersions().stream())
                 .toList();
+    }
+
+    private static List<ContentTemplate> templatesOf(final List<Entry> entries) {
+        return entries.stream().map(Entry::template).toList();
+    }
+
+    /** A cached field back to an entry; null (dropped by the cache) when it does not parse. */
+    private Entry parseEntry(final String json) {
+        final ContentTemplate template = parseTemplate(json);
+        return template == null ? null : new Entry(template, false);
     }
 
     private TemplateRecord parseRecord(final String json) {

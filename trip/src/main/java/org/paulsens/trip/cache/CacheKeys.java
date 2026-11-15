@@ -146,6 +146,15 @@ public final class CacheKeys {
         return id + "#v" + version;
     }
 
+    /**
+     * The cache field holding a template's CURRENT version, beside its versioned fields in the same hash: what a
+     * "Stay on Latest" content instance renders with. A copy rather than a pointer, so following the latest costs
+     * the same single field read as a pinned lookup; the scan rebuild and every save keep it current.
+     */
+    public static String templateLatestField(final String id) {
+        return id + "#latest";
+    }
+
     // Binding adjacency sets: BIND_PREFIX + {typeAndId} + ":" + {destTypeId}; loaded marker uses BIND_LOADED_SUFFIX.
     public static final String BIND_PREFIX = FORMAT_VERSION + "bind:";
     public static final String BIND_LOADED_SUFFIX = ":loaded";
