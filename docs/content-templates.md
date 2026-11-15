@@ -303,8 +303,10 @@ registry never changes at runtime.
     holds the shipped starters to the rule.
 - **Changing an instance's template version**: the content dialog shows a "Template version" menu for EVERY
   instance whose template exists (`offersVersionMenu`): new ones and one-version templates included. Its first
-  choice is **Stay on Latest** (below), then each retained version, newest marked "(latest)" and a pinned
-  instance's own "(in use)"; the selected value is `pinnedVersion`, and an amber note shows when a newer
+  choice is **Stay on Latest** (below) when the instance may follow the template's current version (`mayFollow`)
+  or is already marked; then each retained version `mayFollow` allows, the template's actual current version
+  marked "(latest)" (no row carries it when that version is not offered) and a pinned instance's own
+  "(in use)"; the selected value is `pinnedVersion`, and an amber note shows when a newer
   version exists (never for a Stay on Latest instance). Switching calls `retargetTemplateVersion`, which runs
   `TemplateValueMigrator` over the values: same name is kept, then same label (case-insensitive), then a lone
   same-type survivor on each side; anything left is DROPPED and named in the growl. New placeholders arrive
