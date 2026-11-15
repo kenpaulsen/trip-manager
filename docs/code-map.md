@@ -24,7 +24,7 @@ org / marketing host, its page key, org name, org-site URLs; the ONLY sanctioned
 -- never copy its answers into session or view scope; see `docs/org-admin.md` "Organization sites"), `brand`
 (BrandCommands -- the org site's look: theme/layout names, logo or wordmark, favicon, footer, contact card, donate link,
 analytics id, ALL from the org's own org-only Branding settings; neutral/null on every other host so shared pages keep
-their literal chrome; see `docs/org-admin.md` "Branding"), `brandingUpload` (BrandingUploadCommands -- the Appearance
+their literal chrome, except `pageAnalyticsId`, the shared hosts' id from the site's own row; see `docs/org-admin.md` "Branding"), `brandingUpload` (BrandingUploadCommands -- the Appearance
 page's four image uploads through the shared crop dialog, ONE bean carrying the `BrandingRole` chosen when the dialog
 opens) and `brandingPhotos` (BrandingPhotos -- their versioned `org/{orgId}/branding/{role}-{version}.{ext}` store,
 whose KEPT previous versions are what makes a replaced image recoverable; see `docs/org-admin.md` "Uploading the four

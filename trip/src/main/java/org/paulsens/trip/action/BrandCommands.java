@@ -4,12 +4,16 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.faces.context.FacesContext;
 import jakarta.inject.Named;
 import jakarta.servlet.http.HttpSession;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
 import java.util.function.Supplier;
+import java.util.regex.Pattern;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.cache.Cached;
@@ -63,6 +67,8 @@ public class BrandCommands {
     static final String DEFAULT_THEME_DARK = "freya-medj-d";
     /** The favicon href that makes a browser fetch nothing -- no stray /favicon.ico hit on an org site. */
     static final String NO_FAVICON = "data:,";
+    private static final String PAYPAL_HOST = "paypal.com";
+    private static final Pattern ANALYTICS_ID = Pattern.compile("[A-Za-z0-9-]{1,40}");
     private static final String BG_NONE = "--site-bg:none";
     /** The custom property {@code site.css} paints when there is no background image. */
     private static final String BG_COLOR_PROPERTY = "--site-bg-color:";
@@ -435,6 +441,30 @@ public class BrandCommands {
         return setting(KnownSettings.SITE_DONATE_TEXT);
     }
 
+    /**
+     * Whether the Donate card shows PayPal's own Donate image instead of the themed button: the org asked for it
+     * AND the link is a PayPal page. A link anywhere else keeps the themed button, so PayPal's mark never sends a
+     * donor somewhere that is not PayPal.
+     */
+    public boolean isDonatePaypalImage() {
+        return Boolean.parseBoolean(setting(KnownSettings.SITE_DONATE_PAYPAL_IMAGE)) && isPaypalPage(getDonateUrl());
+    }
+
+    /** An https page on paypal.com itself or one of its subdomains (www.paypal.com hosts the donate buttons). */
+    static boolean isPaypalPage(final String url) {
+        if (url == null) {
+            return false;
+        }
+        try {
+            final URI uri = new URI(url);
+            final String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase(Locale.ROOT);
+            return "https".equalsIgnoreCase(uri.getScheme())
+                    && (PAYPAL_HOST.equals(host) || host.endsWith("." + PAYPAL_HOST));
+        } catch (final URISyntaxException ex) {
+            return false;
+        }
+    }
+
     /** The heading over the sidebar's trip list on an org site: the org's own words, else "Trips". */
     public String getSidebarTitle() {
         final String own = setting(KnownSettings.SITE_SIDEBAR_TITLE);
@@ -451,6 +481,29 @@ public class BrandCommands {
     /** The org's own analytics id, or null; null off an org host, where the shared pages keep theirs. */
     public String getAnalyticsId() {
         return setting(KnownSettings.SITE_ANALYTICS_ID);
+    }
+
+    /**
+     * The analytics id this request's pages report to, or null for no tag (and no consent banner): on a shared
+     * host the SITE's own value of {@code site.analytics.id} (admin Settings), on an org host only the org's own
+     * id, never the shared one, and none on the marketing host. The shared site's id was a literal in the page
+     * until issue #123: a retired Universal Analytics property that collected nothing and still showed visitors
+     * the consent banner.
+     */
+    public String getPageAnalyticsId() {
+        final String id = SiteContext.current().isShared()
+                ? config.getString(KnownSettings.SITE_ANALYTICS_ID.getName(), "")
+                : getAnalyticsId();
+        return analyticsIdOrNull(id);
+    }
+
+    /**
+     * The id only when it is a plain token (letters, digits, hyphens): the page writes it into a script URL and
+     * into a JavaScript string, where HTML escaping does not apply, so anything else means no tag at all.
+     */
+    static String analyticsIdOrNull(final String raw) {
+        final String id = raw == null ? "" : raw.trim();
+        return ANALYTICS_ID.matcher(id).matches() ? id : null;
     }
 
     // --- the preview: one admin's unsaved appearance, on one page ---

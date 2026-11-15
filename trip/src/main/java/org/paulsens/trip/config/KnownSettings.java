@@ -57,14 +57,15 @@ public final class KnownSettings {
 
     /**
      * Org-EXPLICIT (see {@link SettingDef#isOrgOnly()}): the shared site's property must never collect an
-     * organization site's traffic, so an org host emits a tag only when the org set its own id. The tag
-     * itself (and its consent banner) is wired by the branding phase; this declares the value and its rule.
+     * organization site's traffic, so an org host emits a tag only when the org set its own id. The SITE's own
+     * value is the shared hosts' id ({@code BrandCommands.getPageAnalyticsId}); blank there means no tag on them.
      */
     public static final SettingDef SITE_ANALYTICS_ID = new SettingDef(
             "site.analytics.id", Config.Type.STRING, "", "Analytics property id",
-            "The web analytics property this site reports visits to, for example a Google Analytics measurement id. "
-                    + "Blank means no analytics tag. An organization's site never inherits the shared site's id: it "
-                    + "reports only to an id the organization set for itself.").withOrgOnly();
+            "The web analytics property this site reports visits to: a Google Analytics 4 measurement id, which "
+                    + "starts with G-. Blank means no analytics tag and no cookie banner. An organization's site never "
+                    + "inherits the shared site's id: it reports only to an id the organization set for itself.")
+            .withOrgOnly();
 
     // --- branding (org sites only; every def is org-ONLY, see the section note) ---
 
@@ -211,6 +212,17 @@ public final class KnownSettings {
             "site.donate.text", Config.Type.STRING, "", "Donate card text",
             "A short line of plain text above the Donate button, saying what a gift supports. Blank shows the "
                     + "button alone.").withOrgOnly();
+
+    /**
+     * PayPal's own Donate image in place of the themed button (issue #123: an org that collects through a PayPal
+     * hosted button may want the button its donors recognize). Honored only while the donate link is a PayPal
+     * page ({@code BrandCommands.isDonatePaypalImage}), so PayPal's mark never fronts a link to anywhere else.
+     */
+    public static final SettingDef SITE_DONATE_PAYPAL_IMAGE = new SettingDef(
+            "site.donate.paypalImage", Config.Type.BOOLEAN, "false", "PayPal Donate image",
+            "On: the Donate card shows PayPal's own yellow Donate button image instead of a button in the site's "
+                    + "colors. It applies only when the donate link URL is a paypal.com page; any other link keeps "
+                    + "the themed button.").withOrgOnly();
 
     /**
      * The org site's browser title. Pages that name themselves (a trip page, a site page) still use their own
@@ -799,7 +811,7 @@ public final class KnownSettings {
                             SITE_BACKGROUND_URL, SITE_BACKGROUND_COLOR, SITE_FOOTER_TITLE, SITE_FOOTER_TITLE_COLOR,
                             SITE_FOOTER_TEXT, SITE_FOOTER_TEXT_COLOR, SITE_FOOTER_LINKS_COLOR,
                             SITE_CONTACT_NAME, SITE_CONTACT_PHONE, SITE_DONATE_URL, SITE_DONATE_TITLE,
-                            SITE_DONATE_TEXT, SITE_TITLE, SITE_SIDEBAR_TITLE)),
+                            SITE_DONATE_TEXT, SITE_DONATE_PAYPAL_IMAGE, SITE_TITLE, SITE_SIDEBAR_TITLE)),
             new SettingSection(EMAIL_ADDRESSES_SECTION,
                     "Every address the application sends with or to. From addresses must be on an "
                             + "SES-verified domain; recipients and Reply-To may be any address.",

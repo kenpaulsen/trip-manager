@@ -28,6 +28,7 @@ public class OrgSettingsTabsTest {
         assertTrue(OrgSettingsTabs.defsFor(OrgSettingsTabs.PROFILE).contains(KnownSettings.SITE_CONTACT_NAME),
                 "contact details sit together on Profile");
         assertTrue(OrgSettingsTabs.defsFor(OrgSettingsTabs.HOME).contains(KnownSettings.SITE_DONATE_URL));
+        assertTrue(OrgSettingsTabs.defsFor(OrgSettingsTabs.HOME).contains(KnownSettings.SITE_DONATE_PAYPAL_IMAGE));
     }
 
     @Test

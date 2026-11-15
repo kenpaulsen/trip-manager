@@ -736,6 +736,9 @@ public final class FakeData {
         }
     }
 
+    /** The shared site's analytics id in local mode (the site row of site.analytics.id). */
+    public static final String SHARED_ANALYTICS_FIXTURE = "G-SHAREDFIXTURE";
+
     /**
      * Local mode is where the native app is developed against, so bearer tokens are ON here and the app's
      * PayPal return scheme is allow-listed -- the two rows {@code enable-api-tokens.sh} writes, which every
@@ -752,6 +755,9 @@ public final class FakeData {
         // involved); sharing it keeps every From composer usable locally, as the shared domains are in production.
         values.put(KnownSettings.MAIL_SHARED_DOMAINS.getName(),
                 "example.com, " + KnownSettings.MAIL_SHARED_DOMAINS.getDefaultValue());
+        // The shared hosts read the site's own analytics id; a fixture one keeps their consent banner and the
+        // consent-gated tag exercised. Local mode never loads the external gtag.js, so nothing is reported.
+        values.put(KnownSettings.SITE_ANALYTICS_ID.getName(), SHARED_ANALYTICS_FIXTURE);
         if (!new ConfigCommands().saveKnown(values, "local-seed")) {
             throw new IllegalStateException("Fake seed: could not enable API tokens for local mode");
         }

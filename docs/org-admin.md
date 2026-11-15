@@ -43,7 +43,7 @@ pattern; absent opens the first):
 |---------|-----|---------------|
 | `profile` | Profile | name, abbreviation, contact email, contact name and phone, subdomain + the live-site link and the custom domain (both site-admin only), "Shared sites", and the shared-site Register target (below) |
 | `appearance` | Appearance | palette, dark mode, layout, logo, favicon, background, link preview image, footer; with the uploads and the server-rendered preview ("The Appearance page and its live preview") |
-| `home` | Home page | `home.photos.windowDays`, `home.photos.minCount`, `home.countdown.soonDays`, `site.sidebar.title`, `site.donate.url`, `site.donate.title`, `site.donate.text`, `site.analytics.id`, and a link to Site Pages |
+| `home` | Home page | `home.photos.windowDays`, `home.photos.minCount`, `home.countdown.soonDays`, `site.sidebar.title`, `site.donate.url`, `site.donate.title`, `site.donate.text`, `site.donate.paypalImage`, `site.analytics.id`, and a link to Site Pages |
 | `trips` | Trips & money | `reg.allowEdits`, `lodging.bills.autoRecompute`, `finance.treasurer.email` |
 | `chat` | Chat | `chat.background.colors`, `chat.background.image`, `chat.reactions.palette` (each trip's chat can still override them in its own settings) |
 | `email` | Email | sending domains (site-admin only; the choices are the shared domains plus the org's own custom domain, "Sending domains"), default domain, a link to the org's email templates |
@@ -824,7 +824,10 @@ Which settings: those `KnownSettings` marks with `.withOrgOverride()` -- `home.p
 `finance.treasurer.email`, `chat.background.colors`, `chat.background.image`, `chat.reactions.palette` --
 plus `site.analytics.id`, which is **org-explicit** (`.withOrgOnly()`): an org host resolves it from the
 org's override or the compiled default (blank) and *never* from the site's row, so the shared site's
-analytics property can never collect an org site's traffic -- and the org-only **Branding** defs
+analytics property can never collect an org site's traffic. The site's row is the SHARED hosts' own id
+(`BrandCommands.getPageAnalyticsId`, since issue #123; until then the page carried a retired Universal
+Analytics id as a literal); either id is a GA4 measurement id (`G-...`), and one that is not a plain token
+renders no tag at all -- and the org-only **Branding** defs
 (`site.theme.palette`, `site.logo.url`, ...; see "Branding" below). `KnownSettings.orgOverridable()` is the
 authoritative list; marking a new setting is a product decision (`OrgSettingsLadderTest` pins the set).
 **`site.org.name` is no longer org-overridable (2026-10-29):** it was editable both as the profile's Name and
@@ -908,6 +911,7 @@ apart from the one `BOOLEAN`:
 | `site.footer.links.color` | the theme's own footer link color | as `site.footer.title.color`, ONE color for the Privacy / Terms / Support links and the dots between them |
 | `site.contact.name`, `site.contact.phone` | left off the "Questions?" card | the card's email is the org profile's `contactEmail`; the card is hidden when all three are blank |
 | `site.donate.url` | no Donate card / menu entry | http(s) URL |
+| `site.donate.paypalImage` | the themed Donate button | `true` shows PayPal's own Donate image instead, but ONLY while `site.donate.url` is an https page on paypal.com (`BrandCommands.isDonatePaypalImage`), so PayPal's mark never fronts another site |
 
 **Dark mode has a precedence, not an owner** (`BrandCommands.isDark`): the visitor's OWN choice when they
 have made one (the topbar's Dark Mode toggle stores `sessionScope.dark`, read through `getSession(false)`

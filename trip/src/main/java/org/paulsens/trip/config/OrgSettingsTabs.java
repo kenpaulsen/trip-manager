@@ -38,14 +38,15 @@ public final class OrgSettingsTabs {
      */
     static final List<SettingDef> MOVED_OFF_APPEARANCE = List.of(
             KnownSettings.SITE_CONTACT_NAME, KnownSettings.SITE_CONTACT_PHONE, KnownSettings.SITE_DONATE_URL,
-            KnownSettings.SITE_DONATE_TITLE, KnownSettings.SITE_DONATE_TEXT, KnownSettings.SITE_SIDEBAR_TITLE);
+            KnownSettings.SITE_DONATE_TITLE, KnownSettings.SITE_DONATE_TEXT, KnownSettings.SITE_DONATE_PAYPAL_IMAGE,
+            KnownSettings.SITE_SIDEBAR_TITLE);
 
     private static final Map<String, List<SettingDef>> GENERIC_ROWS = Map.of(
             PROFILE, List.of(KnownSettings.SITE_CONTACT_NAME, KnownSettings.SITE_CONTACT_PHONE),
             HOME, List.of(KnownSettings.HOME_PHOTOS_WINDOW_DAYS, KnownSettings.HOME_PHOTOS_MIN_COUNT,
                     KnownSettings.HOME_COUNTDOWN_SOON_DAYS, KnownSettings.SITE_SIDEBAR_TITLE,
                     KnownSettings.SITE_DONATE_URL, KnownSettings.SITE_DONATE_TITLE, KnownSettings.SITE_DONATE_TEXT,
-                    KnownSettings.SITE_ANALYTICS_ID),
+                    KnownSettings.SITE_DONATE_PAYPAL_IMAGE, KnownSettings.SITE_ANALYTICS_ID),
             TRIPS, List.of(KnownSettings.REG_ALLOW_EDITS, KnownSettings.LODGING_AUTO_RECOMPUTE,
                     KnownSettings.FINANCE_TREASURER_EMAIL),
             CHAT, List.of(KnownSettings.CHAT_BACKGROUND_COLORS, KnownSettings.CHAT_BACKGROUND_IMAGE,

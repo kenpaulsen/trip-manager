@@ -53,7 +53,7 @@ public class OrgSettingsLadderTest {
                 "site.footer.title", "site.footer.title.color", "site.footer.text", "site.footer.text.color",
                 "site.footer.links.color",
                 "site.contact.name", "site.contact.phone", "site.donate.url", "site.donate.title",
-                "site.donate.text", "site.title", "site.sidebar.title",
+                "site.donate.text", "site.donate.paypalImage", "site.title", "site.sidebar.title",
                 "home.photos.windowDays", "home.photos.minCount", "home.countdown.soonDays",
                 "chat.reactions.palette", "chat.background.colors", "chat.background.image", "reg.allowEdits",
                 "finance.treasurer.email", "lodging.bills.autoRecompute"),
@@ -61,11 +61,13 @@ public class OrgSettingsLadderTest {
         Assert.assertTrue(KnownSettings.SITE_ANALYTICS_ID.isOrgOnly(), "the analytics id is org-explicit");
         for (final SettingDef def : KnownSettings.branding()) {
             Assert.assertTrue(def.isOrgOnly(), def.getName() + ": an org site never inherits the shared look");
-            // Every branding value is blank by default (the neutral look) except Dark mode, whose type
-            // needs a parseable "false". Blank for the background COLOR means "follow the palette's own
-            // ground", so an org that has chosen nothing tracks the palette and the light/dark choice.
-            Assert.assertEquals(def.getDefaultValue(),
-                    def == KnownSettings.SITE_THEME_DARK ? "false" : "",
+            // Every branding value is blank by default (the neutral look) except the two booleans, Dark mode
+            // and the PayPal Donate image, whose type needs a parseable "false". Blank for the background
+            // COLOR means "follow the palette's own ground", so an org that has chosen nothing tracks the
+            // palette and the light/dark choice.
+            final boolean isBoolean = def == KnownSettings.SITE_THEME_DARK
+                    || def == KnownSettings.SITE_DONATE_PAYPAL_IMAGE;
+            Assert.assertEquals(def.getDefaultValue(), isBoolean ? "false" : "",
                     def.getName() + ": blank is the neutral default");
             Assert.assertEquals(def.isHttpUrl(), def.getName().endsWith(".url"),
                     def.getName() + ": every *.url branding value is validated as an http(s) URL");

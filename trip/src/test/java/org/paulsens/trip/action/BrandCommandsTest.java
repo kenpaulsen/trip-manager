@@ -86,6 +86,7 @@ public class BrandCommandsTest {
         Assert.assertNull(brand.getDonateUrl(), where);
         Assert.assertFalse(brand.isShowDonate(), where);
         Assert.assertNull(brand.getDonateText(), where);
+        Assert.assertFalse(brand.isDonatePaypalImage(), where);
         Assert.assertNull(brand.getSiteTitle(), where);
         Assert.assertNull(brand.getAnalyticsId(), where + ": the shared pages keep their literal property");
     }
@@ -156,11 +157,37 @@ public class BrandCommandsTest {
             Assert.assertTrue(brand.isShowDonate());
             Assert.assertEquals(brand.getDonateTitle(), "Make Donation");
             Assert.assertEquals(brand.getDonateText(), "Help priests visit.");
+            Assert.assertFalse(brand.isDonatePaypalImage(), "off unless the org asks for it");
             Assert.assertEquals(brand.getSidebarTitle(), "Pilgrimages");
             Assert.assertEquals(brand.getSiteTitle(), "Acme Trips");
         });
         // The same settings are NOT the shared site's: another host still sees nothing of them.
         onSite(SiteContext.shared("www.visitqueenofpeace.com"), () -> assertNeutral("the shared site"));
+    }
+
+    @Test
+    public void paypalsDonateImageShowsOnlyForAPaypalLink() throws IOException {
+        setAcme(Map.of(KnownSettings.SITE_DONATE_URL.getName(),
+                "https://www.paypal.com/donate/?hosted_button_id=TEST123",
+                KnownSettings.SITE_DONATE_PAYPAL_IMAGE.getName(), "true"), null);
+        onSite(ACME_SITE, () -> Assert.assertTrue(brand.isDonatePaypalImage()));
+        setAcme(Map.of(KnownSettings.SITE_DONATE_URL.getName(), "https://donate.acme.example/",
+                KnownSettings.SITE_DONATE_PAYPAL_IMAGE.getName(), "true"), null);
+        onSite(ACME_SITE, () -> Assert.assertFalse(brand.isDonatePaypalImage(),
+                "PayPal's mark never fronts a link that is not PayPal's"));
+    }
+
+    @Test
+    public void onlyHttpsPagesOnPaypalComArePaypalPages() {
+        Assert.assertTrue(BrandCommands.isPaypalPage("https://www.paypal.com/donate/?hosted_button_id=X"));
+        Assert.assertTrue(BrandCommands.isPaypalPage("https://paypal.com/donate"));
+        Assert.assertTrue(BrandCommands.isPaypalPage("https://WWW.PayPal.com/donate"));
+        Assert.assertFalse(BrandCommands.isPaypalPage("http://www.paypal.com/donate"), "https only");
+        Assert.assertFalse(BrandCommands.isPaypalPage("https://paypal.com.evil.example/donate"));
+        Assert.assertFalse(BrandCommands.isPaypalPage("https://notpaypal.com/donate"));
+        Assert.assertFalse(BrandCommands.isPaypalPage("https://x.example/?u=https://www.paypal.com"));
+        Assert.assertFalse(BrandCommands.isPaypalPage("https://bad host/"));
+        Assert.assertFalse(BrandCommands.isPaypalPage(null));
     }
 
     /** One rule for the org's background and a conference page's own ({@code TripPageCommands.lookFor}). */
@@ -218,6 +245,39 @@ public class BrandCommandsTest {
             Assert.assertFalse(brand.isShowContact(), "a blank contact email is no email");
             Assert.assertEquals(brand.getAnalyticsId(), "G-ACME");
         });
+    }
+
+    @Test
+    public void eachHostReportsToItsOwnAnalyticsProperty() throws IOException {
+        final SiteContext shared = SiteContext.shared("www.visitqueenofpeace.com");
+        try {
+            Assert.assertTrue(new ConfigCommands().saveKnown(
+                    Map.of(KnownSettings.SITE_ANALYTICS_ID.getName(), " G-SHARED1 "), "test"));
+            setAcme(Map.of(KnownSettings.SITE_ANALYTICS_ID.getName(), "G-ACME"), null);
+            onSite(shared, () -> Assert.assertEquals(brand.getPageAnalyticsId(), "G-SHARED1",
+                    "a shared host reads the site's own row"));
+            onSite(ACME_SITE, () -> Assert.assertEquals(brand.getPageAnalyticsId(), "G-ACME",
+                    "an org host reads only the org's own id"));
+            setAcme(Map.of(), null);
+            onSite(ACME_SITE, () -> Assert.assertNull(brand.getPageAnalyticsId(),
+                    "an org without an id never inherits the shared one"));
+            Assert.assertTrue(new ConfigCommands().saveKnown(
+                    Map.of(KnownSettings.SITE_ANALYTICS_ID.getName(), "G-X');alert(1);//"), "test"));
+            onSite(shared, () -> Assert.assertNull(brand.getPageAnalyticsId(),
+                    "an id that is not a plain token renders no tag"));
+        } finally {
+            new ConfigCommands().saveKnown(
+                    Map.of(KnownSettings.SITE_ANALYTICS_ID.getName(), FakeData.SHARED_ANALYTICS_FIXTURE), "test");
+        }
+    }
+
+    @Test
+    public void analyticsIdsMustBePlainTokens() {
+        Assert.assertEquals(BrandCommands.analyticsIdOrNull(" G-E5PPFRBZEY "), "G-E5PPFRBZEY");
+        Assert.assertNull(BrandCommands.analyticsIdOrNull(""));
+        Assert.assertNull(BrandCommands.analyticsIdOrNull(null));
+        Assert.assertNull(BrandCommands.analyticsIdOrNull("G-1 G-2"));
+        Assert.assertNull(BrandCommands.analyticsIdOrNull("G-<script>"));
     }
 
     @Test
