@@ -114,12 +114,13 @@ public class PeopleSearchOrgTest {
         assertTrue(admin().grantOrgPrivilege(acme.getId().getValue(), acmePeopleAdmin.getId(),
                 PrivilegeCommands.PEOPLE_ADMIN));
 
-        final List<String> seen = realPrivs(acmePeopleAdmin).visibleTripsOf(traveler).stream()
-                .map(Trip::getId).toList();
+        final List<String> seen = new TripCommands(() -> realPrivs(acmePeopleAdmin))
+                .getTripsForUserInPeopleReach(traveler.getId()).stream().map(Trip::getId).toList();
         assertEquals(seen, List.of(acmeTrip), "never Beta's trip, nor a trip with no org");
-        assertTrue(admin().visibleTripsOf(traveler).stream().map(Trip::getId).toList()
+        final TripCommands siteAdmin = new TripCommands(this::admin);
+        assertTrue(siteAdmin.getTripsForUserInPeopleReach(traveler.getId()).stream().map(Trip::getId).toList()
                 .containsAll(List.of(acmeTrip, betaTrip, noOrgTrip)), "a site admin sees them all");
-        assertTrue(admin().visibleTripsOf(null).isEmpty());
+        assertTrue(siteAdmin.getTripsForUserInPeopleReach(null).isEmpty(), "a page row with no person");
     }
 
     private static String savedTrip(final Organization org, final Person traveler) throws IOException {

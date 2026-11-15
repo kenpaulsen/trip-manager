@@ -181,11 +181,16 @@ organization's trips), so a people admin of one organization who joined another 
 read that organization's trips and balances. The pages' gate is per subject (`canAdminPerson`: `peopleAdmin` in an
 organization the SUBJECT belongs to), so a people admin reaches a member who also belongs to another organization,
 and these lists are what keep that organization's data out of view. Every list built on it:
-- the People page's Trips column and Manage People's trip lists: `OrgCommands.visibleTripsOf(person)`;
-- the admin person page's Registrations list: `TripCommands.getRecentTripsInPeopleReach(n)`, and its Trips list:
-  `getTripsForUserInPeopleReach(id)`, both site-gated like every trip list;
+- a person's trips, wherever an admin people page lists them (the People page's Trips column, Manage People's trip
+  lists, the admin person page's Trips list): ONE helper, `TripCommands.getTripsForUserInPeopleReach(id)`,
+  site-gated like every trip list, so a hosted organization's trip, whose link opens blank on another host, is
+  left out on every page alike (the People page's column skipped the site gate until 2026-11-15);
+- the admin person page's Registrations list: `TripCommands.getRecentTripsInPeopleReach(n)`, site-gated too;
 - the admin person page's transaction count and balance: `TransactionsCommands.getTransactionsInPeopleReach(id)`
   (the site-listed rows of `getTransactions`, narrowed the same way).
+
+The reach is built once per request and viewer (`PeopleReach.of` memoizes it in the Faces request map), since the
+People page asks for it on every row and each build walks every organization.
 
 The Registrations list and the org Trips page (`getTripsForOrg`) cut their organization filter from one over-sized
 recent window (`TripCommands.tenantFilterWindow`, 4x the cap), so other tenants' trips do not push the viewer's own
