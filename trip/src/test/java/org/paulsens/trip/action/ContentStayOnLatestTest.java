@@ -1,6 +1,9 @@
 package org.paulsens.trip.action;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.faces.application.FacesMessage;
+import jakarta.faces.context.ExternalContext;
+import jakarta.faces.context.FacesContext;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -12,6 +15,8 @@ import org.paulsens.trip.model.ContentTemplate;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Placeholder;
 import org.paulsens.trip.model.TemplateKind;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Mockito;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
@@ -250,5 +255,181 @@ public class ContentStayOnLatestTest {
         Assert.assertEquals(content.getKind(shown), "CONTAINER");
         Assert.assertEquals(content.childRowBefore(shown, child, 0), "<p class=\"row\">");
         Assert.assertEquals(content.childRowAfter(shown, child, 0), "</p>");
+    }
+
+    private static void saveTemplateOf(final String orgId, final String id, final String body,
+            final Placeholder... prompts) {
+        final int current = DAO.getInstance().getTemplate(id, Cached.NO).map(ContentTemplate::getVersion).orElse(0);
+        final ContentTemplate template = new ContentTemplate(id, current, "Name " + id, null, body, List.of(prompts),
+                null, null);
+        template.setOrgId(orgId);
+        Assert.assertTrue(DAO.getInstance().saveTemplate(template, 5));
+    }
+
+    /** The growl summaries a call raised, through a mock FacesContext with a request map of its own. */
+    private static List<String> growlsOf(final Map<String, Object> requestMap, final Runnable call) {
+        final FacesContext ctx = RequestFaces.install(requestMap);
+        try {
+            call.run();
+            final ArgumentCaptor<FacesMessage> messages = ArgumentCaptor.forClass(FacesMessage.class);
+            Mockito.verify(ctx, Mockito.atLeast(0)).addMessage(Mockito.any(), messages.capture());
+            return messages.getAllValues().stream().map(FacesMessage::getSummary).toList();
+        } finally {
+            RequestFaces.clear();
+        }
+    }
+
+    /** {@code FacesContext.setCurrentInstance} is protected, so reach it from a subclass. */
+    private abstract static class RequestFaces extends FacesContext {
+        static FacesContext install(final Map<String, Object> requestMap) {
+            final ExternalContext external = Mockito.mock(ExternalContext.class);
+            Mockito.when(external.getRequestMap()).thenReturn(requestMap);
+            final FacesContext ctx = Mockito.mock(FacesContext.class);
+            Mockito.when(ctx.getExternalContext()).thenReturn(external);
+            FacesContext.setCurrentInstance(ctx);
+            return ctx;
+        }
+
+        static void clear() {
+            FacesContext.setCurrentInstance(null);
+        }
+    }
+
+    @Test
+    public void aTemplateThatMovesToAnotherOrganizationIsNotFollowed() {
+        final ContentCommands content = admin();
+        saveTemplate("sol-tenant", "<p>{{msg}}</p>", text("msg", "Message"));
+        final String section = "sol.section-tenant";
+        final ContentInstance item = content.createContent(section, "sol-tenant");
+        item.setTitle("Tenant");
+        item.getValues().put("msg", "hello");
+        Assert.assertTrue(content.retargetTemplateVersion(item, ContentCommands.STAY_ON_LATEST));
+        Assert.assertTrue(content.saveContent(item));
+
+        // Re-scoped to one organization, whose editors then write the body: the shared pages must not follow.
+        saveTemplateOf("org-sol-a", "sol-tenant", "<b>{{msg}}</b>", text("msg", "Message"));
+        final ContentInstance shown = onPage(content, section, item.getId());
+        Assert.assertEquals(content.render(shown), "<p>hello</p>", "renders as pinned");
+        Assert.assertEquals(shown.getTemplateVersion(), 1, "nothing carried");
+        Assert.assertEquals(content.render(stored(item.getId())), "<p>hello</p>");
+        final ContentInstance editing = content.getContent(item.getId());
+        Assert.assertEquals(editing.getTemplateVersion(), 1);
+        Assert.assertTrue(content.saveContent(editing));
+        Assert.assertEquals(stored(item.getId()).getTemplateVersion(), 1, "a save does not cross either");
+
+        final ContentInstance pinned = content.createContent(section, "sol-tenant");
+        pinned.setTemplateVersion(1);
+        Assert.assertFalse(content.retargetTemplateVersion(pinned, ContentCommands.STAY_ON_LATEST),
+                "choosing Stay on Latest is refused while the newest version is another organization's");
+        Assert.assertFalse(pinned.isStayOnLatest());
+    }
+
+    @Test
+    public void aTemplateKeptInItsOwnOrganizationIsFollowed() {
+        final ContentCommands content = admin();
+        saveTemplateOf("org-sol-b", "sol-own-org", "<p>{{msg}}</p>", text("msg", "Message"));
+        final ContentInstance item = content.createContent("sol.section-own-org", "sol-own-org");
+        item.setTitle("Own");
+        item.getValues().put("msg", "hi");
+        Assert.assertTrue(content.retargetTemplateVersion(item, ContentCommands.STAY_ON_LATEST));
+        Assert.assertTrue(content.saveContent(item));
+        saveTemplateOf("org-sol-b", "sol-own-org", "<i>{{msg}}</i>", text("msg", "Message"));
+        Assert.assertEquals(content.render(onPage(content, "sol.section-own-org", item.getId())), "<i>hi</i>");
+    }
+
+    /** Shared v1 and v2, then v3 re-scoped to an organization: what an aged-out instance may still render. */
+    private static void sharedThenOrgOwned(final String id) {
+        saveTemplate(id, "<p>one {{msg}}</p>", text("msg", "Message"));
+        saveTemplate(id, "<p>two {{msg}}</p>", text("msg", "Message"));
+        saveTemplateOf("org-sol-d", id, "<p>org {{msg}}</p>", text("msg", "Message"));
+    }
+
+    @Test
+    public void anAgedOutPinnedInstanceRendersTheNewestRetainedSharedVersion() {
+        final ContentCommands content = admin();
+        sharedThenOrgOwned("sol-aged-mixed");
+        final ContentInstance pinned = new ContentInstance("sol-aged-mixed-row", "sol.section-aged", "Aged",
+                "sol-aged-mixed", 99, new HashMap<>(Map.of("msg", "x")), null, 0, 0, null, null);
+        Assert.assertEquals(content.render(pinned), "<p>two x</p>",
+                "not blank, and not the organization's version: the newest shared one");
+    }
+
+    @Test
+    public void anAgedOutStayOnLatestInstanceWhoseLatestFailsTheGuardDoesTheSame() {
+        final ContentCommands content = admin();
+        sharedThenOrgOwned("sol-aged-follow");
+        final ContentInstance follows = new ContentInstance("sol-aged-follow-row", "sol.section-aged", "Aged",
+                "sol-aged-follow", 99, new HashMap<>(Map.of("msg", "y")), null, 0, 0, null, null, null, null, true);
+        Assert.assertEquals(content.render(follows), "<p>two y</p>");
+        Assert.assertEquals(content.getKind(follows), "STANDARD");
+    }
+
+    @Test
+    public void anAgedOutVersionWithNoRetainedSharedVersionFallsBackAsBefore() {
+        final ContentCommands content = admin();
+        saveTemplateOf("org-sol-c", "sol-aged-org", "<p>{{msg}}</p>", text("msg", "Message"));
+        final ContentInstance pinned = new ContentInstance("sol-aged-row", "sol.section-aged", "Aged",
+                "sol-aged-org", 99, new HashMap<>(Map.of("msg", "x")), null, 0, 0, null, null);
+        Assert.assertEquals(content.render(pinned), "",
+                "the saved-against organization is unknown, so an organization's latest is not borrowed");
+        Assert.assertEquals(content.getKind(pinned), "STANDARD");
+    }
+
+    @Test
+    public void valuesAreNeverCarriedBackward() {
+        final ContentCommands content = admin();
+        saveTemplate("sol-backward", "<p>{{msg}}</p>", text("msg", "Message"));
+        // As a lagging cache would make it look: the row says v5, the "latest" the cache answers is v1.
+        final ContentInstance ahead = new ContentInstance("sol-ahead-row", "sol.section-backward", "Ahead",
+                "sol-backward", 5, new HashMap<>(Map.of("msg", "kept")), null, 0, 0, null, null, null, null, true);
+        Assert.assertTrue(DAO.getInstance().saveContent(ahead, 5));
+        final ContentInstance editing = content.getContent("sol-ahead-row");
+        Assert.assertEquals(editing.getTemplateVersion(), 5);
+        Assert.assertEquals(editing.getValues().get("msg"), "kept");
+        Assert.assertEquals(content.render(editing), "<p>kept</p>");
+    }
+
+    @Test
+    public void aCarryThatDropsValuesIsReportedOnOpenAndOnSave() {
+        final ContentCommands content = admin();
+        saveTemplate("sol-report", "<p>{{date}} {{time}}</p>", text("date", "Date"), text("time", "Time"));
+        final ContentInstance item = content.createContent("sol.section-report", "sol-report");
+        item.setTitle("Report");
+        item.getValues().putAll(Map.of("date", "May 1", "time", "noon"));
+        Assert.assertTrue(content.retargetTemplateVersion(item, ContentCommands.STAY_ON_LATEST));
+        Assert.assertTrue(content.saveContent(item));
+        saveTemplate("sol-report", "<p>{{when}} {{where}}</p>", text("when", "When"), text("where", "Where"));
+
+        final List<String> onOpen = growlsOf(new HashMap<>(), () -> content.getContent(item.getId()));
+        Assert.assertEquals(onOpen.size(), 1, onOpen.toString());
+        Assert.assertTrue(onOpen.getFirst().contains("now v2") && onOpen.getFirst().contains("DROPPED")
+                && onOpen.getFirst().contains("date") && onOpen.getFirst().contains("Cancel keeps"), onOpen.getFirst());
+
+        final ContentInstance stale = stored(item.getId()).copy();
+        final List<String> onSave = growlsOf(new HashMap<>(), () -> Assert.assertTrue(content.saveContent(stale)));
+        Assert.assertTrue(onSave.stream().anyMatch(m -> m.contains("DROPPED") && !m.contains("Cancel keeps")),
+                "a save says what it stored, without promising an undo: " + onSave);
+
+        // A carry that moved every value as it was stays quiet.
+        saveTemplate("sol-report", "<div>{{when}} {{where}}</div>", text("when", "When"), text("where", "Where"));
+        Assert.assertTrue(growlsOf(new HashMap<>(), () -> content.getContent(item.getId())).isEmpty());
+    }
+
+    @Test
+    public void theVersionMenuReadsTheTemplateHistoryOncePerRequest() {
+        final ContentCommands content = admin();
+        saveTemplate("sol-memo", "<p>{{msg}}</p>", text("msg", "Message"));
+        final ContentInstance item = content.createContent("sol.section-memo", "sol-memo");
+        final Map<String, Object> request = new HashMap<>();
+        final List<String> before = new java.util.ArrayList<>();
+        final List<String> during = new java.util.ArrayList<>();
+        growlsOf(request, () -> {
+            before.addAll(content.versionChoices(item));
+            saveTemplate("sol-memo", "<b>{{msg}}</b>", text("msg", "Message"));
+            during.addAll(content.versionChoices(item));
+        });
+        Assert.assertEquals(during, before, "the same request answers from its memo");
+        Assert.assertEquals(content.versionChoices(item), List.of(ContentCommands.STAY_ON_LATEST, "2", "1"),
+                "a new request reads the row again");
     }
 }
