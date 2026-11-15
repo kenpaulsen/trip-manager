@@ -83,16 +83,24 @@ public class SettingDef implements Serializable {
      * anything else.
      */
     boolean siteFrom;
+    /**
+     * Whether a non-blank value must be a web analytics property id: a plain token of letters, digits and hyphens
+     * ({@link #analyticsId(String)}). Same contract as {@link #hexColor}: both save paths refuse anything else, and
+     * the page re-screens, because the id is written into a script URL and a JavaScript string, where HTML escaping
+     * does not apply. Refusing on save also means a pasted snippet or two ids never quietly turn the tag off.
+     */
+    boolean analyticsId;
 
     public SettingDef(final String name, final Config.Type type, final String defaultValue, final String label,
             final String description) {
-        this(name, type, defaultValue, label, description, false, false, List.of(), false, false, false, false);
+        this(name, type, defaultValue, label, description, false, false, List.of(), false, false, false, false,
+                false);
     }
 
     private SettingDef(final String name, final Config.Type type, final String defaultValue, final String label,
             final String description, final boolean orgOverridable, final boolean orgOnly,
             final List<String> choices, final boolean httpUrl, final boolean hexColor, final boolean email,
-            final boolean siteFrom) {
+            final boolean siteFrom, final boolean analyticsId) {
         this.name = name;
         this.type = type;
         this.defaultValue = defaultValue;
@@ -105,48 +113,68 @@ public class SettingDef implements Serializable {
         this.hexColor = hexColor;
         this.email = email;
         this.siteFrom = siteFrom;
+        this.analyticsId = analyticsId;
     }
 
     /** This declaration, marked as one an organization may override on its own site. */
     public SettingDef withOrgOverride() {
         return new SettingDef(name, type, defaultValue, label, description, true, false, choices, httpUrl,
-                hexColor, email, siteFrom);
+                hexColor, email, siteFrom, analyticsId);
     }
 
     /** This declaration, marked org-explicit: an org host never inherits the site's value (see {@link #orgOnly}). */
     public SettingDef withOrgOnly() {
         return new SettingDef(name, type, defaultValue, label, description, true, true, choices, httpUrl,
-                hexColor, email, siteFrom);
+                hexColor, email, siteFrom, analyticsId);
     }
 
     /** This declaration, restricted to exactly these values (see {@link #choices}); blank stays "unset". */
     public SettingDef withChoices(final String... allowed) {
         return new SettingDef(name, type, defaultValue, label, description, orgOverridable, orgOnly,
-                List.of(allowed), httpUrl, hexColor, email, siteFrom);
+                List.of(allowed), httpUrl, hexColor, email, siteFrom, analyticsId);
     }
 
     /** This declaration, requiring a non-blank value to be an {@code http(s)} URL (see {@link #httpUrl}). */
     public SettingDef withHttpUrl() {
         return new SettingDef(name, type, defaultValue, label, description, orgOverridable, orgOnly, choices,
-                true, hexColor, email, siteFrom);
+                true, hexColor, email, siteFrom, analyticsId);
     }
 
     /** This declaration, requiring a non-blank value to be a CSS hex color (see {@link #hexColor}). */
     public SettingDef withHexColor() {
         return new SettingDef(name, type, defaultValue, label, description, orgOverridable, orgOnly, choices,
-                httpUrl, true, email, siteFrom);
+                httpUrl, true, email, siteFrom, analyticsId);
     }
 
     /** This declaration, requiring a non-blank value to be one email address (see {@link #email}). */
     public SettingDef withEmail() {
         return new SettingDef(name, type, defaultValue, label, description, orgOverridable, orgOnly, choices,
-                httpUrl, hexColor, true, siteFrom);
+                httpUrl, hexColor, true, siteFrom, analyticsId);
     }
 
     /** This declaration, requiring a non-blank value to be a site-level From address (see {@link #siteFrom}). */
     public SettingDef withSiteFrom() {
         return new SettingDef(name, type, defaultValue, label, description, orgOverridable, orgOnly, choices,
-                httpUrl, hexColor, email, true);
+                httpUrl, hexColor, email, true, analyticsId);
+    }
+
+    /** This declaration, requiring a non-blank value to be an analytics property id (see {@link #analyticsId}). */
+    public SettingDef withAnalyticsId() {
+        return new SettingDef(name, type, defaultValue, label, description, orgOverridable, orgOnly, choices,
+                httpUrl, hexColor, email, siteFrom, true);
+    }
+
+    /**
+     * A web analytics property id (a GA4 measurement id such as {@code G-ABC123}), trimmed, or null when
+     * {@code raw} is not a plain token of 1 to 40 letters, digits and hyphens. The one screen both the save paths and
+     * the page ({@code BrandCommands.getPageAnalyticsId}) apply.
+     */
+    public static String analyticsId(final String raw) {
+        if (raw == null) {
+            return null;
+        }
+        final String value = raw.trim();
+        return value.matches("[A-Za-z0-9-]{1,40}") ? value : null;
     }
 
     /**

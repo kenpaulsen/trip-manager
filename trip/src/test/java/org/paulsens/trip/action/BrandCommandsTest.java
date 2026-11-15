@@ -12,6 +12,7 @@ import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.FakeData;
+import org.paulsens.trip.model.Config;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.site.SiteContext;
 import org.paulsens.trip.web.Sessions;
@@ -88,7 +89,7 @@ public class BrandCommandsTest {
         Assert.assertNull(brand.getDonateText(), where);
         Assert.assertFalse(brand.isDonatePaypalImage(), where);
         Assert.assertNull(brand.getSiteTitle(), where);
-        Assert.assertNull(brand.getAnalyticsId(), where + ": the shared pages keep their literal property");
+        Assert.assertNull(brand.orgAnalyticsId(), where + ": only an org host has an org's own id");
     }
 
     @Test
@@ -117,7 +118,7 @@ public class BrandCommandsTest {
             Assert.assertNull(brand.getDonateText());
             Assert.assertEquals(brand.getSidebarTitle(), "Trips");
             Assert.assertNull(brand.getSiteTitle(), "blank: the page title falls back to the org name");
-            Assert.assertNull(brand.getAnalyticsId(), "blank means no tag, never the shared site's id");
+            Assert.assertNull(brand.orgAnalyticsId(), "blank means no tag, never the shared site's id");
         });
     }
 
@@ -175,6 +176,14 @@ public class BrandCommandsTest {
                 KnownSettings.SITE_DONATE_PAYPAL_IMAGE.getName(), "true"), null);
         onSite(ACME_SITE, () -> Assert.assertFalse(brand.isDonatePaypalImage(),
                 "PayPal's mark never fronts a link that is not PayPal's"));
+        // A PayPal link alone is not the org asking for PayPal's image: off (absent or "false") keeps the button.
+        setAcme(Map.of(KnownSettings.SITE_DONATE_URL.getName(),
+                "https://www.paypal.com/donate/?hosted_button_id=TEST123"), null);
+        onSite(ACME_SITE, () -> Assert.assertFalse(brand.isDonatePaypalImage(), "not asked for: the button"));
+        setAcme(Map.of(KnownSettings.SITE_DONATE_URL.getName(),
+                "https://www.paypal.com/donate/?hosted_button_id=TEST123",
+                KnownSettings.SITE_DONATE_PAYPAL_IMAGE.getName(), "false"), null);
+        onSite(ACME_SITE, () -> Assert.assertFalse(brand.isDonatePaypalImage(), "turned off: the button"));
     }
 
     @Test
@@ -243,7 +252,7 @@ public class BrandCommandsTest {
         setAcme(Map.of(KnownSettings.SITE_ANALYTICS_ID.getName(), "G-ACME"), "  ");
         onSite(ACME_SITE, () -> {
             Assert.assertFalse(brand.isShowContact(), "a blank contact email is no email");
-            Assert.assertEquals(brand.getAnalyticsId(), "G-ACME");
+            Assert.assertEquals(brand.orgAnalyticsId(), "G-ACME");
         });
     }
 
@@ -261,8 +270,19 @@ public class BrandCommandsTest {
             setAcme(Map.of(), null);
             onSite(ACME_SITE, () -> Assert.assertNull(brand.getPageAnalyticsId(),
                     "an org without an id never inherits the shared one"));
-            Assert.assertTrue(new ConfigCommands().saveKnown(
-                    Map.of(KnownSettings.SITE_ANALYTICS_ID.getName(), "G-X');alert(1);//"), "test"));
+            onSite(SiteContext.marketing("unitetrip.com"), () -> Assert.assertNull(brand.getPageAnalyticsId(),
+                    "the product's own host reports to no property, not even the shared site's"));
+            Assert.assertFalse(new ConfigCommands().saveKnown(
+                    Map.of(KnownSettings.SITE_ANALYTICS_ID.getName(), "G-X');alert(1);//"), "test"),
+                    "the save refuses an id that is not a plain token");
+            Assert.assertFalse(new ConfigCommands().saveKnown(
+                    Map.of(KnownSettings.SITE_ANALYTICS_ID.getName(), "G-ABC123, G-DEF456"), "test"),
+                    "two ids are not one");
+            onSite(shared, () -> Assert.assertEquals(brand.getPageAnalyticsId(), "G-SHARED1",
+                    "a refused save leaves the stored id as it was"));
+            // A row written by hand bypasses the save path; the page still screens it.
+            Assert.assertTrue(DAO.getInstance().saveConfig(new Config(KnownSettings.SITE_ANALYTICS_ID.getName(),
+                    "G-X');alert(1);//", Config.Type.STRING, null, null, "test")));
             onSite(shared, () -> Assert.assertNull(brand.getPageAnalyticsId(),
                     "an id that is not a plain token renders no tag"));
         } finally {
@@ -273,7 +293,7 @@ public class BrandCommandsTest {
 
     @Test
     public void analyticsIdsMustBePlainTokens() {
-        Assert.assertEquals(BrandCommands.analyticsIdOrNull(" G-E5PPFRBZEY "), "G-E5PPFRBZEY");
+        Assert.assertEquals(BrandCommands.analyticsIdOrNull(" G-TESTFIXTURE1 "), "G-TESTFIXTURE1");
         Assert.assertNull(BrandCommands.analyticsIdOrNull(""));
         Assert.assertNull(BrandCommands.analyticsIdOrNull(null));
         Assert.assertNull(BrandCommands.analyticsIdOrNull("G-1 G-2"));

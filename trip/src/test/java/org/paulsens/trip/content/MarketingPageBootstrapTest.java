@@ -149,9 +149,13 @@ public class MarketingPageBootstrapTest {
     private static final Organization.Id PLATFORM = Organization.Id.from("0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d");
     /** Other products' names: the Why page compares with registration tools in general (owner decision 2026-11-15). */
     private static final Pattern COMPETITOR = Pattern.compile("(?i)regfox|webconnex|eventbrite|cvent|jotform|wufoo");
-    /** British spellings the product never uses (US English, owner rule). */
-    private static final Pattern BRITISH = Pattern.compile(
-            "(?i)colour|organis|favourite|centre|licence|cancell|travell|realis|catalogue");
+    /**
+     * British spellings the product never uses (US English, owner rule), as whole words: a bare stem would also
+     * refuse US words that contain it ("cancellation", "realistic", "organism").
+     */
+    private static final Pattern BRITISH = Pattern.compile("(?i)\\b(colours?|organis(e|ed|es|ing|ation|ations)"
+            + "|favourite|centres?|licence|cancelled|cancelling|travell(er|ers|ed|ing)|realis(e|ed|es|ing)"
+            + "|catalogue)\\b");
     private static final Pattern EM_DASH = Pattern.compile("\u2014|&#8212;|&#[xX]0*2014;|&mdash;");
     private static final Pattern PAGE_LINK = Pattern.compile("/page\\.jsf\\?name=([a-z0-9-]+)");
 
@@ -281,6 +285,19 @@ public class MarketingPageBootstrapTest {
                 + MarketingPageBootstrap.PRICING_PAGE + "\""), cost.getValues().get("body"));
         Assert.assertTrue(rows.stream().anyMatch(row -> row.getTitle().equals("Do we need our own domain?")
                 && row.getValues().get("body").contains("already own a domain")));
+    }
+
+    /** The spelling check refuses British forms and nothing else. */
+    @Test
+    public void theSpellingCheckMatchesBritishWordsOnly() {
+        for (final String british : List.of("colour", "Colours", "organise", "organisation", "favourite", "centre",
+                "licence", "cancelled", "traveller", "realise", "catalogue")) {
+            Assert.assertTrue(BRITISH.matcher("a " + british + " here").find(), british);
+        }
+        for (final String us : List.of("color", "organize", "organization", "organism", "favorite", "center",
+                "license", "canceled", "cancellation", "traveler", "realize", "realistic", "realism", "catalog")) {
+            Assert.assertFalse(BRITISH.matcher("a " + us + " here").find(), us);
+        }
     }
 
     /**

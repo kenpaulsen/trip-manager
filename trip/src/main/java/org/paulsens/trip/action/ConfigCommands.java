@@ -521,6 +521,10 @@ public class ConfigCommands {
             return "'" + raw + "' is not a hex color like #333333 or #fc0, which " + def.getLabel()
                     + " requires.";
         }
+        if (def.isAnalyticsId() && SettingDef.analyticsId(raw) == null) {
+            return "'" + raw + "' is not one analytics id like G-ABC123 (letters, digits and hyphens only), which "
+                    + def.getLabel() + " requires.";
+        }
         return def.isSiteFrom() ? siteFromRejection(def, raw) : null;
     }
 

@@ -492,9 +492,11 @@ org site whose `site.layout` setting is `full-width` (`org-admin.md`, "Branding"
 it to `mainTemplate.xhtml` as the `fullWidth` ui:param, which builds (`c:if`, build time -- the
 `mainContent` insert may only be built once) either the classic card-and-sidebar grid or a bare
 `.layoutFull` holding the sections and the footer, and `template.xhtml` widens `.layout-content` with
-`layout-content-full`. Only the home page and a TRIP's page (`trip/tripDetails.xhtml`, which reads the trip
-from the request parameter because the branch is built before its initPage; `conference.md`) change; every other
-page, and every shared host, renders the classic markup byte for byte
+`layout-content-full`. Only the home page, a TRIP's page (`trip/tripDetails.xhtml`, which reads the trip
+from the request parameter because the branch is built before its initPage; `conference.md`) and, on the marketing
+host only, a Site Page (`page.xhtml` passes `site.marketingSite`: the platform org's Pricing and Why UniteTrip are
+bands; an org's Site Pages keep the classic card whatever its `site.layout` says; `MarketingSitePagesPwIT`) change;
+every other page, and every shared host, renders the classic markup byte for byte
 (`OrgSubdomainPwIT.theClassicLayoutIsUnchanged`). In edit mode the dashed section frames wrap each band, which then
 stays inside its frame rather than reaching the window's edges.
 

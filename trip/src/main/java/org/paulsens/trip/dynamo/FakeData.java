@@ -542,6 +542,7 @@ public final class FakeData {
         seedCfpwPaymentDefaults();
         seedBetaBranding();
         seedPlatformBranding();
+        seedPlatformSitePages();
         seedLocalApiAccess();
         seedOrgScopedPrivileges(commands, kevin);
         seedOrgSiteEditor(commands);
@@ -729,21 +730,36 @@ public final class FakeData {
             final Organization platform = DAO.getInstance()
                     .getOrganization(Organization.Id.from(PLATFORM_ORG_ID), Cached.NO).orElseThrow();
             platform.getSettingsOverrides().put("site.footer.text", "Trip sites for organizations");
-            // Its Site Pages (Pricing, Why UniteTrip; issue medjugorje#41), exactly what the production
-            // update-marketing-site script installs: the menu entries, marked seeded so no About Us/Board starter
-            // ever joins them, and their rows, pinned to the band templates' current versions.
-            platform.setSitePages(MarketingPageBootstrap.sitePages().stream()
-                    .map(OrgPageBootstrap.StarterPage::entry).toList());
-            platform.setSitePagesSeededAt(LocalDateTime.now());
-            for (final OrgPageBootstrap.StarterPage page : MarketingPageBootstrap.sitePages()) {
-                OrgPageBootstrap.starterRows(platform.getId(), page, FakeData::currentTemplateVersion)
-                        .forEach(FakeData::saveContent);
-            }
             if (!DAO.getInstance().saveOrganization(platform)) {
                 throw new IllegalStateException("Fake org seed: could not save the platform org's branding");
             }
         } catch (final IOException ex) {
             throw new IllegalStateException("Fake org seed: could not save the platform org's branding", ex);
+        }
+    }
+
+    /**
+     * The platform org's Site Pages (Pricing, Why UniteTrip; issue medjugorje#41), exactly what the production
+     * {@code update-marketing-site} script installs: the menu entries, marked seeded so no About Us or Board starter
+     * ever joins them, and their rows, pinned to the band templates' current versions. The site's HOME rows are
+     * seeded in {@link #addFakeContent} instead: they live under the fixed marketing key, not under this org.
+     */
+    private static void seedPlatformSitePages() {
+        try {
+            final Organization platform = DAO.getInstance()
+                    .getOrganization(Organization.Id.from(PLATFORM_ORG_ID), Cached.NO).orElseThrow();
+            for (final OrgPageBootstrap.StarterPage page : MarketingPageBootstrap.sitePages()) {
+                OrgPageBootstrap.starterRows(platform.getId(), page, FakeData::currentTemplateVersion)
+                        .forEach(FakeData::saveContent);
+            }
+            platform.setSitePages(MarketingPageBootstrap.sitePages().stream()
+                    .map(OrgPageBootstrap.StarterPage::entry).toList());
+            platform.setSitePagesSeededAt(LocalDateTime.now());
+            if (!DAO.getInstance().saveOrganization(platform)) {
+                throw new IllegalStateException("Fake org seed: could not save the platform org's Site Pages");
+            }
+        } catch (final IOException ex) {
+            throw new IllegalStateException("Fake org seed: could not save the platform org's Site Pages", ex);
         }
     }
 

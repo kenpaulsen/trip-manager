@@ -826,13 +826,14 @@ organization's own value then wins on its own site. Three rungs, resolved in ord
 Which settings: those `KnownSettings` marks with `.withOrgOverride()` -- `home.photos.windowDays`,
 `home.photos.minCount`, `home.countdown.soonDays`, `reg.allowEdits`, `lodging.bills.autoRecompute`,
 `finance.treasurer.email`, `chat.background.colors`, `chat.background.image`, `chat.reactions.palette` --
-plus `site.analytics.id`, which is **org-explicit** (`.withOrgOnly()`): an org host resolves it from the
-org's override or the compiled default (blank) and *never* from the site's row, so the shared site's
-analytics property can never collect an org site's traffic. The site's row is the SHARED hosts' own id
-(`BrandCommands.getPageAnalyticsId`, since issue #123; until then the page carried a retired Universal
-Analytics id as a literal); either id is a GA4 measurement id (`G-...`), and one that is not a plain token
-renders no tag at all -- and the org-only **Branding** defs
-(`site.theme.palette`, `site.logo.url`, ...; see "Branding" below). `KnownSettings.orgOverridable()` is the
+plus two org-explicit kinds (`.withOrgOnly()`): `site.analytics.id` and the org-only **Branding** defs
+(`site.theme.palette`, `site.logo.url`, ...; see "Branding" below). An org host resolves an org-explicit setting
+from the org's override or the compiled default and *never* from the site's row, so the shared site's analytics
+property can never collect an org site's traffic. The site's row of `site.analytics.id` is the SHARED hosts' own
+id (`BrandCommands.getPageAnalyticsId`, since issue #123; until then the page carried a retired Universal
+Analytics id as a literal). Either id is a GA4 measurement id (`G-...`): both save paths refuse anything that is
+not one plain token (`SettingDef.withAnalyticsId`, the screen `SettingDef.analyticsId`), and the page screens a
+hand-written row the same way, rendering no tag at all for one that fails. `KnownSettings.orgOverridable()` is the
 authoritative list; marking a new setting is a product decision (`OrgSettingsLadderTest` pins the set).
 **`site.org.name` is no longer org-overridable (2026-10-29):** it was editable both as the profile's Name and
 as a setting row, and on an org site the only reader (`WEB-INF/homePage.xhtml`'s upload license line) now
@@ -995,9 +996,13 @@ additionally percent-encoded for the unquoted CSS `url()` context (`( ) ' " ; \ 
 **The page side** (sibling repo): `web.xml`'s `primefaces.THEME` is `#{brand.theme}`; `template.xhtml`
 puts `brand.rootStyle` on `<html>` (`site.css` reads `--site-bg` with the shared rainbow as the `var()`
 fallback), swaps the layout sheet, og:image and favicon per host, and gates the analytics tag on BOTH an
-id for the host (the shared site's literal, or the org's own) AND the visitor's consent: the
+id for the host (`brand.pageAnalyticsId`: the site's own `site.analytics.id` row on a shared host, the org's own
+on an org site, none on the marketing host) AND the visitor's consent: the
 `trip_consent` cookie (`1`/`0`, one year) that `WEB-INF/consentBanner.xhtml` sets, read straight off the
-request so an anonymous page stays sessionless; no id means no tag and no banner. `topbar.xhtml` (logo or
+request so an anonymous page stays sessionless; no id means no tag and no banner. The page view carries no
+personal data: `page_location` is the origin and path only (plus a Site Page's `?name=` on `/page.jsf`),
+`page_referrer` is cut at `?`/`#`, and `page_title` is that same path, never `document.title` (several pages put a
+person's name or a transaction note in their title). `topbar.xhtml` (logo or
 wordmark), `footer.xhtml`, `menu.xhtml` (the shared site's Overview / Links / Help entries hidden, an org
 Donate entry added) and `mainTemplate.xhtml`'s sidebar (Donate and "Questions?" cards from the settings,
 "Trips" for "Pilgrimages") branch on `#{site.orgSite}`, so a shared host renders byte-for-byte what it

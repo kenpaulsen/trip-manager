@@ -65,7 +65,7 @@ public final class KnownSettings {
             "The web analytics property this site reports visits to: a Google Analytics 4 measurement id, which "
                     + "starts with G-. Blank means no analytics tag and no cookie banner. An organization's site never "
                     + "inherits the shared site's id: it reports only to an id the organization set for itself.")
-            .withOrgOnly();
+            .withOrgOnly().withAnalyticsId();
 
     // --- branding (org sites only; every def is org-ONLY, see the section note) ---
 

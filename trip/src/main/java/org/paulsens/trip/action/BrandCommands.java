@@ -13,7 +13,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
 import java.util.function.Supplier;
-import java.util.regex.Pattern;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.cache.Cached;
@@ -68,7 +67,6 @@ public class BrandCommands {
     /** The favicon href that makes a browser fetch nothing -- no stray /favicon.ico hit on an org site. */
     static final String NO_FAVICON = "data:,";
     private static final String PAYPAL_HOST = "paypal.com";
-    private static final Pattern ANALYTICS_ID = Pattern.compile("[A-Za-z0-9-]{1,40}");
     private static final String BG_NONE = "--site-bg:none";
     /** The custom property {@code site.css} paints when there is no background image. */
     private static final String BG_COLOR_PROPERTY = "--site-bg-color:";
@@ -478,8 +476,11 @@ public class BrandCommands {
 
     // --- analytics ---
 
-    /** The org's own analytics id, or null; null off an org host, where the shared pages keep theirs. */
-    public String getAnalyticsId() {
+    /**
+     * The org's own analytics id, unscreened, or null; null off an org host. Not for pages: they read
+     * {@link #getPageAnalyticsId}, which also answers a shared host and screens the value.
+     */
+    String orgAnalyticsId() {
         return setting(KnownSettings.SITE_ANALYTICS_ID);
     }
 
@@ -492,18 +493,18 @@ public class BrandCommands {
      */
     public String getPageAnalyticsId() {
         final String id = SiteContext.current().isShared()
-                ? config.getString(KnownSettings.SITE_ANALYTICS_ID.getName(), "")
-                : getAnalyticsId();
+                ? config.siteString(KnownSettings.SITE_ANALYTICS_ID)
+                : orgAnalyticsId();
         return analyticsIdOrNull(id);
     }
 
     /**
-     * The id only when it is a plain token (letters, digits, hyphens): the page writes it into a script URL and
-     * into a JavaScript string, where HTML escaping does not apply, so anything else means no tag at all.
+     * The id only when it is a plain token (letters, digits, hyphens; {@link SettingDef#analyticsId}): the page writes
+     * it into a script URL and into a JavaScript string, where HTML escaping does not apply, so anything else means
+     * no tag at all. The save paths refuse such a value; this still screens a row written by hand.
      */
     static String analyticsIdOrNull(final String raw) {
-        final String id = raw == null ? "" : raw.trim();
-        return ANALYTICS_ID.matcher(id).matches() ? id : null;
+        return SettingDef.analyticsId(raw);
     }
 
     // --- the preview: one admin's unsaved appearance, on one page ---
