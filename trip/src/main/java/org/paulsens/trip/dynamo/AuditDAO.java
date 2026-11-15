@@ -148,8 +148,9 @@ public class AuditDAO {
                     : collected;
             // "Searched back to" is the honest part: with a bounded walk, an empty page means "nothing in this
             // window", and the caller must be able to tell that apart from "nothing at all".
-            return
-                    new AuditPage(page, day.plusDays(1), !exhausted, failures.get());
+            // Complete means the page FILLED, even when the budget ran out on the same step: a filled page may
+            // hold only part of its last day, so its cursor must continue from its oldest record (nextCursor).
+            return new AuditPage(page, day.plusDays(1), collected.size() >= query.getLimit(), failures.get());
         }
         collected.addAll(queryDay(query, day, failures));
         return walkBackwards(query, day.minusDays(1), collected, daysExamined + 1, failures);

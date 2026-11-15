@@ -224,6 +224,26 @@ public class AuditDAOTest {
     }
 
     @Test
+    public void aPageThatFillsOnItsLastBudgetDayContinuesInsideThatDay() {
+        // The page fills on the same step its 60-day budget runs out. It holds only part of that last day, so
+        // it is complete and the next page continues from its oldest record; continuing from the start of the
+        // day would skip the rest of that day's records for good.
+        final Instant now = Instant.parse("2026-07-26T12:00:00Z");
+        final Instant lastDay = now.minus(59, ChronoUnit.DAYS);
+        dao.saveAuditEvent(event(now.minusSeconds(1), AuditAction.LOGIN, AuditOutcome.SUCCESS, "new@x"));
+        for (int i = 0; i < 5; i++) {
+            dao.saveAuditEvent(event(lastDay.minusSeconds(i), AuditAction.LOGIN, AuditOutcome.SUCCESS, "d" + i + "@x"));
+        }
+
+        final AuditPage first = page(AuditQuery.builder().before(now).limit(4).build());
+        assertEquals(first.getEvents().size(), 4);
+        assertTrue(first.isComplete(), "A page that filled is complete, even on the budget's last day");
+        final AuditPage second = page(AuditQuery.builder().before(first.nextCursor()).limit(4).build());
+        assertEquals(second.getEvents().stream().map(AuditEvent::getActorEmail).toList(), List.of("d3@x", "d4@x"),
+                "The rest of the last day must still be reachable");
+    }
+
+    @Test
     public void theCursorStopsAtTheStartOfHistory() {
         // Once the walk has reached the beginning of recorded history there is nothing left to page to;
         // offering a cursor would let "Older" spin forever over the same empty window.
