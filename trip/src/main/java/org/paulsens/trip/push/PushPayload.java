@@ -23,6 +23,8 @@ public class PushPayload {
     public static final String KIND_REGISTRATION_APPROVED = "registration.approved";
     public static final String KIND_PAYMENT_RECORDED = "payment.recorded";
     public static final String KIND_SUPPORT_REQUEST = "support.request";
+    /** A trip message a facilitator scheduled and approved ({@code docs/reminders.md}). */
+    public static final String KIND_TRIP_REMINDER = "trip.reminder";
     public static final String KIND_TEST = "test";
     /** The one kind that carries no alert: {@code {"aps":{"content-available":1}}}. */
     public static final String KIND_SILENT = "silent";

@@ -117,6 +117,7 @@ push.silent.intervalMinutes)` — the marker's TTL IS the schedule, no scheduler
 | Silent refresh | after every ALL_MESSAGES on a trip channel | `everyoneIn(trip)` minus author minus alerted | background |
 | Registration approved | `RegistrationCommands.approvePending` | the person + family managers (`approvalRecipientIds`) | `registration.approved` |
 | Payment recorded | `PaymentCommands.recordNow`, `!isSandbox` only | the payer | `payment.recorded` |
+| Trip reminder | `ReminderSender` via `PushNotifications.tripReminder`, only for a facilitator-APPROVED message that has push text (`docs/reminders.md`) | each addressee of the reminder's mail | `trip.reminder` |
 | Support request | `SupportChatCommands.notifyAdmins` (rides `push.enabled` only, not the mail switch) | joined admins minus requester | `support.request` |
 | Test | `POST /api/push/test` | the caller | `test` |
 
@@ -179,8 +180,9 @@ APNs alert:
 `{"aps":{"content-available":1}}`, `apns-push-type: background`, priority 5, `apns-expiration: 0`,
 `apns-collapse-id: refresh`. Alerts: priority 10, expiration now + 24 h. Kinds: `chat.mention`,
 `chat.reply`, `chat.photoComment`, `chat.announcement`, `chat.message`, `registration.approved`,
-`payment.recorded`, `support.request`, `test`. Deep links: `unitetrip://chat/<tripId>`,
-`unitetrip://trip/<id>/photos`, `unitetrip://trip/<id>/payments` (approval and payment both);
+`payment.recorded`, `trip.reminder`, `support.request`, `test`. Deep links: `unitetrip://chat/<tripId>`,
+`unitetrip://trip/<id>/photos`, `unitetrip://trip/<id>/payments` (approval, payment and a balance reminder),
+`unitetrip://trip/<id>` (every other reminder: the trip itself);
 `support.request` has no `link`.
 
 FCM (HTTP v1, `FcmClient.message`): a **data-only** message, so the Android app renders the notification

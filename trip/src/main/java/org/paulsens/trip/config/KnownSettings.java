@@ -322,6 +322,23 @@ public final class KnownSettings {
             "chat.digest.zone", Config.Type.STRING, "America/Los_Angeles", "Timezone",
             "An IANA zone id, such as America/Los_Angeles. An unrecognized zone falls back to the default.");
 
+    // --- trip reminders (docs/reminders.md) ---
+
+    public static final SettingDef REMINDERS_ENABLED = new SettingDef(
+            "reminders.enabled", Config.Type.BOOLEAN, "false", "Send scheduled trip messages",
+            "Runs the once-a-day send of trip messages. A message still goes out only after a trip facilitator "
+                    + "approved its wording and date, so turning this on sends nothing by itself.");
+
+    public static final SettingDef REMINDERS_HOUR = new SettingDef(
+            "reminders.hour", Config.Type.INT, "9", "Hour of day to send",
+            "The hour of the day, 0 to 23, in the time zone below. Values outside that range are clamped rather than "
+                    + "refused.");
+
+    public static final SettingDef REMINDERS_ZONE = new SettingDef(
+            "reminders.zone", Config.Type.STRING, "America/Los_Angeles", "Timezone",
+            "An IANA zone id, such as America/Los_Angeles. It also decides which day a message's send date is. An "
+                    + "unrecognized zone falls back to the default.");
+
     // --- chat limits ---
 
     public static final SettingDef CHAT_GLOBAL_LIMIT = new SettingDef(
@@ -882,6 +899,10 @@ public final class KnownSettings {
                     List.of(FAMILY_MAX_MEMBERS)),
             new SettingSection("Registration", null,
                     List.of(REG_ALLOW_EDITS)),
+            new SettingSection("Scheduled trip messages",
+                    "Each trip's messages are written and approved on its Communications page (Reports tab). "
+                            + "Nothing here sends mail on its own.",
+                    List.of(REMINDERS_ENABLED, REMINDERS_HOUR, REMINDERS_ZONE)),
             new SettingSection("Registration email",
                     "The registrant-facing emails themselves are runtime-editable MAIL templates on the "
                             + "Templates page (registration-received / registration-approved).",

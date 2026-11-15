@@ -39,6 +39,9 @@ the trip. The page reads that last pair through `budget.canViewBudget` (`seeBudg
 that shows the tab, so navigation and enforcement cannot disagree. Opening the dashboard
 grants nothing: every card is separately `rendered=` on the gate of the page it opens.
 
+Since 2026-11 the union also admits whoever passes `reminder.canManage` (the Communications card): a facilitator
+named on the trip or an admin of its organization may hold no trip privilege at all, and the tab follows.
+
 | Card | Opens | Gate |
 |------|-------|------|
 | Roster | `admin/reports/tripPilgrims.jsf?print=true&trip=` | `tripViewer` |
@@ -52,6 +55,7 @@ grants nothing: every card is separately `rendered=` on the gate of the page it 
 | Payments | `admin/reports/tripPayments.jsf?print=true&trip=` | `seeFinances` |
 | Budget | `admin/reports/budget.jsf?trip=` (number: the overall surplus, or "No budget yet") | `seeBudget` = `budget.canViewBudget` (see `docs/budget.md`) |
 | Expense Report | `admin/reports/expenses.jsf?trip=` (number: "$55,560.95 spent", or "No expenses yet") | `seeExpenses` = `expenses.canViewExpenses`, the same `TripFinanceGate` as the budget (see `docs/expense-report.md`) |
+| Communications | `admin/reports/communications.jsf?trip=` (number: "2 need approval", "Next: Wed, Mar 3, 2027", or "No messages yet") | `seeCommunications` = `reminder.canManage`: site admin, the trip organization's admins, `tripMgr@trip`, or a facilitator named on the trip (see `docs/reminders.md`) |
 | Check-in (conferences) | `admin/checkin.jsf?trip=` (number: "37 of 120 checked in") | `seeCheckin` = `checkin.canViewCounts` (see `docs/checkin.md`) |
 | Badges (conferences) | `trip/itinerary-badge.jsf?all=true[&unprinted=true]&trip=` (number: "N not yet printed") | `seeBadges` = `checkin.canPrintBadges` |
 

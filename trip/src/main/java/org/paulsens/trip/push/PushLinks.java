@@ -32,6 +32,11 @@ public final class PushLinks {
         return SCHEME + "trip/" + safe(tripId) + "/photos";
     }
 
+    /** The trip itself: both apps open any other {@code unitetrip://trip/<id>} link on the trip's page. */
+    static String tripLink(final String tripId) {
+        return SCHEME + "trip/" + safe(tripId);
+    }
+
     static String paymentsLink(final String tripId) {
         return SCHEME + "trip/" + safe(tripId) + "/payments";
     }

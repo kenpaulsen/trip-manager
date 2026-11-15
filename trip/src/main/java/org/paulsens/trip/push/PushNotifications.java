@@ -10,6 +10,7 @@ import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.model.Payment;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
+import org.paulsens.trip.model.TripReminder;
 import org.paulsens.trip.model.chat.ChatChannel;
 import org.paulsens.trip.model.chat.ChatMessage;
 import org.paulsens.trip.pay.MoneyMath;
@@ -142,6 +143,32 @@ public class PushNotifications {
             }
             sender.sendAlert(admin.getId(), payload, dedupe("sup:" + stored.getId().getValue(), admin.getId()));
         }
+    }
+
+    /**
+     * A facilitator-approved trip message, to one recipient's devices ({@code docs/reminders.md}). The text is
+     * the reminder's own push text, already merged: nothing is composed here. A balance reminder opens the
+     * trip's payments, every other kind the trip. Deduped per reminder, send date and recipient.
+     */
+    public void tripReminder(final Trip trip, final TripReminder reminder, final Person.Id recipient,
+            final String title, final String text) {
+        if (trip == null || reminder == null || recipient == null || text == null || text.isBlank()) {
+            return;
+        }
+        dispatch(() -> sendReminder(trip, reminder, recipient, title, text));
+    }
+
+    private void sendReminder(final Trip trip, final TripReminder reminder, final Person.Id recipient,
+            final String title, final String text) {
+        final boolean balance = reminder.getKind() == TripReminder.Kind.BALANCE_DUE;
+        final String link = balance ? PushLinks.paymentsLink(trip.getId()) : PushLinks.tripLink(trip.getId());
+        final String url = balance ? PushLinks.paymentsUrl(trip, trip.getId(), config)
+                : PushLinks.tripUrl(trip, KnownSettings.REG_MAIL_BASE_URL, config);
+        final String tripTitle = trip.getTitle() == null ? "Your trip" : trip.getTitle();
+        final PushPayload payload = PushPayload.alert(PushPayload.KIND_TRIP_REMINDER, tripTitle, title, text,
+                "trip:" + trip.getId(), link, url).withIcon(PushLinks.iconFor(trip, config));
+        sender.sendAlert(recipient, payload,
+                dedupe("rem:" + trip.getId() + ":" + reminder.getId() + ":" + reminder.sendDate(trip), recipient));
     }
 
     /** The test push to the caller's own devices: no dedupe, so it can be pressed twice. */

@@ -248,6 +248,17 @@ public class AuditCommands {
         return msg;
     }
 
+    /** A change to a trip's scheduled messages, or a batch of them sent. Targets the trip. */
+    public String reminder(final String tripId, final String orgId, final String msg, final AuditActor who) {
+        Audit.builder(AuditAction.REMINDER, AuditOutcome.SUCCESS)
+                .actor(who == null ? AuditActor.current() : who)
+                .target(AuditEventBuilder.TARGET_TRIP, tripId)
+                .org(orgId)
+                .message(msg)
+                .log();
+        return msg;
+    }
+
     /**
      * A waiver change: an organization's document created, published, renamed or retired
      * ({@code targetType} {@code TARGET_WAIVER}), or a trip's required documents changed ({@code TARGET_TRIP}).

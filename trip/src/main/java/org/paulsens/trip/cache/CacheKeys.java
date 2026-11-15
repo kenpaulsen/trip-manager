@@ -286,6 +286,14 @@ public final class CacheKeys {
     public static final Duration CHAT_NOTIFY_SENT_TTL = Duration.ofHours(24);
 
     /**
+     * The best-effort lock on one day's trip-reminder run ({@code ReminderScheduler}): it only saves a second
+     * instance the same reads. The once-only guarantee is the send ledger in DynamoDB, never this key.
+     */
+    public static String reminderRunLockKey(final String day) {
+        return FORMAT_VERSION + "reminder:run:" + day;
+    }
+
+    /**
      * The lock one instance must hold to run a digest, keyed by the run it is for.
      *
      * <p>Every task schedules the digest independently, so without this every running task would send it. Keyed by

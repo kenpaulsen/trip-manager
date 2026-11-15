@@ -93,6 +93,11 @@ public enum AuditAction {
      */
     WAIVER,
     /**
+     * A trip's scheduled messages ("reminders"): one added, reworded, approved, withdrawn or deleted, and each
+     * batch that was sent. Who approved a message that went to travelers is the question this answers.
+     */
+    REMINDER,
+    /**
      * A deployment was started from the admin UI.
      *
      * <p>Its own constant rather than {@code ADMIN}: a deployment replaces the running site, so "who released

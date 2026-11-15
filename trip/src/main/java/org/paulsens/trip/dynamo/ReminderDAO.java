@@ -1,0 +1,205 @@
+package org.paulsens.trip.dynamo;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.io.IOException;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.model.ReminderSend;
+import org.paulsens.trip.model.TripReminderPlan;
+import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
+import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
+import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
+
+/**
+ * {@code trip_reminders} (PK tripId, SK sk): a trip's scheduled messages and the record of what was sent
+ * (see {@code docs/reminders.md}). Two kinds of item share the trip's partition:
+ *
+ * <ul>
+ *   <li>{@code PLAN}: the one {@link TripReminderPlan}, saved by the {@link BudgetDAO} conditional put (version 0
+ *       only creates, any other version only replaces that exact stored version; a lost race throws with the
+ *       version restored).</li>
+ *   <li>{@code SEND#...}: one {@link ReminderSend} per traveler, reminder and send date. {@link #claimSend} is
+ *       WRITE-ONCE ({@code attribute_not_exists}): that put is what makes a reminder go out at most once.</li>
+ * </ul>
+ *
+ * <p>Deliberately UNCACHED, like the waiver acceptances: the plan decides whether mail may go out, so a stale
+ * approval must never be read, and a send claim has no business living in a cache whose local-mode twin IS the
+ * store. The reads are one small partition per trip, on one admin page and one daily job.
+ */
+@Slf4j
+public class ReminderDAO {
+    /** Package-visible so {@link InMemoryPersistence} can register the table for local mode. */
+    static final String REMINDERS_TABLE = "trip_reminders";
+    static final String TRIP_ID = "tripId";
+    static final String ITEM = "sk";
+    static final String VERSION_ATTR = "version";
+    private static final String CONTENT = "content";
+    /** Below DynamoDB's 400 KB item cap with room for the key attributes. */
+    static final int MAX_PLAN_BYTES = 350_000;
+
+    private final ObjectMapper mapper;
+    private final Persistence persistence;
+
+    protected ReminderDAO(final ObjectMapper mapper, final Persistence persistence) {
+        this.mapper = mapper;
+        this.persistence = persistence;
+    }
+
+    // ================================================================== the plan
+
+    /**
+     * Conditionally persists the plan and, on success, leaves its version bumped. On a version conflict the
+     * version is restored and the exception propagates.
+     *
+     * @throws IllegalArgumentException when the serialized row would not fit the item cap.
+     */
+    protected Boolean savePlan(final TripReminderPlan plan) throws IOException {
+        // Sized before the bump so a refused row keeps the version it was loaded with.
+        final int size = mapper.writeValueAsString(plan).length();
+        if (size > MAX_PLAN_BYTES) {
+            throw new IllegalArgumentException("The messages for trip " + plan.getTripId() + " are too large to "
+                    + "store (" + size + " bytes; max " + MAX_PLAN_BYTES + ").");
+        }
+        final long expected = plan.getVersion();
+        plan.setVersion(expected + 1);
+        final Map<String, AttributeValue> item = key(plan.getTripId(), TripReminderPlan.SORT_KEY);
+        item.put(CONTENT, str(mapper.writeValueAsString(plan)));
+        item.put(VERSION_ATTR, AttributeValue.builder().n(Long.toString(plan.getVersion())).build());
+        try {
+            final boolean saved = persistence.putItem(b -> versionedPut(b, item, expected))
+                    .sdkHttpResponse().isSuccessful();
+            if (!saved) {
+                plan.setVersion(expected);
+            }
+            return saved;
+        } catch (final ConditionalCheckFailedException ex) {
+            plan.setVersion(expected);
+            throw ex;
+        }
+    }
+
+    private static void versionedPut(final PutItemRequest.Builder b, final Map<String, AttributeValue> item,
+            final long expected) {
+        b.tableName(REMINDERS_TABLE).item(item);
+        if (expected == 0L) {
+            b.conditionExpression("attribute_not_exists(#i)").expressionAttributeNames(Map.of("#i", ITEM));
+        } else {
+            b.conditionExpression("#v = :expected")
+                    .expressionAttributeNames(Map.of("#v", VERSION_ATTR))
+                    .expressionAttributeValues(Map.of(
+                            ":expected", AttributeValue.builder().n(Long.toString(expected)).build()));
+        }
+    }
+
+    protected Optional<TripReminderPlan> getPlan(final String tripId) {
+        if (tripId == null || tripId.isBlank()) {
+            return Optional.empty();
+        }
+        final Map<String, AttributeValue> key = key(tripId, TripReminderPlan.SORT_KEY);
+        final AttributeValue content =
+                persistence.getItem(b -> b.key(key).tableName(REMINDERS_TABLE).build()).item().get(CONTENT);
+        return (content == null) ? Optional.empty()
+                : Optional.ofNullable(parse(content.s(), TripReminderPlan.class));
+    }
+
+    // ================================================================== the send ledger
+
+    /**
+     * Claims one send, once. A second claim of the same traveler, reminder and date is refused by the store.
+     *
+     * @return true when this call created the row (the caller may send), false when one already existed.
+     */
+    protected boolean claimSend(final ReminderSend send) throws IOException {
+        final Map<String, AttributeValue> item = sendItem(send);
+        try {
+            return persistence.putItem(b -> b.tableName(REMINDERS_TABLE).item(item)
+                    .conditionExpression("attribute_not_exists(#i)")
+                    .expressionAttributeNames(Map.of("#i", ITEM)))
+                    .sdkHttpResponse().isSuccessful();
+        } catch (final ConditionalCheckFailedException ex) {
+            return false;
+        }
+    }
+
+    /** Records how a claimed send ended. Unconditional: only the claim's holder ever calls it. */
+    protected boolean saveSend(final ReminderSend send) throws IOException {
+        final Map<String, AttributeValue> item = sendItem(send);
+        return persistence.putItem(b -> b.tableName(REMINDERS_TABLE).item(item)).sdkHttpResponse().isSuccessful();
+    }
+
+    /** Removes one send row, so the traveler can be sent that reminder again (the page's Resend). */
+    protected boolean deleteSend(final ReminderSend send) {
+        return deleteItem(send.getTripId(), send.getSortKey());
+    }
+
+    /** Every send recorded on a trip, newest first. */
+    protected List<ReminderSend> getSends(final String tripId) {
+        return partition(tripId).stream()
+                .filter(item -> item.get(ITEM).s().startsWith(ReminderSend.SORT_PREFIX))
+                .map(item -> item.get(CONTENT))
+                .filter(Objects::nonNull)
+                .map(content -> parse(content.s(), ReminderSend.class))
+                .filter(Objects::nonNull)
+                .sorted(Comparator.comparing(ReminderSend::getAt, Comparator.nullsLast(Comparator.reverseOrder())))
+                .toList();
+    }
+
+    // ================================================================== trip delete
+
+    /** The trip-delete cascade's one call: the plan and every send row. Deleting twice is idempotent. */
+    protected Boolean deleteTrip(final String tripId) {
+        boolean deleted = true;
+        for (final Map<String, AttributeValue> item : partition(tripId)) {
+            deleted &= deleteItem(tripId, item.get(ITEM).s());
+        }
+        return deleted;
+    }
+
+    // ================================================================== plumbing
+
+    private List<Map<String, AttributeValue>> partition(final String tripId) {
+        if (tripId == null || tripId.isBlank()) {
+            return List.of();
+        }
+        return persistence.queryAll(qb -> qb.tableName(REMINDERS_TABLE)
+                .keyConditionExpression("#p = :p")
+                .expressionAttributeNames(Map.of("#p", TRIP_ID))
+                .expressionAttributeValues(Map.of(":p", str(tripId))));
+    }
+
+    private boolean deleteItem(final String tripId, final String sortKey) {
+        final Map<String, AttributeValue> key = key(tripId, sortKey);
+        return persistence.deleteItem(b -> b.tableName(REMINDERS_TABLE).key(key)).sdkHttpResponse().isSuccessful();
+    }
+
+    private Map<String, AttributeValue> sendItem(final ReminderSend send) throws IOException {
+        final Map<String, AttributeValue> item = key(send.getTripId(), send.getSortKey());
+        item.put(CONTENT, str(mapper.writeValueAsString(send)));
+        return item;
+    }
+
+    private static Map<String, AttributeValue> key(final String tripId, final String sortKey) {
+        final Map<String, AttributeValue> key = new HashMap<>();
+        key.put(TRIP_ID, str(tripId));
+        key.put(ITEM, str(sortKey));
+        return key;
+    }
+
+    private static AttributeValue str(final String value) {
+        return AttributeValue.builder().s(value).build();
+    }
+
+    private <T> T parse(final String json, final Class<T> type) {
+        try {
+            return mapper.readValue(json, type);
+        } catch (final IOException ex) {
+            log.error("Unable to parse reminder record: " + json, ex);
+            return null;
+        }
+    }
+}

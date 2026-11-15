@@ -259,6 +259,8 @@ public class TripDeleteCommands {
         final int plans = new RatePlanCommands(callerSource).unlinkAll(tripId, offers);
         final boolean budget = DAO.getInstance().getTripBudget(tripId, Cached.NO).isPresent();
         DAO.getInstance().deleteTripBudget(tripId);
+        // The scheduled messages and their send history go with the trip: no mail can follow a deleted trip.
+        DAO.getInstance().deleteRemindersForTrip(tripId);
         final List<String> eventIds = trip.getTripEventIds();
         for (final String eventId : eventIds) {
             DAO.getInstance().deleteTripEvent(eventId);

@@ -24,6 +24,7 @@ import org.paulsens.trip.cache.NearCacheContext;
 import org.paulsens.trip.cache.NoopCacheClient;
 import org.paulsens.trip.cache.ValkeyCacheClient;
 import org.paulsens.trip.config.KnownSettings;
+import org.paulsens.trip.model.ReminderSend;
 import org.paulsens.trip.model.SettingDef;
 import org.paulsens.trip.model.AuditEvent;
 import org.paulsens.trip.model.AuditPage;
@@ -58,6 +59,7 @@ import org.paulsens.trip.model.Transaction;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripBudget;
 import org.paulsens.trip.model.TripExpenseReport;
+import org.paulsens.trip.model.TripReminderPlan;
 import org.paulsens.trip.model.WaiverAcceptance;
 import org.paulsens.trip.model.WaiverDocument;
 import org.paulsens.trip.model.TripEvent;
@@ -88,6 +90,7 @@ public final class DAO {
     private final BudgetDAO budgetDao;
     private final ExpenseReportDAO expenseDao;
     private final WaiverDAO waiverDao;
+    private final ReminderDAO reminderDao;
     private final PaymentDAO paymentDao;
     private final TripEventDAO tripEventDao;
     private final TripDAO tripDao;
@@ -128,6 +131,8 @@ public final class DAO {
         this.budgetDao = new BudgetDAO(mapper, persistence, cacheClient);
         this.expenseDao = new ExpenseReportDAO(mapper, persistence, cacheClient);
         this.waiverDao = new WaiverDAO(mapper, persistence, cacheClient);
+        // No cacheClient: the plan decides whether mail may go out and a send claim must never be a cache entry.
+        this.reminderDao = new ReminderDAO(mapper, persistence);
         // No cacheClient: payment rows authorize captures and steer money; a stale read double-charges.
         this.paymentDao = new PaymentDAO(mapper, persistence);
         this.tripEventDao = new TripEventDAO(mapper, persistence, cacheClient);
@@ -469,6 +474,32 @@ public final class DAO {
     }
     public List<WaiverAcceptance> getWaiverAcceptances(final String tripId, final Person.Id personId) {
         return waiverDao.getAcceptances(tripId, personId);
+    }
+
+    // Trip reminders (see ReminderDAO): the trip's scheduled messages (one versioned row; throws
+    // ConditionalCheckFailedException on a lost race and IllegalArgumentException over the item cap) and the
+    // write-once send ledger. All UNCACHED, which is why these reads take no Cached flag.
+    public Boolean saveReminderPlan(final TripReminderPlan plan) throws IOException {
+        return reminderDao.savePlan(plan);
+    }
+    public Optional<TripReminderPlan> getReminderPlan(final String tripId) {
+        return reminderDao.getPlan(tripId);
+    }
+    /** True when this call claimed the send; false when that traveler, reminder and date were already claimed. */
+    public boolean claimReminderSend(final ReminderSend send) throws IOException {
+        return reminderDao.claimSend(send);
+    }
+    public boolean saveReminderSend(final ReminderSend send) throws IOException {
+        return reminderDao.saveSend(send);
+    }
+    public boolean deleteReminderSend(final ReminderSend send) {
+        return reminderDao.deleteSend(send);
+    }
+    public List<ReminderSend> getReminderSends(final String tripId) {
+        return reminderDao.getSends(tripId);
+    }
+    public Boolean deleteRemindersForTrip(final String tripId) {
+        return reminderDao.deleteTrip(tripId);
     }
 
     // Payments (uncached state machine; see PaymentDAO). Transitions throw ConditionalCheckFailedException

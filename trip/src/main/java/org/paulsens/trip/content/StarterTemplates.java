@@ -1,5 +1,6 @@
 package org.paulsens.trip.content;
 
+import java.util.ArrayList;
 import java.util.List;
 import org.paulsens.trip.model.ContentTemplate;
 import org.paulsens.trip.model.Placeholder;
@@ -66,17 +67,25 @@ public final class StarterTemplates {
             BAND_HERO_ID, BAND_SPLIT_ID, BAND_CTA_ID, BAND_TESTIMONIAL_ID, BAND_TEXT_ID,
             FEATURE_CARD_ID, STAT_ITEM_ID,
             BAND_FEATURES_ID, BAND_STATS_ID, BAND_FAQ_ID, BAND_LOGOS_ID,
-            TRIP_SCHEDULE_ID, TRIP_REGISTRATION_ID);
+            TRIP_SCHEDULE_ID, TRIP_REGISTRATION_ID,
+            ReminderDefaults.BALANCE_DUE_ID, ReminderDefaults.WAIVER_ID, ReminderDefaults.PASSPORT_ID,
+            ReminderDefaults.COUNTDOWN_ID);
 
     private StarterTemplates() {
     }
 
     public static List<ContentTemplate> all() {
-        return List.of(youtubeVideo(), image(), textOnly(), container(), pilgrimages(), photoAlbums(),
+        final List<ContentTemplate> all = new ArrayList<>(List.of(youtubeVideo(), image(), textOnly(), container(),
+                pilgrimages(), photoAlbums(),
                 file(), person(), peopleList(), registrationReceived(), registrationApproved(), supportRequest(),
                 paymentConfirmation(), paymentFailed(), checkoutConfirmation(), orgInvite(),
                 bandHero(), bandSplit(), bandCta(), bandTestimonial(), bandText(), featureCard(), statItem(),
-                bandFeatures(), bandStats(), bandFaq(), bandLogos(), tripSchedule(), tripRegistration());
+                bandFeatures(), bandStats(), bandFaq(), bandLogos(), tripSchedule(), tripRegistration()));
+        // The trip reminders' starting texts (docs/reminders.md): MAIL kind, so an org rewords its own copy.
+        for (final ReminderDefaults.Text text : ReminderDefaults.TEXTS) {
+            all.add(mail(text.id(), text.subject(), text.description(), text.body()));
+        }
+        return List.copyOf(all);
     }
 
     // --- the band family ---

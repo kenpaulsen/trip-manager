@@ -6,6 +6,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.ChatPhotos;
 import org.paulsens.trip.action.MediaEvents;
 import org.paulsens.trip.action.PhotoChatCommands;
+import org.paulsens.trip.reminder.ReminderScheduler;
 
 /**
  * Starts and stops the chat digest scheduler with the webapp.
@@ -25,8 +26,13 @@ public class ChatLifecycleListener implements ServletContextListener {
     public void contextInitialized(final ServletContextEvent event) {
         try {
             ChatDigestScheduler.start();
+            // The trip reminder scheduler (docs/reminders.md) starts here rather than from a listener of its
+            // own: the listener order lives in the deployed web.xml (another repo), and this listener is already
+            // placed after the bootstrap. Both need the DAO, so what stops one stops the other.
+            ReminderScheduler.start();
         } catch (final RuntimeException ex) {
-            log.error("Unable to start the chat digest scheduler; digests will not be sent", ex);
+            log.error("Unable to start the schedulers; chat digests and scheduled trip messages will not be sent",
+                    ex);
         }
         // A removed chat photo takes its comment thread with it, whichever path removed it (message
         // moderation or the admin media page) — both fire the REMOVED media event.
@@ -36,9 +42,10 @@ public class ChatLifecycleListener implements ServletContextListener {
     @Override
     public void contextDestroyed(final ServletContextEvent event) {
         try {
+            ReminderScheduler.stop();
             ChatDigestScheduler.stop();
         } catch (final RuntimeException ex) {
-            log.warn("Unable to stop the chat digest scheduler cleanly", ex);
+            log.warn("Unable to stop the schedulers cleanly", ex);
         }
     }
 }

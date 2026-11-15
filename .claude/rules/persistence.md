@@ -31,7 +31,9 @@ paths:
   shared `TripExpenseReport` per trip, currencies, expenses and receipt ids inline) -- `docs/expense-report.md`. Trip
   documents ("waivers") add `WaiverDAO`: `org_waivers` (PK orgId, SK id; every published version inline, versioned puts)
   and `waiver_acceptances` (PK tripId, SK personId#waiverId#version; WRITE-ONCE, uncached, never deleted) --
-  `docs/waivers.md`.
+  `docs/waivers.md`. Trip reminders add `ReminderDAO` (`trip_reminders`, PK tripId, SK sk: the one versioned `PLAN` row
+  and one WRITE-ONCE `SEND#reminderId#date#personId` row per send, the claim that sends a reminder at most once;
+  uncached, deleted with the trip) -- `docs/reminders.md`.
 - **Caching** (`org.paulsens.trip.cache`) -- full architecture doc: `docs/caching.md` (read it before
   touching any cache or DAO read path). All caching goes through the `CacheClient` abstraction --
   `ValkeyCacheClient` (production, shared across instances; TWO connections: foreground queue 5000,

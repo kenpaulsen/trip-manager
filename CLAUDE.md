@@ -129,6 +129,7 @@ caveat, is `.claude/rules/dependencies.md` (it loads with any `pom.xml`).
 | `family-accounts.md` | anything family-related |
 | `budget.md`, `expense-report.md`, `reports.md` | the trip budget, the expense report, the report pages |
 | `waivers.md` | trip documents ("waivers") |
+| `reminders.md` (required) | a trip's scheduled messages, the Communications page, anything that mails travelers on a schedule |
 | `conference.md` (required) | conferences, typed registration questions, trip pages and their look |
 | `checkout.md` (required) | pricing or a checkout payment |
 | `checkin.md` (required) | tickets and check-in |
