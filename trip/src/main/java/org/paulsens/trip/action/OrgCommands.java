@@ -203,14 +203,6 @@ public class OrgCommands {
                 this::canViewOrgPeople);
     }
 
-    /**
-     * The admin People page's Trips column: this person's trips that the viewer may see, by {@link PeopleReach}
-     * (the admin person page's lists use the same rule), so a person's trips in ANOTHER tenant never show.
-     */
-    public List<Trip> visibleTripsOf(final Person person) {
-        return person == null ? List.of() : PeopleReach.of(this).filter(person.getTrips(), Trip::getOrgId);
-    }
-
     /** Membership rows resolved to people, org-roster order (by person id -- stable, not name-sorted). */
     public List<Person> getMembers(final Organization org) {
         if (org == null || org.getId() == null) {
@@ -2914,7 +2906,8 @@ public class OrgCommands {
 
     // ------------------------------------------------------------------ helpers
 
-    private Caller caller() {
+    /** Package-private for {@link PeopleReach}, which keys its per-request memo by this caller. */
+    Caller caller() {
         return callerSource.get();
     }
 

@@ -1,6 +1,8 @@
 package org.paulsens.trip.action;
 
+import jakarta.faces.context.FacesContext;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -15,12 +17,18 @@ import org.paulsens.trip.model.Organization;
  *
  * <p>Not {@code Person.orgIds}: membership is self-grantable (choosing a default organization in the app,
  * registering for one of its trips), so a people admin of one organization who joined another as a plain member
- * read that organization's trips and balances (owner decision 2026-11-14). Computed once per call from the small,
- * cached organization list rather than asked per row.
+ * read that organization's trips and balances (owner decision 2026-11-14).
+ *
+ * <p>Built once per request: {@link #of} memoizes it in the Faces request map, keyed by the viewer, because the
+ * People page asks for every row and each build walks every organization (60 rows on a platform of 100
+ * organizations was 60 builds and about 6,000 lookups per render). Keyed by the viewer, not just the request, so
+ * a View As switch mid-request never reads the other identity's reach. Off a Faces request (a unit test) it is
+ * built per call.
  */
 final class PeopleReach {
 
     private static final PeopleReach EVERYTHING = new PeopleReach(true, Set.of());
+    static final String MEMO_PREFIX = "peopleReach:";
 
     private final boolean everything;
     private final Set<String> orgIds;
@@ -30,11 +38,26 @@ final class PeopleReach {
         this.orgIds = orgIds;
     }
 
-    /** The reach of {@code org}'s caller: everything for a site admin, nothing for nobody. */
+    /** The reach of {@code org}'s caller: everything for a site admin, nothing for nobody. Memoized per request. */
     static PeopleReach of(final OrgCommands org) {
-        if (org.isSiteAdmin()) {
+        final Caller caller = org.caller();
+        if (caller.isSiteAdmin()) {
             return EVERYTHING;
         }
+        final FacesContext ctx = FacesContext.getCurrentInstance();
+        final Map<String, Object> memo = ctx == null ? null : ctx.getExternalContext().getRequestMap();
+        final String key = MEMO_PREFIX + caller.personId();
+        if (memo != null && memo.get(key) instanceof PeopleReach cached) {
+            return cached;
+        }
+        final PeopleReach reach = build(org);
+        if (memo != null) {
+            memo.put(key, reach);
+        }
+        return reach;
+    }
+
+    private static PeopleReach build(final OrgCommands org) {
         return new PeopleReach(false, org.getOrganizations().stream()
                 .map(Organization::getId)
                 .map(Organization.Id::getValue)

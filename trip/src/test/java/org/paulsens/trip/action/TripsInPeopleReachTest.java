@@ -1,9 +1,14 @@
 package org.paulsens.trip.action;
 
+import jakarta.faces.context.ExternalContext;
+import jakarta.faces.context.FacesContext;
 import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import org.mockito.Mockito;
 import org.paulsens.trip.audit.RequestContext;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
@@ -21,12 +26,12 @@ import org.testng.annotations.Test;
 /**
  * {@link PeopleReach} and the admin people pages' lists built on it: {@code TripCommands
  * .getRecentTripsInPeopleReach} (the admin person page's Registrations), {@code getTripsForUserInPeopleReach} (its
- * Trips), {@code TransactionsCommands.getTransactionsInPeopleReach} (its transaction count and balance) and {@code
- * OrgCommands.visibleTripsOf} (the People page's Trips column). A site admin sees everything; anyone else only the
- * organizations they manage or hold {@code peopleAdmin} in, never one they merely belong to, since membership is
- * self-grantable (owner decision 2026-11-14). Also the cap of {@code getTripsForOrg}, which shares their
- * latest-ending rule. The trips are dated centuries out so they lead the recency index whatever else the suite has
- * saved.
+ * Trips, and the People and Manage People pages' Trips columns) and {@code
+ * TransactionsCommands.getTransactionsInPeopleReach} (its transaction count and balance). A site admin sees
+ * everything; anyone else only the organizations they manage or hold {@code peopleAdmin} in, never one they merely
+ * belong to, since membership is self-grantable (owner decision 2026-11-14). Also the cap of {@code
+ * getTripsForOrg}, which shares their latest-ending rule. The trips are dated centuries out so they lead the
+ * recency index whatever else the suite has saved.
  */
 public class TripsInPeopleReachTest {
 
@@ -146,10 +151,6 @@ public class TripsInPeopleReachTest {
                 .contains(otherOrgTrip.getId()), "Registrations");
         Assert.assertFalse(ids(on(SHARED, () -> as(viewer).getTripsForUserInPeopleReach(subject)))
                 .contains(otherOrgTrip.getId()), "Trips");
-        final OrgCommands viewerOrgs = new OrgCommands(() -> TestCallers.person(viewer));
-        final List<String> column = ids(viewerOrgs.visibleTripsOf(Person.builder().id(subject).build()));
-        Assert.assertTrue(column.contains(ownNewer.getId()) && !column.contains(otherOrgTrip.getId()),
-                "the People page's Trips column agrees: " + column);
     }
 
     @Test
@@ -232,6 +233,42 @@ public class TripsInPeopleReachTest {
         final OrgCommands nobodyOrgs = new OrgCommands(TripsInPeopleReachTest::nobody);
         Assert.assertEquals(new TransactionsCommands(() -> nobodyOrgs).getTransactionsInPeopleReach(payer),
                 List.of(), "nobody signed in");
+    }
+
+    /** The People page asks once per row: the reach is built once per request and viewer, not per row. */
+    @Test
+    public void theReachIsBuiltOncePerRequestAndViewer() {
+        final Map<String, Object> requestMap = new HashMap<>();
+        final ExternalContext external = Mockito.mock(ExternalContext.class);
+        Mockito.when(external.getRequestMap()).thenReturn(requestMap);
+        final FacesContext ctx = Mockito.mock(FacesContext.class);
+        Mockito.when(ctx.getExternalContext()).thenReturn(external);
+        final OrgCommands viewerOrgs = Mockito.spy(new OrgCommands(() -> TestCallers.person(viewer)));
+        RequestFacesContext.install(ctx);
+        try {
+            final PeopleReach first = PeopleReach.of(viewerOrgs);
+            Assert.assertSame(PeopleReach.of(viewerOrgs), first, "the second row reuses the first row's reach");
+            Mockito.verify(viewerOrgs, Mockito.times(1)).getOrganizations();
+            Assert.assertTrue(first.admits(ownNewer.getOrgId()) && !first.admits(otherOrgTrip.getOrgId()));
+            final PeopleReach managers = PeopleReach.of(new OrgCommands(() -> TestCallers.person(manager)));
+            Assert.assertTrue(managers.admits(managedTrip.getOrgId()) && !managers.admits(ownNewer.getOrgId()),
+                    "another viewer (a View As switch) never reads the first one's memo");
+            Assert.assertTrue(PeopleReach.of(SITE_ADMIN_ORGS).isEverything(), "a site admin needs no memo");
+            Assert.assertEquals(requestMap.size(), 2, "one entry per viewer: " + requestMap.keySet());
+        } finally {
+            RequestFacesContext.clear();
+        }
+    }
+
+    /** {@code FacesContext.setCurrentInstance} is protected, so reach it from a subclass. */
+    private abstract static class RequestFacesContext extends FacesContext {
+        static void install(final FacesContext ctx) {
+            FacesContext.setCurrentInstance(ctx);
+        }
+
+        static void clear() {
+            FacesContext.setCurrentInstance(null);
+        }
     }
 
     private static Transaction ledgerRow(final Person.Id payer, final String orgId) throws IOException {

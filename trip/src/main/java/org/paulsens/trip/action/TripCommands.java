@@ -1347,10 +1347,16 @@ public class TripCommands {
 
     /**
      * {@link #getTripsForUser} narrowed by {@link PeopleReach}, the rule of {@link #getRecentTripsInPeopleReach};
-     * a site admin gets them all. For the admin person page's Trips list: the subject's rosters may include
-     * another organization's trips, which are not an org people admin's to read (owner decision 2026-11-14).
+     * a site admin gets them all. THE list of "this person's trips the viewer may see" on the admin people pages:
+     * the admin person page's Trips list and the People and Manage People pages' Trips columns. The subject's
+     * rosters may include another organization's trips, which are not an org people admin's to read (owner
+     * decision 2026-11-14), and like every trip list here it is site-gated, so a hosted organization's trip,
+     * whose link would open blank on this host, is not listed either. A null id (an empty page row) gets nothing.
      */
     public List<Trip> getTripsForUserInPeopleReach(final Person.Id userId) {
+        if (userId == null) {
+            return List.of();
+        }
         final PeopleReach reach = PeopleReach.of(orgSource.get());
         return reach.isNone() ? List.of() : reach.filter(getTripsForUser(userId), Trip::getOrgId);
     }
