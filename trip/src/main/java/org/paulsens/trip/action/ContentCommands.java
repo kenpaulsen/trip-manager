@@ -1,7 +1,6 @@
 package org.paulsens.trip.action;
 
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.faces.context.FacesContext;
 import jakarta.inject.Named;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
@@ -584,17 +583,8 @@ public class ContentCommands {
         if (instance == null) {
             return PersonType.card(Map.of(), null, signedIn);
         }
-        final FacesContext ctx = FacesContext.getCurrentInstance();
-        final Map<String, Object> requestMap = ctx == null ? null : ctx.getExternalContext().getRequestMap();
-        final String key = "personCard:" + instance.getId() + ":" + instance.getVersion() + ":" + signedIn;
-        if (requestMap != null && requestMap.get(key) instanceof PersonType.Card memo) {
-            return memo;
-        }
-        final PersonType.Card card = PersonType.card(instance.getValues(), cardPerson(instance), signedIn);
-        if (requestMap != null) {
-            requestMap.put(key, card);
-        }
-        return card;
+        return RequestMemo.get("personCard:" + instance.getId() + ":" + instance.getVersion() + ":" + signedIn,
+                () -> PersonType.card(instance.getValues(), cardPerson(instance), signedIn));
     }
 
     /** The account a card names, or null for none (blank id, or one that no longer exists). */
@@ -656,7 +646,7 @@ public class ContentCommands {
         if (instance.getTemplateId() == null) {
             return null;
         }
-        final ContentTemplate saved = savedAgainst(instance);
+        final ContentTemplate saved = savedAgainst(instance, Cached.YES);
         if (instance.isStayOnLatest()) {
             final ContentTemplate latest = currentTemplate(instance.getTemplateId(), Cached.YES);
             if (latest != null && mayFollow(saved, latest)) {
@@ -675,32 +665,34 @@ public class ContentCommands {
         if (instance.getTemplateId() == null) {
             return null;
         }
-        final ContentTemplate saved = savedAgainst(instance);
+        final ContentTemplate saved = savedAgainst(instance, Cached.YES);
         return saved != null ? saved : guardedFallback(instance);
     }
 
     /**
      * An instance whose saved-against version aged out of retention: the template's current version when
-     * {@link #mayFollow} lets it (the saved-against organization being unknown, only a SHARED one), else the newest
-     * retained shared version ({@link #newestRetainedShared}), else null. A published block must not go blank just
-     * because its template's newest version moved to an organization.
+     * {@link #mayFollow} lets it (that version's organization being unknown, one the requesting SITE may use: a
+     * shared template, or the site's own organization's), else the newest retained version the site may use
+     * ({@link #newestRetainedUsable}), else null. A published block must not go blank just because its template's
+     * newest version moved to an organization.
      */
     private static ContentTemplate guardedFallback(final ContentInstance instance) {
         final ContentTemplate latest = currentTemplate(instance.getTemplateId(), Cached.YES);
         if (latest == null || mayFollow(null, latest)) {
             return latest;
         }
-        return newestRetainedShared(latest);
+        return newestRetainedUsable(latest);
     }
 
     /**
-     * The newest retained version older than {@code latest} that is shared, or null. Walks down the versioned cache
-     * fields ({@code id#vN}, the same cached lookup a pinned instance renders with, so a warm page view stays at
-     * zero DynamoDB reads) and stops at the first version that is gone: retention keeps a contiguous run of the
-     * newest versions, so nothing older is left. Rare (an aged-out instance of a template re-scoped to an
-     * organization), and bounded by the retention setting's ceiling.
+     * The newest retained version older than {@code latest} that the requesting site may use ({@link #mayFollow}
+     * with no saved-against version), or null. Walks down the versioned cache fields ({@code id#vN}, the same cached
+     * lookup a pinned instance renders with, so a warm page view stays at zero DynamoDB reads) and stops at the
+     * first version that is gone: retention keeps a contiguous run of the newest versions, so nothing older is
+     * left. Rare (an aged-out instance of a template re-scoped to an organization), and bounded by the retention
+     * setting's ceiling.
      */
-    private static ContentTemplate newestRetainedShared(final ContentTemplate latest) {
+    private static ContentTemplate newestRetainedUsable(final ContentTemplate latest) {
         final int oldest = Math.max(1, latest.getVersion() - MAX_RETAINED_VERSIONS);
         for (int version = latest.getVersion() - 1; version >= oldest; version--) {
             final ContentTemplate candidate = loadTemplateVersion(latest.getId(), version, Cached.YES);
@@ -715,19 +707,29 @@ public class ContentCommands {
     }
 
     /**
-     * Whether an instance whose values were saved against {@code saved} may render {@code latest}: only when both
-     * belong to the same organization (or both are shared). Who may use a template is decided when content is ADDED
+     * Whether an instance whose values were saved against {@code saved} may render (or be moved to) {@code other},
+     * another version of the same template. Who may use a template is decided when content is ADDED
      * ({@link #getTemplateChoicesFor}); a template whose scope later moved to another organization must not carry
-     * that organization's markup onto pages it was never offered to, so following stops there and the instance
-     * renders as pinned. When the saved-against version is no longer retained its organization is unknown, and only
-     * a SHARED latest (which every site may use) is followed.
+     * that organization's markup onto pages it was never offered to. So while the saved-against version is
+     * retained both must belong to the same organization (or both be shared). Once it has aged out its organization
+     * is unknown, and the Add dialog's own rule decides: a shared version, or one the requesting site's
+     * organization owns ({@link SiteContext#isSiteOf}), so an organization's own template keeps rendering on its
+     * own site and nowhere else.
      */
-    private static boolean mayFollow(final ContentTemplate saved, final ContentTemplate latest) {
-        return Objects.equals(orgIdOf(saved), orgIdOf(latest));
+    private static boolean mayFollow(final ContentTemplate saved, final ContentTemplate other) {
+        if (saved != null) {
+            return Objects.equals(orgIdOf(saved), orgIdOf(other));
+        }
+        return isShared(other) || SiteContext.current().isSiteOf(other.getOrgId());
+    }
+
+    /** A site-level template every site may use (no owning organization). */
+    private static boolean isShared(final ContentTemplate template) {
+        return !template.isOrgOwned();
     }
 
     private static String orgIdOf(final ContentTemplate template) {
-        return template == null || !template.isOrgOwned() ? null : template.getOrgId();
+        return isShared(template) ? null : template.getOrgId();
     }
 
     /**
@@ -768,8 +770,7 @@ public class ContentCommands {
         if (latest == null || latest.getVersion() <= instance.getTemplateVersion()) {
             return null;
         }
-        final ContentTemplate saved = loadTemplateVersion(instance.getTemplateId(), instance.getTemplateVersion(),
-                cached);
+        final ContentTemplate saved = savedAgainst(instance, cached);
         if (!mayFollow(saved, latest)) {
             return null;
         }
@@ -801,9 +802,9 @@ public class ContentCommands {
         }
     }
 
-    /** The exact version an instance's values were saved against (render path), or null when not retained. */
-    private static ContentTemplate savedAgainst(final ContentInstance instance) {
-        return loadTemplateVersion(instance.getTemplateId(), instance.getTemplateVersion(), Cached.YES);
+    /** The exact version an instance's values were saved against, or null when it is no longer retained. */
+    private static ContentTemplate savedAgainst(final ContentInstance instance, final Cached cached) {
+        return loadTemplateVersion(instance.getTemplateId(), instance.getTemplateVersion(), cached);
     }
 
     /**
@@ -1425,15 +1426,20 @@ public class ContentCommands {
 
     /**
      * The template versions this instance may be pinned to, newest first: every version still retained on
-     * the template row, plus its own (which may already have aged out of retention -- it must stay
-     * selectable, or reopening the dialog would silently look like an upgrade).
+     * the template row that {@link #mayFollow} lets it use (never one owned by an organization this item was not
+     * authored for), plus its own (which may already have aged out of retention -- it must stay selectable, or
+     * reopening the dialog would silently look like an upgrade).
      */
     public List<Integer> getTemplateVersions(final ContentInstance instance) {
         if (instance == null || instance.getTemplateId() == null) {
             return List.of();
         }
+        final List<ContentTemplate> retained = retainedTemplates(instance.getTemplateId());
+        final ContentTemplate saved = retained.stream()
+                .filter(t -> t.getVersion() == instance.getTemplateVersion()).findFirst().orElse(null);
         final List<Integer> versions = new ArrayList<>();
-        retainedTemplates(instance.getTemplateId()).forEach(t -> versions.add(t.getVersion()));
+        // Only versions this item may move to (mayFollow): a version owned by another organization is not offered.
+        retained.stream().filter(t -> mayFollow(saved, t)).forEach(t -> versions.add(t.getVersion()));
         if (instance.getTemplateVersion() > 0 && !versions.contains(instance.getTemplateVersion())) {
             versions.add(instance.getTemplateVersion());
         }
@@ -1445,21 +1451,7 @@ public class ContentCommands {
      * calls per row (show it, its values, each label, the hint), in several JSF phases, on every dialog now.
      */
     private List<ContentTemplate> retainedTemplates(final String templateId) {
-        final FacesContext ctx = FacesContext.getCurrentInstance();
-        final Map<String, Object> requestMap = ctx == null ? null : ctx.getExternalContext().getRequestMap();
-        final String key = "retainedTemplates:" + templateId;
-        if (requestMap != null && requestMap.get(key) instanceof RetainedVersions memo) {
-            return memo.versions();
-        }
-        final List<ContentTemplate> versions = readRetainedTemplates(templateId);
-        if (requestMap != null) {
-            requestMap.put(key, new RetainedVersions(versions));
-        }
-        return versions;
-    }
-
-    /** The request memo of {@link #retainedTemplates}; a record so the map's value has a type to test for. */
-    private record RetainedVersions(List<ContentTemplate> versions) {
+        return RequestMemo.get("retainedTemplates:" + templateId, () -> readRetainedTemplates(templateId));
     }
 
     private static List<ContentTemplate> readRetainedTemplates(final String templateId) {
@@ -1540,6 +1532,11 @@ public class ContentCommands {
                     "v" + wanted + " of this template is no longer retained.");
             return false;
         }
+        if (!mayFollow(savedAgainst(instance, Cached.NO), to)) {
+            PageFeedback.error("Version unavailable", "v" + wanted + " of this template belongs to another "
+                    + "organization, so it cannot be used here.");
+            return false;
+        }
         moveValues(instance, to);
         instance.setStayOnLatest(false);
         return true;
@@ -1552,9 +1549,9 @@ public class ContentCommands {
             PageFeedback.error("Version unavailable", "This template no longer exists.");
             return false;
         }
-        if (!mayFollow(loadTemplateVersion(instance.getTemplateId(), instance.getTemplateVersion(), Cached.NO), to)) {
-            PageFeedback.error("Version unavailable",
-                    "The newest version of this template belongs to another organization; pick a numbered version.");
+        if (!mayFollow(savedAgainst(instance, Cached.NO), to)) {
+            PageFeedback.error("Version unavailable", "The newest version of this template belongs to another "
+                    + "organization, so this item cannot follow it here.");
             return false;
         }
         moveValues(instance, to);

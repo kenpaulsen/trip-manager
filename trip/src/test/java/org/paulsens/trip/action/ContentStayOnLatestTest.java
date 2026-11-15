@@ -2,19 +2,21 @@ package org.paulsens.trip.action;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.faces.application.FacesMessage;
-import jakarta.faces.context.ExternalContext;
 import jakarta.faces.context.FacesContext;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.paulsens.trip.audit.AuditActor;
+import org.paulsens.trip.audit.RequestContext;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.ContentTemplate;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Placeholder;
+import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.TemplateKind;
+import org.paulsens.trip.site.SiteContext;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 import org.testng.Assert;
@@ -268,30 +270,14 @@ public class ContentStayOnLatestTest {
 
     /** The growl summaries a call raised, through a mock FacesContext with a request map of its own. */
     private static List<String> growlsOf(final Map<String, Object> requestMap, final Runnable call) {
-        final FacesContext ctx = RequestFaces.install(requestMap);
+        final FacesContext ctx = TestFaces.install(requestMap);
         try {
             call.run();
             final ArgumentCaptor<FacesMessage> messages = ArgumentCaptor.forClass(FacesMessage.class);
             Mockito.verify(ctx, Mockito.atLeast(0)).addMessage(Mockito.any(), messages.capture());
             return messages.getAllValues().stream().map(FacesMessage::getSummary).toList();
         } finally {
-            RequestFaces.clear();
-        }
-    }
-
-    /** {@code FacesContext.setCurrentInstance} is protected, so reach it from a subclass. */
-    private abstract static class RequestFaces extends FacesContext {
-        static FacesContext install(final Map<String, Object> requestMap) {
-            final ExternalContext external = Mockito.mock(ExternalContext.class);
-            Mockito.when(external.getRequestMap()).thenReturn(requestMap);
-            final FacesContext ctx = Mockito.mock(FacesContext.class);
-            Mockito.when(ctx.getExternalContext()).thenReturn(external);
-            FacesContext.setCurrentInstance(ctx);
-            return ctx;
-        }
-
-        static void clear() {
-            FacesContext.setCurrentInstance(null);
+            TestFaces.clear();
         }
     }
 
@@ -364,15 +350,52 @@ public class ContentStayOnLatestTest {
         Assert.assertEquals(content.getKind(follows), "STANDARD");
     }
 
+    /** Runs {@code body} as a request to {@code site}. */
+    private static <T> T onSite(final SiteContext site, final ScopedValue.CallableOp<T, RuntimeException> body) {
+        return ScopedValue.where(RequestContext.SCOPE, RequestContext.of(null, null, site)).call(body);
+    }
+
+    private static SiteContext siteOf(final String orgId) {
+        return SiteContext.org(Organization.Id.from(orgId), "solsite", "solsite.localhost");
+    }
+
+    /**
+     * An organization's own template (a customized copy) whose saved-against version aged out: it keeps rendering
+     * on that organization's own site, the Add dialog's rule, and nowhere else.
+     */
     @Test
-    public void anAgedOutVersionWithNoRetainedSharedVersionFallsBackAsBefore() {
+    public void anAgedOutOrgTemplateRendersOnItsOwnSiteOnly() {
         final ContentCommands content = admin();
-        saveTemplateOf("org-sol-c", "sol-aged-org", "<p>{{msg}}</p>", text("msg", "Message"));
+        final String org = "2f1b6d4e-5a7c-4b8e-9d0f-1a2b3c4d5e6f";
+        saveTemplateOf(org, "sol-aged-org", "<p>{{msg}}</p>", text("msg", "Message"));
+        saveTemplateOf(org, "sol-aged-org", "<p>own {{msg}}</p>", text("msg", "Message"));
         final ContentInstance pinned = new ContentInstance("sol-aged-row", "sol.section-aged", "Aged",
                 "sol-aged-org", 99, new HashMap<>(Map.of("msg", "x")), null, 0, 0, null, null);
+        final ContentInstance follows = pinned.copy();
+        follows.setStayOnLatest(true);
+        Assert.assertEquals(onSite(siteOf(org), () -> content.render(pinned)), "<p>own x</p>",
+                "the organization's own site renders its latest");
+        Assert.assertEquals(onSite(siteOf(org), () -> content.render(follows)), "<p>own x</p>");
         Assert.assertEquals(content.render(pinned), "",
-                "the saved-against organization is unknown, so an organization's latest is not borrowed");
+                "the shared site may not use it and no retained version is shared: nothing, as the guard demands");
+        Assert.assertEquals(onSite(siteOf("7c6b5a49-3827-4615-9504-a3b2c1d0e9f8"), () -> content.render(follows)), "",
+                "nor another organization's site");
         Assert.assertEquals(content.getKind(pinned), "STANDARD");
+    }
+
+    /** The version menu offers, and the server accepts, only versions the item may use. */
+    @Test
+    public void theMenuOffersNoVersionOwnedByAnotherOrganization() {
+        final ContentCommands content = admin();
+        saveTemplate("sol-menu-org", "<p>{{msg}}</p>", text("msg", "Message"));
+        final ContentInstance item = content.createContent("sol.section-menu-org", "sol-menu-org");
+        saveTemplateOf("9e8d7c6b-5a49-4382-8716-05f4e3d2c1b0", "sol-menu-org", "<b>{{msg}}</b>",
+                text("msg", "Message"));
+        Assert.assertEquals(content.getTemplateVersions(item), List.of(1), "v2 is another organization's");
+        Assert.assertEquals(content.versionChoices(item), List.of(ContentCommands.STAY_ON_LATEST, "1"));
+        Assert.assertFalse(content.isTemplateOutdated(item), "and is not offered as an upgrade");
+        Assert.assertFalse(content.retargetTemplateVersion(item, "2"), "a posted v2 is refused");
+        Assert.assertEquals(item.getTemplateVersion(), 1);
     }
 
     @Test
@@ -415,6 +438,14 @@ public class ContentStayOnLatestTest {
         Assert.assertTrue(growlsOf(new HashMap<>(), () -> content.getContent(item.getId())).isEmpty());
     }
 
+    /** Reads the version menu, saves the template again, and reads it again, all in one request. */
+    private static void readMenuAcrossASave(final ContentCommands content, final ContentInstance item,
+            final List<String> before, final List<String> during) {
+        before.addAll(content.versionChoices(item));
+        saveTemplate("sol-memo", "<b>{{msg}}</b>", text("msg", "Message"));
+        during.addAll(content.versionChoices(item));
+    }
+
     @Test
     public void theVersionMenuReadsTheTemplateHistoryOncePerRequest() {
         final ContentCommands content = admin();
@@ -423,11 +454,7 @@ public class ContentStayOnLatestTest {
         final Map<String, Object> request = new HashMap<>();
         final List<String> before = new java.util.ArrayList<>();
         final List<String> during = new java.util.ArrayList<>();
-        growlsOf(request, () -> {
-            before.addAll(content.versionChoices(item));
-            saveTemplate("sol-memo", "<b>{{msg}}</b>", text("msg", "Message"));
-            during.addAll(content.versionChoices(item));
-        });
+        growlsOf(request, () -> readMenuAcrossASave(content, item, before, during));
         Assert.assertEquals(during, before, "the same request answers from its memo");
         Assert.assertEquals(content.versionChoices(item), List.of(ContentCommands.STAY_ON_LATEST, "2", "1"),
                 "a new request reads the row again");

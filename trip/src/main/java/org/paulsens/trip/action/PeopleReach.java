@@ -1,8 +1,6 @@
 package org.paulsens.trip.action;
 
-import jakarta.faces.context.FacesContext;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -44,17 +42,7 @@ final class PeopleReach {
         if (caller.isSiteAdmin()) {
             return EVERYTHING;
         }
-        final FacesContext ctx = FacesContext.getCurrentInstance();
-        final Map<String, Object> memo = ctx == null ? null : ctx.getExternalContext().getRequestMap();
-        final String key = MEMO_PREFIX + caller.personId();
-        if (memo != null && memo.get(key) instanceof PeopleReach cached) {
-            return cached;
-        }
-        final PeopleReach reach = build(org);
-        if (memo != null) {
-            memo.put(key, reach);
-        }
-        return reach;
+        return RequestMemo.get(MEMO_PREFIX + caller.personId(), () -> build(org));
     }
 
     private static PeopleReach build(final OrgCommands org) {

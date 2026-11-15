@@ -1,10 +1,8 @@
 package org.paulsens.trip.action;
 
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.faces.context.FacesContext;
 import jakarta.inject.Named;
 import java.util.LinkedHashSet;
-import java.util.Map;
 import java.util.Set;
 import java.util.function.Supplier;
 import org.paulsens.trip.cache.Cached;
@@ -49,16 +47,7 @@ public class LodgingAccessCommands {
         if (tripId == null || tripId.isBlank()) {
             return LodgingAccess.none(tripId);
         }
-        final Map<String, Object> memo = requestMap();
-        final String key = MEMO_PREFIX + tripId;
-        if (memo != null && memo.get(key) instanceof LodgingAccess cached) {
-            return cached;
-        }
-        final LodgingAccess access = compute(tripId);
-        if (memo != null) {
-            memo.put(key, access);
-        }
-        return access;
+        return RequestMemo.get(MEMO_PREFIX + tripId, () -> compute(tripId));
     }
 
     /** Whether this caller operates (holds {@code accommodationAdmin} on) a hotel in play on the trip. */
@@ -161,10 +150,5 @@ public class LodgingAccessCommands {
 
     private Caller caller() {
         return callerSource.get();
-    }
-
-    private static Map<String, Object> requestMap() {
-        final FacesContext ctx = FacesContext.getCurrentInstance();
-        return (ctx == null) ? null : ctx.getExternalContext().getRequestMap();
     }
 }

@@ -326,15 +326,18 @@ registry never changes at runtime.
   never move backward (a lagging cache answering an older "latest" changes nothing). A saved-against version
   that aged out of retention carries same-named values only, which is what a pinned instance gets from its own
   fallback; a deleted template falls back exactly as a pinned instance does (the pinned version, then nothing).
-  **Tenancy** (owner decision 2026-11-15): an instance follows the latest version only when its organization
-  (`ContentTemplate.orgId`, null = shared) equals that of the version its values were saved against;
-  otherwise it renders as pinned, and choosing Stay on Latest is refused. The aged-out fallback of EVERY
-  instance has the same guard, and since the saved-against organization is then unknown it falls back only to
-  a SHARED version: the latest when shared, else the newest retained shared version (a walk down the cached
-  `id#vN` fields, stopping at the first one gone), and only when no retained version is shared to nothing (a
-  container to its built-in row), so a published block does not go blank. Who may use a template is
-  decided when content is added; a template re-scoped to an organization later must not carry that
-  organization's markup onto pages it was never offered to. Containers too: a Stay on Latest
+  **Tenancy** (owner decisions 2026-11-15, `ContentCommands.mayFollow`): who may use a template is decided
+  when content is added, and a template re-scoped to an organization later must not carry that organization's
+  markup onto pages it was never offered to. So while the version an instance's values were saved against is
+  retained, the instance moves (follows the latest, or is switched in the version menu) only to a version of
+  the SAME organization (`ContentTemplate.orgId`, null = shared); otherwise it renders as pinned, choosing Stay
+  on Latest is refused, and the version menu neither offers nor accepts another organization's version. Once
+  the saved-against version has aged out its organization is unknown, and the Add dialog's own rule decides:
+  a shared version, or one owned by the requesting site's organization (`SiteContext.isSiteOf`), so an
+  organization's own template keeps rendering on its own site and nowhere else. That aged-out fallback (of
+  EVERY instance) renders the latest when the site may use it, else the newest retained version it may use (a
+  walk down the cached `id#vN` fields, stopping at the first one gone). Only when no retained version qualifies
+  does it fall back to nothing (a container to its built-in row). Containers too: a Stay on Latest
   container's row, wrapper and title slot follow the template. **Cost**: the template's current version has
   its own cache field (`CacheKeys.templateLatestField`, `id#latest`, beside the `id#vN` fields in the same
   hash; written by every save and the scan rebuild, removed by a delete), read through

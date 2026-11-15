@@ -62,11 +62,12 @@ public final class ContentTemplate implements Serializable {
      * every site shares. Sharing is an AUTHORING-time choice: the Add dialog offers an org site its own
      * templates plus the shared ones, and a shared site only the shared ones; an instance then pins
      * whichever it chose. Rendering reads this field in one place: an instance that would move to another
-     * version than the one its values were saved against (Stay on Latest, or the fallback when that version
-     * aged out of retention) moves only to a version of the SAME organization, so a template re-scoped to an
-     * organization never carries its markup onto pages it was not offered to ({@code ContentCommands.mayFollow};
-     * the field rides the cached template, so the render path still makes no live read). Null on every row
-     * written before org sites existed.
+     * version than the one its values were saved against (Stay on Latest, the version menu, or the fallback when
+     * that version aged out of retention) moves only to a version of the SAME organization while the saved-against
+     * version is retained, and once it has aged out only to one the requesting site may use (shared, or the site's
+     * own organization's), so a template re-scoped to an organization never carries its markup onto pages it was
+     * not offered to ({@code ContentCommands.mayFollow}; the field rides the cached template, so the render path
+     * still makes no live read). Null on every row written before org sites existed.
      */
     @JsonProperty("orgId")
     private String orgId;

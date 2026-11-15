@@ -57,7 +57,7 @@ public class TripPageCommands {
     private final Supplier<Boolean> orgFullWidth;
 
     public TripPageCommands() {
-        this(TripPageCommands::facesRequestMap, LocalDateTime::now, () -> new BrandCommands().isFullWidth());
+        this(RequestMemo::facesRequestMap, LocalDateTime::now, () -> new BrandCommands().isFullWidth());
     }
 
     /** Test seam: a request map (null for none) and the current time. */
@@ -652,22 +652,7 @@ public class TripPageCommands {
         return (text == null || text.isBlank()) ? null : text;
     }
 
-    @SuppressWarnings("unchecked")
     private <T> T memo(final String key, final Supplier<T> compute) {
-        final Map<String, Object> map = requestMap.get();
-        if (map == null) {
-            return compute.get();
-        }
-        if (map.containsKey(key)) {
-            return (T) map.get(key);
-        }
-        final T value = compute.get();
-        map.put(key, value);
-        return value;
-    }
-
-    private static Map<String, Object> facesRequestMap() {
-        final FacesContext ctx = FacesContext.getCurrentInstance();
-        return ctx == null ? null : ctx.getExternalContext().getRequestMap();
+        return RequestMemo.get(requestMap.get(), key, compute);
     }
 }

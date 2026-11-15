@@ -1,7 +1,5 @@
 package org.paulsens.trip.action;
 
-import jakarta.faces.context.ExternalContext;
-import jakarta.faces.context.FacesContext;
 import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -239,12 +237,8 @@ public class TripsInPeopleReachTest {
     @Test
     public void theReachIsBuiltOncePerRequestAndViewer() {
         final Map<String, Object> requestMap = new HashMap<>();
-        final ExternalContext external = Mockito.mock(ExternalContext.class);
-        Mockito.when(external.getRequestMap()).thenReturn(requestMap);
-        final FacesContext ctx = Mockito.mock(FacesContext.class);
-        Mockito.when(ctx.getExternalContext()).thenReturn(external);
         final OrgCommands viewerOrgs = Mockito.spy(new OrgCommands(() -> TestCallers.person(viewer)));
-        RequestFacesContext.install(ctx);
+        TestFaces.install(requestMap);
         try {
             final PeopleReach first = PeopleReach.of(viewerOrgs);
             Assert.assertSame(PeopleReach.of(viewerOrgs), first, "the second row reuses the first row's reach");
@@ -256,18 +250,7 @@ public class TripsInPeopleReachTest {
             Assert.assertTrue(PeopleReach.of(SITE_ADMIN_ORGS).isEverything(), "a site admin needs no memo");
             Assert.assertEquals(requestMap.size(), 2, "one entry per viewer: " + requestMap.keySet());
         } finally {
-            RequestFacesContext.clear();
-        }
-    }
-
-    /** {@code FacesContext.setCurrentInstance} is protected, so reach it from a subclass. */
-    private abstract static class RequestFacesContext extends FacesContext {
-        static void install(final FacesContext ctx) {
-            FacesContext.setCurrentInstance(ctx);
-        }
-
-        static void clear() {
-            FacesContext.setCurrentInstance(null);
+            TestFaces.clear();
         }
     }
 

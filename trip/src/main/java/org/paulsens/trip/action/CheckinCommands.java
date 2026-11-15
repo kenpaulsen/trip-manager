@@ -1,7 +1,6 @@
 package org.paulsens.trip.action;
 
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.faces.context.FacesContext;
 import jakarta.inject.Named;
 import java.io.IOException;
 import java.time.LocalDate;
@@ -68,7 +67,7 @@ public class CheckinCommands {
 
     /** The REST seam: the resource's own caller (bearer or session), no Faces request map. */
     public CheckinCommands(final Supplier<Caller> callerSource) {
-        this(callerSource, CheckinCommands::facesRequestMap, LocalDateTime::now);
+        this(callerSource, RequestMemo::facesRequestMap, LocalDateTime::now);
     }
 
     /** Test seam: a caller, a request map for the per-request memo (null for none) and the clock. */
@@ -1069,30 +1068,11 @@ public class CheckinCommands {
         return memo("caller", callerSource);
     }
 
-    @SuppressWarnings("unchecked")
     private <T> T memo(final String key, final Supplier<T> compute) {
-        final Map<String, Object> map = requestMap.get();
-        if (map == null) {
-            return compute.get();
-        }
-        final String scoped = MEMO_PREFIX + key;
-        if (map.containsKey(scoped)) {
-            return (T) map.get(scoped);
-        }
-        final T value = compute.get();
-        map.put(scoped, value);
-        return value;
+        return RequestMemo.get(requestMap.get(), MEMO_PREFIX + key, compute);
     }
 
     private void forget(final String key) {
-        final Map<String, Object> map = requestMap.get();
-        if (map != null) {
-            map.remove(MEMO_PREFIX + key);
-        }
-    }
-
-    private static Map<String, Object> facesRequestMap() {
-        final FacesContext ctx = FacesContext.getCurrentInstance();
-        return ctx == null ? null : ctx.getExternalContext().getRequestMap();
+        RequestMemo.forget(requestMap.get(), MEMO_PREFIX + key);
     }
 }

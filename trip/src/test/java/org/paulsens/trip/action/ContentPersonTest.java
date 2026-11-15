@@ -1,7 +1,5 @@
 package org.paulsens.trip.action;
 
-import jakarta.faces.context.ExternalContext;
-import jakarta.faces.context.FacesContext;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
@@ -19,7 +17,6 @@ import org.paulsens.trip.model.ContentRecord;
 import org.paulsens.trip.model.OrgMember;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
-import org.mockito.Mockito;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
@@ -125,7 +122,7 @@ public class ContentPersonTest {
     @Test
     public void aCardIsComputedOncePerRequest() {
         final Map<String, Object> requestMap = new HashMap<>();
-        RequestFacesContext.install(requestMap);
+        TestFaces.install(requestMap);
         try {
             final ContentCommands content = as(GLOBAL_EDITOR);
             final ContentInstance row = card(FakeData.BOARD_PAGE_KEY, kevin.getId().getValue());
@@ -134,22 +131,7 @@ public class ContentPersonTest {
             Assert.assertEquals(requestMap.size(), 1);
             Assert.assertNotSame(content.personCard(row, false), first, "signed-in and anonymous differ");
         } finally {
-            RequestFacesContext.clear();
-        }
-    }
-
-    /** {@code FacesContext.setCurrentInstance} is protected, so reach it from a subclass. */
-    private abstract static class RequestFacesContext extends FacesContext {
-        static void install(final Map<String, Object> requestMap) {
-            final ExternalContext external = Mockito.mock(ExternalContext.class);
-            Mockito.when(external.getRequestMap()).thenReturn(requestMap);
-            final FacesContext ctx = Mockito.mock(FacesContext.class);
-            Mockito.when(ctx.getExternalContext()).thenReturn(external);
-            FacesContext.setCurrentInstance(ctx);
-        }
-
-        static void clear() {
-            FacesContext.setCurrentInstance(null);
+            TestFaces.clear();
         }
     }
 
