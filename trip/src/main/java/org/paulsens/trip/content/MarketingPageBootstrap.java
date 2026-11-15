@@ -21,12 +21,27 @@ import org.paulsens.trip.model.ContentInstance;
  * a logo or a number, which is why no Testimonial or Logo band is seeded and the Stats band holds phrases
  * rather than figures. Rows are unsaved (version 0; the save path assigns v1) and pinned to the CURRENT
  * version of their band template as {@code templateVersion} reports it.
+ *
+ * <p>The site's other pages (Pricing, Why UniteTrip; issue medjugorje#41) are the platform organization's Site
+ * Pages, defined in the resource {@value #SITE_PAGES_RESOURCE} in the starter pages' format
+ * ({@link OrgPageBootstrap.StarterPage}) and keyed under that org like any org's pages. The private repo's
+ * {@code update-marketing-site} script installs them in production from the same file; {@code FakeData} seeds them
+ * locally. The product charges nothing yet (owner decision 2026-11-15: free in early access), and the Why page
+ * names no competitor (the same decision), so no claim on it goes stale when another product changes.
  */
 public final class MarketingPageBootstrap {
 
     static final String SEED_AUTHOR = "marketing-bootstrap";
     private static final String ID_NAMESPACE = "unitetrip-home:";
     private static final String PAGE = OrgPageBootstrap.MARKETING_PAGE_KEY;
+    private static final String PAGE_PATH = "/page.jsf?name=";
+
+    /** The platform organization's Site Pages, in menu order: one JSON list of starter-format pages. */
+    public static final String SITE_PAGES_RESOURCE = "/content/marketing-site-pages.json";
+    /** The Pricing page's name (its address and content key). */
+    public static final String PRICING_PAGE = "pricing";
+    /** The Why UniteTrip page's name. */
+    public static final String WHY_PAGE = "why-unitetrip";
 
     /** The slot names behind the deterministic ids; a slot is one row and never renamed. */
     public static final String HERO = "hero";
@@ -39,6 +54,16 @@ public final class MarketingPageBootstrap {
     public static final String CTA = "cta";
 
     private MarketingPageBootstrap() {
+    }
+
+    /** The platform organization's Site Pages ({@value #SITE_PAGES_RESOURCE}), read once. */
+    public static List<OrgPageBootstrap.StarterPage> sitePages() {
+        return SitePagesHolder.PAGES;
+    }
+
+    /** Lazy holder: the resource is parsed on first use, and a broken resource fails that use loudly. */
+    private static final class SitePagesHolder {
+        static final List<OrgPageBootstrap.StarterPage> PAGES = OrgPageBootstrap.readPages(SITE_PAGES_RESOURCE);
     }
 
     /** The stable id of one slot's row: the same UUID on every machine and every run. */
@@ -67,8 +92,8 @@ public final class MarketingPageBootstrap {
                         + "<p>A family account lets one person register and manage a whole household.</p>",
                 templateVersion));
         rows.add(split(SPLIT_PAYMENTS, 4, "tint", "left", "pi-wallet", "Payments you can reconcile",
-                "<p>Connect your own PayPal account, and every payment lands in a ledger against the trip and "
-                        + "the traveler it was for, fees and donations included.</p>"
+                "<p>Connect your own Stripe or PayPal account, and every payment lands in a ledger against the "
+                        + "trip and the traveler it was for, fees and donations included.</p>"
                         + "<p>A confirmation email goes out on its own, and the reconciliation view shows what "
                         + "has been paid, what is owed and what the processor settled.</p>", templateVersion));
         rows.add(container(STATS, PAGE, "At a glance", StarterTemplates.BAND_STATS_ID, templateVersion, 5));
@@ -96,8 +121,8 @@ public final class MarketingPageBootstrap {
         final String parent = idOf(FEATURES);
         return List.of(
                 card(parent, 0, "Your own branded site", "pi-globe",
-                        "A site at your-name.unitetrip.com with your logo, colors, background and footer, all "
-                                + "chosen from a settings page.", templateVersion),
+                        "A site at your-name.unitetrip.com, or on your own domain, with your logo, colors, "
+                                + "background and footer, all chosen from a settings page.", templateVersion),
                 card(parent, 1, "Trip listings and itineraries", "pi-map",
                         "Publish upcoming trips with dates, prices and flyers, and give each traveler a "
                                 + "day-by-day itinerary and a printable badge.", templateVersion),
@@ -105,8 +130,9 @@ public final class MarketingPageBootstrap {
                         "Travelers register themselves, choose admission options, apply discount codes and add "
                                 + "their family in one form. You approve with one click.", templateVersion),
                 card(parent, 3, "Payments and ledgers", "pi-credit-card",
-                        "Take PayPal payments online, see every payment in a ledger per trip and per traveler, "
-                                + "and reconcile against what the processor paid out.", templateVersion),
+                        "Take payments online through Stripe or PayPal, see every payment in a ledger per trip "
+                                + "and per traveler, and reconcile against what the processor paid out.",
+                        templateVersion),
                 card(parent, 4, "Trip chat with photos", "pi-comments",
                         "A group chat for every trip, with photos, reactions and a daily digest email for the "
                                 + "people who missed the conversation.", templateVersion),
@@ -133,18 +159,23 @@ public final class MarketingPageBootstrap {
                                 + "same questions by email, it is for you.</p>", templateVersion),
                 question(parent, 1, "Do we need our own domain?",
                         "<p>No. Your site lives at your-name.unitetrip.com and is ready the moment it is set "
-                                + "up.</p>", templateVersion),
+                                + "up. If you already own a domain, your site can use it instead.</p>",
+                        templateVersion),
                 question(parent, 2, "Can travelers register and pay online?",
                         "<p>Yes. Registration is a form on your site, with the admission options and discount "
-                                + "codes you define, and payment goes through your own PayPal account. You see "
-                                + "and approve every registration.</p>", templateVersion),
+                                + "codes you define, and payment goes through your own Stripe or PayPal account. "
+                                + "You see and approve every registration.</p>", templateVersion),
                 question(parent, 3, "Who can edit our pages?",
                         "<p>You decide. Editing is a privilege you grant per person, and it applies only to "
                                 + "your own site. Pages are edited in place, on the page, with no code.</p>",
                         templateVersion),
                 question(parent, 4, "Is our data kept separate from other organizations?",
                         "<p>Yes. Every organization's trips, people and payments are its own, and nothing is "
-                                + "shared between organizations.</p>", templateVersion));
+                                + "shared between organizations.</p>", templateVersion),
+                question(parent, 5, "What does it cost?",
+                        "<p>Nothing while UniteTrip is in early access. Your payment processor's own fee is the "
+                                + "only cost. See <a href=\"" + PAGE_PATH + PRICING_PAGE + "\">Pricing</a> for "
+                                + "what is included.</p>", templateVersion));
     }
 
     private static ContentInstance cta(final ToIntFunction<String> templateVersion) {

@@ -114,9 +114,12 @@ A site has more content pages than its home page. A **named page** is a lower-ca
 |------|-------------------------|----------------|
 | shared host | `page:trip-index` | `page:shared:{name}` |
 | an organization's site | `page:org:{uuid}:home` | `page:org:{uuid}:{name}` |
-| marketing host | `page:unitetrip-home` | `page:unitetrip:{name}` |
+| marketing host (the platform org's site) | `page:unitetrip-home` | `page:org:{platform uuid}:{name}` |
+| placeholder marketing host (no platform org yet) | `page:unitetrip-home` | `page:unitetrip:{name}` |
 
-So every site has its OWN copy of a named page, never the shared site's. `OrgPageBootstrap.orgOf` recognizes
+The platform org's named pages are its Site Pages (Pricing, Why UniteTrip; issue medjugorje#41), keyed like any
+org's so the Site Pages admin page seeds and deletes them where the page host reads them; only its HOME keeps the
+fixed marketing key. So every site has its OWN copy of a named page, never the shared site's. `OrgPageBootstrap.orgOf` recognizes
 every `page:org:{uuid}:{name}` key and `isMarketingPageKey` every marketing one, so an org-scoped
 `contentAdmin` edits all of its org's pages and the platform org's editor all of the marketing host's,
 through the unchanged `canEdit`/`mayEdit` rules.
@@ -549,6 +552,9 @@ datastore).
    removes).
 4. `bootstrap-marketing-page.sh` — the `page:unitetrip-home` rows (JSON generated from
    `MarketingPageBootstrap`, same tool); run AFTER step 2, since the rows pin v1 of the band templates.
+   `update-marketing-site.sh` then brings an already-installed page up to date (a row still holding copy the
+   bootstrap once shipped gets the current copy as its next version; an edited row is left alone) and installs the
+   platform org's Site Pages (`MarketingPageBootstrap.sitePages()`, the resource `content/marketing-site-pages.json`).
 Everything else is edited in place: `/trip/index.jsf` → Edit page. **Organization pages need no
 script**: assigning the org's subdomain seeds its starter page (see "Organization sites" above).
 

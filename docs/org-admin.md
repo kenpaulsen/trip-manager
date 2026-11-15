@@ -574,8 +574,11 @@ script, no DNS step, no deploy (wildcard DNS and the wildcard certificate alread
   true there (`isPlatformOrg()`) for the marketing-only rules: no auto-join on signup, no Trips/Help
   menus, the mark links home, full-width layout always, and the page key stays the fixed
   `page:unitetrip-home` (seeded by `bootstrap-marketing-page.sh`, independent of the org row; the org's
-  slug assignment seeds no starter rows). The platform org is never offered in shared-site curation.
-  Before any org holds `www`, those hosts fall back to the placeholder MARKETING site.
+  slug assignment seeds no starter rows). Its OTHER pages are ordinary Site Pages ("Site Pages" below), keyed
+  `page:org:{its uuid}:{name}`: Pricing and Why UniteTrip in its About menu (issue medjugorje#41, defined in
+  `content/marketing-site-pages.json` and installed by `medjugorje/scripts/update-marketing-site.sh`). The
+  platform org is never offered in shared-site curation. Before any org holds `www`, those hosts fall back to the
+  placeholder MARKETING site, which has no Site Pages.
 - **Media is site-scoped by `MediaItem.orgId`**, for discovery AND for writes: the admin library
   (`admin/media.xhtml`), the document picker and the Documents slot show an org's items only on its own site
   and the site's items only on shared sites, and a row can be changed only from the site where it shows;
@@ -657,7 +660,8 @@ content key, fixed at creation.
   (`OrgCommands.saveOrgEdits`), ONCE per org: `Organization.sitePagesSeededAt` records it, so a starter page an
   admin deletes never comes back. A starter whose name the list already has is left alone; a starter's content
   is written only when its key is empty, so rows already there (a hand-built board) are adopted as-is. The
-  platform org (the marketing site, which shows no Site Pages) is only marked. Orgs hosted before 2026-11-13
+  platform org (the product's site, whose Site Pages are its marketing pages rather than an About Us and a
+  Board) is only marked. Orgs hosted before 2026-11-13
   are backfilled by `medjugorje/scripts/seed-starter-site-pages.py` (dry run by default; it skips an org whose
   row is already marked, which the CFPW cut-over sets).
 - **The list is the org admins'** (`admin/orgPages.xhtml`, "Site Pages", a hub card and a link on the settings

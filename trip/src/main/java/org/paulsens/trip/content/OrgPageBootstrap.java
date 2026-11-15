@@ -127,10 +127,15 @@ public final class OrgPageBootstrap {
      */
     public static String pageKeyOf(final SiteContext site, final String pageName) {
         final String name = requirePageName(pageName);
-        // The marketing key first: the platform organization's site is an org site too, but its page is
-        // the script-seeded marketing page, keyed independently of whichever org row holds the slug.
+        // The marketing key first: the platform organization's site is an org site too, but its HOME page is
+        // the script-seeded marketing page, keyed independently of whichever org row holds the slug. Its other
+        // pages are its Site Pages (Pricing, Why UniteTrip), keyed like every org's, which is where the Site Pages
+        // admin page seeds and deletes them; only the placeholder host (no platform org yet) keeps the old prefix.
         if (site.isMarketing()) {
-            return HOME_PAGE.equals(name) ? MARKETING_PAGE_KEY : MARKETING_PAGE_PREFIX + name;
+            if (HOME_PAGE.equals(name)) {
+                return MARKETING_PAGE_KEY;
+            }
+            return site.isPlatformOrg() ? pageKey(site.orgId(), name) : MARKETING_PAGE_PREFIX + name;
         }
         if (site.isOrg()) {
             return pageKey(site.orgId(), name);
@@ -227,10 +232,12 @@ public final class OrgPageBootstrap {
 
     /**
      * One row of a starter page, in page order. {@code slot} names the row within its page (its id derives from
-     * the org, the page and the slot); {@code allowedChildTemplateIds} is a container's child allow-list, or null.
+     * the org, the page and the slot, so a slot is unique across the whole page, children included);
+     * {@code allowedChildTemplateIds} is a container's child allow-list, or null; {@code children} are a container's
+     * rows, in order, or null.
      */
     public record StarterRow(String slot, String title, String templateId, Map<String, String> values,
-            List<String> allowedChildTemplateIds) {
+            List<String> allowedChildTemplateIds, List<StarterRow> children) {
     }
 
     /** The starter Site Pages, in menu order, read from {@link #STARTER_PAGES_RESOURCE} once. */
@@ -244,32 +251,51 @@ public final class OrgPageBootstrap {
     }
 
     static List<StarterPage> readStarterPages() {
-        try (InputStream in = OrgPageBootstrap.class.getResourceAsStream(STARTER_PAGES_RESOURCE)) {
+        return readPages(STARTER_PAGES_RESOURCE);
+    }
+
+    /**
+     * A classpath resource of page definitions (one JSON list of {@link StarterPage}): the starter Site Pages, and
+     * the platform org's own pages ({@code MarketingPageBootstrap.sitePages()}). The private repo's seeding scripts
+     * read the same files, so the app and the scripts cannot drift.
+     */
+    public static List<StarterPage> readPages(final String resource) {
+        try (InputStream in = OrgPageBootstrap.class.getResourceAsStream(resource)) {
             if (in == null) {
-                throw new IllegalStateException("Missing resource " + STARTER_PAGES_RESOURCE);
+                throw new IllegalStateException("Missing resource " + resource);
             }
             return List.copyOf(new ObjectMapper().readValue(in, new TypeReference<List<StarterPage>>() { }));
         } catch (final IOException ex) {
-            throw new UncheckedIOException("Unreadable resource " + STARTER_PAGES_RESOURCE, ex);
+            throw new UncheckedIOException("Unreadable resource " + resource, ex);
         }
     }
 
     /**
-     * The rows {@code page} starts with on {@code orgId}'s site, unsaved and pinned like {@link #rows}. Row ids are
-     * DETERMINISTIC per org, page and slot ({@link #starterRowId}), so a retried seed rewrites the same rows.
+     * The rows {@code page} starts with on {@code orgId}'s site, unsaved and pinned like {@link #rows}, parents
+     * before their children. Row ids are DETERMINISTIC per org, page and slot ({@link #starterRowId}), so a retried
+     * seed rewrites the same rows; a container's children are filed under the container's id, as the editor files
+     * them.
      */
     public static List<ContentInstance> starterRows(final Organization.Id orgId, final StarterPage page,
             final ToIntFunction<String> templateVersion) {
-        final String key = pageKey(orgId, page.name());
         final List<ContentInstance> rows = new ArrayList<>();
-        for (int position = 0; position < page.rows().size(); position++) {
-            final StarterRow spec = page.rows().get(position);
-            rows.add(new ContentInstance(starterRowId(orgId, page.name(), spec.slot()), key, spec.title(),
-                    spec.templateId(), templateVersion.applyAsInt(spec.templateId()),
+        addRows(rows, orgId, page.name(), pageKey(orgId, page.name()), page.rows(), templateVersion);
+        return rows;
+    }
+
+    private static void addRows(final List<ContentInstance> into, final Organization.Id orgId, final String page,
+            final String section, final List<StarterRow> specs, final ToIntFunction<String> templateVersion) {
+        for (int position = 0; position < specs.size(); position++) {
+            final StarterRow spec = specs.get(position);
+            final String id = starterRowId(orgId, page, spec.slot());
+            into.add(new ContentInstance(id, section, spec.title(), spec.templateId(),
+                    templateVersion.applyAsInt(spec.templateId()),
                     spec.values() == null ? new HashMap<>() : new HashMap<>(spec.values()), null, position, 0, null,
                     SEED_AUTHOR, null, spec.allowedChildTemplateIds()));
+            if (spec.children() != null) {
+                addRows(into, orgId, page, id, spec.children(), templateVersion);
+            }
         }
-        return rows;
     }
 
     /**

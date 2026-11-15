@@ -23,6 +23,7 @@ import org.paulsens.trip.action.TripEventComposer;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.content.MarketingPageBootstrap;
+import org.paulsens.trip.content.OrgPageBootstrap;
 import org.paulsens.trip.content.StarterTemplates;
 import org.paulsens.trip.model.chat.ChatChannel;
 import org.paulsens.trip.model.ContentInstance;
@@ -728,6 +729,16 @@ public final class FakeData {
             final Organization platform = DAO.getInstance()
                     .getOrganization(Organization.Id.from(PLATFORM_ORG_ID), Cached.NO).orElseThrow();
             platform.getSettingsOverrides().put("site.footer.text", "Trip sites for organizations");
+            // Its Site Pages (Pricing, Why UniteTrip; issue medjugorje#41), exactly what the production
+            // update-marketing-site script installs: the menu entries, marked seeded so no About Us/Board starter
+            // ever joins them, and their rows, pinned to the band templates' current versions.
+            platform.setSitePages(MarketingPageBootstrap.sitePages().stream()
+                    .map(OrgPageBootstrap.StarterPage::entry).toList());
+            platform.setSitePagesSeededAt(LocalDateTime.now());
+            for (final OrgPageBootstrap.StarterPage page : MarketingPageBootstrap.sitePages()) {
+                OrgPageBootstrap.starterRows(platform.getId(), page, FakeData::currentTemplateVersion)
+                        .forEach(FakeData::saveContent);
+            }
             if (!DAO.getInstance().saveOrganization(platform)) {
                 throw new IllegalStateException("Fake org seed: could not save the platform org's branding");
             }

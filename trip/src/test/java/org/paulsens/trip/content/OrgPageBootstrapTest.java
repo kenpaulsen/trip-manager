@@ -64,6 +64,24 @@ public class OrgPageBootstrapTest {
                 "an org's every page names its org, so its contentAdmin can edit it");
     }
 
+    /**
+     * The platform org's home page stays the script-seeded marketing page, but its other pages are its Site Pages
+     * (Pricing, Why UniteTrip), keyed under the org like every org's, which is where the Site Pages admin page
+     * seeds and deletes them. Only the placeholder host, which no org holds, keeps the old marketing prefix.
+     */
+    @Test
+    public void thePlatformOrgsNamedPagesAreItsSitePages() {
+        final Organization.Id platformId = Organization.Id.from("p-1");
+        final SiteContext platform = SiteContext.org(platformId, Organization.PLATFORM_SLUG, "unitetrip.com");
+        Assert.assertEquals(OrgPageBootstrap.pageKeyOf(platform, "home"), OrgPageBootstrap.MARKETING_PAGE_KEY);
+        Assert.assertEquals(OrgPageBootstrap.pageKeyOf(platform, "pricing"),
+                OrgPageBootstrap.pageKey(platformId, "pricing"));
+        Assert.assertEquals(OrgPageBootstrap.orgOf(OrgPageBootstrap.pageKeyOf(platform, "pricing")), platformId,
+                "the platform org's content admins edit it, like any org page");
+        Assert.assertEquals(OrgPageBootstrap.pageKeyOf(SiteContext.marketing("unitetrip.com"), "pricing"),
+                "page:unitetrip:pricing");
+    }
+
     @Test
     public void marketingPageKeysAreTheHomeKeyAndItsNamedPages() {
         Assert.assertTrue(OrgPageBootstrap.isMarketingPageKey(OrgPageBootstrap.MARKETING_PAGE_KEY));

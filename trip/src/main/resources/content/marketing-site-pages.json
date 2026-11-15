@@ -1,0 +1,296 @@
+[
+  {
+    "name": "pricing",
+    "title": "Pricing",
+    "placement": "ABOUT",
+    "rows": [
+      {
+        "slot": "hero",
+        "title": "Hero",
+        "templateId": "band-hero",
+        "values": {
+          "eyebrow": "Pricing",
+          "headline": "Free while UniteTrip is in early access",
+          "subheadline": "Every feature, for every trip and every traveler. The only cost is your payment processor's own fee, and UniteTrip adds nothing to it.",
+          "primaryText": "Create an account",
+          "primaryUrl": "/account/createAccount.jsf",
+          "secondaryText": "Why UniteTrip",
+          "secondaryUrl": "/page.jsf?name=why-unitetrip"
+        }
+      },
+      {
+        "slot": "fees",
+        "title": "What payments cost",
+        "templateId": "band-split",
+        "values": {
+          "tone": "tint",
+          "side": "left",
+          "icon": "pi-credit-card",
+          "heading": "What payments cost",
+          "body": "<p>Travelers pay online through your organization's own Stripe or PayPal account. The processor charges its standard fee on each payment, and that fee is the only cost of taking money online.</p><p>You decide whether travelers pay the fee on top of the price or your organization absorbs it. UniteTrip takes no share of any payment.</p>"
+        }
+      },
+      {
+        "slot": "included",
+        "title": "What early access includes",
+        "templateId": "band-features",
+        "values": {},
+        "children": [
+          {
+            "slot": "included-everything",
+            "title": "Every feature",
+            "templateId": "feature-card",
+            "values": {
+              "icon": "pi-check-circle",
+              "text": "<p>Your site, trip pages, registration, payments, lodging, itineraries, budgets, chat and email. Nothing is held back for a higher plan.</p>"
+            }
+          },
+          {
+            "slot": "included-travelers",
+            "title": "No per-traveler fees",
+            "templateId": "feature-card",
+            "values": {
+              "icon": "pi-users",
+              "text": "<p>No charge per registration, per traveler or per trip, however large your group is.</p>"
+            }
+          },
+          {
+            "slot": "included-site",
+            "title": "Your own site",
+            "templateId": "feature-card",
+            "values": {
+              "icon": "pi-globe",
+              "text": "<p>A site at your-name.unitetrip.com with your logo and colors, or on a domain you already own.</p>"
+            }
+          },
+          {
+            "slot": "included-payments",
+            "title": "Your own payment account",
+            "templateId": "feature-card",
+            "values": {
+              "icon": "pi-wallet",
+              "text": "<p>Travelers pay through your organization's own Stripe or PayPal account, so the money goes straight to you.</p>"
+            }
+          },
+          {
+            "slot": "included-app",
+            "title": "The traveler app",
+            "templateId": "feature-card",
+            "values": {
+              "icon": "pi-mobile",
+              "text": "<p>Travelers carry their itinerary, trip chat and photos on their phone, with notifications when something changes.</p>"
+            }
+          },
+          {
+            "slot": "included-setup",
+            "title": "Help getting started",
+            "templateId": "feature-card",
+            "values": {
+              "icon": "pi-comments",
+              "text": "<p>We set up your organization's site with you, so your first trip is ready to share.</p>"
+            }
+          }
+        ]
+      },
+      {
+        "slot": "questions",
+        "title": "Pricing questions",
+        "templateId": "band-faq",
+        "values": {},
+        "children": [
+          {
+            "slot": "questions-card",
+            "title": "Do we need a credit card to start?",
+            "templateId": "text-only",
+            "values": {
+              "body": "<p>No. There is nothing to pay, so there is nothing to enter.</p>"
+            }
+          },
+          {
+            "slot": "questions-limits",
+            "title": "Is there a limit on trips or travelers?",
+            "templateId": "text-only",
+            "values": {
+              "body": "<p>No. Run as many trips, with as many travelers, as your organization needs.</p>"
+            }
+          },
+          {
+            "slot": "questions-later",
+            "title": "What happens after early access?",
+            "templateId": "text-only",
+            "values": {
+              "body": "<p>Pricing for later has not been set. If UniteTrip ever charges for anything, every organization will hear about it well ahead of time.</p>"
+            }
+          },
+          {
+            "slot": "questions-domain",
+            "title": "Can we use our own domain?",
+            "templateId": "text-only",
+            "values": {
+              "body": "<p>Yes. Your site starts at your-name.unitetrip.com, and a domain you already own can point to it instead. We set that up with you.</p>"
+            }
+          }
+        ]
+      },
+      {
+        "slot": "cta",
+        "title": "Call to action",
+        "templateId": "band-cta",
+        "values": {
+          "tone": "dark",
+          "heading": "Start your first trip",
+          "text": "<p>Create an account and we will set up your organization's site with you.</p>",
+          "buttonText": "Create an account",
+          "buttonUrl": "/account/createAccount.jsf",
+          "note": "Already have an account? Sign in from the top of the page."
+        }
+      }
+    ]
+  },
+  {
+    "name": "why-unitetrip",
+    "title": "Why UniteTrip",
+    "placement": "ABOUT",
+    "rows": [
+      {
+        "slot": "hero",
+        "title": "Hero",
+        "templateId": "band-hero",
+        "values": {
+          "eyebrow": "Why UniteTrip",
+          "headline": "Registration is where a trip starts, not where it ends",
+          "subheadline": "Registration tools get people signed up. UniteTrip also runs everything that comes after: rooms, itineraries, chat, budgets and the traveler app.",
+          "primaryText": "Create an account",
+          "primaryUrl": "/account/createAccount.jsf",
+          "secondaryText": "See pricing",
+          "secondaryUrl": "/page.jsf?name=pricing"
+        }
+      },
+      {
+        "slot": "after",
+        "title": "What registration tools leave to you",
+        "templateId": "band-features",
+        "values": {},
+        "children": [
+          {
+            "slot": "after-lodging",
+            "title": "Rooms and lodging",
+            "templateId": "feature-card",
+            "values": {
+              "icon": "pi-building",
+              "text": "<p>Hotels, room types and a rooming list for every stay, with a room invoice for the hotel.</p>"
+            }
+          },
+          {
+            "slot": "after-itinerary",
+            "title": "Itineraries",
+            "templateId": "feature-card",
+            "values": {
+              "icon": "pi-map",
+              "text": "<p>A day-by-day itinerary for each traveler, with flights, buses and events, and a printable badge.</p>"
+            }
+          },
+          {
+            "slot": "after-budget",
+            "title": "Budget and expenses",
+            "templateId": "feature-card",
+            "values": {
+              "icon": "pi-chart-bar",
+              "text": "<p>A trip budget that weighs costs against what travelers pay, and an expense report for receipts and reimbursements.</p>"
+            }
+          },
+          {
+            "slot": "after-chat",
+            "title": "Trip chat and photos",
+            "templateId": "feature-card",
+            "values": {
+              "icon": "pi-comments",
+              "text": "<p>A group chat for every trip, with photos, reactions and a daily digest email for the people who missed it.</p>"
+            }
+          },
+          {
+            "slot": "after-app",
+            "title": "The traveler app",
+            "templateId": "feature-card",
+            "values": {
+              "icon": "pi-mobile",
+              "text": "<p>Travelers carry their itinerary, chat and photos on their phone, with notifications when something changes.</p>"
+            }
+          },
+          {
+            "slot": "after-families",
+            "title": "Families",
+            "templateId": "feature-card",
+            "values": {
+              "icon": "pi-users",
+              "text": "<p>One person registers, pays for and manages a whole household, and each member can still have a login of their own.</p>"
+            }
+          }
+        ]
+      },
+      {
+        "slot": "registration",
+        "title": "Registration is built in too",
+        "templateId": "band-split",
+        "values": {
+          "tone": "tint",
+          "side": "right",
+          "icon": "pi-user-plus",
+          "heading": "Registration is built in too",
+          "body": "<p>Travelers register on your own site with the admission options, age-based prices, deposits, discount codes and questions you set, and sign your trip documents online.</p><p>You approve each registration, see who has paid and check people in on the day.</p>"
+        }
+      },
+      {
+        "slot": "payments",
+        "title": "Payments go straight to you",
+        "templateId": "band-split",
+        "values": {
+          "tone": "plain",
+          "side": "left",
+          "icon": "pi-wallet",
+          "heading": "Payments go straight to you",
+          "body": "<p>Connect your organization's own Stripe or PayPal account. Stripe takes cards, US bank accounts, Apple Pay and Google Pay, and every payment lands in a ledger for the trip and the traveler.</p><p>UniteTrip adds no fee of its own to any payment.</p>",
+          "linkText": "See pricing",
+          "linkUrl": "/page.jsf?name=pricing"
+        }
+      },
+      {
+        "slot": "questions",
+        "title": "Questions",
+        "templateId": "band-faq",
+        "values": {},
+        "children": [
+          {
+            "slot": "questions-app",
+            "title": "Do travelers have to install the app?",
+            "templateId": "text-only",
+            "values": {
+              "body": "<p>No. Everything works on your website in any browser. The app is there for travelers who want their trip on their phone.</p>"
+            }
+          },
+          {
+            "slot": "questions-account",
+            "title": "Do travelers need an account?",
+            "templateId": "text-only",
+            "values": {
+              "body": "<p>Yes, one for all of their trips. They sign in with a password, a one-time email code or a passkey, and see every trip they are on in one place.</p>"
+            }
+          }
+        ]
+      },
+      {
+        "slot": "cta",
+        "title": "Call to action",
+        "templateId": "band-cta",
+        "values": {
+          "tone": "dark",
+          "heading": "Give your next trip a home",
+          "text": "<p>Create an account and we will set up your organization's site with you.</p>",
+          "buttonText": "Create an account",
+          "buttonUrl": "/account/createAccount.jsf",
+          "note": "Already have an account? Sign in from the top of the page."
+        }
+      }
+    ]
+  }
+]

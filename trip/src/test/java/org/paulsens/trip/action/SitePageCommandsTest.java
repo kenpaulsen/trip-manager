@@ -21,8 +21,10 @@ import org.mockito.Mockito;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.audit.RequestContext;
 import org.paulsens.trip.cache.Cached;
+import org.paulsens.trip.content.MarketingPageBootstrap;
 import org.paulsens.trip.content.OrgPageBootstrap;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
@@ -283,6 +285,29 @@ public class SitePageCommandsTest {
         assertEquals(pages.placementLabel(give), "Help menu");
         assertEquals(pages.placementLabel(pages.pageOf(orgId, "mission")), "About menu");
         assertEquals(pages.placementLabel(pages.pageOf(orgId, "day-1")), "Not in the menu");
+    }
+
+    /**
+     * The product's own site (the platform org, slug www) serves its Site Pages like any org site: the menu lists
+     * Pricing and Why UniteTrip (seeded by FakeData exactly as the production script installs them) and the page
+     * host renders them. The placeholder marketing host, which no org holds, still has none.
+     */
+    @Test
+    public void thePlatformSiteServesItsOwnPages() throws Exception {
+        final SitePageCommands pages = siteAdmin();
+        final SiteContext platform = SiteContext.org(Organization.Id.from(FakeData.PLATFORM_ORG_ID),
+                Organization.PLATFORM_SLUG, "unitetrip.com");
+        assertTrue(platform.isMarketing(), "the platform org's site is the marketing site");
+        assertEquals(names(onSite(platform, pages::getAboutEntries)),
+                List.of(MarketingPageBootstrap.PRICING_PAGE, MarketingPageBootstrap.WHY_PAGE));
+        assertEquals(onSite(platform, () -> pages.currentPage(MarketingPageBootstrap.PRICING_PAGE)).title(),
+                "Pricing");
+        // Where its ROWS live is OrgPageBootstrapTest's (thePlatformOrgsNamedPagesAreItsSitePages) and the browser
+        // suite's (MarketingSitePagesPwIT) to prove: other classes here clear the shared content store mid-suite.
+
+        final SiteContext placeholder = SiteContext.marketing("unitetrip.com");
+        assertEquals(onSite(placeholder, pages::getAboutEntries), List.of());
+        assertNull(onSite(placeholder, () -> pages.currentPage(MarketingPageBootstrap.PRICING_PAGE)));
     }
 
     @Test

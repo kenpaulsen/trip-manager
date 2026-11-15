@@ -128,10 +128,14 @@ public class SitePageCommands {
         return menuEntries(Placement.HELP);
     }
 
-    /** The current org site's entries shown under {@code where}, in menu order. */
+    /**
+     * The current org site's entries shown under {@code where}, in menu order. The platform org's site (the
+     * product's own, unitetrip.com) has Site Pages like any other (its Pricing and Why UniteTrip pages); only the
+     * placeholder marketing host, which no org holds, is not an org site.
+     */
     public List<SitePage> menuEntries(final Placement where) {
         final SiteContext site = SiteContext.current();
-        if (!site.isOrg() || site.isMarketing()) {
+        if (!site.isOrg()) {
             return List.of();
         }
         return pagesOf(site.orgId().getValue()).stream().filter(page -> page.where() == where).toList();
@@ -144,7 +148,7 @@ public class SitePageCommands {
      */
     public SitePage currentPage(final String name) {
         final SiteContext site = SiteContext.current();
-        if (!site.isOrg() || site.isMarketing() || name == null) {
+        if (!site.isOrg() || name == null) {
             return null;
         }
         return find(pagesOf(site.orgId().getValue()), name.trim()).filter(page -> !page.isLink()).orElse(null);
@@ -289,8 +293,9 @@ public class SitePageCommands {
      * hosted before starters existed. Each starter the list lacks is appended and gets its starter content only
      * when nothing is stored under its key yet, so rows already there (a hand-built board) are adopted as-is; a
      * starter whose name the list already has is left alone. The org row records the seeding, so a starter page
-     * deleted later never comes back. The platform org's site is the marketing site, which shows no Site Pages,
-     * so it is only marked.
+     * deleted later never comes back. The platform org's site is the product's own, whose Site Pages are the
+     * marketing pages ({@code MarketingPageBootstrap.sitePages()}, installed by the private repo's
+     * {@code update-marketing-site} script) rather than an About Us and a Board, so it is only marked.
      *
      * @return whether the org now has (or already had) its starters; false without a subdomain, for a caller who
      *         may not manage the org, or when a save failed (with a growl)
