@@ -150,12 +150,12 @@ public class MarketingPageBootstrapTest {
     /** Other products' names: the Why page compares with registration tools in general (owner decision 2026-11-15). */
     private static final Pattern COMPETITOR = Pattern.compile("(?i)regfox|webconnex|eventbrite|cvent|jotform|wufoo");
     /**
-     * British spellings the product never uses (US English, owner rule), as whole words: a bare stem would also
-     * refuse US words that contain it ("cancellation", "realistic", "organism").
+     * British spellings the product never uses (US English, owner rule): each British stem at the start of a word,
+     * with every inflection after it ("favourites", "organisers", "colourful"), minus the US words that share the
+     * stem ("organism", "cancellation", "realistic", "realism").
      */
-    private static final Pattern BRITISH = Pattern.compile("(?i)\\b(colours?|organis(e|ed|es|ing|ation|ations)"
-            + "|favourite|centres?|licence|cancelled|cancelling|travell(er|ers|ed|ing)|realis(e|ed|es|ing)"
-            + "|catalogue)\\b");
+    private static final Pattern BRITISH = Pattern.compile("(?i)\\b(colour|organis(?!m)|favourite|centre|licence"
+            + "|cancell(?!ation)|travell|realis(?!t|m)|catalogue)");
     private static final Pattern EM_DASH = Pattern.compile("\u2014|&#8212;|&#[xX]0*2014;|&mdash;");
     private static final Pattern PAGE_LINK = Pattern.compile("/page\\.jsf\\?name=([a-z0-9-]+)");
 
@@ -290,8 +290,9 @@ public class MarketingPageBootstrapTest {
     /** The spelling check refuses British forms and nothing else. */
     @Test
     public void theSpellingCheckMatchesBritishWordsOnly() {
-        for (final String british : List.of("colour", "Colours", "organise", "organisation", "favourite", "centre",
-                "licence", "cancelled", "traveller", "realise", "catalogue")) {
+        for (final String british : List.of("colour", "Colours", "colourful", "coloured", "organise", "organisation",
+                "organisational", "organisers", "favourite", "favourites", "centre", "centred", "licence", "licences",
+                "cancelled", "traveller", "realise", "realisation", "catalogue", "catalogues")) {
             Assert.assertTrue(BRITISH.matcher("a " + british + " here").find(), british);
         }
         for (final String us : List.of("color", "organize", "organization", "organism", "favorite", "center",

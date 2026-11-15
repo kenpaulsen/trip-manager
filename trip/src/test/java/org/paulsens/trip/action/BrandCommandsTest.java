@@ -14,6 +14,7 @@ import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.model.Config;
 import org.paulsens.trip.model.Organization;
+import org.paulsens.trip.model.SettingDef;
 import org.paulsens.trip.site.SiteContext;
 import org.paulsens.trip.web.Sessions;
 import org.testng.Assert;
@@ -293,11 +294,11 @@ public class BrandCommandsTest {
 
     @Test
     public void analyticsIdsMustBePlainTokens() {
-        Assert.assertEquals(BrandCommands.analyticsIdOrNull(" G-TESTFIXTURE1 "), "G-TESTFIXTURE1");
-        Assert.assertNull(BrandCommands.analyticsIdOrNull(""));
-        Assert.assertNull(BrandCommands.analyticsIdOrNull(null));
-        Assert.assertNull(BrandCommands.analyticsIdOrNull("G-1 G-2"));
-        Assert.assertNull(BrandCommands.analyticsIdOrNull("G-<script>"));
+        Assert.assertEquals(SettingDef.analyticsId(" G-TESTFIXTURE1 "), "G-TESTFIXTURE1");
+        Assert.assertNull(SettingDef.analyticsId(""));
+        Assert.assertNull(SettingDef.analyticsId(null));
+        Assert.assertNull(SettingDef.analyticsId("G-1 G-2"));
+        Assert.assertNull(SettingDef.analyticsId("G-<script>"));
     }
 
     @Test

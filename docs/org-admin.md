@@ -997,7 +997,9 @@ additionally percent-encoded for the unquoted CSS `url()` context (`( ) ' " ; \ 
 puts `brand.rootStyle` on `<html>` (`site.css` reads `--site-bg` with the shared rainbow as the `var()`
 fallback), swaps the layout sheet, og:image and favicon per host, and gates the analytics tag on BOTH an
 id for the host (`brand.pageAnalyticsId`: the site's own `site.analytics.id` row on a shared host, the org's own
-on an org site, none on the marketing host) AND the visitor's consent: the
+on an org site, the product's own site included, since it is the platform org's site: one id set on the platform
+org's Home tab turns its tag and banner on; only the placeholder marketing host no org holds has none) AND the
+visitor's consent: the
 `trip_consent` cookie (`1`/`0`, one year) that `WEB-INF/consentBanner.xhtml` sets, read straight off the
 request so an anonymous page stays sessionless; no id means no tag and no banner. The page view carries no
 personal data: `page_location` is the origin and path only (plus a Site Page's `?name=` on `/page.jsf`),

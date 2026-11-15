@@ -487,24 +487,18 @@ public class BrandCommands {
     /**
      * The analytics id this request's pages report to, or null for no tag (and no consent banner): on a shared
      * host the SITE's own value of {@code site.analytics.id} (admin Settings), on an org host only the org's own
-     * id, never the shared one, and none on the marketing host. The shared site's id was a literal in the page
-     * until issue #123: a retired Universal Analytics property that collected nothing and still showed visitors
-     * the consent banner.
+     * id, never the shared one. The product's own site (unitetrip.com) is the platform org's site, so it reports to
+     * whatever id the platform org sets for itself; only the placeholder marketing host, which no org holds, has
+     * none. The shared site's id was a literal in the page until issue #123: a retired Universal Analytics property
+     * that collected nothing and still showed visitors the consent banner.
      */
     public String getPageAnalyticsId() {
         final String id = SiteContext.current().isShared()
                 ? config.siteString(KnownSettings.SITE_ANALYTICS_ID)
                 : orgAnalyticsId();
-        return analyticsIdOrNull(id);
-    }
-
-    /**
-     * The id only when it is a plain token (letters, digits, hyphens; {@link SettingDef#analyticsId}): the page writes
-     * it into a script URL and into a JavaScript string, where HTML escaping does not apply, so anything else means
-     * no tag at all. The save paths refuse such a value; this still screens a row written by hand.
-     */
-    static String analyticsIdOrNull(final String raw) {
-        return SettingDef.analyticsId(raw);
+        // Screened even though the save paths refuse anything else: a row written by hand bypasses them, and the
+        // page writes the id into a script URL and a JavaScript string, where HTML escaping does not apply.
+        return SettingDef.analyticsId(id);
     }
 
     // --- the preview: one admin's unsaved appearance, on one page ---

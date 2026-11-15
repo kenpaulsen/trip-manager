@@ -21,6 +21,7 @@ import org.mockito.Mockito;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.audit.RequestContext;
 import org.paulsens.trip.cache.Cached;
+import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.content.MarketingPageBootstrap;
 import org.paulsens.trip.content.OrgPageBootstrap;
 import org.paulsens.trip.dynamo.DAO;
@@ -308,6 +309,55 @@ public class SitePageCommandsTest {
         final SiteContext placeholder = SiteContext.marketing("unitetrip.com");
         assertEquals(onSite(placeholder, pages::getAboutEntries), List.of());
         assertNull(onSite(placeholder, () -> pages.currentPage(MarketingPageBootstrap.PRICING_PAGE)));
+    }
+
+    /**
+     * The product's own site shows Help only once something is in it (a Help entry or its donate link): one rule for
+     * the menu and the Site Pages preview. Every other org site always shows it; the placeholder host never does.
+     */
+    @Test
+    public void thePlatformSiteShowsHelpOnlyWithSomethingInIt() throws Exception {
+        final SitePageCommands pages = siteAdmin();
+        final String platformId = FakeData.PLATFORM_ORG_ID;
+        final SiteContext platform = SiteContext.org(Organization.Id.from(platformId), Organization.PLATFORM_SLUG,
+                "unitetrip.com");
+        assertFalse(pages.helpMenuShown(platformId), "nothing in Help: hidden");
+        assertFalse(onSite(platform, pages::isHelpMenuShown), "and the menu agrees");
+        assertFalse(onSite(SiteContext.marketing("unitetrip.com"), pages::isHelpMenuShown), "placeholder: none");
+        assertTrue(onSite(SiteContext.shared("visitqueenofpeace.com"), pages::isHelpMenuShown), "shared: always");
+
+        final Person orgAdmin = savedPerson();
+        final Organization acme = hostedOrgWithAdmin(orgAdmin);
+        assertTrue(pages.helpMenuShown(acme.getId().getValue()), "an org site always has Help (Make Payment)");
+
+        assertTrue(pages.addLink(platformId, "Getting started", "https://example.org/start", "HELP"));
+        final String link = pages.pagesIn(platformId, "HELP").get(0).name();
+        try {
+            assertTrue(pages.helpMenuShown(platformId), "a Help entry shows Help");
+            assertTrue(onSite(platform, pages::isHelpMenuShown));
+        } finally {
+            assertTrue(pages.deletePage(platformId, link));
+        }
+        assertFalse(pages.helpMenuShown(platformId), "the entry gone: hidden again");
+
+        setPlatformDonate("https://donate.example.org/");
+        try {
+            assertTrue(pages.helpMenuShown(platformId), "a donate link puts Donate in Help");
+        } finally {
+            setPlatformDonate(null);
+        }
+        assertFalse(pages.helpMenuShown(platformId));
+    }
+
+    private void setPlatformDonate(final String url) throws IOException {
+        final Organization platform = dao.getOrganization(Organization.Id.from(FakeData.PLATFORM_ORG_ID), Cached.NO)
+                .orElseThrow();
+        if (url == null) {
+            platform.getSettingsOverrides().remove(KnownSettings.SITE_DONATE_URL.getName());
+        } else {
+            platform.getSettingsOverrides().put(KnownSettings.SITE_DONATE_URL.getName(), url);
+        }
+        assertTrue(dao.saveOrganization(platform));
     }
 
     @Test

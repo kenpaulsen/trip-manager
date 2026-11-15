@@ -154,6 +154,32 @@ public class SitePageCommands {
         return find(pagesOf(site.orgId().getValue()), name.trim()).filter(page -> !page.isLink()).orElse(null);
     }
 
+    /**
+     * Whether {@code orgId}'s site shows the Help submenu: the ONE rule the menu ({@link #isHelpMenuShown}) and the
+     * Site Pages preview both read, so they cannot disagree. An org site always has one (it holds Make Payment).
+     * The product's own site (the platform org) takes no payments, so it shows Help only once there is something in
+     * it: a Help-placed page or link, or the org's own donate link (its Donate entry).
+     */
+    public boolean helpMenuShown(final String orgId) {
+        final Organization org = orgs.findOrganization(orgId);
+        if (org == null || !org.isPlatform()) {
+            return true;
+        }
+        return !pagesIn(orgId, Placement.HELP.name()).isEmpty() || new BrandCommands().lookOf(org).donateUrl() != null;
+    }
+
+    /**
+     * {@link #helpMenuShown} for the current host, the menu's gate: true on every host but the marketing one, the
+     * platform org's rule on its site, and false on the placeholder marketing host, which no org holds.
+     */
+    public boolean isHelpMenuShown() {
+        final SiteContext site = SiteContext.current();
+        if (!site.isMarketing()) {
+            return true;
+        }
+        return site.isOrg() && helpMenuShown(site.orgId().getValue());
+    }
+
     /** The menu's target for an entry: a page's own address on this site, or a link's URL. */
     public String hrefOf(final SitePage page) {
         return page.isLink() ? page.url() : PAGE_PATH + page.name();
