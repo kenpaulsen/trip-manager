@@ -2,10 +2,10 @@ package org.paulsens.trip.dynamo;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -128,7 +128,12 @@ public class ReminderDAO {
         }
     }
 
-    /** Records how a claimed send ended. Unconditional: only the claim's holder ever calls it. */
+    /**
+     * Rewrites a send row. Unconditional. Two callers: the claim's holder, recording how its send ended, and
+     * account deletion's {@link #scrubPerson}, which reads a row and writes it back without a name or address.
+     * The scrub can therefore overwrite an outcome recorded between its read and its write; that window is the
+     * few milliseconds of one put during an account deletion, and the cost is a history row that says "Sending".
+     */
     protected boolean saveSend(final ReminderSend send) throws IOException {
         final Map<String, AttributeValue> item = sendItem(send);
         return persistence.putItem(b -> b.tableName(REMINDERS_TABLE).item(item)).sdkHttpResponse().isSuccessful();
@@ -152,26 +157,44 @@ public class ReminderDAO {
     }
 
     /**
-     * Erases one person from a trip's send history (account deletion): their own rows lose the name and the
-     * address, and any row that mailed their address (a family manager's, for a dependent) loses the address.
-     * The rows themselves stay, with their outcome, so "this reminder already ran" still holds.
+     * Erases one person from a trip's send history (account deletion): their own rows lose the name and every
+     * address, and a row that mailed THEIR address for someone else (a family manager's, for a dependent) loses
+     * that one address and keeps the others. Addresses are compared whole, never as a substring: "ann@" must not
+     * erase "joann@". The rows themselves stay, with their outcome, so "this reminder already ran" still holds.
      *
      * @return the number of rows rewritten.
      */
     protected int scrubPerson(final String tripId, final Person.Id personId, final String email,
             final String erasedName) throws IOException {
-        final String address = (email == null) ? "" : email.trim().toLowerCase(Locale.ROOT);
+        final String address = (email == null) ? "" : email.trim();
         int rewritten = 0;
         for (final ReminderSend send : getSends(tripId)) {
             final boolean theirs = personId != null && personId.equals(send.getPersonId());
             final String to = (send.getToEmail() == null) ? "" : send.getToEmail();
-            final boolean mailedThem = !address.isEmpty() && to.toLowerCase(Locale.ROOT).contains(address);
-            if (theirs || mailedThem) {
-                saveSend(send.withPersonName(theirs ? erasedName : send.getPersonName()).withToEmail(""));
+            final String kept = theirs ? "" : without(to, address);
+            if (theirs || !kept.equals(to)) {
+                saveSend(send.withPersonName(theirs ? erasedName : send.getPersonName()).withToEmail(kept));
                 rewritten++;
             }
         }
         return rewritten;
+    }
+
+    /** The comma-joined addresses of {@code to} minus {@code address}, compared whole and without case. */
+    private static String without(final String to, final String address) {
+        if (address.isEmpty() || to.isBlank()) {
+            return to;
+        }
+        final List<String> kept = new ArrayList<>();
+        boolean removed = false;
+        for (final String one : to.split(",")) {
+            if (one.trim().equalsIgnoreCase(address)) {
+                removed = true;
+            } else {
+                kept.add(one.trim());
+            }
+        }
+        return removed ? String.join(", ", kept) : to;
     }
 
     // ================================================================== trip delete

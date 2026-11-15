@@ -285,6 +285,11 @@ public final class CacheKeys {
     /** How long a delivery marker survives. Long enough that a same-day retry cannot double-send. */
     public static final Duration CHAT_NOTIFY_SENT_TTL = Duration.ofHours(24);
 
+    /** The key {@code CacheProbes.remembers} writes to learn whether a refused run lock means anything. */
+    public static String reminderRunProbeKey(final String day) {
+        return reminderRunLockKey(day) + ":probe";
+    }
+
     /** One person's reminder test sends in one clock hour: the counter behind the test-send cap. */
     public static String reminderTestSendsKey(final String personId, final long hour) {
         return FORMAT_VERSION + "reminder:tests:" + personId + ":" + hour;

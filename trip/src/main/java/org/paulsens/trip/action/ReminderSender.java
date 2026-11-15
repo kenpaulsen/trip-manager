@@ -182,9 +182,11 @@ public class ReminderSender {
             return Summary.refusedBecause("No From address is set for this trip's messages, so it was not sent.");
         }
         final String replyTo = replyToSource.apply(trip, plan);
+        // Cleaned ONCE here, on the way out, and merged per traveler below: the same body for every one of them.
+        final TripReminder clean = reminder.withBody(ReminderHtml.clean(reminder.getBody()));
         final List<ReminderRecipients.Target> targets = recipients.targets(trip, reminder, today);
         final List<ReminderSend.Outcome> outcomes =
-                fanOut(trip, reminder, sendDate, manual, who, from, replyTo, targets);
+                fanOut(trip, clean, sendDate, manual, who, from, replyTo, targets);
         if (targets.isEmpty()) {
             recordNobody(trip, reminder, sendDate, manual);
         }
@@ -256,7 +258,7 @@ public class ReminderSender {
             final Map<String, String> values = ReminderRecipients.valuesFor(target, addressee);
             allSent &= mailer.send(from, addressee.getEmail(), replyTo,
                     ReminderText.renderPlain(reminder.getSubject(), values),
-                    ReminderText.renderBody(reminder.getBody(), values), who);
+                    ReminderText.renderCleaned(reminder.getBody(), values), who);
             if (reminder.isPush()) {
                 pusher.push(trip, reminder, addressee.getId(),
                         ReminderText.renderPlain(reminder.getSubject(), values),

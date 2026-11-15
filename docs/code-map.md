@@ -58,7 +58,8 @@ versioned library, a trip's pinned versions with the re-sign decision, the two-b
 registration gate and the signed-copy PDF; see `docs/waivers.md`), `reminder` (ReminderCommands -- a trip's
 Communications page: scheduled messages that are drafts until a facilitator approves the exact wording and date,
 the one-pass `review`, the test send, the sender and the sent history; `ReminderSender` is the single path to a
-mailbox and `reminder/ReminderScheduler` the daily run; see `docs/reminders.md`), `checkin` (CheckinCommands -- tickets, staff
+mailbox and `reminder/ReminderScheduler` the daily run; see `docs/reminders.md`),
+`checkin` (CheckinCommands -- tickets, staff
 check-in, counts, the trip-bound balance, batch badges and the export rows; see `docs/checkin.md`), `tripStylesheets`
 (TripStylesheets -- a trip page's own stylesheets: one `text/css` library item each under `org/{orgId}/stylesheets/`,
 saved in place with a `rev` bump and a CDN invalidation, gated to the org's admins and media admins, with the "Classes

@@ -20,6 +20,7 @@ import org.paulsens.trip.audit.RequestContext;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.cache.CacheClient;
 import org.paulsens.trip.cache.CacheKeys;
+import org.paulsens.trip.cache.CacheProbes;
 import org.paulsens.trip.dynamo.DAO;
 
 /**
@@ -269,12 +270,7 @@ public final class ChatDigestScheduler {
      * A lock that is granted but not remembered is worse than no lock: it looks like exclusivity and provides none.
      */
     private boolean coordinationAvailable(final String runId) {
-        final String probeKey = CacheKeys.chatDigestLockKey(runId + ":probe");
-        final String token = Long.toString(System.nanoTime());
-        if (!cacheClient.putValue(probeKey, token, Duration.ofMinutes(1))) {
-            return false;
-        }
-        return cacheClient.getValue(probeKey).filter(token::equals).isPresent();
+        return CacheProbes.remembers(cacheClient, CacheKeys.chatDigestLockKey(runId + ":probe"));
     }
 
     private boolean isComplete(final String runId) {

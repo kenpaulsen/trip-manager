@@ -53,6 +53,11 @@ public final class ReminderRecipients {
         public static final Sight NONE = new Sight(false, false, false);
     }
 
+    /** What a target's {@code reason} sentence gives away, so the redaction never has to parse the sentence. */
+    public enum Discloses {
+        NOTHING, AMOUNT, PASSPORT
+    }
+
     static final String AMOUNT_HIDDEN = "(amount not shown)";
     static final String PASSPORT_HIDDEN = "(passport details not shown)";
     static final String ADDRESS_HIDDEN = "(address not shown)";
@@ -61,7 +66,8 @@ public final class ReminderRecipients {
      * One traveler the reminder is about: why they are in the audience (shown on the page), the addresses the
      * mail goes to (their own, else their family managers'), and the token values of their message.
      */
-    public record Target(Person traveler, String reason, List<Person> mailTo, Map<String, String> facts) {
+    public record Target(Person traveler, String reason, Discloses discloses, List<Person> mailTo,
+            Map<String, String> facts) {
         public String getName() {
             return CheckinCommands.displayName(traveler);
         }
@@ -97,14 +103,14 @@ public final class ReminderRecipients {
             String why = reason;
             if (!sight.money()) {
                 shown.put(ReminderText.BALANCE_DUE, AMOUNT_HIDDEN);
-                why = why.startsWith("Owes ") ? "Owes a balance" : why;
+                why = (discloses == Discloses.AMOUNT) ? "Owes a balance" : why;
             }
             if (!sight.travelDocuments()) {
                 final boolean issue = !facts.getOrDefault(ReminderText.PASSPORT_ISSUE, "").isEmpty();
                 shown.put(ReminderText.PASSPORT_ISSUE, issue ? PASSPORT_HIDDEN : "");
-                why = (issue && why.equals(facts.get(ReminderText.PASSPORT_ISSUE))) ? "Passport needs attention" : why;
+                why = (discloses == Discloses.PASSPORT) ? "Passport needs attention" : why;
             }
-            return new Target(traveler, why, mailTo, shown);
+            return new Target(traveler, why, Discloses.NOTHING, mailTo, shown);
         }
 
         /** {@link #getAddresses} as this viewer may see it: how many addresses, not which. */
@@ -181,14 +187,17 @@ public final class ReminderRecipients {
         facts.put(ReminderText.PASSPORT_ISSUE, (passport == null) ? "" : passport);
         facts.put(ReminderText.PROFILE_LINK,
                 baseUrl.apply(trip) + "/account/person.jsf?id=" + traveler.getId().getValue());
-        final String reason = switch (reminder.getAudience()) {
+        final TripReminder.Audience audience = reminder.getAudience();
+        final String reason = switch (audience) {
             case WITH_BALANCE -> (due > 0) ? "Owes " + MoneyMath.formatCents(due) : null;
             case UNSIGNED_DOCUMENTS -> unsigned.isEmpty() ? null : "Not signed: " + String.join(", ", unsigned);
             case PASSPORT_ISSUE -> passport;
             case PENDING -> "Awaiting approval";
             default -> "Confirmed";
         };
-        return (reason == null) ? null : new Target(traveler, reason, mailTo(traveler), facts);
+        final Discloses discloses = (audience == TripReminder.Audience.WITH_BALANCE) ? Discloses.AMOUNT
+                : (audience == TripReminder.Audience.PASSPORT_ISSUE) ? Discloses.PASSPORT : Discloses.NOTHING;
+        return (reason == null) ? null : new Target(traveler, reason, discloses, mailTo(traveler), facts);
     }
 
     /** The traveler's own address when it is usable; else their family managers, who answer for them. */

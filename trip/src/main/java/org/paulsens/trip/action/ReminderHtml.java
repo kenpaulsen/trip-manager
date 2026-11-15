@@ -29,8 +29,8 @@ import java.util.regex.Pattern;
  *
  * <p>Quill 2 writes EVERY list as {@code <ol>} and says "bullet" only with {@code data-list} on each item. That
  * attribute is kept (the editor needs it to reopen the list as it was), and an {@code <ol>} whose first item is
- * a bullet is written as {@code <ul>}, because a mail client knows nothing of {@code data-list} and would number
- * the list.
+ * a bullet is written as {@code <ul>} (and the written list switches kind where the items do), because a mail
+ * client knows nothing of {@code data-list} and would number the list.
  */
 public final class ReminderHtml {
     /** Tags copied through, without their attributes unless named below. */
@@ -56,6 +56,12 @@ public final class ReminderHtml {
             "ql-(align-(center|right|justify)|indent-[1-8]|direction-rtl|size-(small|large|huge)"
                     + "|font-(serif|monospace)|ui)");
     private static final Set<String> LIST_KINDS = Set.of("bullet", "ordered", "checked", "unchecked");
+    /**
+     * The longest thing still treated as a tag. A real tag is a few dozen characters; without a bound, a body
+     * built of openings that never close makes every one of them scan to the end of the text, and the cleaner's
+     * cost grows with the square of its input.
+     */
+    static final int MAX_TAG = 2_000;
 
     private ReminderHtml() {
     }
@@ -93,9 +99,9 @@ public final class ReminderHtml {
 
     /**
      * Where the tag opening at {@code from} ends (the index of its {@code >}), or -1 when this is not a tag: no
-     * name after the {@code <}, or no {@code >} outside a quoted value. Scanned by hand rather than by a regular
-     * expression. A body built to defeat it (an opening quote before every {@code >}) can still make the scan
-     * repeat, which is why callers bound the body's length before cleaning it ({@code ReminderCommands}).
+     * name after the {@code <}, or no {@code >} outside a quoted value within {@link #MAX_TAG} characters.
+     * Scanned by hand rather than by a regular expression, and never further than that bound, so the whole
+     * clean costs at most its length times the bound.
      */
     private static int tagEnd(final String html, final int from) {
         int at = from + 1;
@@ -105,8 +111,9 @@ public final class ReminderHtml {
         if (at >= html.length() || !isLetter(html.charAt(at))) {
             return -1;
         }
+        final int limit = Math.min(html.length(), from + MAX_TAG);
         char quote = 0;
-        for (; at < html.length(); at++) {
+        for (; at < limit; at++) {
             final char c = html.charAt(at);
             if (quote != 0) {
                 quote = (c == quote) ? 0 : quote;
@@ -138,6 +145,9 @@ public final class ReminderHtml {
         }
         if ("ol".equals(name)) {
             out.append(closing ? "</" + (lists.isEmpty() ? "ol" : lists.pop()) + ">" : openList(html, end, lists));
+        } else if ("li".equals(name) && !closing) {
+            final String attributes = attributesOf(name, html.substring(nameEnd, end));
+            out.append(switchList(attributes, lists)).append("<li").append(attributes).append('>');
         } else if (ALLOWED.contains(name)) {
             if (closing) {
                 out.append(VOID.contains(name) ? "" : "</" + name + ">");
@@ -148,14 +158,43 @@ public final class ReminderHtml {
         return end + 1;
     }
 
-    /** The opening tag an {@code <ol>} is written as: {@code <ul>} when its first item is a Quill bullet. */
+    /**
+     * The opening tag an {@code <ol>} is written as: {@code <ul>} when the tag that follows it is a Quill bullet
+     * item. Only the NEXT tag is read (Quill writes the first {@code <li>} directly after the {@code <ol>}), so
+     * a body of list openings with no items costs nothing extra.
+     */
     private static String openList(final String html, final int afterOl, final Deque<String> lists) {
-        final int item = indexOfIgnoreCase(html, "<li", afterOl);
-        final int itemEnd = (item < 0) ? -1 : tagEnd(html, item);
-        final boolean bullets = itemEnd > 0 && attributesOf("li", html.substring(item + 3, itemEnd))
-                .contains("data-list=\"bullet\"");
+        final int next = html.indexOf('<', afterOl);
+        final boolean item = next >= 0 && html.regionMatches(true, next, "<li", 0, 3)
+                && next + 3 < html.length() && !isLetter(html.charAt(next + 3));
+        final int itemEnd = item ? tagEnd(html, next) : -1;
+        final boolean bullets = itemEnd > 0 && isBullet(attributesOf("li", html.substring(next + 3, itemEnd)));
         lists.push(bullets ? "ul" : "ol");
         return bullets ? "<ul>" : "<ol>";
+    }
+
+    private static boolean isBullet(final String attributes) {
+        return attributes.contains("data-list=\"bullet\"");
+    }
+
+    /**
+     * Quill 2 keeps adjacent lists of different kinds in ONE {@code <ol>}, telling them apart by each item's
+     * {@code data-list}. When an item's kind is not the kind of the list being written, that list is closed and
+     * the other opened ({@code </ul><ol>}), so a mail client shows bullets as bullets and steps as numbers.
+     * An item with no kind, or outside any list, changes nothing.
+     */
+    private static String switchList(final String attributes, final Deque<String> lists) {
+        final boolean ordered = attributes.contains("data-list=\"ordered\"");
+        if (lists.isEmpty() || !(ordered || isBullet(attributes))) {
+            return "";
+        }
+        final String wanted = ordered ? "ol" : "ul";
+        if (wanted.equals(lists.peek())) {
+            return "";
+        }
+        final String open = lists.pop();
+        lists.push(wanted);
+        return "</" + open + "><" + wanted + ">";
     }
 
     /** {@code String.indexOf} ignoring case, without lower-casing the whole text (which can change its length). */
@@ -168,7 +207,6 @@ public final class ReminderHtml {
         return -1;
     }
 
-    /** The index just past {@code </name>}, or the end of the text when the tag is never closed. */
     private static int afterClosing(final String html, final String name, final int from) {
         final int close = indexOfIgnoreCase(html, "</" + name, from);
         final int end = (close < 0) ? -1 : html.indexOf('>', close);

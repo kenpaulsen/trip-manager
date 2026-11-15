@@ -7,9 +7,11 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import org.paulsens.trip.audit.AuditActor;
+import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.model.BindingType;
@@ -148,6 +150,47 @@ public class ReminderCommandsTest {
         return bean.approve(tripId, id, (shown == null) ? null : shown.getHash());
     }
 
+    // The page reads review(...) and card(...) once each; these pick one field for an assertion.
+
+    private static String previewBody(final ReminderCommands bean, final String tripId, final String id) {
+        final ReminderViews.Review review = bean.review(tripId, id);
+        return (review == null) ? "" : review.getBody();
+    }
+
+    private static String previewSubject(final ReminderCommands bean, final String tripId, final String id) {
+        final ReminderViews.Review review = bean.review(tripId, id);
+        return (review == null) ? "" : review.getSubject();
+    }
+
+    private static String previewPush(final ReminderCommands bean, final String tripId, final String id) {
+        final ReminderViews.Review review = bean.review(tripId, id);
+        return (review == null) ? "" : review.getPush();
+    }
+
+    private static String previewNote(final ReminderCommands bean, final String tripId, final String id) {
+        final ReminderViews.Review review = bean.review(tripId, id);
+        return (review == null) ? "" : review.getNote();
+    }
+
+    private static List<ReminderViews.Recipient> recipientRows(final ReminderCommands bean, final String tripId,
+            final String id) {
+        final ReminderViews.Review review = bean.review(tripId, id);
+        return (review == null) ? List.of() : review.getRecipients();
+    }
+
+    private static ReminderViews.Row row(final ReminderCommands bean, final String tripId, final String id) {
+        final ReminderViews.Review review = bean.review(tripId, id);
+        return (review == null) ? null : review.getRow();
+    }
+
+    private static String headline(final ReminderCommands bean, final String tripId) {
+        return bean.card(tripId).getHeadline();
+    }
+
+    private static String subline(final ReminderCommands bean, final String tripId) {
+        return bean.card(tripId).getSubline();
+    }
+
     private List<Mail> mailTo(final String address) {
         return outbox.stream().filter(m -> m.to().equals(address)).toList();
     }
@@ -186,11 +229,11 @@ public class ReminderCommandsTest {
         assertTrue(stranger.history(tripId).isEmpty());
         assertTrue(stranger.automaticMails(tripId).isEmpty());
         assertTrue(stranger.recipientsOf(tripId, id).isEmpty());
-        assertEquals(stranger.headline(tripId), "");
-        assertEquals(stranger.subline(tripId), "");
-        assertEquals(stranger.previewSubject(tripId, id), "");
-        assertEquals(stranger.previewBody(tripId, id), "");
-        assertEquals(stranger.previewPush(tripId, id), "");
+        assertEquals(headline(stranger, tripId), "");
+        assertEquals(subline(stranger, tripId), "");
+        assertEquals(previewSubject(stranger, tripId, id), "");
+        assertEquals(previewBody(stranger, tripId, id), "");
+        assertEquals(previewPush(stranger, tripId, id), "");
         assertEquals(stranger.fromSeed(tripId), "");
         assertEquals(stranger.replyToSeed(tripId), "");
         assertNull(stranger.formFor(tripId, id).getId());
@@ -212,8 +255,8 @@ public class ReminderCommandsTest {
     public void aNewTripHasNothingScheduled() throws IOException {
         final Trip trip = newTrip();
         assertTrue(admin().rows(trip.getId()).isEmpty());
-        assertEquals(admin().headline(trip.getId()), "No messages yet");
-        assertTrue(admin().subline(trip.getId()).startsWith("Nothing is scheduled"));
+        assertEquals(headline(admin(), trip.getId()), "No messages yet");
+        assertTrue(subline(admin(), trip.getId()).startsWith("Nothing is scheduled"));
         assertTrue(DAO.getInstance().getReminderPlan(trip.getId()).isEmpty(), "Looking creates no row");
     }
 
@@ -228,7 +271,7 @@ public class ReminderCommandsTest {
             assertFalse(reminder.isApprovedFor(trip));
             assertTrue(ReminderText.unknownTokens(reminder.getSubject() + reminder.getBody()).isEmpty());
         }
-        assertEquals(admin().headline(trip.getId()), "6 need approval");
+        assertEquals(headline(admin(), trip.getId()), "6 need approval");
         assertTrue(admin().addSuggested(trip.getId()));
         assertEquals(DAO.getInstance().getReminderPlan(trip.getId()).orElseThrow().getReminders().size(), 6);
 
@@ -330,7 +373,7 @@ public class ReminderCommandsTest {
         final String id = saved(trip, form);
         final String storedBody = stored(trip, id).getBody();
         assertEquals(storedBody, "<p>Hi</p><a>go</a>");
-        final String preview = admin().previewBody(trip.getId(), id);
+        final String preview = previewBody(admin(), trip.getId(), id);
         for (final String live : List.of("onerror", "onload", "script", "<img", "<svg")) {
             assertFalse(preview.contains(live), live + " reached the page: " + preview);
         }
@@ -347,7 +390,7 @@ public class ReminderCommandsTest {
                 .approved(trip, TestCallers.SITE_ADMIN_ID, NOW);
         assertTrue(DAO.getInstance().saveReminderPlan(TripReminderPlan.builder().tripId(trip.getId()).orgId(orgId)
                 .reminders(List.of(raw)).build()));
-        assertEquals(admin().previewBody(trip.getId(), "raw"), "<p>Hi Ann</p>");
+        assertEquals(previewBody(admin(), trip.getId(), "raw"), "<p>Hi Ann</p>");
         assertEquals(admin().formFor(trip.getId(), "raw").getBody(), "<p>Hi {{firstName}}</p>",
                 "The editor loads it as HTML too");
         assertTrue(admin().sendTest(trip.getId(), "raw", "raw.test@example.com"));
@@ -409,8 +452,8 @@ public class ReminderCommandsTest {
         assertEquals(admin().audienceLabel(custom), "Confirmed travelers with a missing or expiring passport");
 
         final String id = saved(trip, form("Looked up", TODAY));
-        assertEquals(admin().row(trip.getId(), id).getName(), "Looked up");
-        assertNull(admin().row(trip.getId(), "no-such-id"));
+        assertEquals(row(admin(), trip.getId(), id).getName(), "Looked up");
+        assertNull(row(admin(), trip.getId(), "no-such-id"));
         assertNotNull(new ReminderCommands(TestCallers::siteAdmin), "The page's own wiring builds");
         assertNotNull(new ReminderCommands());
     }
@@ -482,14 +525,14 @@ public class ReminderCommandsTest {
         assertEquals(stored(trip, id).sendDate(trip), TODAY);
         assertTrue(approve(admin(), trip.getId(), id));
 
-        final Trip moved = DAO.getInstance().getTrip(trip.getId(), org.paulsens.trip.cache.Cached.NO).orElseThrow();
+        final Trip moved = DAO.getInstance().getTrip(trip.getId(), Cached.NO).orElseThrow();
         moved.setStartDate(START.minusDays(1));
         assertTrue(DAO.getInstance().saveTrip(moved));
         final ReminderViews.Row row = admin().rows(trip.getId()).get(0);
         assertEquals(row.getStatusLabel(), "Changed, approve again");
         assertFalse(row.isApproved());
         assertTrue(row.isApprovable());
-        assertEquals(admin().headline(trip.getId()), "1 needs approval");
+        assertEquals(headline(admin(), trip.getId()), "1 needs approval");
         assertFalse(admin().sendNow(trip.getId(), id));
         assertTrue(mailTo(ann.getEmail()).isEmpty());
 
@@ -503,8 +546,8 @@ public class ReminderCommandsTest {
         final Trip trip = newTrip();
         final String id = saved(trip, form("Stop", TODAY.plusDays(5)));
         assertTrue(approve(admin(), trip.getId(), id));
-        assertTrue(admin().headline(trip.getId()).startsWith("Next: "));
-        assertTrue(admin().subline(trip.getId()).startsWith("1 of 1 scheduled messages approved"));
+        assertTrue(headline(admin(), trip.getId()).startsWith("Next: "));
+        assertTrue(subline(admin(), trip.getId()).startsWith("1 of 1 scheduled messages approved"));
         assertFalse(admin().sendNow(trip.getId(), id), "Not before its date");
 
         assertTrue(admin().withdraw(trip.getId(), id));
@@ -626,8 +669,8 @@ public class ReminderCommandsTest {
         assertEquals(targets.get(0).getName(), "Kit Test");
         assertEquals(targets.get(0).getAddresses(), manager.getEmail() + " (family manager)");
         assertEquals(targets.get(1).getAddresses(), "(no email address)");
-        assertEquals(admin().previewNote(trip.getId(), id), "Shown as Kit Test would receive it today (1 of 2).");
-        final List<ReminderViews.Recipient> shown = admin().recipientRows(trip.getId(), id);
+        assertEquals(previewNote(admin(), trip.getId(), id), "Shown as Kit Test would receive it today (1 of 2).");
+        final List<ReminderViews.Recipient> shown = recipientRows(admin(), trip.getId(), id);
         assertEquals(shown.size(), 2);
         assertEquals(shown.get(0).getName(), "Kit Test");
         assertEquals(shown.get(0).getReason(), "Confirmed");
@@ -690,7 +733,7 @@ public class ReminderCommandsTest {
         assertTrue(first.isPushed());
         assertFalse(first.isClearable());
         assertFalse(admin().clearSend(trip.getId(), first.getKey()), "A sent row can never be cleared");
-        assertEquals(admin().headline(trip.getId()), "All sent");
+        assertEquals(headline(admin(), trip.getId()), "All sent");
     }
 
     @Test
@@ -778,11 +821,11 @@ public class ReminderCommandsTest {
         final Trip trip = newTrip();
         final String id = saved(trip, form("Nobody", TODAY));
         assertTrue(approve(admin(), trip.getId(), id));
-        assertEquals(admin().previewNote(trip.getId(), id),
+        assertEquals(previewNote(admin(), trip.getId(), id),
                 "Nobody would receive this today, so the preview shows sample values.");
-        assertEquals(admin().previewSubject(trip.getId(), id), "About Sample Trip");
-        assertTrue(admin().previewBody(trip.getId(), id).contains("Hi Maria,"));
-        assertEquals(admin().previewPush(trip.getId(), id), "");
+        assertEquals(previewSubject(admin(), trip.getId(), id), "About Sample Trip");
+        assertTrue(previewBody(admin(), trip.getId(), id).contains("Hi Maria,"));
+        assertEquals(previewPush(admin(), trip.getId(), id), "");
         assertTrue(admin().sendNow(trip.getId(), id));
         final List<ReminderViews.HistoryRow> history = admin().history(trip.getId());
         assertEquals(history.size(), 1);
@@ -889,9 +932,9 @@ public class ReminderCommandsTest {
         // Looking again and approving what is there now works.
         assertTrue(approve(admin(), trip.getId(), id));
         assertNull(admin().review(trip.getId(), "no-such-id"));
-        assertEquals(admin().previewSubject(trip.getId(), "no-such-id"), "");
-        assertEquals(admin().previewNote(trip.getId(), "no-such-id"), "");
-        assertTrue(admin().recipientRows(trip.getId(), "no-such-id").isEmpty());
+        assertEquals(previewSubject(admin(), trip.getId(), "no-such-id"), "");
+        assertEquals(previewNote(admin(), trip.getId(), "no-such-id"), "");
+        assertTrue(recipientRows(admin(), trip.getId(), "no-such-id").isEmpty());
     }
 
     @Test
@@ -903,22 +946,27 @@ public class ReminderCommandsTest {
         form.setDays(30);
         final String id = saved(trip, form);
         final String shown = admin().review(trip.getId(), id).getHash();
-        final Trip moved = DAO.getInstance().getTrip(trip.getId(), org.paulsens.trip.cache.Cached.NO).orElseThrow();
+        final Trip moved = DAO.getInstance().getTrip(trip.getId(), Cached.NO).orElseThrow();
         moved.setStartDate(START.plusDays(2));
         assertTrue(DAO.getInstance().saveTrip(moved));
         assertFalse(admin().approve(trip.getId(), id, shown), "It would go out on a day the approver never saw");
     }
 
+    /** The confirmation never promises a daily run that will not come. NOW is 9 AM, the default run hour. */
     @Test
     public void approvingSaysWhatWillReallyHappen() throws IOException {
         final Trip trip = newTrip();
-        final String past = saved(trip, form("Past", TODAY.minusDays(5)));
-        final String due = saved(trip, form("Due", TODAY));
-        final String later = saved(trip, form("Later", TODAY.plusDays(5)));
-        assertTrue(approve(admin(), trip.getId(), past));
-        assertTrue(approve(admin(), trip.getId(), due));
-        assertTrue(approve(admin(), trip.getId(), later));
+        assertTrue(approve(admin(), trip.getId(), saved(trip, form("Past", TODAY.minusDays(5)))));
+        assertTrue(approve(admin(), trip.getId(), saved(trip, form("Due", TODAY))));
+        assertTrue(approve(admin(), trip.getId(), saved(trip, form("Later", TODAY.plusDays(5)))));
         assertEquals(admin().rows(trip.getId()).stream().filter(ReminderViews.Row::isApproved).count(), 3);
+
+        // Scheduled sending ships off, so nothing is promised to a run.
+        assertEquals(admin().whenItGoes(TODAY.plusDays(5)),
+                "will be sent on Mon, Mar 8, 2027 once scheduled sending is on");
+        assertEquals(admin().whenItGoes(TODAY), "is due today, and scheduled sending is off: use Send now to send it");
+        assertEquals(admin().whenItGoes(TODAY.minusDays(1)),
+                "was dated Tue, Mar 2, 2027, which has passed: use Send now to send it");
     }
 
     @Test
@@ -994,8 +1042,9 @@ public class ReminderCommandsTest {
         traveler.setFirst("Pat");
         traveler.setLast("Test");
         final String issue = "Your passport expires Aug 15, 2027, less than 6 months after the trip ends.";
-        final ReminderRecipients.Target target = new ReminderRecipients.Target(traveler, issue, List.of(),
-                java.util.Map.of(ReminderText.PASSPORT_ISSUE, issue, ReminderText.BALANCE_DUE, "$0.00"));
+        final ReminderRecipients.Target target = new ReminderRecipients.Target(traveler, issue,
+                ReminderRecipients.Discloses.PASSPORT, List.of(),
+                Map.of(ReminderText.PASSPORT_ISSUE, issue, ReminderText.BALANCE_DUE, "$0.00"));
         final ReminderRecipients.Target cut = target.seenBy(ReminderRecipients.Sight.NONE);
         assertEquals(cut.getReason(), "Passport needs attention");
         assertEquals(cut.facts().get(ReminderText.PASSPORT_ISSUE), "(passport details not shown)");
@@ -1003,8 +1052,9 @@ public class ReminderCommandsTest {
         final ReminderRecipients.Target whole = target.seenBy(ReminderRecipients.Sight.ALL);
         assertEquals(whole.getReason(), issue);
         assertEquals(whole.facts().get(ReminderText.BALANCE_DUE), "$0.00");
-        final ReminderRecipients.Target noIssue = new ReminderRecipients.Target(traveler, "Confirmed", List.of(),
-                java.util.Map.of(ReminderText.PASSPORT_ISSUE, "")).seenBy(ReminderRecipients.Sight.NONE);
+        final ReminderRecipients.Target noIssue = new ReminderRecipients.Target(traveler, "Confirmed",
+                ReminderRecipients.Discloses.NOTHING, List.of(), Map.of(ReminderText.PASSPORT_ISSUE, ""))
+                .seenBy(ReminderRecipients.Sight.NONE);
         assertEquals(noIssue.facts().get(ReminderText.PASSPORT_ISSUE), "", "No issue, nothing to stand in for");
         assertEquals(noIssue.getReason(), "Confirmed");
     }

@@ -22,6 +22,7 @@ import org.paulsens.trip.action.ReminderSender;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.cache.CacheClient;
 import org.paulsens.trip.cache.CacheKeys;
+import org.paulsens.trip.cache.CacheProbes;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.dynamo.DAO;
@@ -186,22 +187,26 @@ public final class ReminderScheduler {
     }
 
     /**
-     * One try at the day's run. Returning (true) means this instance is finished with the day: it sent, the
-     * switch is off, another instance holds the run, or the day was given up. A run that FAILS throws, after
-     * releasing its lock, so the retry a few minutes later is not turned away by this instance's own lock.
+     * One try at the day's run. Returning means this instance is finished with the day: it sent, the switch is
+     * off, another instance holds the run, or the day was given up. A run that FAILS throws, after releasing its
+     * lock, so the retry a few minutes later is not turned away by this instance's own lock.
      */
-    boolean attemptOnce(final LocalDate day, final Instant firstAttempt) {
+    void attemptOnce(final LocalDate day, final Instant firstAttempt) {
         if (!config.getBoolean(KnownSettings.REMINDERS_ENABLED)) {
-            return true;
+            return;
         }
         if (Duration.between(firstAttempt, clock.get()).compareTo(GIVE_UP_AFTER) > 0) {
             log.error("Trip reminder run for {} abandoned after repeated failures", day);
-            return true;
+            return;
         }
         // Best effort only (see the class comment): the ledger, not this lock, is what prevents a second send.
+        // A refused lock means "somebody holds it" only when the cache can hold anything at all: a cache client
+        // answers false both for a held lock and for a cache that is not answering, and in the second case the
+        // run goes ahead unlocked.
         final String lock = CacheKeys.reminderRunLockKey(day.toString());
-        if (!cacheClient.tryAcquireLock(lock, LOCK_TTL) && cacheRemembers(lock)) {
-            return true;
+        if (!cacheClient.tryAcquireLock(lock, LOCK_TTL)
+                && CacheProbes.remembers(cacheClient, CacheKeys.reminderRunProbeKey(day.toString()))) {
+            return;
         }
         try {
             runFor(day);
@@ -209,19 +214,6 @@ public final class ReminderScheduler {
             cacheClient.releaseLock(lock);
             throw ex;
         }
-        return true;
-    }
-
-    /**
-     * Whether a refused lock means "somebody holds it" rather than "the cache is not answering". A cache client
-     * answers false to a lock request in both cases; only a cache that can store and return a value can be
-     * holding a lock. When it cannot, the run goes ahead unlocked: the ledger still sends each message once.
-     */
-    private boolean cacheRemembers(final String lock) {
-        final String probe = lock + ":probe";
-        final String token = Long.toString(System.nanoTime());
-        return cacheClient.putValue(probe, token, Duration.ofMinutes(1))
-                && cacheClient.getValue(probe).filter(token::equals).isPresent();
     }
 
     /** Sends everything due on {@code day} (and the catch-up days before it). Returns the messages sent. */

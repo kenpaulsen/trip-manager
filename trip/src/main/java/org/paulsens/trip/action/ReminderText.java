@@ -136,6 +136,14 @@ public final class ReminderText {
         return render(ReminderHtml.clean(storedBody), values);
     }
 
+    /**
+     * {@link #renderBody} for a caller that merges ONE body for many people: {@code cleanedBody} is the result
+     * of one {@link ReminderHtml#clean}, so the cleaning is paid once per send and not once per traveler.
+     */
+    public static String renderCleaned(final String cleanedBody, final Map<String, String> values) {
+        return render(cleanedBody, values);
+    }
+
     private static String substitute(final String text, final Map<String, String> values, final boolean html) {
         if (text == null) {
             return "";

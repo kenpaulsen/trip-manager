@@ -14,6 +14,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
@@ -69,6 +71,9 @@ public class ReminderCommands {
     static final int MAX_RAW_BODY = 4 * MAX_BODY;
     private static final DateTimeFormatter DAY = DateTimeFormatter.ofPattern("EEE, MMM d, yyyy", Locale.US);
     private static final DateTimeFormatter MOMENT = DateTimeFormatter.ofPattern("MMM d, yyyy h:mm a", Locale.US);
+
+    /** The test-send counts kept here when the cache cannot count ({@link #underTestLimit}). */
+    private static final Map<String, AtomicLong> LOCAL_TEST_COUNTS = new ConcurrentHashMap<>();
 
     private final Supplier<Caller> callerSource;
     private final Supplier<AuditCommands> auditSource;
@@ -150,16 +155,6 @@ public class ReminderCommands {
         return new ReminderViews.Card((next == null) ? "All sent" : "Next: " + DAY.format(next), subline);
     }
 
-    /** {@link #card}'s big line. */
-    public String headline(final String tripId) {
-        return card(tripId).getHeadline();
-    }
-
-    /** {@link #card}'s small line. */
-    public String subline(final String tripId) {
-        return card(tripId).getSubline();
-    }
-
     /** The earliest date an approved message is still to go out on; null when every one has been sent. */
     private LocalDate nextSend(final Trip trip, final List<TripReminder> reminders) {
         final LocalDate today = today();
@@ -193,11 +188,6 @@ public class ReminderCommands {
             rows.add(rowOf(trip, reminder, history, today));
         }
         return rows;
-    }
-
-    /** One message's row; null when it no longer exists. */
-    public ReminderViews.Row row(final String tripId, final String reminderId) {
-        return rows(tripId).stream().filter(r -> r.getId().equals(reminderId)).findFirst().orElse(null);
     }
 
     private ReminderViews.Row rowOf(final Trip trip, final TripReminder reminder, final List<ReminderSend> history,
@@ -561,15 +551,29 @@ public class ReminderCommands {
         return true;
     }
 
-    /** What really happens next to a message approved now, in words for the confirmation. */
-    private String whenItGoes(final LocalDate date) {
+    /**
+     * What really happens next to a message approved now, in words for the confirmation. It never promises a
+     * daily run that will not come: not while scheduled sending is off, not for a date already past (the next
+     * run's one-day catch-up may or may not still reach it, so the facilitator is pointed at Send now), and not
+     * for today once today's run hour has gone by (tomorrow's catch-up sends it, a day late).
+     */
+    String whenItGoes(final LocalDate date) {
         final LocalDate today = today();
+        final boolean on = isSendingOn();
         if (date.isAfter(today)) {
-            return "will be sent on " + DAY.format(date) + (isSendingOn() ? "" : " once scheduled sending is on");
+            return "will be sent on " + DAY.format(date) + (on ? "" : " once scheduled sending is on");
         }
-        return date.isBefore(today.minusDays(1))
-                ? "was dated " + DAY.format(date) + ", which has passed, so it is sent only with Send now"
-                : "is due now: it goes out with the next daily run, or right away with Send now";
+        if (date.isBefore(today)) {
+            return "was dated " + DAY.format(date) + ", which has passed: use Send now to send it";
+        }
+        if (!on) {
+            return "is due today, and scheduled sending is off: use Send now to send it";
+        }
+        final ConfigCommands config = new ConfigCommands();
+        final int runHour = config.getInt(KnownSettings.REMINDERS_HOUR, 0, 23);
+        return (clock.get().atZone(ReminderClock.zone(config)).getHour() < runHour)
+                ? "is due today and goes out with today's run"
+                : "is due today, after today's run: use Send now, or it goes out with tomorrow's run";
     }
 
     /** Withdraws an approval: the message stays, as a draft, and will not be sent. */
@@ -663,36 +667,6 @@ public class ReminderCommands {
                 .recipients(rows).hash(reminder.approvalHash(reminder.sendDate(trip))).build();
     }
 
-    /** {@link #review}'s recipient rows; empty when the message is gone. */
-    public List<ReminderViews.Recipient> recipientRows(final String tripId, final String reminderId) {
-        final ReminderViews.Review review = review(tripId, reminderId);
-        return (review == null) ? List.of() : review.getRecipients();
-    }
-
-    /** The subject as one recipient reads it: the first person it would go to today, else sample values. */
-    public String previewSubject(final String tripId, final String reminderId) {
-        final ReminderViews.Review review = review(tripId, reminderId);
-        return (review == null) ? "" : review.getSubject();
-    }
-
-    /** The body HTML as one recipient reads it; see {@link #previewSubject}. */
-    public String previewBody(final String tripId, final String reminderId) {
-        final ReminderViews.Review review = review(tripId, reminderId);
-        return (review == null) ? "" : review.getBody();
-    }
-
-    /** The app notification text as one recipient reads it; "" when the message sends none. */
-    public String previewPush(final String tripId, final String reminderId) {
-        final ReminderViews.Review review = review(tripId, reminderId);
-        return (review == null) ? "" : review.getPush();
-    }
-
-    /** Says whose values the preview shows: a real traveler's name, or that they are samples. */
-    public String previewNote(final String tripId, final String reminderId) {
-        final ReminderViews.Review review = review(tripId, reminderId);
-        return (review == null) ? "" : review.getNote();
-    }
-
     private static String previewNote(final List<ReminderRecipients.Target> shown,
             final ReminderRecipients.Sight sight) {
         if (shown.isEmpty()) {
@@ -758,12 +732,23 @@ public class ReminderCommands {
         return true;
     }
 
-    /** Counts this send against the caller's hour. A cache that cannot count never blocks a test. */
+    /**
+     * Counts this send against the caller's hour. When the cache cannot count (it is down, or switched off) the
+     * count is kept in this JVM instead, the way the chat rate limiter falls back: the cap must not disappear
+     * exactly when the cache does.
+     */
     private boolean underTestLimit() {
         final long hour = clock.get().getEpochSecond() / 3600;
         final String key = CacheKeys.reminderTestSendsKey(caller().personId().getValue(), hour);
-        return DAO.getInstance().getCacheClient().increment(key, 1, Duration.ofHours(1))
-                .map(count -> count <= MAX_TESTS_PER_HOUR).orElse(true);
+        final long count = DAO.getInstance().getCacheClient().increment(key, 1, Duration.ofHours(1))
+                .orElseGet(() -> countHere(key, hour));
+        return count <= MAX_TESTS_PER_HOUR;
+    }
+
+    private static long countHere(final String key, final long hour) {
+        // Only this hour's counters are kept; one facilitator's hour is one entry.
+        LOCAL_TEST_COUNTS.keySet().removeIf(old -> !old.endsWith(":" + hour));
+        return LOCAL_TEST_COUNTS.computeIfAbsent(key, k -> new AtomicLong()).incrementAndGet();
     }
 
     // ================================================================== sender (From and Reply-To)

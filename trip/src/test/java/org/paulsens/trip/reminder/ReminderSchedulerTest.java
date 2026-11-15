@@ -32,6 +32,7 @@ import org.testng.annotations.Test;
 
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
+import static org.testng.Assert.assertThrows;
 import static org.testng.Assert.assertTrue;
 
 /**
@@ -108,6 +109,10 @@ public class ReminderSchedulerTest {
     private static void plan(final Trip trip, final TripReminder... reminders) throws IOException {
         assertTrue(DAO.getInstance().saveReminderPlan(TripReminderPlan.builder().tripId(trip.getId())
                 .orgId(trip.getOrgId()).reminders(List.of(reminders)).build()));
+    }
+
+    private static List<Trip> tripIndexDown(final LocalDateTime endedAfter) {
+        throw new IllegalStateException("trip index down");
     }
 
     private long mails(final String address) {
@@ -222,8 +227,8 @@ public class ReminderSchedulerTest {
         plan(trip, reminder(trip, TripReminder.Kind.COUNTDOWN, TODAY, false));
         final ReminderScheduler first = ReminderScheduler.forTest(new NoopCacheClient(), enabled, sender(), () -> NOW);
         final ReminderScheduler second = ReminderScheduler.forTest(new NoopCacheClient(), enabled, sender(), () -> NOW);
-        assertTrue(first.attemptOnce(TODAY, NOW));
-        assertTrue(second.attemptOnce(TODAY, NOW));
+        first.attemptOnce(TODAY, NOW);
+        second.attemptOnce(TODAY, NOW);
         assertEquals(mails(tess), 1);
     }
 
@@ -233,10 +238,10 @@ public class ReminderSchedulerTest {
         final String tess = traveler(trip);
         plan(trip, reminder(trip, TripReminder.Kind.COUNTDOWN, TODAY, false));
         final InMemoryCacheClient shared = new InMemoryCacheClient();
-        assertTrue(ReminderScheduler.forTest(shared, enabled, sender(), () -> NOW).attemptOnce(TODAY, NOW));
+        ReminderScheduler.forTest(shared, enabled, sender(), () -> NOW).attemptOnce(TODAY, NOW);
         assertEquals(mails(tess), 1);
         mailedTo.clear();
-        assertTrue(ReminderScheduler.forTest(shared, enabled, sender(), () -> NOW).attemptOnce(TODAY, NOW));
+        ReminderScheduler.forTest(shared, enabled, sender(), () -> NOW).attemptOnce(TODAY, NOW);
         assertTrue(mailedTo.isEmpty(), "The second instance stood down at the lock");
     }
 
@@ -248,13 +253,11 @@ public class ReminderSchedulerTest {
         plan(trip, reminder(trip, TripReminder.Kind.COUNTDOWN, TODAY, false));
         final InMemoryCacheClient shared = new InMemoryCacheClient();
         final ReminderScheduler failing = ReminderScheduler.forTest(shared, enabled, sender(), () -> NOW,
-                endedAfter -> {
-                    throw new IllegalStateException("trip index down");
-                });
-        org.testng.Assert.assertThrows(IllegalStateException.class, () -> failing.attemptOnce(TODAY, NOW));
+                ReminderSchedulerTest::tripIndexDown);
+        assertThrows(IllegalStateException.class, () -> failing.attemptOnce(TODAY, NOW));
         assertEquals(mails(tess), 0);
         // The retry, minutes later, on the same cache: the lock was released, so it runs.
-        assertTrue(ReminderScheduler.forTest(shared, enabled, sender(), () -> NOW).attemptOnce(TODAY, NOW));
+        ReminderScheduler.forTest(shared, enabled, sender(), () -> NOW).attemptOnce(TODAY, NOW);
         assertEquals(mails(tess), 1);
         // And the whole loop survives the failure without throwing.
         failing.attempt(TODAY, NOW);
@@ -268,7 +271,7 @@ public class ReminderSchedulerTest {
         plan(trip, reminder(trip, TripReminder.Kind.COUNTDOWN, TODAY, false));
         // A mock answers false to every lock and every write: a cache that is not there.
         final CacheClient down = Mockito.mock(CacheClient.class);
-        assertTrue(ReminderScheduler.forTest(down, enabled, sender(), () -> NOW).attemptOnce(TODAY, NOW));
+        ReminderScheduler.forTest(down, enabled, sender(), () -> NOW).attemptOnce(TODAY, NOW);
         assertEquals(mails(tess), 1);
     }
 
@@ -323,7 +326,7 @@ public class ReminderSchedulerTest {
         final Trip trip = newTrip();
         final String tess = traveler(trip);
         plan(trip, reminder(trip, TripReminder.Kind.COUNTDOWN, TODAY, false));
-        assertTrue(scheduler(new ConfigCommands()).attemptOnce(TODAY, NOW), "Off is a finished run");
+        scheduler(new ConfigCommands()).attemptOnce(TODAY, NOW);
         assertEquals(mails(tess), 0);
     }
 
@@ -332,7 +335,7 @@ public class ReminderSchedulerTest {
         final Trip trip = newTrip();
         final String tess = traveler(trip);
         plan(trip, reminder(trip, TripReminder.Kind.COUNTDOWN, TODAY, false));
-        assertTrue(scheduler(enabled).attemptOnce(TODAY, NOW.minus(Duration.ofHours(3))));
+        scheduler(enabled).attemptOnce(TODAY, NOW.minus(Duration.ofHours(3)));
         assertEquals(mails(tess), 0);
     }
 

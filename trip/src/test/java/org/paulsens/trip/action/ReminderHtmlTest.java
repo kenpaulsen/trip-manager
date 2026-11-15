@@ -119,14 +119,42 @@ public class ReminderHtmlTest {
                 "<a href=\"https://example.com/o'brien\" rel=\"noopener noreferrer\" target=\"_blank\">x</a>");
     }
 
-    /** The largest body a save hands the cleaner (ReminderCommands.MAX_RAW_BODY), built to be slow. */
-    @Test(timeOut = 20_000)
+    /** Quill 2 keeps a bullet list and the numbered list after it in ONE ol: the written list switches kind. */
+    @Test
+    public void adjacentBulletsAndStepsEachKeepTheirKind() {
+        assertEquals(ReminderHtml.clean("<ol><li data-list=\"bullet\">A</li><li data-list=\"ordered\">One</li>"
+                + "<li data-list=\"ordered\">Two</li></ol>"),
+                "<ul><li data-list=\"bullet\">A</li></ul><ol><li data-list=\"ordered\">One</li>"
+                        + "<li data-list=\"ordered\">Two</li></ol>");
+        assertEquals(ReminderHtml.clean("<ol><li data-list=\"ordered\">One</li><li data-list=\"bullet\">A</li></ol>"),
+                "<ol><li data-list=\"ordered\">One</li></ol><ul><li data-list=\"bullet\">A</li></ul>");
+        assertEquals(ReminderHtml.clean("<li data-list=\"bullet\">loose</li>"), "<li data-list=\"bullet\">loose</li>",
+                "An item outside any list opens nothing");
+        assertEquals(ReminderHtml.clean("<ol><link data-list=\"bullet\"><li data-list=\"ordered\">a</li></ol>"),
+                "<ol><li data-list=\"ordered\">a</li></ol>", "Only a real li decides the kind");
+    }
+
+    /**
+     * Bodies built to be slow, at the largest size a save hands the cleaner (ReminderCommands.MAX_RAW_BODY): each
+     * made the cleaner quadratic before the tag scan was bounded and the list look-ahead read one tag only.
+     */
+    @Test(timeOut = 10_000)
     public void aHostileBodyAtTheSizeCapIsCleanedPromptly() {
         final int cap = ReminderCommands.MAX_RAW_BODY;
         assertEquals(ReminderHtml.clean("<a".repeat(cap / 2)), "&lt;a".repeat(cap / 2));
         assertEquals(ReminderHtml.clean("<svg></svg>".repeat(cap / 11)), "");
-        assertEquals(ReminderHtml.clean("<a \"".repeat(cap / 4) + ">").length() > 0, true);
+        assertEquals(ReminderHtml.clean("<ol>".repeat(cap / 4)), "<ol>".repeat(cap / 4));
+        assertFalse(ReminderHtml.clean("<ol>".repeat(cap / 4 - 2) + "<li '\">").isEmpty());
+        // Openings whose quote never closes before the end, with a ">" far away so each must be scanned.
+        assertFalse(ReminderHtml.clean("<a \"".repeat(cap / 4 - 1) + "'>  ").isEmpty());
+        assertFalse(ReminderHtml.clean("<a".repeat(cap / 2 - 1) + "\">").isEmpty());
         assertEquals(ReminderHtml.clean("x\u0130<script>a</script>y"), "x\u0130y", "A case that changes length");
+    }
+
+    @Test
+    public void somethingLongerThanATagIsText() {
+        final String attribute = " title=\"" + "x".repeat(ReminderHtml.MAX_TAG) + "\"";
+        assertTrue(ReminderHtml.clean("<p" + attribute + ">t</p>").startsWith("&lt;p title="));
     }
 
     @Test

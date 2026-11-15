@@ -159,7 +159,8 @@ send failed shows as "Failed", not "Sent".
 it, shared with the page, and a bad value falls back to the setting's default), a 5-minute retry after a
 failure for up to 2 hours, and the system identity bound for the attempt. A failed run RELEASES its lock
 before it rethrows, or the retry would be turned away by the run's own lock; and a lock refused by a cache
-that cannot even store a value means the cache is down, not that someone holds the run, so the run goes ahead. It is started from `ChatLifecycleListener` (the
+that cannot even store a value means the cache is down, not that someone holds the run, so the run goes ahead. It is
+started from `ChatLifecycleListener` (the
 listener order lives in the deployed `web.xml`). What differs from the digest is where "once" comes from: the
 digest's guarantee is a cache lock; here it is the DynamoDB ledger, so the cache lock only saves a second
 instance the same reads, and a cache that grants every lock (`NoopCacheClient`) still sends once.

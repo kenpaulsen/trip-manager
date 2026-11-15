@@ -21,6 +21,7 @@ import org.paulsens.trip.model.OrgMember;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Registration;
+import org.paulsens.trip.model.ReminderSend;
 import org.paulsens.trip.model.Transaction;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripEvent;
@@ -175,6 +176,42 @@ public class AccountDeletionCommandsTest {
         Assert.assertFalse(flightAfter.getPrivNotes().containsKey(me.getId()), "the private note is gone");
         Assert.assertEquals(dao.deleteChatReactionsBy(ChatChannel.Id.forTrip(past.getId()), me.getId()), 0,
                 "no reaction of theirs is left to delete");
+    }
+
+    /** The record of reminder emails holds a name and an address; deletion erases both and keeps the row. */
+    @Test
+    public void theReminderSendHistoryLosesTheNameAndAddress() throws IOException {
+        final Person me = saved("Reminded");
+        final Person witness = saved("Witness");
+        final Organization org = savedOrg("Pilgrims Inc", "office@example.org", null);
+        join(me, org);
+        final Trip trip = savedTrip("Past pilgrimage", -30, -20, org, me, witness);
+        Assert.assertTrue(dao.saveRegistration(new Registration(trip.getId(), me.getId())
+                .withStatus(Registration.Status.CONFIRMED)));
+        // A trip the person is NOT on, where their address was mailed for somebody else (a dependent's row).
+        final Trip other = savedTrip("Family trip", -60, -50, org, witness);
+        final LocalDate day = LocalDate.of(2026, 1, 5);
+        Assert.assertTrue(dao.claimReminderSend(ReminderSend.builder().tripId(trip.getId())
+                .reminderId("r1").sendDate(day).personId(me.getId()).personName("Reminded Person")
+                .toEmail(me.getEmail()).outcome(ReminderSend.Outcome.SENT).build()));
+        Assert.assertTrue(dao.claimReminderSend(ReminderSend.builder().tripId(other.getId())
+                .reminderId("r1").sendDate(day).personId(witness.getId()).personName("Witness Person")
+                .toEmail(me.getEmail() + ", " + witness.getEmail())
+                .outcome(ReminderSend.Outcome.SENT).build()));
+        final String address = me.getEmail();
+
+        final AccountDeletionCommands.Outcome outcome = deletion.deleteOwnAccount(me.getId(),
+                AccountDeletionCommands.CONFIRMATION, actor(me));
+
+        Assert.assertTrue(outcome.ok(), outcome.message());
+        final ReminderSend mine = dao.getReminderSends(trip.getId()).get(0);
+        Assert.assertEquals(mine.getPersonName(), "Deleted Account");
+        Assert.assertEquals(mine.getToEmail(), "");
+        Assert.assertEquals(mine.getOutcome(), ReminderSend.Outcome.SENT, "the row stays");
+        final ReminderSend theirs = dao.getReminderSends(other.getId()).get(0);
+        Assert.assertEquals(theirs.getPersonName(), "Witness Person");
+        Assert.assertFalse(theirs.getToEmail().contains(address), theirs.getToEmail());
+        Assert.assertEquals(theirs.getToEmail(), witness.getEmail(), "the other address on that row is kept");
     }
 
     /**
