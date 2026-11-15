@@ -1,12 +1,10 @@
 package org.paulsens.trip.action;
 
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.faces.context.FacesContext;
 import jakarta.inject.Named;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
@@ -113,19 +111,7 @@ public class TripDeleteCommands {
         if (trip == null || trip.getId() == null) {
             return List.of();
         }
-        final FacesContext ctx = FacesContext.getCurrentInstance();
-        if (ctx == null) {
-            return computeBlockers(trip);
-        }
-        final Map<Object, Object> attrs = ctx.getAttributes();
-        final String key = BLOCKERS_MEMO_PREFIX + trip.getId();
-        @SuppressWarnings("unchecked")
-        List<String> memo = (List<String>) attrs.get(key);
-        if (memo == null) {
-            memo = computeBlockers(trip);
-            attrs.put(key, memo);
-        }
-        return memo;
+        return RequestMemo.get(BLOCKERS_MEMO_PREFIX + trip.getId(), () -> computeBlockers(trip));
     }
 
     /** The lighter-red button's click: say WHY the delete cannot happen, one growl message per reason. */

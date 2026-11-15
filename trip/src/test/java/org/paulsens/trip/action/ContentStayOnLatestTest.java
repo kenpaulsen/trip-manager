@@ -383,6 +383,38 @@ public class ContentStayOnLatestTest {
         Assert.assertEquals(content.getKind(pinned), "STANDARD");
     }
 
+    /**
+     * Editing an aged-out item of an organization's own template: on that organization's site the menu lists its
+     * versions and both kinds of choice succeed; on the shared site and another organization's, both are refused.
+     */
+    @Test
+    public void anAgedOutOrgItemIsEditableOnItsOwnSiteOnly() {
+        final ContentCommands content = admin();
+        final String org = "3a2b1c0d-9e8f-4a7b-8c6d-5e4f3a2b1c0d";
+        saveTemplateOf(org, "sol-aged-edit", "<p>{{msg}}</p>", text("msg", "Message"));
+        saveTemplateOf(org, "sol-aged-edit", "<p>two {{msg}}</p>", text("msg", "Message"));
+        final ContentInstance pinned = new ContentInstance("sol-aged-edit-row", "sol.section-aged-edit", "Aged",
+                "sol-aged-edit", 99, new HashMap<>(Map.of("msg", "x")), null, 0, 0, null, null);
+        final SiteContext own = siteOf(org);
+        Assert.assertTrue(onSite(own, () -> content.getTemplateVersions(pinned)).containsAll(List.of(2, 1)));
+        Assert.assertEquals(onSite(own, () -> content.versionChoices(pinned)).getFirst(),
+                ContentCommands.STAY_ON_LATEST);
+        Assert.assertTrue(onSite(own, () -> content.retargetTemplateVersion(pinned.copy(),
+                ContentCommands.STAY_ON_LATEST)), "Stay on Latest on the organization's own site");
+        Assert.assertTrue(onSite(own, () -> content.retargetTemplateVersion(pinned.copy(), "1")),
+                "and a numbered version");
+        for (final SiteContext elsewhere : List.of(SiteContext.shared(null),
+                siteOf("4b3c2d1e-0f9a-4b8c-9d7e-6f5a4b3c2d1e"))) {
+            Assert.assertEquals(onSite(elsewhere, () -> content.getTemplateVersions(pinned)), List.of(99),
+                    "nothing of the organization's is offered elsewhere");
+            Assert.assertFalse(onSite(elsewhere, () -> content.versionChoices(pinned))
+                    .contains(ContentCommands.STAY_ON_LATEST));
+            Assert.assertFalse(onSite(elsewhere, () -> content.retargetTemplateVersion(pinned.copy(),
+                    ContentCommands.STAY_ON_LATEST)));
+            Assert.assertFalse(onSite(elsewhere, () -> content.retargetTemplateVersion(pinned.copy(), "1")));
+        }
+    }
+
     /** The version menu offers, and the server accepts, only versions the item may use. */
     @Test
     public void theMenuOffersNoVersionOwnedByAnotherOrganization() {
@@ -392,7 +424,14 @@ public class ContentStayOnLatestTest {
         saveTemplateOf("9e8d7c6b-5a49-4382-8716-05f4e3d2c1b0", "sol-menu-org", "<b>{{msg}}</b>",
                 text("msg", "Message"));
         Assert.assertEquals(content.getTemplateVersions(item), List.of(1), "v2 is another organization's");
-        Assert.assertEquals(content.versionChoices(item), List.of(ContentCommands.STAY_ON_LATEST, "1"));
+        Assert.assertEquals(content.versionChoices(item), List.of("1"),
+                "and Stay on Latest is not offered, since following v2 would only be refused");
+        Assert.assertEquals(content.choiceLabel(item, "1"), "v1 (in use)",
+                "an older version is never labeled latest while the real latest exists");
+        item.setStayOnLatest(true);
+        Assert.assertEquals(content.versionChoices(item), List.of(ContentCommands.STAY_ON_LATEST, "1"),
+                "an item already marked keeps the choice, so the menu shows what is stored");
+        item.setStayOnLatest(false);
         Assert.assertFalse(content.isTemplateOutdated(item), "and is not offered as an upgrade");
         Assert.assertFalse(content.retargetTemplateVersion(item, "2"), "a posted v2 is refused");
         Assert.assertEquals(item.getTemplateVersion(), 1);

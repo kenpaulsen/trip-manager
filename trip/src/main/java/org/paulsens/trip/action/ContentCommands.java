@@ -1404,13 +1404,19 @@ public class ContentCommands {
                 && !retainedTemplates(instance.getTemplateId()).isEmpty();
     }
 
-    /** The version menu's values: {@link #STAY_ON_LATEST} first, then every selectable version, newest first. */
+    /**
+     * The version menu's values: {@link #STAY_ON_LATEST} first, then every selectable version, newest first. Stay on
+     * Latest is left out for an item that may not follow the template's current version ({@link #mayFollow}), since
+     * choosing it would only be refused; an item already marked keeps it, so the menu can show what is stored.
+     */
     public List<String> versionChoices(final ContentInstance instance) {
         if (!offersVersionMenu(instance)) {
             return List.of();
         }
         final List<String> choices = new ArrayList<>();
-        choices.add(STAY_ON_LATEST);
+        if (instance.isStayOnLatest() || mayFollowCurrent(instance)) {
+            choices.add(STAY_ON_LATEST);
+        }
         getTemplateVersions(instance).forEach(version -> choices.add(String.valueOf(version)));
         return choices;
     }
@@ -1435,8 +1441,7 @@ public class ContentCommands {
             return List.of();
         }
         final List<ContentTemplate> retained = retainedTemplates(instance.getTemplateId());
-        final ContentTemplate saved = retained.stream()
-                .filter(t -> t.getVersion() == instance.getTemplateVersion()).findFirst().orElse(null);
+        final ContentTemplate saved = savedIn(retained, instance);
         final List<Integer> versions = new ArrayList<>();
         // Only versions this item may move to (mayFollow): a version owned by another organization is not offered.
         retained.stream().filter(t -> mayFollow(saved, t)).forEach(t -> versions.add(t.getVersion()));
@@ -1444,6 +1449,27 @@ public class ContentCommands {
             versions.add(instance.getTemplateVersion());
         }
         return versions.stream().distinct().sorted(Comparator.reverseOrder()).toList();
+    }
+
+    /** The template's current version from its retained history (the dialog's request memo), or null. */
+    private ContentTemplate currentRetained(final String templateId) {
+        if (templateId == null) {
+            return null;
+        }
+        return retainedTemplates(templateId).stream().max(Comparator.comparingInt(ContentTemplate::getVersion))
+                .orElse(null);
+    }
+
+    /** Whether the item may follow the template's current version: the Stay on Latest choice's own guard. */
+    private boolean mayFollowCurrent(final ContentInstance instance) {
+        final ContentTemplate current = currentRetained(instance.getTemplateId());
+        return current != null && mayFollow(savedIn(retainedTemplates(instance.getTemplateId()), instance), current);
+    }
+
+    /** The instance's saved-against version among {@code retained}, or null when it is not retained. */
+    private static ContentTemplate savedIn(final List<ContentTemplate> retained, final ContentInstance instance) {
+        return retained.stream().filter(t -> t.getVersion() == instance.getTemplateVersion()).findFirst()
+                .orElse(null);
     }
 
     /**
@@ -1477,9 +1503,9 @@ public class ContentCommands {
 
     /** The version menu's row label, marking the newest one and the instance's own. */
     public String versionLabel(final ContentInstance instance, final int version) {
-        final List<Integer> versions = getTemplateVersions(instance);
+        final ContentTemplate current = instance == null ? null : currentRetained(instance.getTemplateId());
         final String suffix;
-        if (!versions.isEmpty() && versions.getFirst() == version) {
+        if (current != null && current.getVersion() == version) {
             suffix = " (latest)";
         } else if (instance != null && !instance.isStayOnLatest() && instance.getTemplateVersion() == version) {
             suffix = " (in use)";

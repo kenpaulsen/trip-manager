@@ -1475,7 +1475,9 @@ public class TripCommands {
      * on the trip's org: an org site reaches only its own trips, a shared site the orgs it lists (its
      * sharing tenants, org-less legacy trips, and a hosted org only while the shared page curates it).
      * Everything is reachable off a bound request (mail, digests, schedulers). Every trip READ on this
-     * bean applies it, so lists never offer what {@link #getTrip} would then answer blank.
+     * bean applies it, so lists never offer what {@link #getTrip} would then answer blank -- with ONE named
+     * exception: {@link #getTripsForUserInPeopleReachOnAnySite}, the merge comparison, which must see a person's
+     * trips on every site and links only what {@link #reachesThisSite} allows.
      */
     static boolean reachesHere(final Trip trip) {
         return ListingScope.reachable(trip.getOrgId());
