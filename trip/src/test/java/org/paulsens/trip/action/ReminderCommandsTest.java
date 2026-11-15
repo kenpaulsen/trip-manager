@@ -142,6 +142,12 @@ public class ReminderCommandsTest {
         return who;
     }
 
+    /** Approves the way the page does: with the hash of what the review dialog just showed. */
+    private static boolean approve(final ReminderCommands bean, final String tripId, final String id) {
+        final ReminderViews.Review shown = bean.review(tripId, id);
+        return bean.approve(tripId, id, (shown == null) ? null : shown.getHash());
+    }
+
     private List<Mail> mailTo(final String address) {
         return outbox.stream().filter(m -> m.to().equals(address)).toList();
     }
@@ -189,7 +195,7 @@ public class ReminderCommandsTest {
         assertEquals(stranger.replyToSeed(tripId), "");
         assertNull(stranger.formFor(tripId, id).getId());
         assertFalse(stranger.save(tripId, form("Mine", TODAY)));
-        assertFalse(stranger.approve(tripId, id));
+        assertFalse(approve(stranger, tripId, id));
         assertFalse(stranger.withdraw(tripId, id));
         assertFalse(stranger.sendNow(tripId, id));
         assertFalse(stranger.delete(tripId, id));
@@ -231,7 +237,7 @@ public class ReminderCommandsTest {
         final List<ReminderViews.Row> undated = rows.stream().filter(r -> "nodate".equals(r.getStatusClass())).toList();
         assertEquals(undated.size(), 3);
         assertFalse(undated.get(0).isApprovable());
-        assertFalse(admin().approve(trip.getId(), undated.get(0).getId()));
+        assertFalse(approve(admin(), trip.getId(), undated.get(0).getId()));
         assertEquals(rows.get(rows.size() - 1).getSendDateText(), "No date", "Undated rows sort last");
         assertEquals(rows.get(0).getName(), "Passport check", "Earliest send date first");
     }
@@ -286,6 +292,11 @@ public class ReminderCommandsTest {
         hugeBody.setBody("x".repeat(50_001));
         assertFalse(admin().save(tripId, hugeBody));
 
+        final ReminderViews.Form rawTooLong = form("Bad", TODAY);
+        rawTooLong.setBody("<a".repeat(ReminderCommands.MAX_RAW_BODY));
+        assertFalse(admin().save(tripId, rawTooLong));
+        assertEquals(rawTooLong.getProblem(), "The message is too long.");
+
         final ReminderViews.Form longPush = form("Bad", TODAY);
         longPush.setPushText("x".repeat(181));
         assertFalse(admin().save(tripId, longPush));
@@ -337,6 +348,10 @@ public class ReminderCommandsTest {
         assertTrue(DAO.getInstance().saveReminderPlan(TripReminderPlan.builder().tripId(trip.getId()).orgId(orgId)
                 .reminders(List.of(raw)).build()));
         assertEquals(admin().previewBody(trip.getId(), "raw"), "<p>Hi Ann</p>");
+        assertEquals(admin().formFor(trip.getId(), "raw").getBody(), "<p>Hi {{firstName}}</p>",
+                "The editor loads it as HTML too");
+        assertTrue(admin().sendTest(trip.getId(), "raw", "raw.test@example.com"));
+        assertEquals(mailTo("raw.test@example.com").get(0).body(), "<p>Hi Ann</p>");
         assertTrue(admin().sendNow(trip.getId(), "raw"));
         assertEquals(mailTo(ann.getEmail()).get(0).body(), "<p>Hi Ann</p>");
     }
@@ -380,7 +395,9 @@ public class ReminderCommandsTest {
     public void theDialogsMenusAndTheSingleRowLookup() throws IOException {
         final Trip trip = newTrip();
         assertEquals(admin().anchorChoices().size(), TripReminder.Anchor.values().length);
-        assertEquals(admin().anchorChoices().get(0).getId(), "TRIP_START");
+        assertEquals(admin().anchorChoices().get(1).getId(), "TRIP_START");
+        assertEquals(admin().anchorChoices().get(1).getLabel(), "The trip start");
+        assertEquals(admin().anchorChoices().get(3).getLabel(), "A date I choose");
         assertEquals(admin().audienceChoices().size(), TripReminder.Audience.values().length);
         assertEquals(admin().audienceChoices().get(0).getLabel(), "Everyone confirmed on the trip");
 
@@ -437,7 +454,7 @@ public class ReminderCommandsTest {
         final Person ann = newPerson("Ann", "ann." + RandomData.genAlpha(6) + "@example.com");
         register(trip, ann, Registration.Status.CONFIRMED);
         final String id = saved(trip, form("Edited", TODAY));
-        assertTrue(admin().approve(trip.getId(), id));
+        assertTrue(approve(admin(), trip.getId(), id));
         assertTrue(stored(trip, id).isApprovedFor(trip));
         assertEquals(stored(trip, id).getApprovedBy(), TestCallers.SITE_ADMIN_ID);
         assertEquals(admin().rows(trip.getId()).get(0).getStatusLabel(), "Approved");
@@ -463,7 +480,7 @@ public class ReminderCommandsTest {
         form.setDays(90);
         final String id = saved(trip, form);
         assertEquals(stored(trip, id).sendDate(trip), TODAY);
-        assertTrue(admin().approve(trip.getId(), id));
+        assertTrue(approve(admin(), trip.getId(), id));
 
         final Trip moved = DAO.getInstance().getTrip(trip.getId(), org.paulsens.trip.cache.Cached.NO).orElseThrow();
         moved.setStartDate(START.minusDays(1));
@@ -476,7 +493,7 @@ public class ReminderCommandsTest {
         assertFalse(admin().sendNow(trip.getId(), id));
         assertTrue(mailTo(ann.getEmail()).isEmpty());
 
-        assertTrue(admin().approve(trip.getId(), id));
+        assertTrue(approve(admin(), trip.getId(), id));
         assertTrue(admin().sendNow(trip.getId(), id), "Yesterday's date, approved: sendable by hand");
         assertEquals(mailTo(ann.getEmail()).size(), 1);
     }
@@ -485,7 +502,7 @@ public class ReminderCommandsTest {
     public void withdrawAndDeleteStopTheMessage() throws IOException {
         final Trip trip = newTrip();
         final String id = saved(trip, form("Stop", TODAY.plusDays(5)));
-        assertTrue(admin().approve(trip.getId(), id));
+        assertTrue(approve(admin(), trip.getId(), id));
         assertTrue(admin().headline(trip.getId()).startsWith("Next: "));
         assertTrue(admin().subline(trip.getId()).startsWith("1 of 1 scheduled messages approved"));
         assertFalse(admin().sendNow(trip.getId(), id), "Not before its date");
@@ -496,7 +513,7 @@ public class ReminderCommandsTest {
         assertNull(stored(trip, id));
         assertFalse(admin().delete(trip.getId(), id));
         assertFalse(admin().withdraw(trip.getId(), id));
-        assertFalse(admin().approve(trip.getId(), id));
+        assertFalse(approve(admin(), trip.getId(), id));
         assertFalse(admin().sendTest(trip.getId(), id, "x@example.com"));
     }
 
@@ -616,7 +633,7 @@ public class ReminderCommandsTest {
         assertEquals(shown.get(0).getReason(), "Confirmed");
         assertEquals(shown.get(1).getAddresses(), "(no email address)");
 
-        assertTrue(admin().approve(trip.getId(), id));
+        assertTrue(approve(admin(), trip.getId(), id));
         assertTrue(admin().sendNow(trip.getId(), id));
         final List<Mail> toManager = mailTo(manager.getEmail());
         assertEquals(toManager.size(), 1);
@@ -641,7 +658,7 @@ public class ReminderCommandsTest {
         form.setPushText("{{tripTitle}} starts in {{daysUntilDeparture}} days");
         final String id = saved(trip, form);
         assertEquals(admin().rows(trip.getId()).get(0).getChannel(), "Email and app notification");
-        assertTrue(admin().approve(trip.getId(), id));
+        assertTrue(approve(admin(), trip.getId(), id));
         assertTrue(admin().sendNow(trip.getId(), id));
 
         final Mail toAnn = mailTo(ann.getEmail()).get(0);
@@ -665,7 +682,8 @@ public class ReminderCommandsTest {
         final ReminderViews.Row row = admin().rows(trip.getId()).get(0);
         assertEquals(row.getStatusLabel(), "Sent");
         assertEquals(row.getStatusNote(), "Sent to 2 people.");
-        assertFalse(row.isSendable());
+        assertTrue(row.isSendable(), "Offered again, for anyone missed; the ledger keeps the rest to one message");
+        assertEquals(row.getSendLabel(), "Send to anyone missed");
         final ReminderViews.HistoryRow first = admin().history(trip.getId()).get(0);
         assertEquals(first.getHow(), "Sent by hand");
         assertEquals(first.getReminderName(), "Hello");
@@ -681,7 +699,7 @@ public class ReminderCommandsTest {
         final Person ann = newPerson("Ann", "ann." + RandomData.genAlpha(6) + "@example.com");
         register(trip, ann, Registration.Status.CONFIRMED);
         final String id = saved(trip, form("Flaky", TODAY));
-        assertTrue(admin().approve(trip.getId(), id));
+        assertTrue(approve(admin(), trip.getId(), id));
         final TripReminderPlan plan = DAO.getInstance().getReminderPlan(trip.getId()).orElseThrow();
 
         mailWorks = false;
@@ -716,7 +734,7 @@ public class ReminderCommandsTest {
         final ReminderViews.Form form = form("Live", TODAY);
         form.setPushText("Ping from {{tripTitle}}");
         final String id = saved(trip, form);
-        assertTrue(admin().approve(trip.getId(), id));
+        assertTrue(approve(admin(), trip.getId(), id));
         final TripReminderPlan plan = DAO.getInstance().getReminderPlan(trip.getId()).orElseThrow();
         assertNotNull(ReminderSender.effectiveFrom(trip, plan), "Inherited from the organization or the site");
         assertNull(ReminderSender.effectiveReplyTo(trip, plan), "No facilitators, no Reply-To");
@@ -739,7 +757,7 @@ public class ReminderCommandsTest {
         final Person ann = newPerson("Ann", "ann." + RandomData.genAlpha(6) + "@example.com");
         register(trip, ann, Registration.Status.CONFIRMED);
         final String id = saved(trip, form("Boom", TODAY));
-        assertTrue(admin().approve(trip.getId(), id));
+        assertTrue(approve(admin(), trip.getId(), id));
         final TripReminderPlan plan = DAO.getInstance().getReminderPlan(trip.getId()).orElseThrow();
         final ReminderSender throwing = ReminderSender.forTest((f, to, r, s, b, who) -> {
             throw new IllegalStateException("mail service down");
@@ -759,7 +777,7 @@ public class ReminderCommandsTest {
     public void aRunThatMatchesNobodyIsRecordedAsRun() throws IOException {
         final Trip trip = newTrip();
         final String id = saved(trip, form("Nobody", TODAY));
-        assertTrue(admin().approve(trip.getId(), id));
+        assertTrue(approve(admin(), trip.getId(), id));
         assertEquals(admin().previewNote(trip.getId(), id),
                 "Nobody would receive this today, so the preview shows sample values.");
         assertEquals(admin().previewSubject(trip.getId(), id), "About Sample Trip");
@@ -778,7 +796,7 @@ public class ReminderCommandsTest {
         final String id = saved(trip, form("Late", TODAY.minusDays(3)));
         assertTrue(admin().rows(trip.getId()).get(0).getStatusNote().contains("its date has passed"),
                 "A draft dated in the past says so before anyone approves it");
-        assertTrue(admin().approve(trip.getId(), id));
+        assertTrue(approve(admin(), trip.getId(), id));
         final ReminderViews.Row row = admin().rows(trip.getId()).get(0);
         assertEquals(row.getStatusLabel(), "Missed");
         assertTrue(row.isSendable(), "Only the facilitator can still send it");
@@ -789,7 +807,7 @@ public class ReminderCommandsTest {
     public void theSenderRefusesWithoutAFromOrAMatchingDate() throws IOException {
         final Trip trip = newTrip();
         final String id = saved(trip, form("Guard", TODAY));
-        assertTrue(admin().approve(trip.getId(), id));
+        assertTrue(approve(admin(), trip.getId(), id));
         final TripReminderPlan plan = DAO.getInstance().getReminderPlan(trip.getId()).orElseThrow();
         final ReminderSender noFrom = new ReminderSender(new ReminderRecipients(),
                 (from, to, replyTo, subject, body, who) -> true, (t, r, to, title, text) -> { },
@@ -801,6 +819,206 @@ public class ReminderCommandsTest {
                 .isRefused());
         assertEquals(new ReminderSender.Summary(1, 0, 1, 0, null).text(), "Sent to 1. 1 has no email address.");
         assertEquals(new ReminderSender.Summary(1, 0, 2, 0, null).text(), "Sent to 1. 2 have no email address.");
+    }
+
+    @Test
+    public void oneFailedTravelerCanBeResentWithoutMailingTheRestAgain() throws IOException {
+        final Trip trip = newTrip();
+        final String tag = RandomData.genAlpha(6);
+        final Person ann = newPerson("Ann", "ann." + tag + "@example.com");
+        final Person bob = newPerson("Bob", "bob." + tag + "@example.com");
+        register(trip, ann, Registration.Status.CONFIRMED);
+        register(trip, bob, Registration.Status.CONFIRMED);
+        final String id = saved(trip, form("Partly", TODAY));
+        assertTrue(approve(admin(), trip.getId(), id));
+        final TripReminderPlan plan = DAO.getInstance().getReminderPlan(trip.getId()).orElseThrow();
+        // Ann's mail fails, Bob's goes through.
+        final ReminderSender flaky = new ReminderSender(new ReminderRecipients(),
+                (from, to, replyTo, subject, body, who) -> !to.equals(ann.getEmail()) && fakeMail(from, to, replyTo,
+                        subject, body, who),
+                (t, r, to, title, text) -> { }, (t, p) -> "Trip Team <trips@example.com>", (t, p) -> null, () -> NOW);
+        assertEquals(flaky.sendAll(trip, plan, plan.reminder(id), TODAY, TODAY, false, AuditActor.system())
+                .failed(), 1);
+        ReminderViews.Row row = admin().rows(trip.getId()).get(0);
+        assertEquals(row.getStatusLabel(), "Sent");
+        assertEquals(row.getStatusNote(), "Sent to 1 person. 1 failed: see the sent history.");
+
+        final ReminderViews.HistoryRow failed = admin().history(trip.getId()).stream()
+                .filter(ReminderViews.HistoryRow::isClearable).findFirst().orElseThrow();
+        assertTrue(admin().clearSend(trip.getId(), failed.getKey()));
+        row = admin().rows(trip.getId()).get(0);
+        assertTrue(row.isSendable(), "The page still offers the send after one row was cleared");
+        assertTrue(admin().sendNow(trip.getId(), id));
+        assertEquals(mailTo(ann.getEmail()).size(), 1, "The cleared traveler is mailed");
+        assertEquals(mailTo(bob.getEmail()).size(), 1, "and the one already sent is not mailed twice");
+    }
+
+    @Test
+    public void aRunWhereEverySendFailedIsShownAsFailed() throws IOException {
+        final Trip trip = newTrip();
+        final Person ann = newPerson("Ann", "ann." + RandomData.genAlpha(6) + "@example.com");
+        register(trip, ann, Registration.Status.CONFIRMED);
+        final String id = saved(trip, form("All failed", TODAY));
+        assertTrue(approve(admin(), trip.getId(), id));
+        final TripReminderPlan plan = DAO.getInstance().getReminderPlan(trip.getId()).orElseThrow();
+        mailWorks = false;
+        try {
+            sender().sendAll(trip, plan, plan.reminder(id), TODAY, TODAY, false, AuditActor.system());
+        } finally {
+            mailWorks = true;
+        }
+        assertEquals(admin().rows(trip.getId()).get(0).getStatusLabel(), "Failed");
+    }
+
+    // ------------------------------------------------------------------ approve what was shown
+
+    @Test
+    public void anApprovalCoversOnlyTheWordingThatWasShown() throws IOException {
+        final Trip trip = newTrip();
+        final String id = saved(trip, form("Shown", TODAY.plusDays(3)));
+        final String shown = admin().review(trip.getId(), id).getHash();
+        assertNotNull(shown);
+        // Someone else rewords it while the review dialog is still open.
+        final ReminderViews.Form edit = admin().formFor(trip.getId(), id);
+        edit.setSubject("Words the approver never saw");
+        assertTrue(admin().save(trip.getId(), edit));
+        assertFalse(admin().approve(trip.getId(), id, shown), "Approve of the stale dialog is refused");
+        assertFalse(admin().approve(trip.getId(), id, null));
+        assertFalse(admin().approve(trip.getId(), id, " "));
+        assertEquals(stored(trip, id).getStatus(), TripReminder.Status.DRAFT);
+        // Looking again and approving what is there now works.
+        assertTrue(approve(admin(), trip.getId(), id));
+        assertNull(admin().review(trip.getId(), "no-such-id"));
+        assertEquals(admin().previewSubject(trip.getId(), "no-such-id"), "");
+        assertEquals(admin().previewNote(trip.getId(), "no-such-id"), "");
+        assertTrue(admin().recipientRows(trip.getId(), "no-such-id").isEmpty());
+    }
+
+    @Test
+    public void aTripDateMovedWhileTheDialogWasOpenIsNotApproved() throws IOException {
+        final Trip trip = newTrip();
+        final ReminderViews.Form form = form("Relative", null);
+        form.setAnchor("TRIP_START");
+        form.setTiming("BEFORE");
+        form.setDays(30);
+        final String id = saved(trip, form);
+        final String shown = admin().review(trip.getId(), id).getHash();
+        final Trip moved = DAO.getInstance().getTrip(trip.getId(), org.paulsens.trip.cache.Cached.NO).orElseThrow();
+        moved.setStartDate(START.plusDays(2));
+        assertTrue(DAO.getInstance().saveTrip(moved));
+        assertFalse(admin().approve(trip.getId(), id, shown), "It would go out on a day the approver never saw");
+    }
+
+    @Test
+    public void approvingSaysWhatWillReallyHappen() throws IOException {
+        final Trip trip = newTrip();
+        final String past = saved(trip, form("Past", TODAY.minusDays(5)));
+        final String due = saved(trip, form("Due", TODAY));
+        final String later = saved(trip, form("Later", TODAY.plusDays(5)));
+        assertTrue(approve(admin(), trip.getId(), past));
+        assertTrue(approve(admin(), trip.getId(), due));
+        assertTrue(approve(admin(), trip.getId(), later));
+        assertEquals(admin().rows(trip.getId()).stream().filter(ReminderViews.Row::isApproved).count(), 3);
+    }
+
+    @Test
+    public void aMessageCannotBeScheduledPastTheLastDayTheDailyRunReaches() throws IOException {
+        final Trip trip = newTrip();
+        final LocalDate lastDay = START.plusDays(9).toLocalDate().plusDays(TripReminder.MAX_DAYS_AFTER_END);
+        assertNotNull(saved(trip, form("Last day", lastDay)));
+        final ReminderViews.Form tooLate = form("Too late", lastDay.plusDays(1));
+        assertFalse(admin().save(trip.getId(), tooLate));
+        assertTrue(tooLate.getProblem().startsWith("A message can be scheduled at most 365 days"));
+    }
+
+    // ------------------------------------------------------------------ what a viewer may see
+
+    @Test
+    public void aFacilitatorWithNoRoleSeesTheWordingButNotTheAmountsPassportsOrAddresses() throws IOException {
+        final Trip trip = newTrip();
+        final String tag = RandomData.genAlpha(6);
+        final Person facilitator = newPerson("Fay", "fay." + tag + "@example.com");
+        trip.addFacilitatorId(facilitator.getId());
+        assertTrue(DAO.getInstance().saveTrip(trip));
+        final Person owes = newPerson("Owen", "owen." + tag + "@example.com");
+        register(trip, owes, Registration.Status.CONFIRMED);
+        ledger(owes, Transaction.TransactionType.Bill, -500f, trip.getId());
+
+        final ReminderViews.Form balance = form("Balance", TODAY);
+        balance.setAudience("WITH_BALANCE");
+        balance.setBody("<p>Hi {{firstName}}, you owe {{balanceDue}}. {{passportIssue}}</p>");
+        final String id = saved(trip, balance);
+        assertTrue(approve(admin(), trip.getId(), id));
+
+        // A site admin sees everything.
+        final ReminderViews.Review full = admin().review(trip.getId(), id);
+        assertTrue(full.getBody().contains("you owe $500.00"), full.getBody());
+        assertTrue(full.getBody().contains("We do not have a passport on file"));
+        assertEquals(full.getRecipients().get(0).getReason(), "Owes $500.00");
+        assertEquals(full.getRecipients().get(0).getAddresses(), owes.getEmail());
+        assertFalse(full.getNote().contains("not shown"));
+        assertEquals(full.getReplyTo(), facilitator.getEmail(), "Replies go to the trip's facilitators");
+
+        // The facilitator holds no role: same words, same traveler, the three values replaced.
+        final ReminderCommands fay = bean(TestCallers.person(facilitator.getId()));
+        final ReminderViews.Review cut = fay.review(trip.getId(), id);
+        assertTrue(cut.getBody().contains("Hi Owen, you owe (amount not shown). (passport details not shown)"),
+                cut.getBody());
+        assertFalse(cut.getBody().contains("500"));
+        assertEquals(cut.getRecipients().get(0).getName(), "Owen Test");
+        assertEquals(cut.getRecipients().get(0).getReason(), "Owes a balance");
+        assertEquals(cut.getRecipients().get(0).getAddresses(), "(address not shown)");
+        assertTrue(cut.getNote().contains("not shown here"));
+        assertEquals(cut.getHash(), full.getHash(), "What is approved is the same message whoever looks at it");
+
+        // Their test email carries what they were shown, and the history hides the address from them.
+        assertTrue(fay.sendTest(trip.getId(), id, "fay.elsewhere@example.com"));
+        final Mail test = mailTo("fay.elsewhere@example.com").get(0);
+        assertFalse(test.body().contains("500"), test.body());
+        assertTrue(test.subject().startsWith("[Test] "));
+        assertTrue(admin().sendNow(trip.getId(), id));
+        assertTrue(mailTo(owes.getEmail()).get(0).body().contains("you owe $500.00"), "The traveler's own is real");
+        assertEquals(fay.history(trip.getId()).get(0).getToEmail(), "(address not shown)");
+        assertEquals(admin().history(trip.getId()).get(0).getToEmail(), owes.getEmail());
+
+        // A trip manager is a trip admin: money, documents and addresses are theirs to see.
+        final Person.Id manager = grant(PrivilegeCommands.TRIP_MGR, trip.getId());
+        final ReminderViews.Review asManager = bean(TestCallers.person(manager)).review(trip.getId(), id);
+        assertEquals(asManager.getRecipients().get(0).getReason(), "Owes $500.00");
+        assertEquals(asManager.getRecipients().get(0).getAddresses(), owes.getEmail());
+    }
+
+    @Test
+    public void aPassportReasonIsNeutralForAViewerWhoMayNotSeeTravelDocuments() {
+        final Person traveler = new Person();
+        traveler.setFirst("Pat");
+        traveler.setLast("Test");
+        final String issue = "Your passport expires Aug 15, 2027, less than 6 months after the trip ends.";
+        final ReminderRecipients.Target target = new ReminderRecipients.Target(traveler, issue, List.of(),
+                java.util.Map.of(ReminderText.PASSPORT_ISSUE, issue, ReminderText.BALANCE_DUE, "$0.00"));
+        final ReminderRecipients.Target cut = target.seenBy(ReminderRecipients.Sight.NONE);
+        assertEquals(cut.getReason(), "Passport needs attention");
+        assertEquals(cut.facts().get(ReminderText.PASSPORT_ISSUE), "(passport details not shown)");
+        assertEquals(cut.addressesSeenBy(ReminderRecipients.Sight.NONE), "(no email address)", "Nothing to hide");
+        final ReminderRecipients.Target whole = target.seenBy(ReminderRecipients.Sight.ALL);
+        assertEquals(whole.getReason(), issue);
+        assertEquals(whole.facts().get(ReminderText.BALANCE_DUE), "$0.00");
+        final ReminderRecipients.Target noIssue = new ReminderRecipients.Target(traveler, "Confirmed", List.of(),
+                java.util.Map.of(ReminderText.PASSPORT_ISSUE, "")).seenBy(ReminderRecipients.Sight.NONE);
+        assertEquals(noIssue.facts().get(ReminderText.PASSPORT_ISSUE), "", "No issue, nothing to stand in for");
+        assertEquals(noIssue.getReason(), "Confirmed");
+    }
+
+    @Test
+    public void testEmailsAreCappedPerPersonPerHour() throws IOException {
+        final Trip trip = newTrip();
+        final String id = saved(trip, form("Capped", TODAY));
+        final ReminderCommands tester = bean(TestCallers.person(grant(PrivilegeCommands.TRIP_MGR, trip.getId())));
+        for (int i = 0; i < ReminderCommands.MAX_TESTS_PER_HOUR; i++) {
+            assertTrue(tester.sendTest(trip.getId(), id, "capped@example.com"), "send " + i);
+        }
+        assertFalse(tester.sendTest(trip.getId(), id, "capped@example.com"), "One more than the cap");
+        assertEquals(mailTo("capped@example.com").size(), ReminderCommands.MAX_TESTS_PER_HOUR);
     }
 
     // ------------------------------------------------------------------ sender, automatic mail
@@ -816,8 +1034,11 @@ public class ReminderCommandsTest {
         assertTrue(admin().saveSender(tripId, "Team", "trips", domains.get(0), "lead@example.com"));
         assertEquals(admin().fromSeed(tripId), "Team <trips@" + domains.get(0) + ">");
         assertEquals(admin().replyToSeed(tripId), "lead@example.com");
+        assertEquals(admin().ownReplyTo(tripId), "lead@example.com");
         assertTrue(admin().saveSender(tripId, "Team", "trips", domains.get(0), " "));
         assertEquals(admin().replyToSeed(tripId), "", "No facilitators and no Reply-To: replies go to the From");
+        assertEquals(admin().ownReplyTo(tripId), "", "The dialog's field starts blank while the trip inherits");
+        assertEquals(bean(TestCallers.person(Person.Id.newInstance())).ownReplyTo(tripId), "");
         assertEquals(admin().myEmail(), "");
         assertFalse(admin().isSendingOn(), "Ships dark");
     }

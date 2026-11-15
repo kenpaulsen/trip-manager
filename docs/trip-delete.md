@@ -70,7 +70,10 @@ LAST so a crash mid-cascade leaves a findable trip, and a re-run finishes the jo
    them (`DAO.deleteTripBudget`); see `docs/budget.md`. The trip's EXPENSE REPORT and its receipts do NOT:
    they are the record of money actually spent, so they stay, like the transaction rows
    (`docs/expense-report.md`). The trip's required-document pins live on the trip row and go with it; the SIGNATURES
-   (`waiver_acceptances`) stay, write-once records nothing deletes (`docs/waivers.md`).
+   (`waiver_acceptances`) stay, write-once records nothing deletes (`docs/waivers.md`). The trip's scheduled
+   messages AND their send history (`trip_reminders`, the whole partition) go with the trip
+   (`DAO.deleteRemindersForTrip`): no mail can follow a deleted trip, and the record of who was mailed is not
+   kept past it (`docs/reminders.md`).
 8. **The trip row** — `TripDAO.deleteTrip`: the item, its point-cache entry, and both `TripIndex` sorted
    sets (`idx:trips`, `idx:person_trips` — the previously dead `removed` branch of `TripIndex.update`).
 

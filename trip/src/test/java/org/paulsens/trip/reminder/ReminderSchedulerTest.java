@@ -11,8 +11,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
+import org.mockito.Mockito;
 import org.paulsens.trip.action.ConfigCommands;
 import org.paulsens.trip.action.ReminderSender;
+import org.paulsens.trip.cache.CacheClient;
 import org.paulsens.trip.cache.InMemoryCacheClient;
 import org.paulsens.trip.cache.NoopCacheClient;
 import org.paulsens.trip.dynamo.DAO;
@@ -236,6 +238,53 @@ public class ReminderSchedulerTest {
         mailedTo.clear();
         assertTrue(ReminderScheduler.forTest(shared, enabled, sender(), () -> NOW).attemptOnce(TODAY, NOW));
         assertTrue(mailedTo.isEmpty(), "The second instance stood down at the lock");
+    }
+
+    /** The retry after a failed run must not be turned away by the lock the failed run took. */
+    @Test
+    public void aRunThatFailedIsRetriedAndThenSends() throws IOException {
+        final Trip trip = newTrip();
+        final String tess = traveler(trip);
+        plan(trip, reminder(trip, TripReminder.Kind.COUNTDOWN, TODAY, false));
+        final InMemoryCacheClient shared = new InMemoryCacheClient();
+        final ReminderScheduler failing = ReminderScheduler.forTest(shared, enabled, sender(), () -> NOW,
+                endedAfter -> {
+                    throw new IllegalStateException("trip index down");
+                });
+        org.testng.Assert.assertThrows(IllegalStateException.class, () -> failing.attemptOnce(TODAY, NOW));
+        assertEquals(mails(tess), 0);
+        // The retry, minutes later, on the same cache: the lock was released, so it runs.
+        assertTrue(ReminderScheduler.forTest(shared, enabled, sender(), () -> NOW).attemptOnce(TODAY, NOW));
+        assertEquals(mails(tess), 1);
+        // And the whole loop survives the failure without throwing.
+        failing.attempt(TODAY, NOW);
+    }
+
+    /** A cache that refuses every lock because it is down must not end the day unsent. */
+    @Test
+    public void aCacheThatCannotHoldALockDoesNotStopTheRun() throws IOException {
+        final Trip trip = newTrip();
+        final String tess = traveler(trip);
+        plan(trip, reminder(trip, TripReminder.Kind.COUNTDOWN, TODAY, false));
+        // A mock answers false to every lock and every write: a cache that is not there.
+        final CacheClient down = Mockito.mock(CacheClient.class);
+        assertTrue(ReminderScheduler.forTest(down, enabled, sender(), () -> NOW).attemptOnce(TODAY, NOW));
+        assertEquals(mails(tess), 1);
+    }
+
+    @Test
+    public void aMessageDatedMonthsAfterTheTripEndedIsStillReached() throws IOException {
+        final LocalDateTime longAgo = LocalDateTime.of(2026, 9, 1, 8, 0);
+        final Trip trip = Trip.builder().id(UUID.randomUUID().toString()).title("Ended trip")
+                .startDate(longAgo).endDate(longAgo.plusDays(9)).people(new ArrayList<>()).build();
+        trip.setOrgId(FakeData.CFPW_ORG_ID);
+        assertTrue(DAO.getInstance().saveTrip(trip));
+        final String tess = traveler(trip);
+        // March 3 is about 175 days after this trip ended: past the old 60-day window, inside the year allowed.
+        plan(trip, reminder(trip, TripReminder.Kind.CUSTOM, TODAY, false));
+        scheduler(enabled).runFor(TODAY);
+        assertEquals(mails(tess), 1);
+        assertTrue(ReminderScheduler.ENDED_WITHIN_DAYS > TripReminder.MAX_DAYS_AFTER_END);
     }
 
     @Test

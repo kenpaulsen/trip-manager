@@ -1,5 +1,7 @@
 package org.paulsens.trip.action;
 
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.Locale;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -20,9 +22,15 @@ import java.util.regex.Pattern;
  * on the list, no {@code on...} attribute is ever copied, and a link address must literally start with
  * {@code http://}, {@code https://} or {@code mailto:}, or be exactly one {@code {{...Link}}} placeholder.
  *
- * <p>What is kept is what the page's editor (Quill) writes: paragraphs, line breaks, bold, italic, underline,
- * strike, links, lists, headings, block quotes and its own {@code ql-} layout classes. Inline styles and
- * images are deliberately not kept.
+ * <p>What is kept is what the page's editor (Quill 2, inside PrimeFaces) writes: paragraphs, line breaks,
+ * bold, italic, underline, strike, links, lists, headings, block quotes, and the handful of {@code ql-} layout
+ * classes named in {@link #QUILL_CLASS}. Inline styles and images are deliberately not kept, and the page's
+ * toolbar does not offer them.
+ *
+ * <p>Quill 2 writes EVERY list as {@code <ol>} and says "bullet" only with {@code data-list} on each item. That
+ * attribute is kept (the editor needs it to reopen the list as it was), and an {@code <ol>} whose first item is
+ * a bullet is written as {@code <ul>}, because a mail client knows nothing of {@code data-list} and would number
+ * the list.
  */
 public final class ReminderHtml {
     /** Tags copied through, without their attributes unless named below. */
@@ -35,9 +43,19 @@ public final class ReminderHtml {
 
     private static final Pattern ATTRIBUTE = Pattern.compile(
             "([a-zA-Z_:][-a-zA-Z0-9_:.]*)\\s*=\\s*(\"[^\"]*\"|'[^']*'|[^\\s\"'>]+)");
-    private static final Pattern WEB_ADDRESS = Pattern.compile("(?i)(https?://|mailto:)[^\\s\"'<>`\\\\]+");
+    /** An apostrophe is fine in an address: the value is always written back inside double quotes. */
+    private static final Pattern WEB_ADDRESS =
+            Pattern.compile("(?i)(https?://|mailto:|tel:|sms:)[^\\s\"<>`\\\\]+");
     private static final Pattern LINK_TOKEN = Pattern.compile("\\{\\{[a-zA-Z]+Link\\}\\}");
-    private static final Pattern QUILL_CLASS = Pattern.compile("ql-[a-z0-9-]+");
+    /**
+     * The Quill classes kept: the ones the toolbar can produce, and nothing else. NOT every {@code ql-} class:
+     * the page loads Quill's stylesheet and a mail client does not, so a class that stylesheet hides
+     * ({@code ql-hidden}, {@code ql-clipboard}) would hide text from the reviewer and show it to the traveler.
+     */
+    private static final Pattern QUILL_CLASS = Pattern.compile(
+            "ql-(align-(center|right|justify)|indent-[1-8]|direction-rtl|size-(small|large|huge)"
+                    + "|font-(serif|monospace)|ui)");
+    private static final Set<String> LIST_KINDS = Set.of("bullet", "ordered", "checked", "unchecked");
 
     private ReminderHtml() {
     }
@@ -48,10 +66,14 @@ public final class ReminderHtml {
             return "";
         }
         final StringBuilder out = new StringBuilder(html.length());
+        // Which tag each open list was WRITTEN as, so its closing tag matches (an <ol> of bullets leaves as <ul>).
+        final Deque<String> lists = new ArrayDeque<>();
+        // Past the last ">" nothing can be a tag, so an unclosed "<a" there is never scanned to the end again.
+        final int lastClose = html.lastIndexOf('>');
         int at = 0;
         while (at < html.length()) {
             final char c = html.charAt(at);
-            final int tagEnd = (c == '<') ? tagEnd(html, at) : -1;
+            final int tagEnd = (c == '<' && at < lastClose) ? tagEnd(html, at) : -1;
             if (c != '<') {
                 out.append(c == '>' ? "&gt;" : String.valueOf(c));
                 at++;
@@ -59,7 +81,7 @@ public final class ReminderHtml {
                 final int end = html.indexOf("-->", at + 4);
                 at = (end < 0) ? html.length() : end + 3;
             } else if (tagEnd > 0) {
-                at = copyTag(html, at, tagEnd, out);
+                at = copyTag(html, at, tagEnd, out, lists);
             } else {
                 // A "<" that opens nothing this cleaner recognizes is text, and is written as text.
                 out.append("&lt;");
@@ -71,8 +93,9 @@ public final class ReminderHtml {
 
     /**
      * Where the tag opening at {@code from} ends (the index of its {@code >}), or -1 when this is not a tag: no
-     * name after the {@code <}, or no {@code >} outside a quoted value. One pass over the text, by hand rather
-     * than by a regular expression, so a long hostile body costs its length and no more.
+     * name after the {@code <}, or no {@code >} outside a quoted value. Scanned by hand rather than by a regular
+     * expression. A body built to defeat it (an opening quote before every {@code >}) can still make the scan
+     * repeat, which is why callers bound the body's length before cleaning it ({@code ReminderCommands}).
      */
     private static int tagEnd(final String html, final int from) {
         int at = from + 1;
@@ -101,7 +124,8 @@ public final class ReminderHtml {
     }
 
     /** Writes the tag spanning {@code start..end} when it is allowed; answers where reading goes on. */
-    private static int copyTag(final String html, final int start, final int end, final StringBuilder out) {
+    private static int copyTag(final String html, final int start, final int end, final StringBuilder out,
+            final Deque<String> lists) {
         final boolean closing = html.charAt(start + 1) == '/';
         int nameEnd = start + (closing ? 2 : 1);
         final int nameStart = nameEnd;
@@ -112,7 +136,9 @@ public final class ReminderHtml {
         if (!closing && DROP_WITH_CONTENT.contains(name)) {
             return afterClosing(html, name, end + 1);
         }
-        if (ALLOWED.contains(name)) {
+        if ("ol".equals(name)) {
+            out.append(closing ? "</" + (lists.isEmpty() ? "ol" : lists.pop()) + ">" : openList(html, end, lists));
+        } else if (ALLOWED.contains(name)) {
             if (closing) {
                 out.append(VOID.contains(name) ? "" : "</" + name + ">");
             } else {
@@ -122,20 +148,40 @@ public final class ReminderHtml {
         return end + 1;
     }
 
+    /** The opening tag an {@code <ol>} is written as: {@code <ul>} when its first item is a Quill bullet. */
+    private static String openList(final String html, final int afterOl, final Deque<String> lists) {
+        final int item = indexOfIgnoreCase(html, "<li", afterOl);
+        final int itemEnd = (item < 0) ? -1 : tagEnd(html, item);
+        final boolean bullets = itemEnd > 0 && attributesOf("li", html.substring(item + 3, itemEnd))
+                .contains("data-list=\"bullet\"");
+        lists.push(bullets ? "ul" : "ol");
+        return bullets ? "<ul>" : "<ol>";
+    }
+
+    /** {@code String.indexOf} ignoring case, without lower-casing the whole text (which can change its length). */
+    private static int indexOfIgnoreCase(final String html, final String what, final int from) {
+        for (int at = html.indexOf('<', from); at >= 0; at = html.indexOf('<', at + 1)) {
+            if (html.regionMatches(true, at, what, 0, what.length())) {
+                return at;
+            }
+        }
+        return -1;
+    }
+
     /** The index just past {@code </name>}, or the end of the text when the tag is never closed. */
     private static int afterClosing(final String html, final String name, final int from) {
-        final String lower = html.toLowerCase(Locale.ROOT);
-        final int close = lower.indexOf("</" + name, from);
-        final int end = (close < 0) ? -1 : lower.indexOf('>', close);
+        final int close = indexOfIgnoreCase(html, "</" + name, from);
+        final int end = (close < 0) ? -1 : html.indexOf('>', close);
         return (end < 0) ? html.length() : end + 1;
     }
 
-    /** The attributes this tag keeps, rebuilt: a link's checked address, and Quill's own layout classes. */
+    /** The attributes this tag keeps, rebuilt: a link's checked address, a list item's kind, a Quill class. */
     private static String attributesOf(final String name, final String raw) {
         final StringBuilder kept = new StringBuilder();
         final Matcher attribute = ATTRIBUTE.matcher(raw);
         boolean linked = false;
         boolean classed = false;
+        boolean listed = false;
         while (attribute.find()) {
             final String key = attribute.group(1).toLowerCase(Locale.ROOT);
             final String value = unquoted(attribute.group(2)).trim();
@@ -145,6 +191,9 @@ public final class ReminderHtml {
             } else if ("class".equals(key) && !classed && isQuillClasses(value)) {
                 kept.append(" class=\"").append(value).append('"');
                 classed = true;
+            } else if ("li".equals(name) && "data-list".equals(key) && !listed && LIST_KINDS.contains(value)) {
+                kept.append(" data-list=\"").append(value).append('"');
+                listed = true;
             }
         }
         if (linked) {
@@ -170,7 +219,8 @@ public final class ReminderHtml {
     }
 
     /**
-     * Whether a link may point here: a literal http, https or mailto address, or exactly one link placeholder.
+     * Whether a link may point here: a literal http, https, mailto, tel or sms address, or exactly one link
+     * placeholder.
      * Literal on purpose: an address that only BECOMES a script URL after the browser decodes an entity does
      * not start with one of these, so it is refused without this class having to decode anything.
      */

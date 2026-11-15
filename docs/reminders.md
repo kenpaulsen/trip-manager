@@ -26,6 +26,9 @@ traveler, whether because it is wrong or simply because the facilitator did not 
 - So an edit through any path stops the send without anyone resetting a status, and so does **moving the
   trip's start date or balance due date**: the message would go out on a day nobody approved. The page shows
   such a row as "Changed, approve again".
+- Approve is tied to what was SHOWN: the review dialog carries the approval hash of the message it rendered,
+  and `ReminderCommands.approve(tripId, id, shownHash)` refuses when the stored message no longer hashes to it
+  (someone edited it, or the trip's date moved, while the dialog was open). There is no approve without a hash.
 - Saving a message in the dialog always stores a draft (`ReminderCommands.save`). The name is the one field
   outside the hash: it is the facilitator's label and travelers never see it.
 - The wording is a **snapshot on the trip**. Suggested messages COPY the organization's starter template; a
@@ -51,14 +54,19 @@ reminder's name, the subject and the address, so the history reads correctly aft
 that matched nobody leaves one row with no traveler (`Outcome.NOBODY`), so an on-time run with an empty audience
 is "Sent to 0 people", not "Missed".
 
-A trip delete removes the whole partition (`TripDeleteCommands`).
+A trip delete removes the whole partition (`TripDeleteCommands`). An ACCOUNT deletion keeps the rows (so "this
+reminder already ran" still holds) but erases the person from them: `DAO.scrubReminderSends` rewrites their rows
+with the name "Deleted Account" and no address, and blanks the address on any row that mailed theirs (a family
+manager's address sits on a dependent's row). `AccountDeletionCommands.leaveTrips` calls it for every trip.
 
 `TripReminder`: `kind` (`BALANCE_DUE`, `WAIVER_UNSIGNED`, `PASSPORT`, `COUNTDOWN`, `CUSTOM`), `anchor`
 (`BALANCE_DUE_DATE`, `TRIP_START`, `TRIP_END`, `FIXED_DATE`) + `offsetDays` (negative = before) or `fixedDate`,
 `audience`, `subject`, `body` (cleaned HTML), `pushText` (blank = email only), and the approval fields. A
 built-in kind FIXES its audience (the constructor enforces it); only `CUSTOM` chooses one. A reminder whose
 anchor date is missing on the trip (no balance due date, no start date) has no send date and can be neither
-approved nor sent.
+approved nor sent. A send date later than `TripReminder.MAX_DAYS_AFTER_END` (365) days after the trip ends is
+refused at save and at approve: the daily run reads trips that ended within that window, so a later date
+would be approved and never reached.
 
 ## Who receives a message
 
@@ -79,6 +87,23 @@ A traveler with no usable address is reached through `PersonCommands.mailableMan
 managers): the message greets the manager (`{{firstName}}`) and names the traveler (`{{travelerName}}`). With
 no manager either, the send is recorded as "No email address".
 
+### What a viewer of the page may see
+
+Being let into the page (below, "Access") is not being shown everything. Owner decision 2026-11-15: redact
+only the values a viewer may not see, and keep the rest of the message as it is. `ReminderGate.sight(tripId)`
+answers per caller, by the rules the rest of the site already keeps:
+
+| Value | Shown to | Otherwise |
+|-------|----------|-----------|
+| an amount owed (`{{balanceDue}}`, "Owes $250.00") | whoever may see the trip's money (`TripFinanceGate.canView`) | "(amount not shown)", reason "Owes a balance" |
+| a passport fact (`{{passportIssue}}`) | a site admin or the trip's `tripMgr` (`AccessLevel.TRIP_ADMIN`) | "(passport details not shown)", reason "Passport needs attention" |
+| an email address (recipient list, sent history) | the same trip-admin rule | "(address not shown)" |
+
+`Target.seenBy(sight)` applies it, and only to what is SHOWN: the review dialog, the preview and the test email
+(which carries exactly what its sender was shown). The real send always uses the real values. Words that imply
+a balance or a passport problem are deliberately kept: that a traveler is in the audience is what the page is
+for. The approval hash is the same whoever looks, so what is approved does not depend on the viewer.
+
 There is no email opt-out on `Person` today; these are operational messages about a trip the person is on.
 Push honors the person's own push settings.
 
@@ -92,10 +117,17 @@ HTML-escaped per value (`render`); the subject and the push text are plain text 
 The body is cleaned by `ReminderHtml.clean`, an ALLOWLIST: a facilitator (who may hold no privilege) writes it,
 and it is rendered unescaped to every reviewer, admins included, and mailed to travelers. Only the tags the
 editor writes are kept, each rebuilt with no attributes except a link's checked address (`http://`, `https://`,
-`mailto:` or exactly one `{{...Link}}` placeholder) and Quill's own `ql-` classes; inline styles, images and
-every unknown tag are dropped. It runs when a message is saved and again where the body is written out (preview,
-test send, send). Never clean this body with `WaiverHtml.sanitize`: that is a blocklist for text only an org
-admin writes, and the first review found three bodies it passes unchanged (`ReminderHtmlTest` pins them).
+`mailto:`, `tel:`, `sms:` or exactly one `{{...Link}}` placeholder), a list item's `data-list` kind, and the few
+Quill layout classes the toolbar can produce (never `ql-hidden` or `ql-clipboard`, which Quill's stylesheet
+hides: the reviewer's page has that stylesheet and a mail client does not). Inline styles, images and every
+unknown tag are dropped, and the page's toolbar offers only what is kept. Quill 2 writes every list as `<ol>`
+and marks bullets with `data-list`; the cleaner writes a bullet list as `<ul>` so a mail client shows bullets.
+
+It runs when a message is saved and again at EVERY place the stored body is written out: the editor
+(`formFor`), and `ReminderText.renderBody`, the one clean-then-merge helper behind the preview, the test email
+and the send. The raw body is refused above `MAX_RAW_BODY` before it is cleaned. Never clean this body with
+`WaiverHtml.sanitize`: that is a blocklist for text only an org admin writes, and the first review found three
+bodies it passes unchanged (`ReminderHtmlTest` pins them).
 
 Tokens: `firstName`, `travelerName`, `tripTitle`, `tripDates`, `daysUntilDeparture`, `balanceDue`,
 `balanceDueOn`, `documentList`, `passportIssue`, `orgName`, `tripLink`, `paymentLink`, `documentsLink`,
@@ -117,12 +149,17 @@ the built-in text, so "Add suggested messages" works before `install-starter-tem
    then mail each addressee, then push when the reminder has push text, then record the outcome.
 
 A failed send stays recorded as failed. It is never retried silently: missing a reminder beats sending it
-twice. The facilitator sees it in the history and may "Allow resend", which clears that one row so Send now
-includes the traveler again. A sent row can never be cleared.
+twice. The facilitator sees it in the history and may "Allow resend", which clears that one row; the message's
+row then offers "Send to anyone missed", which mails only travelers with no ledger row for that date (the
+cleared one, or someone who joined the audience since). A sent row can never be cleared. A run in which every
+send failed shows as "Failed", not "Sent".
 
 `reminder/ReminderScheduler` is `ChatDigestScheduler`'s shape: one virtual timer thread, a run at
-`reminders.hour` in `reminders.zone` (which also decides what day it is), a 5-minute retry after a failure for
-up to 2 hours, and the system identity bound for the attempt. It is started from `ChatLifecycleListener` (the
+`reminders.hour` in `reminders.zone` (which also decides what day it is; `ReminderClock` is the one reading of
+it, shared with the page, and a bad value falls back to the setting's default), a 5-minute retry after a
+failure for up to 2 hours, and the system identity bound for the attempt. A failed run RELEASES its lock
+before it rethrows, or the retry would be turned away by the run's own lock; and a lock refused by a cache
+that cannot even store a value means the cache is down, not that someone holds the run, so the run goes ahead. It is started from `ChatLifecycleListener` (the
 listener order lives in the deployed `web.xml`). What differs from the digest is where "once" comes from: the
 digest's guarantee is a cache lock; here it is the DynamoDB ledger, so the cache lock only saves a second
 instance the same reads, and a cache that grants every lock (`NoopCacheClient`) still sends once.
@@ -154,7 +191,8 @@ The **review dialog** is where approval happens: it shows the message as one rea
 (the first person it would go to today; sample values when nobody would), the app notification text, and the
 names it would go to today with the reason each is in the audience. "Send test email" mails that rendering to
 an address the facilitator types (prefilled with their own, editable); a test writes nothing to the history
-and approves nothing.
+and approves nothing, goes through `ReminderSender`'s mail seam, and is capped at 20 per person per hour so the
+button is not a way to mail strangers from the organization's address.
 
 "Sent automatically" lists registration received, registration approved, checkout confirmation (when the
 trip takes checkout) and the payment confirmation and payment failed mail (when the trip is payable), each

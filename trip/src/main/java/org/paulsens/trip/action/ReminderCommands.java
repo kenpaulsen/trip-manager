@@ -3,6 +3,7 @@ package org.paulsens.trip.action;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Named;
 import java.io.IOException;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -16,6 +17,7 @@ import java.util.UUID;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.cache.CacheKeys;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.content.ReminderDefaults;
@@ -26,8 +28,10 @@ import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.ReminderSend;
 import org.paulsens.trip.model.TemplateKind;
 import org.paulsens.trip.model.Trip;
+import org.paulsens.trip.model.TripPaymentConfig;
 import org.paulsens.trip.model.TripReminder;
 import org.paulsens.trip.model.TripReminderPlan;
+import org.paulsens.trip.security.Digests;
 import org.paulsens.trip.util.EmailAddresses;
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
 
@@ -56,6 +60,13 @@ public class ReminderCommands {
     static final int MAX_DAYS = 365;
     private static final String NOT_ALLOWED = "Not allowed: only the trip's facilitators, its managers and the "
             + "organization's admins can manage its messages.";
+    private static final String TOO_LATE = "A message can be scheduled at most "
+            + TripReminder.MAX_DAYS_AFTER_END + " days after the trip ends.";
+    private static final String CHANGED_SINCE_SHOWN = "This message changed since you opened it: review it again.";
+    /** Test emails one person may send in one clock hour: plenty for wording work, useless as a mail relay. */
+    static final int MAX_TESTS_PER_HOUR = 20;
+    /** The raw body is refused above this before it is cleaned: the cleaner's cost grows with its input. */
+    static final int MAX_RAW_BODY = 4 * MAX_BODY;
     private static final DateTimeFormatter DAY = DateTimeFormatter.ofPattern("EEE, MMM d, yyyy", Locale.US);
     private static final DateTimeFormatter MOMENT = DateTimeFormatter.ofPattern("MMM d, yyyy h:mm a", Locale.US);
 
@@ -99,17 +110,9 @@ public class ReminderCommands {
         return new ConfigCommands().getBoolean(KnownSettings.REMINDERS_ENABLED);
     }
 
-    /** Today where the messages are scheduled: {@code reminders.zone}, the scheduler's own answer. */
+    /** Today where the messages are scheduled: {@link ReminderClock}, the scheduler's own answer. */
     LocalDate today() {
-        return LocalDate.ofInstant(clock.get(), zone());
-    }
-
-    private static ZoneId zone() {
-        try {
-            return ZoneId.of(new ConfigCommands().getString(KnownSettings.REMINDERS_ZONE));
-        } catch (final RuntimeException ex) {
-            return ZoneId.of("UTC");
-        }
+        return ReminderClock.today(new ConfigCommands(), clock.get());
     }
 
     private Caller caller() {
@@ -123,35 +126,38 @@ public class ReminderCommands {
 
     // ================================================================== the dashboard card
 
-    /** The Reports dashboard card's big line: what needs the facilitator, else what happens next. */
-    public String headline(final String tripId) {
+    /**
+     * The Reports dashboard card, from ONE read of the plan: the big line says what needs the facilitator, else
+     * what happens next; the small line how many messages are scheduled and how many of them are approved.
+     */
+    public ReminderViews.Card card(final String tripId) {
         final Trip trip = canManage(tripId) ? gate.knownTrip(tripId) : null;
         if (trip == null) {
-            return "";
+            return new ReminderViews.Card("", "");
         }
         final List<TripReminder> reminders = planOf(trip).getReminders();
         if (reminders.isEmpty()) {
-            return "No messages yet";
+            return new ReminderViews.Card("No messages yet", "Nothing is scheduled to go to this trip's travelers.");
         }
-        final long waiting = reminders.stream().filter(r -> !r.isApprovedFor(trip)).count();
+        final long approved = reminders.stream().filter(r -> r.isApprovedFor(trip)).count();
+        final long waiting = reminders.size() - approved;
+        final String subline = approved + " of " + reminders.size() + " scheduled messages approved. Only approved "
+                + "messages are sent.";
         if (waiting > 0) {
-            return waiting + ((waiting == 1) ? " needs approval" : " need approval");
+            return new ReminderViews.Card(waiting + ((waiting == 1) ? " needs approval" : " need approval"), subline);
         }
         final LocalDate next = nextSend(trip, reminders);
-        return (next == null) ? "All sent" : "Next: " + DAY.format(next);
+        return new ReminderViews.Card((next == null) ? "All sent" : "Next: " + DAY.format(next), subline);
     }
 
-    /** The card's small line: how many messages are scheduled, and how many of them are approved. */
+    /** {@link #card}'s big line. */
+    public String headline(final String tripId) {
+        return card(tripId).getHeadline();
+    }
+
+    /** {@link #card}'s small line. */
     public String subline(final String tripId) {
-        final Trip trip = canManage(tripId) ? gate.knownTrip(tripId) : null;
-        if (trip == null) {
-            return "";
-        }
-        final List<TripReminder> reminders = planOf(trip).getReminders();
-        final long approved = reminders.stream().filter(r -> r.isApprovedFor(trip)).count();
-        return reminders.isEmpty() ? "Nothing is scheduled to go to this trip's travelers."
-                : approved + " of " + reminders.size() + " scheduled messages approved. Only approved messages "
-                        + "are sent.";
+        return card(tripId).getSubline();
     }
 
     /** The earliest date an approved message is still to go out on; null when every one has been sent. */
@@ -189,7 +195,7 @@ public class ReminderCommands {
         return rows;
     }
 
-    /** One message's row, for the review dialog; null when it no longer exists. */
+    /** One message's row; null when it no longer exists. */
     public ReminderViews.Row row(final String tripId, final String reminderId) {
         return rows(tripId).stream().filter(r -> r.getId().equals(reminderId)).findFirst().orElse(null);
     }
@@ -200,40 +206,58 @@ public class ReminderCommands {
         final boolean approved = reminder.isApprovedFor(trip);
         final List<ReminderSend> ran = (date == null) ? List.of() : history.stream()
                 .filter(s -> reminder.getId().equals(s.getReminderId()) && date.equals(s.getSendDate())).toList();
-        final String[] status = statusOf(trip, reminder, date, approved, ran, today);
-        return new ReminderViews.Row(reminder.getId(), reminder.getName(), reminder.getKind().getLabel(),
-                reminder.getScheduleText(), (date == null) ? "No date" : DAY.format(date),
-                reminder.getAudience().getLabel(), reminder.isPush() ? "Email and app notification" : "Email",
-                status[0], status[1], status[2], approved, date != null && !approved,
-                approved && ran.isEmpty() && !date.isAfter(today));
+        final Status status = statusOf(trip, reminder, date, approved, ran, today);
+        return ReminderViews.Row.builder().id(reminder.getId()).name(reminder.getName())
+                .kindLabel(reminder.getKind().getLabel()).scheduleText(reminder.getScheduleText())
+                .sendDateText((date == null) ? "No date" : DAY.format(date))
+                .audienceLabel(reminder.getAudience().getLabel())
+                .channel(reminder.isPush() ? "Email and app notification" : "Email")
+                .statusLabel(status.label()).statusClass(status.styleClass()).statusNote(status.note())
+                .approved(approved).approvable(date != null && !approved)
+                // Offered again after a run: the ledger keeps everyone already sent to one message, so a second
+                // click reaches only a traveler whose failed send was cleared, or who joined the audience since.
+                .sendable(approved && !date.isAfter(today))
+                .sendLabel(ran.isEmpty() ? "Send now" : "Send to anyone missed").build();
     }
 
-    /** {label, style class, note} for one row. */
-    private String[] statusOf(final Trip trip, final TripReminder reminder, final LocalDate date,
+    /** What a row says about where its message stands. */
+    private record Status(String label, String styleClass, String note) {
+    }
+
+    private Status statusOf(final Trip trip, final TripReminder reminder, final LocalDate date,
             final boolean approved, final List<ReminderSend> ran, final LocalDate today) {
         if (date == null) {
-            return new String[] {"No date", "nodate", missingDateNote(reminder)};
+            return new Status("No date", "nodate", missingDateNote(reminder));
         }
         if (reminder.isApprovalStale(trip)) {
-            return new String[] {"Changed, approve again", "changed",
-                    "The wording or the date is not what was approved, so it will not be sent."};
+            return new Status("Changed, approve again", "changed",
+                    "The wording or the date is not what was approved, so it will not be sent.");
         }
         if (!approved) {
-            return new String[] {"Draft", "draft", date.isBefore(today)
+            return new Status("Draft", "draft", date.isBefore(today)
                     ? "Not approved, and its date has passed: approving it now only allows Send now."
-                    : "Not approved, so it will not be sent."};
+                    : "Not approved, so it will not be sent.");
         }
         if (!ran.isEmpty()) {
-            final long sent = ran.stream().filter(s -> s.getOutcome() == ReminderSend.Outcome.SENT).count();
-            return new String[] {"Sent", "sent", "Sent to " + sent + ((sent == 1) ? " person." : " people.")};
+            return ranStatus(ran);
         }
         final String by = "Approved by " + nameOf(reminder.getApprovedBy()) + ".";
         if (date.isBefore(today.minusDays(1))) {
-            return new String[] {"Missed", "missed", by + " Its date passed before it could be sent; use Send now "
-                    + "if it should still go out."};
+            return new Status("Missed", "missed", by + " Its date passed before it could be sent; use Send now "
+                    + "if it should still go out.");
         }
-        return new String[] {"Approved", "approved",
-                by + (isSendingOn() ? "" : " Scheduled sending is switched off for this site.")};
+        return new Status("Approved", "approved",
+                by + (isSendingOn() ? "" : " Scheduled sending is switched off for this site."));
+    }
+
+    /** The status of a message whose run happened: how many it reached, and how many sends did not go through. */
+    private static Status ranStatus(final List<ReminderSend> ran) {
+        final long sent = ran.stream().filter(s -> s.getOutcome() == ReminderSend.Outcome.SENT).count();
+        final long failed = ran.stream().filter(s -> s.getOutcome() == ReminderSend.Outcome.FAILED
+                || s.getOutcome() == ReminderSend.Outcome.CLAIMED).count();
+        final String note = "Sent to " + sent + ((sent == 1) ? " person." : " people.")
+                + ((failed == 0) ? "" : " " + failed + " failed: see the sent history.");
+        return (sent == 0 && failed > 0) ? new Status("Failed", "failed", note) : new Status("Sent", "sent", note);
     }
 
     private static String missingDateNote(final TripReminder reminder) {
@@ -248,7 +272,7 @@ public class ReminderCommands {
     private static String nameOf(final Person.Id personId) {
         final Person person = (personId == null) ? null
                 : DAO.getInstance().getPerson(personId, Cached.YES).orElse(null);
-        return (person == null) ? "someone" : ReminderRecipients.fullName(person);
+        return (person == null) ? "someone" : CheckinCommands.displayName(person);
     }
 
     // ================================================================== the message dialog
@@ -258,12 +282,15 @@ public class ReminderCommands {
         return ReminderText.TOKENS;
     }
 
-    /** The dates a message can count from, for the dialog's menu. */
+    /** The dates a message can count from, for the dialog's menu: "The trip start", "A date I choose". */
     public List<ReminderViews.Choice> anchorChoices() {
-        return List.of(new ReminderViews.Choice("TRIP_START", "The trip start"),
-                new ReminderViews.Choice("TRIP_END", "The trip end"),
-                new ReminderViews.Choice("BALANCE_DUE_DATE", "The balance due date"),
-                new ReminderViews.Choice("FIXED_DATE", "A date I choose"));
+        final List<ReminderViews.Choice> out = new ArrayList<>();
+        for (final TripReminder.Anchor anchor : TripReminder.Anchor.values()) {
+            final String label = anchor.getLabel();
+            out.add(new ReminderViews.Choice(anchor.name(), label.substring(0, 1).toUpperCase(Locale.ROOT)
+                    + label.substring(1)));
+        }
+        return out;
     }
 
     /** Who a custom message can go to, for the dialog's menu. */
@@ -303,7 +330,8 @@ public class ReminderCommands {
         form.setFixedDate(reminder.getFixedDate());
         form.setAudience(reminder.getAudience().name());
         form.setSubject(reminder.getSubject());
-        form.setBody(reminder.getBody());
+        // Cleaned on the way out like every other place the body is written: the editor loads it as HTML.
+        form.setBody(ReminderHtml.clean(reminder.getBody()));
         form.setPushText(reminder.getPushText());
         return form;
     }
@@ -348,6 +376,9 @@ public class ReminderCommands {
                 .subject(form.getSubject().trim()).body(cleanBody(form.getBody()))
                 .pushText((form.getPushText() == null) ? "" : form.getPushText().trim())
                 .status(TripReminder.Status.DRAFT).build();
+        if (!reminder.isReachable(trip)) {
+            return refused(refusal, TOO_LATE);
+        }
         plan.put(reminder);
         if (!persist(trip, plan, refusal, (adding ? "added" : "edited") + " '" + reminder.getName() + "' (draft)")) {
             return false;
@@ -401,6 +432,9 @@ public class ReminderCommands {
         }
         if (form.getSubject().trim().length() > MAX_SUBJECT) {
             return "The subject is longer than " + MAX_SUBJECT + " characters.";
+        }
+        if (form.getBody() != null && form.getBody().length() > MAX_RAW_BODY) {
+            return "The message is too long.";
         }
         final String body = cleanBody(form.getBody());
         if (WaiverHtml.isBlank(body)) {
@@ -489,8 +523,13 @@ public class ReminderCommands {
 
     // ================================================================== approve, withdraw, send
 
-    /** Approves one message exactly as it stands: this wording, this audience, this date. */
-    public boolean approve(final String tripId, final String reminderId) {
+    /**
+     * Approves one message as the facilitator was SHOWN it. {@code shownHash} is the {@link ReminderViews.Review}
+     * the review dialog rendered ({@code TripReminder.approvalHash}); when the stored message no longer hashes to
+     * it (someone edited it, or the trip's date moved, while the dialog was open) the approval is refused. So an
+     * approval can only ever cover wording, an audience and a date somebody actually looked at.
+     */
+    public boolean approve(final String tripId, final String reminderId, final String shownHash) {
         final Trip trip = manageable(tripId);
         if (trip == null) {
             return false;
@@ -504,6 +543,12 @@ public class ReminderCommands {
         if (date == null) {
             return refuse("This message has no send date yet, so it cannot be approved.");
         }
+        if (!Digests.matches(reminder.approvalHash(date), shownHash)) {
+            return refuse(CHANGED_SINCE_SHOWN);
+        }
+        if (!reminder.isReachable(trip)) {
+            return refuse(TOO_LATE);
+        }
         if (senderFrom(trip, plan) == null) {
             return refuse("Set the From address for this trip's messages first.");
         }
@@ -512,8 +557,19 @@ public class ReminderCommands {
                 "APPROVED '" + reminder.getName() + "' to send on " + date)) {
             return false;
         }
-        info("Approved. '" + reminder.getName() + "' will be sent on " + DAY.format(date) + ".");
+        info("Approved. '" + reminder.getName() + "' " + whenItGoes(date) + ".");
         return true;
+    }
+
+    /** What really happens next to a message approved now, in words for the confirmation. */
+    private String whenItGoes(final LocalDate date) {
+        final LocalDate today = today();
+        if (date.isAfter(today)) {
+            return "will be sent on " + DAY.format(date) + (isSendingOn() ? "" : " once scheduled sending is on");
+        }
+        return date.isBefore(today.minusDays(1))
+                ? "was dated " + DAY.format(date) + ", which has passed, so it is sent only with Send now"
+                : "is due now: it goes out with the next daily run, or right away with Send now";
     }
 
     /** Withdraws an approval: the message stays, as a draft, and will not be sent. */
@@ -564,68 +620,99 @@ public class ReminderCommands {
         return true;
     }
 
-    // ================================================================== recipients, preview, test
+    // ================================================================== review, preview, test
 
-    /** Who this message would go to if it were sent today, by name. */
-    public List<ReminderRecipients.Target> recipientsOf(final String tripId, final String reminderId) {
+    /** Who this message would go to if it were sent today, by name: the REAL audience, as the send uses it. */
+    List<ReminderRecipients.Target> recipientsOf(final String tripId, final String reminderId) {
         final Trip trip = canManage(tripId) ? gate.knownTrip(tripId) : null;
         final TripReminder reminder = (trip == null) ? null : planOf(trip).reminder(reminderId);
         return (reminder == null) ? List.of() : recipients.targets(trip, reminder, today());
     }
 
-    /** {@link #recipientsOf} as the review dialog's scalar rows. */
-    public List<ReminderViews.Recipient> recipientRows(final String tripId, final String reminderId) {
-        final List<ReminderViews.Recipient> rows = new ArrayList<>();
-        for (final ReminderRecipients.Target target : recipientsOf(tripId, reminderId)) {
-            rows.add(new ReminderViews.Recipient(target.getName(), target.getReason(), target.getAddresses()));
+    /**
+     * Everything the review dialog shows for one message, in ONE pass over the audience; null when the message no
+     * longer exists. What is shown is cut to what this caller may see ({@link ReminderGate#sight}): the wording
+     * and the names are real, an amount, a passport fact or an address they may not read is a placeholder.
+     */
+    public ReminderViews.Review review(final String tripId, final String reminderId) {
+        final Trip trip = canManage(tripId) ? gate.knownTrip(tripId) : null;
+        final TripReminderPlan plan = (trip == null) ? null : planOf(trip);
+        final TripReminder reminder = (plan == null) ? null : plan.reminder(reminderId);
+        if (reminder == null) {
+            return null;
         }
-        return rows;
+        final LocalDate today = today();
+        final ReminderRecipients.Sight sight = gate.sight(tripId);
+        final List<ReminderRecipients.Target> shown = recipients.targets(trip, reminder, today).stream()
+                .map(target -> target.seenBy(sight)).toList();
+        final Map<String, String> values = previewValues(shown);
+        final List<ReminderViews.Recipient> rows = new ArrayList<>();
+        for (final ReminderRecipients.Target target : shown) {
+            rows.add(new ReminderViews.Recipient(target.getName(), target.getReason(), target.addressesSeenBy(sight)));
+        }
+        final String replyTo = ReminderSender.effectiveReplyTo(trip, plan);
+        final String from = senderFrom(trip, plan);
+        return ReminderViews.Review.builder()
+                .row(rowOf(trip, reminder, DAO.getInstance().getReminderSends(tripId), today))
+                .subject(ReminderText.renderPlain(reminder.getSubject(), values))
+                .body(ReminderText.renderBody(reminder.getBody(), values))
+                .push(ReminderText.renderPlain(reminder.getPushText(), values))
+                .note(previewNote(shown, sight))
+                .from((from == null) ? "" : from)
+                .replyTo((replyTo == null || replyTo.isBlank()) ? "the From address" : replyTo)
+                .recipients(rows).hash(reminder.approvalHash(reminder.sendDate(trip))).build();
+    }
+
+    /** {@link #review}'s recipient rows; empty when the message is gone. */
+    public List<ReminderViews.Recipient> recipientRows(final String tripId, final String reminderId) {
+        final ReminderViews.Review review = review(tripId, reminderId);
+        return (review == null) ? List.of() : review.getRecipients();
     }
 
     /** The subject as one recipient reads it: the first person it would go to today, else sample values. */
     public String previewSubject(final String tripId, final String reminderId) {
-        final TripReminder reminder = reminderOf(tripId, reminderId);
-        return (reminder == null) ? "" : ReminderText.renderPlain(reminder.getSubject(),
-                previewValues(tripId, reminderId));
+        final ReminderViews.Review review = review(tripId, reminderId);
+        return (review == null) ? "" : review.getSubject();
     }
 
     /** The body HTML as one recipient reads it; see {@link #previewSubject}. */
     public String previewBody(final String tripId, final String reminderId) {
-        final TripReminder reminder = reminderOf(tripId, reminderId);
-        // Cleaned again on the way out: this is the one place the body is written into an admin's page unescaped.
-        return (reminder == null) ? ""
-                : ReminderText.render(ReminderHtml.clean(reminder.getBody()), previewValues(tripId, reminderId));
+        final ReminderViews.Review review = review(tripId, reminderId);
+        return (review == null) ? "" : review.getBody();
     }
 
     /** The app notification text as one recipient reads it; "" when the message sends none. */
     public String previewPush(final String tripId, final String reminderId) {
-        final TripReminder reminder = reminderOf(tripId, reminderId);
-        return (reminder == null) ? "" : ReminderText.renderPlain(reminder.getPushText(),
-                previewValues(tripId, reminderId));
+        final ReminderViews.Review review = review(tripId, reminderId);
+        return (review == null) ? "" : review.getPush();
     }
 
     /** Says whose values the preview shows: a real traveler's name, or that they are samples. */
     public String previewNote(final String tripId, final String reminderId) {
-        final List<ReminderRecipients.Target> targets = recipientsOf(tripId, reminderId);
-        return targets.isEmpty()
-                ? "Nobody would receive this today, so the preview shows sample values."
-                : "Shown as " + targets.get(0).getName() + " would receive it today (1 of " + targets.size() + ").";
+        final ReminderViews.Review review = review(tripId, reminderId);
+        return (review == null) ? "" : review.getNote();
     }
 
-    private TripReminder reminderOf(final String tripId, final String reminderId) {
-        final Trip trip = canManage(tripId) ? gate.knownTrip(tripId) : null;
-        return (trip == null) ? null : planOf(trip).reminder(reminderId);
+    private static String previewNote(final List<ReminderRecipients.Target> shown,
+            final ReminderRecipients.Sight sight) {
+        if (shown.isEmpty()) {
+            return "Nobody would receive this today, so the preview shows sample values.";
+        }
+        final boolean all = sight.money() && sight.travelDocuments();
+        return "Shown as " + shown.get(0).getName() + " would receive it today (1 of " + shown.size() + ")."
+                + (all ? "" : " Details you do not have access to, such as an amount owed or a passport date, are "
+                        + "not shown here; the traveler's own message has them.");
     }
 
-    private Map<String, String> previewValues(final String tripId, final String reminderId) {
-        final List<ReminderRecipients.Target> targets = recipientsOf(tripId, reminderId);
-        for (final ReminderRecipients.Target target : targets) {
+    /** The values of the first shown target that has a mailbox; sample values when nobody is in the audience. */
+    private static Map<String, String> previewValues(final List<ReminderRecipients.Target> shown) {
+        for (final ReminderRecipients.Target target : shown) {
             if (!target.mailTo().isEmpty()) {
                 return ReminderRecipients.valuesFor(target, target.mailTo().get(0));
             }
         }
-        return targets.isEmpty() ? ReminderText.sampleValues()
-                : ReminderRecipients.valuesFor(targets.get(0), targets.get(0).traveler());
+        return shown.isEmpty() ? ReminderText.sampleValues()
+                : ReminderRecipients.valuesFor(shown.get(0), shown.get(0).traveler());
     }
 
     /** The signed-in user's own address: what the test-send field starts with (editable; prompt, never assume). */
@@ -636,8 +723,10 @@ public class ReminderCommands {
     }
 
     /**
-     * Mails the message, as the preview shows it, to ONE address the facilitator typed. A draft can be tested:
-     * the test goes to the facilitator, never to travelers, and writes nothing to the sent history.
+     * Mails the message, exactly as the review shows it to THIS caller, to ONE address they typed. A draft can be
+     * tested: the test goes to the facilitator, never to travelers, and writes nothing to the sent history. It
+     * carries only what the caller may see (a placeholder for the rest), and each person is held to
+     * {@link #MAX_TESTS_PER_HOUR}, so the button is not a way to mail strangers from the organization's address.
      */
     public boolean sendTest(final String tripId, final String reminderId, final String to) {
         final Trip trip = manageable(tripId);
@@ -645,27 +734,36 @@ public class ReminderCommands {
             return false;
         }
         final TripReminderPlan plan = planOf(trip);
-        final TripReminder reminder = plan.reminder(reminderId);
-        if (reminder == null) {
+        final ReminderViews.Review review = review(tripId, reminderId);
+        if (review == null) {
             return refuse("This message no longer exists: reload the page.");
         }
         final String address = EmailAddresses.normalize(to);
         if (address == null) {
             return refuse("Enter the email address to send the test to.");
         }
-        final String from = senderFrom(trip, plan);
-        if (from == null) {
+        if (review.getFrom().isEmpty()) {
             return refuse("Set the From address for this trip's messages first.");
         }
-        final Map<String, String> values = previewValues(tripId, reminderId);
-        final boolean sent = new MailCommands().send(from, address, null, ReminderSender.effectiveReplyTo(trip, plan),
-                "[Test] " + ReminderText.renderPlain(reminder.getSubject(), values),
-                ReminderText.render(ReminderHtml.clean(reminder.getBody()), values), caller().auditActor()) != null;
+        if (!underTestLimit()) {
+            return refuse("That is " + MAX_TESTS_PER_HOUR + " test emails in an hour. Try again later.");
+        }
+        final boolean sent = senderSource.get().sendTest(review.getFrom(), address,
+                ReminderSender.effectiveReplyTo(trip, plan), "[Test] " + review.getSubject(), review.getBody(),
+                caller().auditActor());
         if (!sent) {
             return refuse("The test email could not be sent.");
         }
         info("Test email sent to " + address + ".");
         return true;
+    }
+
+    /** Counts this send against the caller's hour. A cache that cannot count never blocks a test. */
+    private boolean underTestLimit() {
+        final long hour = clock.get().getEpochSecond() / 3600;
+        final String key = CacheKeys.reminderTestSendsKey(caller().personId().getValue(), hour);
+        return DAO.getInstance().getCacheClient().increment(key, 1, Duration.ofHours(1))
+                .map(count -> count <= MAX_TESTS_PER_HOUR).orElse(true);
     }
 
     // ================================================================== sender (From and Reply-To)
@@ -682,6 +780,17 @@ public class ReminderCommands {
         final Trip trip = canManage(tripId) ? gate.knownTrip(tripId) : null;
         final String replyTo = (trip == null) ? null : ReminderSender.effectiveReplyTo(trip, planOf(trip));
         return (replyTo == null) ? "" : replyTo;
+    }
+
+    /**
+     * The trip's OWN Reply-To, for the Sender dialog's field: blank while the trip inherits its facilitators'
+     * addresses. Seeding the field with the inherited list made an untouched dialog save a list as if it were
+     * one typed address.
+     */
+    public String ownReplyTo(final String tripId) {
+        final Trip trip = canManage(tripId) ? gate.knownTrip(tripId) : null;
+        final String own = (trip == null) ? null : planOf(trip).getReplyTo();
+        return (own == null) ? "" : own;
     }
 
     private static String senderFrom(final Trip trip, final TripReminderPlan plan) {
@@ -712,7 +821,9 @@ public class ReminderCommands {
         final TripReminderPlan plan = planOf(trip);
         plan.setMailFrom(from);
         plan.setReplyTo(reply.isEmpty() ? null : reply);
-        if (!persist(trip, plan, PageFeedback::refuse, "set the From to '" + from + "'")) {
+        // Both halves are named: the Reply-To is outside the approval and is where travelers' answers go.
+        if (!persist(trip, plan, PageFeedback::refuse, "set the sender: From '" + from + "', Reply-To '"
+                + (reply.isEmpty() ? "(the trip's facilitators)" : reply) + "'")) {
             return false;
         }
         info("Sender saved.");
@@ -726,13 +837,16 @@ public class ReminderCommands {
         if (!canManage(tripId)) {
             return List.of();
         }
-        final ZoneId zone = zone();
+        final ZoneId zone = ReminderClock.zone(new ConfigCommands());
+        final boolean addresses = gate.sight(tripId).contact();
         final List<ReminderViews.HistoryRow> rows = new ArrayList<>();
         for (final ReminderSend send : DAO.getInstance().getReminderSends(tripId)) {
             final ReminderSend.Outcome outcome = send.getOutcome();
+            final String to = (send.getToEmail() == null) ? "" : send.getToEmail();
             rows.add(new ReminderViews.HistoryRow(send.getSortKey(),
                     (send.getAt() == null) ? "" : MOMENT.format(send.getAt().atZone(zone)),
-                    send.getReminderName(), send.getPersonName(), send.getToEmail(), outcome.getLabel(),
+                    send.getReminderName(), send.getPersonName(),
+                    (addresses || to.isBlank()) ? to : ReminderRecipients.ADDRESS_HIDDEN, outcome.getLabel(),
                     outcome.name().toLowerCase(Locale.ROOT).replace("_", ""),
                     send.isManual() ? "Sent by hand" : "Scheduled", send.isPushed(),
                     outcome == ReminderSend.Outcome.FAILED || outcome == ReminderSend.Outcome.CLAIMED));
@@ -759,7 +873,8 @@ public class ReminderCommands {
                 auditSource.get().reminder(trip.getId(), trip.getOrgId(), "Messages of '" + trip.getTitle()
                         + "': cleared the failed send of '" + send.getReminderName() + "' to "
                         + send.getPersonName(), caller().auditActor());
-                info("Cleared. Send now will include " + send.getPersonName() + " again.");
+                info("Cleared. \"Send to anyone missed\" on the message will include " + send.getPersonName()
+                        + " again.");
                 return true;
             }
         }
@@ -787,8 +902,7 @@ public class ReminderCommands {
             addAuto(out, trip, StarterTemplates.CHECKOUT_CONFIRMATION_ID, "Checkout confirmation",
                     "Right after someone pays for a registration at checkout.");
         }
-        final org.paulsens.trip.model.TripPaymentConfig payments = new OrgCommands(callerSource)
-                .effectivePaymentConfig(trip);
+        final TripPaymentConfig payments = new OrgCommands(callerSource).effectivePaymentConfig(trip);
         if (payments.isPayable()) {
             addAuto(out, trip, (payments.getConfirmationTemplateId() == null)
                     ? StarterTemplates.PAYMENT_CONFIRMATION_ID : payments.getConfirmationTemplateId(),

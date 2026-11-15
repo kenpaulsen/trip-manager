@@ -103,6 +103,33 @@ public class ReminderDAOTest {
     }
 
     @Test
+    public void aDeletedAccountLeavesTheHistoryWithoutItsNameOrAddress() throws IOException {
+        final String tripId = "trip-" + RandomData.genAlpha(10);
+        final ReminderSend ann = send(tripId, "ann");
+        // Bob is Ann's dependent: his row mailed HER address.
+        final ReminderSend bob = send(tripId, "bob").withToEmail("ann@example.com, other@example.com");
+        final ReminderSend cat = send(tripId, "cat");
+        assertTrue(DAO.getInstance().claimReminderSend(ann));
+        assertTrue(DAO.getInstance().claimReminderSend(bob));
+        assertTrue(DAO.getInstance().claimReminderSend(cat));
+        assertEquals(DAO.getInstance().scrubReminderSends(tripId, Person.Id.from("ann"), "Ann@Example.com",
+                "Deleted Account"), 2);
+        final List<ReminderSend> after = DAO.getInstance().getReminderSends(tripId);
+        final ReminderSend hers = after.stream().filter(s -> s.getPersonId().getValue().equals("ann")).findFirst()
+                .orElseThrow();
+        assertEquals(hers.getPersonName(), "Deleted Account");
+        assertEquals(hers.getToEmail(), "");
+        final ReminderSend his = after.stream().filter(s -> s.getPersonId().getValue().equals("bob")).findFirst()
+                .orElseThrow();
+        assertEquals(his.getPersonName(), "bob", "Bob is still Bob");
+        assertEquals(his.getToEmail(), "", "but the address his row mailed is gone");
+        assertEquals(after.stream().filter(s -> s.getPersonId().getValue().equals("cat")).findFirst().orElseThrow()
+                .getToEmail(), "cat@example.com");
+        assertFalse(DAO.getInstance().claimReminderSend(ann), "The row still stands: the reminder is not resent");
+        assertEquals(DAO.getInstance().scrubReminderSends(tripId, null, null, "Deleted Account"), 0);
+    }
+
+    @Test
     public void deletingATripRemovesItsPlanAndItsSends() throws IOException {
         final TripReminderPlan plan = plan();
         assertTrue(DAO.getInstance().saveReminderPlan(plan));

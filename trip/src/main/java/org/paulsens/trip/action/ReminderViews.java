@@ -3,6 +3,8 @@ package org.paulsens.trip.action;
 import java.io.Serial;
 import java.io.Serializable;
 import java.time.LocalDate;
+import java.util.List;
+import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.Value;
@@ -18,6 +20,7 @@ public final class ReminderViews {
 
     /** One scheduled message on the page's Schedule list. */
     @Value
+    @Builder
     public static class Row {
         String id;
         String name;
@@ -29,13 +32,42 @@ public final class ReminderViews {
         /** "Email" or "Email and app notification". */
         String channel;
         String statusLabel;
-        /** A stylesheet suffix: draft, approved, changed, sent, missed, nodate. */
+        /** A stylesheet suffix: draft, approved, changed, sent, missed, failed, nodate. */
         String statusClass;
         /** One line under the status: who approved it and when, or what a facilitator should do next. */
         String statusNote;
         boolean approved;
         boolean approvable;
         boolean sendable;
+        /** "Send now", or "Send to anyone missed" once a run for the date has happened. */
+        String sendLabel;
+    }
+
+    /**
+     * Everything the review dialog shows for one message, resolved in ONE pass so its parts cannot disagree: the
+     * message as one recipient reads it, who it would go to today, and {@link #hash}, the identity of exactly
+     * this wording, audience and date. Approve hands the hash back, so what is approved is what was shown.
+     */
+    @Value
+    @Builder
+    public static class Review {
+        Row row;
+        String subject;
+        String body;
+        String push;
+        String note;
+        String from;
+        /** Where replies go, in words: an address, or "the From address". */
+        String replyTo;
+        List<Recipient> recipients;
+        String hash;
+    }
+
+    /** The Reports dashboard card's two lines, read from the plan once. */
+    @Value
+    public static class Card {
+        String headline;
+        String subline;
     }
 
     /** One option of a menu in the message dialog. */

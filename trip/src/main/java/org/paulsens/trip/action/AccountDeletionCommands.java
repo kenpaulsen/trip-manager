@@ -135,6 +135,7 @@ public class AccountDeletionCommands {
             "Your profile pictures",
             "Every chat message and photo you posted, and every comment and reaction you left",
             "Your trip registrations and your place on every trip",
+            "Your name and email address in the record of reminder emails sent about your trips",
             "Your saved preferences and blocked people");
     public static final List<String> RETAINED = List.of(
             "Records of your payments, kept by the organization for its accounting, with your name and "
@@ -381,6 +382,9 @@ public class AccountDeletionCommands {
     private void leaveTrips(final Person person) throws IOException {
         final Person.Id me = person.getId();
         for (final Trip trip : dao().getRecentTrips(0, Cached.NO)) {
+            // The record of reminder emails (docs/reminders.md) holds a name and the address mailed. Every trip
+            // is checked, not only the person's own: a family manager's address is on their dependents' rows.
+            dao().scrubReminderSends(trip.getId(), me, person.getEmail(), DELETED_FIRST + " " + DELETED_LAST);
             if (dao().getRegistration(trip.getId(), me, Cached.NO).isPresent()
                     && !Boolean.TRUE.equals(dao().deleteRegistration(trip.getId(), me))) {
                 throw new IOException("The registration on trip " + trip.getId() + " was not deleted.");

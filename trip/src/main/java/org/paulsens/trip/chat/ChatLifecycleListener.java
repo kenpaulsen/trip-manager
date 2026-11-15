@@ -9,7 +9,9 @@ import org.paulsens.trip.action.PhotoChatCommands;
 import org.paulsens.trip.reminder.ReminderScheduler;
 
 /**
- * Starts and stops the chat digest scheduler with the webapp.
+ * Starts and stops the two daily schedulers with the webapp: the chat digest's and the trip reminders'
+ * ({@code reminder/ReminderScheduler}, {@code docs/reminders.md}), which rides this listener because the
+ * listener order lives in the deployed {@code web.xml}.
  *
  * <p>Declared by hand in {@code web.xml}, not annotated: {@code metadata-complete="true"} means
  * {@code @WebListener} is ignored outright, which fails silently — the listener simply never runs and nobody ever

@@ -498,6 +498,11 @@ public final class DAO {
     public List<ReminderSend> getReminderSends(final String tripId) {
         return reminderDao.getSends(tripId);
     }
+    /** Account deletion: the person's name and address leave the trip's send history; the rows stay. */
+    public int scrubReminderSends(final String tripId, final Person.Id personId, final String email,
+            final String erasedName) throws IOException {
+        return reminderDao.scrubPerson(tripId, personId, email, erasedName);
+    }
     public Boolean deleteRemindersForTrip(final String tripId) {
         return reminderDao.deleteTrip(tripId);
     }

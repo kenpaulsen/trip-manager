@@ -16,7 +16,8 @@ lands -- the DynamoDB connection pool (100), the two Lettuce request queues (500
 
 - Fan-out uses `StructuredTaskScope` (a preview API -- `--enable-preview` is set in the compiler args, the
   surefire argLine, the container's `CATALINA_OPTS` AND `ci/buildspec-integtest.yml`): trip-event resolve,
-  mail-merge sends, password migration (semaphore-bounded). Forks inherit ScopedValues.
+  mail-merge sends, trip-reminder sends (`ReminderSender`, the mail merge's bound), password migration
+  (semaphore-bounded). Forks inherit ScopedValues.
 - Fire-and-forget background work spawns via `TripThreads.start`/`startAs` (named virtual threads, bound to
   the background cache lane). Plain spawns do NOT inherit ScopedValues -- work that outlives its request
   re-binds identity via `startAs` (`RequestContext`/`AuditActor`); schedulers bind `RequestContext.system()`.
@@ -25,7 +26,7 @@ lands -- the DynamoDB connection pool (100), the two Lettuce request queues (500
 - The few remaining platform threads are ones we cannot make virtual: Lettuce's Netty event loops, the AWS
   SDK's Apache client internals, the dedicated `bg-remover-inference` thread (ONNX inference pins its carrier,
   so it runs on one platform thread), and the shutdown hook. The audit-sink writers and the
-  `ChatDigestScheduler` timer thread are virtual.
+  `ChatDigestScheduler` and `ReminderScheduler` (`trip-reminders`) timer threads are virtual.
 - `AuditActor.current()` reads the `RequestContext` ScopedValue, bound per request by `SessionRecoveryFilter`
   and inherited by `StructuredTaskScope` forks. A plain `TripThreads.start` spawn does NOT inherit it -- use
   `startAs(actor, ...)` for work that outlives its request (`CompletableFuture` is banned by `ArchitectureTest`).

@@ -128,6 +128,14 @@ public final class ReminderText {
         return substitute(text, values, false);
     }
 
+    /**
+     * A reminder's stored body, ready to be written out as HTML: cleaned again ({@link ReminderHtml#clean}), then
+     * merged. THE one way a body leaves the store for a page or a mailbox, so no caller can forget the cleaning.
+     */
+    public static String renderBody(final String storedBody, final Map<String, String> values) {
+        return render(ReminderHtml.clean(storedBody), values);
+    }
+
     private static String substitute(final String text, final Map<String, String> values, final boolean html) {
         if (text == null) {
             return "";

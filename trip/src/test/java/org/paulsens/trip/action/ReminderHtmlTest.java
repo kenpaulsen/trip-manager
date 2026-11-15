@@ -81,6 +81,54 @@ public class ReminderHtmlTest {
         assertEquals(ReminderHtml.clean(once), once);
     }
 
+    /** What the page's editor really posts: Quill 2 writes every list as ol and marks bullets on the item. */
+    @Test
+    public void aQuillBulletListStaysABulletListForTheEditorAndTheMailClient() {
+        final String bullets = "<ol><li data-list=\"bullet\"><span class=\"ql-ui\" contenteditable=\"false\"></span>"
+                + "Passport</li><li data-list=\"bullet\">Ticket</li></ol>";
+        final String cleaned = ReminderHtml.clean(bullets);
+        assertEquals(cleaned, "<ul><li data-list=\"bullet\"><span class=\"ql-ui\"></span>Passport</li>"
+                + "<li data-list=\"bullet\">Ticket</li></ul>");
+        assertEquals(ReminderHtml.clean(cleaned), cleaned);
+        final String numbers = "<ol><li data-list=\"ordered\">One</li></ol>";
+        assertEquals(ReminderHtml.clean(numbers), numbers);
+        assertEquals(ReminderHtml.clean("<OL><LI DATA-LIST='bullet'>x</LI></OL>"),
+                "<ul><li data-list=\"bullet\">x</li></ul>");
+        assertEquals(ReminderHtml.clean("<ol><li data-list=\"evil\" onclick=x>x</li></ol></ol>"),
+                "<ol><li>x</li></ol></ol>", "An unknown kind is dropped; a stray closing tag stays a list tag");
+        assertEquals(ReminderHtml.clean("<ol>no items</ol>"), "<ol>no items</ol>");
+        assertEquals(ReminderHtml.clean("<p data-list=\"bullet\">x</p>"), "<p>x</p>", "Only on a list item");
+    }
+
+    @Test
+    public void aQuillClassThatHidesTextFromTheReviewerIsDropped() {
+        assertEquals(ReminderHtml.clean("<div class=\"ql-snow\"><p class=\"ql-hidden\">secret</p></div>"),
+                "<div><p>secret</p></div>");
+        assertEquals(ReminderHtml.clean("<p class=\"ql-clipboard\">secret</p>"), "<p>secret</p>");
+        assertEquals(ReminderHtml.clean("<p class=\"ql-size-huge ql-font-serif ql-direction-rtl\">t</p>"),
+                "<p class=\"ql-size-huge ql-font-serif ql-direction-rtl\">t</p>");
+        assertEquals(ReminderHtml.clean("<p class=\"ql-indent-9\">t</p>"), "<p>t</p>");
+    }
+
+    @Test
+    public void phoneLinksAndAnApostropheInAnAddressAreKept() {
+        assertTrue(ReminderHtml.isSafeAddress("tel:+15035551212"));
+        assertTrue(ReminderHtml.isSafeAddress("sms:+15035551212"));
+        assertTrue(ReminderHtml.isSafeAddress("https://example.com/o'brien"));
+        assertEquals(ReminderHtml.clean("<a href=\"https://example.com/o'brien\">x</a>"),
+                "<a href=\"https://example.com/o'brien\" rel=\"noopener noreferrer\" target=\"_blank\">x</a>");
+    }
+
+    /** The largest body a save hands the cleaner (ReminderCommands.MAX_RAW_BODY), built to be slow. */
+    @Test(timeOut = 20_000)
+    public void aHostileBodyAtTheSizeCapIsCleanedPromptly() {
+        final int cap = ReminderCommands.MAX_RAW_BODY;
+        assertEquals(ReminderHtml.clean("<a".repeat(cap / 2)), "&lt;a".repeat(cap / 2));
+        assertEquals(ReminderHtml.clean("<svg></svg>".repeat(cap / 11)), "");
+        assertEquals(ReminderHtml.clean("<a \"".repeat(cap / 4) + ">").length() > 0, true);
+        assertEquals(ReminderHtml.clean("x\u0130<script>a</script>y"), "x\u0130y", "A case that changes length");
+    }
+
     @Test
     public void theStarterTextsKeepTheirLinksAndWording() {
         for (final ReminderDefaults.Text text : ReminderDefaults.TEXTS) {

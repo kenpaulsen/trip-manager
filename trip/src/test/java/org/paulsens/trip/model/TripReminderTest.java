@@ -133,13 +133,26 @@ public class TripReminderTest {
     }
 
     @Test
+    public void aDateIsReachableUpToAYearAfterTheTripEnds() {
+        final Trip trip = trip();
+        final LocalDate end = START.plusDays(9).toLocalDate();
+        final TripReminder dated = draft().withAnchor(TripReminder.Anchor.FIXED_DATE);
+        assertTrue(dated.withFixedDate(end.plusDays(TripReminder.MAX_DAYS_AFTER_END)).isReachable(trip));
+        assertFalse(dated.withFixedDate(end.plusDays(TripReminder.MAX_DAYS_AFTER_END + 1)).isReachable(trip));
+        assertTrue(dated.isReachable(trip), "No date yet: nothing to refuse");
+        assertTrue(dated.withFixedDate(end.plusYears(5)).isReachable(null));
+        trip.setEndDate(null);
+        assertTrue(dated.withFixedDate(end.plusYears(5)).isReachable(trip), "No end date to count from");
+    }
+
+    @Test
     public void scheduleTextReadsAsASentence() {
         assertEquals(draft().getScheduleText(), "7 days before the trip start");
         assertEquals(draft().withOffsetDays(1).getScheduleText(), "1 day after the trip start");
         assertEquals(draft().withOffsetDays(0).getScheduleText(), "On the trip start");
         assertEquals(draft().withAnchor(TripReminder.Anchor.FIXED_DATE).getScheduleText(), "No date chosen");
         assertEquals(draft().withAnchor(TripReminder.Anchor.FIXED_DATE).withFixedDate(LocalDate.of(2027, 4, 4))
-                .getScheduleText(), "On 2027-04-04");
+                .getScheduleText(), "On Apr 4, 2027");
         assertEquals(TripReminder.Kind.PASSPORT.getLabel(), "Passport");
         assertEquals(TripReminder.Audience.PENDING.getLabel(), "People whose registration is awaiting approval");
         assertEquals(TripReminder.Anchor.TRIP_END.getLabel(), "the trip end");

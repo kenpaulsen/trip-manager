@@ -285,6 +285,11 @@ public final class CacheKeys {
     /** How long a delivery marker survives. Long enough that a same-day retry cannot double-send. */
     public static final Duration CHAT_NOTIFY_SENT_TTL = Duration.ofHours(24);
 
+    /** One person's reminder test sends in one clock hour: the counter behind the test-send cap. */
+    public static String reminderTestSendsKey(final String personId, final long hour) {
+        return FORMAT_VERSION + "reminder:tests:" + personId + ":" + hour;
+    }
+
     /**
      * The best-effort lock on one day's trip-reminder run ({@code ReminderScheduler}): it only saves a second
      * instance the same reads. The once-only guarantee is the send ledger in DynamoDB, never this key.

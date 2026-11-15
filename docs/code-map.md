@@ -55,7 +55,10 @@ a plan is the hotel's COST side only (`canEditCost` is its one gate), `savePlan`
 option and never recomputes a bill, `attach(AttachForm)` on the trip side creates the option WITH its own participant
 price, `detach` cuts it loose; see `docs/lodging.md` "Rate plans"), `waiver` (WaiverCommands -- trip documents: an org's
 versioned library, a trip's pinned versions with the re-sign decision, the two-box signature, the `WAIVERS_REQUIRED`
-registration gate and the signed-copy PDF; see `docs/waivers.md`), `checkin` (CheckinCommands -- tickets, staff
+registration gate and the signed-copy PDF; see `docs/waivers.md`), `reminder` (ReminderCommands -- a trip's
+Communications page: scheduled messages that are drafts until a facilitator approves the exact wording and date,
+the one-pass `review`, the test send, the sender and the sent history; `ReminderSender` is the single path to a
+mailbox and `reminder/ReminderScheduler` the daily run; see `docs/reminders.md`), `checkin` (CheckinCommands -- tickets, staff
 check-in, counts, the trip-bound balance, batch badges and the export rows; see `docs/checkin.md`), `tripStylesheets`
 (TripStylesheets -- a trip page's own stylesheets: one `text/css` library item each under `org/{orgId}/stylesheets/`,
 saved in place with a `rev` bump and a CDN invalidation, gated to the org's admins and media admins, with the "Classes

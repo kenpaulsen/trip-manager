@@ -5,10 +5,12 @@ import java.io.IOException;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.ReminderSend;
 import org.paulsens.trip.model.TripReminderPlan;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
@@ -147,6 +149,29 @@ public class ReminderDAO {
                 .filter(Objects::nonNull)
                 .sorted(Comparator.comparing(ReminderSend::getAt, Comparator.nullsLast(Comparator.reverseOrder())))
                 .toList();
+    }
+
+    /**
+     * Erases one person from a trip's send history (account deletion): their own rows lose the name and the
+     * address, and any row that mailed their address (a family manager's, for a dependent) loses the address.
+     * The rows themselves stay, with their outcome, so "this reminder already ran" still holds.
+     *
+     * @return the number of rows rewritten.
+     */
+    protected int scrubPerson(final String tripId, final Person.Id personId, final String email,
+            final String erasedName) throws IOException {
+        final String address = (email == null) ? "" : email.trim().toLowerCase(Locale.ROOT);
+        int rewritten = 0;
+        for (final ReminderSend send : getSends(tripId)) {
+            final boolean theirs = personId != null && personId.equals(send.getPersonId());
+            final String to = (send.getToEmail() == null) ? "" : send.getToEmail();
+            final boolean mailedThem = !address.isEmpty() && to.toLowerCase(Locale.ROOT).contains(address);
+            if (theirs || mailedThem) {
+                saveSend(send.withPersonName(theirs ? erasedName : send.getPersonName()).withToEmail(""));
+                rewritten++;
+            }
+        }
+        return rewritten;
     }
 
     // ================================================================== trip delete

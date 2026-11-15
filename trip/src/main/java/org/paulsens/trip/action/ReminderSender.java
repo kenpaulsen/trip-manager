@@ -37,8 +37,6 @@ import org.paulsens.trip.push.PushNotifications;
  */
 @Slf4j
 public class ReminderSender {
-    /** SES calls in flight at once, the mail merge's bound ({@code MailCommands.MERGE_PARALLELISM}). */
-    static final int PARALLELISM = 8;
     private static MailCommands liveMail;
 
     /** One mail out; false when it could not be handed to the mail service. */
@@ -156,6 +154,15 @@ public class ReminderSender {
     }
 
     /**
+     * Mails ONE test rendering to one address, through the same mail seam as a real send. It claims nothing and
+     * records nothing: a test is not part of the sent history.
+     */
+    public boolean sendTest(final String from, final String to, final String replyTo, final String subject,
+            final String body, final AuditActor who) {
+        return mailer.send(from, to, replyTo, subject, body, who);
+    }
+
+    /**
      * Sends {@code reminder} to everyone it is about today, once each.
      *
      * @param sendDate the reminder's send date on this trip: the ledger key, so a late or repeated run of the
@@ -187,9 +194,9 @@ public class ReminderSender {
     private List<ReminderSend.Outcome> fanOut(final Trip trip, final TripReminder reminder, final LocalDate sendDate,
             final boolean manual, final AuditActor who, final String from, final String replyTo,
             final List<ReminderRecipients.Target> targets) {
-        // The mail merge's shape: one fork per traveler, a semaphore capping the SES calls in flight, and the
-        // scope guaranteeing every send has finished (and is recorded) before the summary is built.
-        final Semaphore permits = new Semaphore(PARALLELISM);
+        // The mail merge's shape and its bound: one fork per traveler, a semaphore capping the SES calls in
+        // flight, and the scope guaranteeing every send has finished (and is recorded) before the summary is built.
+        final Semaphore permits = new Semaphore(MailCommands.MERGE_PARALLELISM);
         try (var scope = StructuredTaskScope.open()) {
             final List<StructuredTaskScope.Subtask<ReminderSend.Outcome>> sends = new ArrayList<>();
             for (final ReminderRecipients.Target target : targets) {
@@ -249,7 +256,7 @@ public class ReminderSender {
             final Map<String, String> values = ReminderRecipients.valuesFor(target, addressee);
             allSent &= mailer.send(from, addressee.getEmail(), replyTo,
                     ReminderText.renderPlain(reminder.getSubject(), values),
-                    ReminderText.render(ReminderHtml.clean(reminder.getBody()), values), who);
+                    ReminderText.renderBody(reminder.getBody(), values), who);
             if (reminder.isPush()) {
                 pusher.push(trip, reminder, addressee.getId(),
                         ReminderText.renderPlain(reminder.getSubject(), values),

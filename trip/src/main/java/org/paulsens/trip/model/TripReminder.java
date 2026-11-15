@@ -7,6 +7,8 @@ import java.io.Serial;
 import java.io.Serializable;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.util.Locale;
 import lombok.Builder;
 import lombok.Value;
 import lombok.With;
@@ -57,7 +59,7 @@ public class TripReminder implements Serializable {
         BALANCE_DUE_DATE("the balance due date"),
         TRIP_START("the trip start"),
         TRIP_END("the trip end"),
-        FIXED_DATE("a date");
+        FIXED_DATE("a date I choose");
 
         private final String label;
 
@@ -92,6 +94,13 @@ public class TripReminder implements Serializable {
     public enum Status {
         DRAFT, APPROVED
     }
+
+    /**
+     * The latest a message may be scheduled: this many days after the trip ends. The daily run reads trips that
+     * ended within this window ({@code ReminderScheduler}), so a later date would be approved and never sent.
+     */
+    public static final int MAX_DAYS_AFTER_END = 365;
+    private static final DateTimeFormatter SCHEDULE_DAY = DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.US);
 
     String id;
     Kind kind;
@@ -168,6 +177,16 @@ public class TripReminder implements Serializable {
         };
     }
 
+    /**
+     * Whether this trip's daily run can ever reach the send date: not later than {@link #MAX_DAYS_AFTER_END} days
+     * after the trip ends. True when there is no send date or no end date to compare.
+     */
+    public boolean isReachable(final Trip trip) {
+        final LocalDate date = sendDate(trip);
+        return date == null || trip == null || trip.getEndDate() == null
+                || !date.isAfter(trip.getEndDate().toLocalDate().plusDays(MAX_DAYS_AFTER_END));
+    }
+
     /** The hash an approval of this exact message on this exact day carries; null when there is no day. */
     public String approvalHash(final LocalDate sendDate) {
         if (sendDate == null) {
@@ -216,7 +235,7 @@ public class TripReminder implements Serializable {
     @JsonIgnore
     public String getScheduleText() {
         if (anchor == Anchor.FIXED_DATE) {
-            return (fixedDate == null) ? "No date chosen" : "On " + fixedDate;
+            return (fixedDate == null) ? "No date chosen" : "On " + SCHEDULE_DAY.format(fixedDate);
         }
         if (offsetDays == 0) {
             return "On " + anchor.getLabel();

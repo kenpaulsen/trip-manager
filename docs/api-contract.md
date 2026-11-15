@@ -502,8 +502,8 @@ APNs payload the app parses (`PushPayload`): `aps` (`alert{title,subtitle,body}`
 `thread-id`, `interruption-level`, `mutable-content`), plus top-level `kind` (`chat.mention`, `chat.reply`,
 `chat.photoComment`, `chat.announcement`, `chat.message`, `registration.approved`, `payment.recorded`,
 `trip.reminder` (a scheduled trip message; `link` is the trip's payments for a balance reminder, else
-`unitetrip://trip/<id>`), `support.request`, `test`), `link` (`unitetrip://…`, routed in-app), `url` (https fallback, opened in the
-browser), `channelId`, `messageId`, and `image` (https JPEG on `files.visitqueenofpeace.com` or
+`unitetrip://trip/<id>`), `support.request`, `test`), `link` (`unitetrip://…`, routed in-app), `url` (https
+fallback, opened in the browser), `channelId`, `messageId`, and `image` (https JPEG on `files.visitqueenofpeace.com` or
 `*.unitetrip.com`, only with `mutable-content: 1`; the notification service extension attaches it). A
 background push is `{"aps":{"content-available":1}}` alone: the app refreshes channels and trips and sets
 the icon badge to the number of chats with unread messages.

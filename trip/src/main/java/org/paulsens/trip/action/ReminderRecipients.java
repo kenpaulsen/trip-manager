@@ -40,12 +40,30 @@ public final class ReminderRecipients {
     private static final DateTimeFormatter DAY = DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.US);
 
     /**
+     * What ONE viewer of the Communications page may see about travelers, by the rules the rest of the site
+     * already keeps (owner decision 2026-11-15: redact only the values a viewer may not see, keep the rest):
+     * amounts owed behind the trip's money rule ({@code TripFinanceGate.canView}); passport facts and email
+     * addresses behind {@code AccessLevel}'s trip-admin rule (a site admin or the trip's {@code tripMgr}).
+     * Managing a trip's messages does not by itself grant any of the three.
+     */
+    public record Sight(boolean money, boolean travelDocuments, boolean contact) {
+        /** Everything: what the send itself works with. */
+        public static final Sight ALL = new Sight(true, true, true);
+        /** Nothing sensitive. */
+        public static final Sight NONE = new Sight(false, false, false);
+    }
+
+    static final String AMOUNT_HIDDEN = "(amount not shown)";
+    static final String PASSPORT_HIDDEN = "(passport details not shown)";
+    static final String ADDRESS_HIDDEN = "(address not shown)";
+
+    /**
      * One traveler the reminder is about: why they are in the audience (shown on the page), the addresses the
      * mail goes to (their own, else their family managers'), and the token values of their message.
      */
     public record Target(Person traveler, String reason, List<Person> mailTo, Map<String, String> facts) {
         public String getName() {
-            return fullName(traveler);
+            return CheckinCommands.displayName(traveler);
         }
 
         public String getPersonId() {
@@ -66,6 +84,32 @@ public final class ReminderRecipients {
                 out.add(to.getEmail() + (to.getId().equals(traveler.getId()) ? "" : " (family manager)"));
             }
             return String.join(", ", out);
+        }
+
+        /**
+         * This target as one viewer may see it: the same traveler and wording, with each value they may not see
+         * replaced by a placeholder. The words stay ("Owes a balance", "Passport needs attention"): that someone
+         * is in the audience is what the page is for, the figure behind it is not this viewer's to read. Only for
+         * showing; the send always uses the real target.
+         */
+        public Target seenBy(final Sight sight) {
+            final Map<String, String> shown = new LinkedHashMap<>(facts);
+            String why = reason;
+            if (!sight.money()) {
+                shown.put(ReminderText.BALANCE_DUE, AMOUNT_HIDDEN);
+                why = why.startsWith("Owes ") ? "Owes a balance" : why;
+            }
+            if (!sight.travelDocuments()) {
+                final boolean issue = !facts.getOrDefault(ReminderText.PASSPORT_ISSUE, "").isEmpty();
+                shown.put(ReminderText.PASSPORT_ISSUE, issue ? PASSPORT_HIDDEN : "");
+                why = (issue && why.equals(facts.get(ReminderText.PASSPORT_ISSUE))) ? "Passport needs attention" : why;
+            }
+            return new Target(traveler, why, mailTo, shown);
+        }
+
+        /** {@link #getAddresses} as this viewer may see it: how many addresses, not which. */
+        public String addressesSeenBy(final Sight sight) {
+            return (sight.contact() || mailTo.isEmpty()) ? getAddresses() : ADDRESS_HIDDEN;
         }
     }
 
@@ -131,7 +175,7 @@ public final class ReminderRecipients {
         final long due = dueCents.apply(trip.getId(), traveler.getId());
         final List<String> unsigned = unsignedTitles.apply(trip, traveler.getId());
         final String passport = passportIssue(traveler.getPassport(), trip);
-        facts.put(ReminderText.TRAVELER_NAME, fullName(traveler));
+        facts.put(ReminderText.TRAVELER_NAME, CheckinCommands.displayName(traveler));
         facts.put(ReminderText.BALANCE_DUE, MoneyMath.formatCents(due));
         facts.put(ReminderText.DOCUMENT_LIST, String.join(", ", unsigned));
         facts.put(ReminderText.PASSPORT_ISSUE, (passport == null) ? "" : passport);
@@ -187,7 +231,7 @@ public final class ReminderRecipients {
                 : Long.toString(Math.max(0, ChronoUnit.DAYS.between(today, start))));
         facts.put(ReminderText.BALANCE_DUE_ON, (balanceDue == null) ? "" : DAY.format(balanceDue));
         facts.put(ReminderText.ORG_NAME, orgName(trip));
-        facts.put(ReminderText.TRIP_LINK, base + "/trip/tripDetails.jsf?trip=" + id);
+        facts.put(ReminderText.TRIP_LINK, base + TripCommands.DETAIL_URL + id);
         facts.put(ReminderText.PAYMENT_LINK, base + "/trip/pay.jsf?trip=" + id);
         facts.put(ReminderText.DOCUMENTS_LINK, base + "/trip/joinTrip.jsf?trip=" + id);
         facts.put(ReminderText.ITINERARY_LINK, base + "/trip/itinerary.jsf?trip=" + id);
@@ -216,9 +260,4 @@ public final class ReminderRecipients {
         return values;
     }
 
-    static String fullName(final Person person) {
-        final String first = (person.getPreferredName() == null) ? "" : person.getPreferredName();
-        final String last = (person.getLast() == null) ? "" : person.getLast();
-        return (first + " " + last).trim();
-    }
 }

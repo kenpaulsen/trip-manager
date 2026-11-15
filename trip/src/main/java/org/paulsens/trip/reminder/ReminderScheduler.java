@@ -12,10 +12,12 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.AuditCommands;
 import org.paulsens.trip.action.ConfigCommands;
+import org.paulsens.trip.action.ReminderClock;
 import org.paulsens.trip.action.ReminderSender;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.cache.CacheClient;
@@ -32,7 +34,8 @@ import org.paulsens.trip.audit.RequestContext;
 /**
  * Sends each trip's approved messages on their send date, once a day ({@code docs/reminders.md}). The shape is
  * {@code ChatDigestScheduler}'s: one virtual timer thread per JVM, a run at the configured hour, a short retry
- * after a failure, and the system identity bound for the whole attempt.
+ * after a failure (the run's lock is released first, so the retry is not refused by it), and the system identity
+ * bound for the whole attempt.
  *
  * <p>What differs is where "once" comes from. The digest's guarantee is a cache lock, which is why it must
  * probe the cache first. Here the guarantee is the send ledger in DynamoDB ({@code ReminderSender}: a
@@ -55,8 +58,12 @@ public final class ReminderScheduler {
      * reminder that arrives a week late, unannounced, is the confusion this feature exists to prevent.
      */
     static final int CATCH_UP_DAYS = 1;
-    /** Trips that ended longer ago than this are not read: no reminder is scheduled that far after a trip. */
-    private static final int ENDED_WITHIN_DAYS = 60;
+    /**
+     * Trips that ended longer ago than this are not read. It is the latest a message may be scheduled after its
+     * trip ({@code TripReminder.MAX_DAYS_AFTER_END}, which the editor and the approval enforce) plus the catch-up
+     * and a day of slack, so every date a facilitator can approve is a date this run reaches.
+     */
+    static final int ENDED_WITHIN_DAYS = TripReminder.MAX_DAYS_AFTER_END + CATCH_UP_DAYS + 1;
 
     /** Guards start and stop. A private lock, not the class's own, which any code holding the class could take. */
     private static final Object LIFECYCLE = new Object();
@@ -67,13 +74,16 @@ public final class ReminderScheduler {
     private final ConfigCommands config;
     private final ReminderSender sender;
     private final Supplier<Instant> clock;
+    private final Function<LocalDateTime, List<Trip>> tripsEndedAfter;
 
     private ReminderScheduler(final CacheClient cacheClient, final ConfigCommands config,
-            final ReminderSender sender, final Supplier<Instant> clock) {
+            final ReminderSender sender, final Supplier<Instant> clock,
+            final Function<LocalDateTime, List<Trip>> tripsEndedAfter) {
         this.cacheClient = cacheClient;
         this.config = config;
         this.sender = sender;
         this.clock = clock;
+        this.tripsEndedAfter = tripsEndedAfter;
         this.scheduler = Executors.newSingleThreadScheduledExecutor(this::newThread);
     }
 
@@ -89,7 +99,7 @@ public final class ReminderScheduler {
                 return;
             }
             instance = new ReminderScheduler(DAO.getInstance().getCacheClient(), new ConfigCommands(),
-                    new ReminderSender(), Instant::now);
+                    new ReminderSender(), Instant::now, ReminderScheduler::activeTrips);
             instance.scheduleNextRun();
         }
         log.info("Trip reminder scheduler started");
@@ -109,7 +119,18 @@ public final class ReminderScheduler {
     /** Test seam: build one without touching the singleton. */
     static ReminderScheduler forTest(final CacheClient cacheClient, final ConfigCommands config,
             final ReminderSender sender, final Supplier<Instant> clock) {
-        return new ReminderScheduler(cacheClient, config, sender, clock);
+        return new ReminderScheduler(cacheClient, config, sender, clock, ReminderScheduler::activeTrips);
+    }
+
+    /** {@link #forTest} with the trip read replaced, for a run whose first read fails. */
+    static ReminderScheduler forTest(final CacheClient cacheClient, final ConfigCommands config,
+            final ReminderSender sender, final Supplier<Instant> clock,
+            final Function<LocalDateTime, List<Trip>> tripsEndedAfter) {
+        return new ReminderScheduler(cacheClient, config, sender, clock, tripsEndedAfter);
+    }
+
+    private static List<Trip> activeTrips(final LocalDateTime endedAfter) {
+        return DAO.getInstance().getActiveTrips(endedAfter, Cached.NO);
     }
 
     private void scheduleNextRun() {
@@ -133,9 +154,9 @@ public final class ReminderScheduler {
         attempt(today(), clock.get());
     }
 
-    /** The day it is where the reminders are scheduled: {@code reminders.zone} decides what "March 3" means. */
+    /** The day it is where the reminders are scheduled ({@link ReminderClock}, the page's own answer). */
     LocalDate today() {
-        return LocalDate.ofInstant(clock.get(), zone());
+        return ReminderClock.today(config, clock.get());
     }
 
     /**
@@ -148,14 +169,11 @@ public final class ReminderScheduler {
 
     private void boundAttempt(final LocalDate day, final Instant firstAttempt) {
         try {
-            if (attemptOnce(day, firstAttempt)) {
-                // Finished with this day, so arm the next one; without it the scheduler retires for good.
-                scheduleNextRun();
-            } else {
-                reschedule(day, firstAttempt);
-            }
+            attemptOnce(day, firstAttempt);
+            // Finished with this day, so arm the next one; without it the scheduler retires for good.
+            scheduleNextRun();
         } catch (final RuntimeException ex) {
-            log.error("Trip reminder run for {} failed", day, ex);
+            log.error("Trip reminder run for {} failed; retrying shortly", day, ex);
             reschedule(day, firstAttempt);
         }
     }
@@ -168,8 +186,9 @@ public final class ReminderScheduler {
     }
 
     /**
-     * @return true when this instance is finished with the day (sent, switched off, another instance is on it,
-     *         or given up), false to try again shortly.
+     * One try at the day's run. Returning (true) means this instance is finished with the day: it sent, the
+     * switch is off, another instance holds the run, or the day was given up. A run that FAILS throws, after
+     * releasing its lock, so the retry a few minutes later is not turned away by this instance's own lock.
      */
     boolean attemptOnce(final LocalDate day, final Instant firstAttempt) {
         if (!config.getBoolean(KnownSettings.REMINDERS_ENABLED)) {
@@ -180,18 +199,35 @@ public final class ReminderScheduler {
             return true;
         }
         // Best effort only (see the class comment): the ledger, not this lock, is what prevents a second send.
-        if (!cacheClient.tryAcquireLock(CacheKeys.reminderRunLockKey(day.toString()), LOCK_TTL)) {
+        final String lock = CacheKeys.reminderRunLockKey(day.toString());
+        if (!cacheClient.tryAcquireLock(lock, LOCK_TTL) && cacheRemembers(lock)) {
             return true;
         }
-        runFor(day);
+        try {
+            runFor(day);
+        } catch (final RuntimeException ex) {
+            cacheClient.releaseLock(lock);
+            throw ex;
+        }
         return true;
+    }
+
+    /**
+     * Whether a refused lock means "somebody holds it" rather than "the cache is not answering". A cache client
+     * answers false to a lock request in both cases; only a cache that can store and return a value can be
+     * holding a lock. When it cannot, the run goes ahead unlocked: the ledger still sends each message once.
+     */
+    private boolean cacheRemembers(final String lock) {
+        final String probe = lock + ":probe";
+        final String token = Long.toString(System.nanoTime());
+        return cacheClient.putValue(probe, token, Duration.ofMinutes(1))
+                && cacheClient.getValue(probe).filter(token::equals).isPresent();
     }
 
     /** Sends everything due on {@code day} (and the catch-up days before it). Returns the messages sent. */
     int runFor(final LocalDate day) {
         int sent = 0;
-        final LocalDateTime endedAfter = day.minusDays(ENDED_WITHIN_DAYS).atStartOfDay();
-        for (final Trip trip : DAO.getInstance().getActiveTrips(endedAfter, Cached.NO)) {
+        for (final Trip trip : tripsEndedAfter.apply(day.minusDays(ENDED_WITHIN_DAYS).atStartOfDay())) {
             try {
                 sent += runTrip(trip, day);
             } catch (final RuntimeException ex) {
@@ -248,12 +284,7 @@ public final class ReminderScheduler {
     }
 
     private ZoneId zone() {
-        try {
-            return ZoneId.of(config.getString(KnownSettings.REMINDERS_ZONE));
-        } catch (final RuntimeException ex) {
-            log.warn("Bad reminders.zone; falling back to UTC", ex);
-            return ZoneId.of("UTC");
-        }
+        return ReminderClock.zone(config);
     }
 
     /** How long until the next configured send time; always strictly positive. */
