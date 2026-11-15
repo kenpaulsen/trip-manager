@@ -337,8 +337,35 @@ public class ContentStayOnLatestTest {
         Assert.assertEquals(content.render(onPage(content, "sol.section-own-org", item.getId())), "<i>hi</i>");
     }
 
+    /** Shared v1 and v2, then v3 re-scoped to an organization: what an aged-out instance may still render. */
+    private static void sharedThenOrgOwned(final String id) {
+        saveTemplate(id, "<p>one {{msg}}</p>", text("msg", "Message"));
+        saveTemplate(id, "<p>two {{msg}}</p>", text("msg", "Message"));
+        saveTemplateOf("org-sol-d", id, "<p>org {{msg}}</p>", text("msg", "Message"));
+    }
+
     @Test
-    public void anAgedOutVersionFallsBackOnlyToASharedLatest() {
+    public void anAgedOutPinnedInstanceRendersTheNewestRetainedSharedVersion() {
+        final ContentCommands content = admin();
+        sharedThenOrgOwned("sol-aged-mixed");
+        final ContentInstance pinned = new ContentInstance("sol-aged-mixed-row", "sol.section-aged", "Aged",
+                "sol-aged-mixed", 99, new HashMap<>(Map.of("msg", "x")), null, 0, 0, null, null);
+        Assert.assertEquals(content.render(pinned), "<p>two x</p>",
+                "not blank, and not the organization's version: the newest shared one");
+    }
+
+    @Test
+    public void anAgedOutStayOnLatestInstanceWhoseLatestFailsTheGuardDoesTheSame() {
+        final ContentCommands content = admin();
+        sharedThenOrgOwned("sol-aged-follow");
+        final ContentInstance follows = new ContentInstance("sol-aged-follow-row", "sol.section-aged", "Aged",
+                "sol-aged-follow", 99, new HashMap<>(Map.of("msg", "y")), null, 0, 0, null, null, null, null, true);
+        Assert.assertEquals(content.render(follows), "<p>two y</p>");
+        Assert.assertEquals(content.getKind(follows), "STANDARD");
+    }
+
+    @Test
+    public void anAgedOutVersionWithNoRetainedSharedVersionFallsBackAsBefore() {
         final ContentCommands content = admin();
         saveTemplateOf("org-sol-c", "sol-aged-org", "<p>{{msg}}</p>", text("msg", "Message"));
         final ContentInstance pinned = new ContentInstance("sol-aged-row", "sol.section-aged", "Aged",

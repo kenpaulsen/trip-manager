@@ -141,6 +141,16 @@ public class RenderPathCacheTest {
             Assert.assertTrue(DAO.getInstance().saveContent(row, 5), row.getTitle());
         }
 
+        // A template saved three times, for the aged-out fallback's walk down its retained versions
+        // (ContentCommands.newestRetainedShared).
+        final ContentTemplate walked = StarterTemplates.all().stream()
+                .filter(t -> StarterTemplates.TEXT_ONLY_ID.equals(t.getId())).findFirst().orElseThrow().copy();
+        walked.setId("rp-walked");
+        walked.setVersion(0);
+        for (int i = 0; i < 3; i++) {
+            Assert.assertTrue(templates.saveTemplate(walked, 5));
+        }
+
         // Warm every cache the render path touches (the first request may hit the store; that is allowed).
         content.getContentForSection(conferencePage);
         content.getContentForSection(speakers);
@@ -198,6 +208,11 @@ public class RenderPathCacheTest {
             // latest field instead: one cached field, exactly like a pinned lookup.
             templates.getLatestTemplate(StarterTemplates.TEXT_ONLY_ID);
             templates.getLatestTemplate(StarterTemplates.CONTAINER_ID);
+            // An aged-out instance whose newest version fails the organization guard walks down the
+            // retained versions through the same versioned fields.
+            templates.getLatestTemplate("rp-walked");
+            templates.getTemplate("rp-walked", 2);
+            templates.getTemplate("rp-walked", 1);
         }
         Assert.assertEquals(counting.reads.get(), 0,
                 "the warm render path must answer entirely from cache -- no live store reads");

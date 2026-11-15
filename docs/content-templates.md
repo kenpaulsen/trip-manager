@@ -330,7 +330,9 @@ registry never changes at runtime.
   (`ContentTemplate.orgId`, null = shared) equals that of the version its values were saved against;
   otherwise it renders as pinned, and choosing Stay on Latest is refused. The aged-out fallback of EVERY
   instance has the same guard, and since the saved-against organization is then unknown it falls back only to
-  a SHARED latest (an org-owned one renders nothing, a container its built-in row). Who may use a template is
+  a SHARED version: the latest when shared, else the newest retained shared version (a walk down the cached
+  `id#vN` fields, stopping at the first one gone), and only when no retained version is shared to nothing (a
+  container to its built-in row), so a published block does not go blank. Who may use a template is
   decided when content is added; a template re-scoped to an organization later must not carry that
   organization's markup onto pages it was never offered to. Containers too: a Stay on Latest
   container's row, wrapper and title slot follow the template. **Cost**: the template's current version has

@@ -67,6 +67,8 @@ import org.paulsens.trip.util.ScopeUtil;
 @ApplicationScoped
 public class ContentCommands {
 
+    /** The ceiling of {@code content.versions.retained} (see retainCount): no template keeps more versions. */
+    private static final int MAX_RETAINED_VERSIONS = 50;
     private final PrivilegeCommands priv = new PrivilegeCommands();
     private final ConfigCommands config = new ConfigCommands();
     /** The most people one keystroke of the content dialog's person picker offers. */
@@ -678,12 +680,38 @@ public class ContentCommands {
     }
 
     /**
-     * An instance whose saved-against version aged out of retention: the template's current version, when
-     * {@link #mayFollow} lets it (the saved-against organization being unknown, only a shared one).
+     * An instance whose saved-against version aged out of retention: the template's current version when
+     * {@link #mayFollow} lets it (the saved-against organization being unknown, only a SHARED one), else the newest
+     * retained shared version ({@link #newestRetainedShared}), else null. A published block must not go blank just
+     * because its template's newest version moved to an organization.
      */
     private static ContentTemplate guardedFallback(final ContentInstance instance) {
         final ContentTemplate latest = currentTemplate(instance.getTemplateId(), Cached.YES);
-        return latest != null && mayFollow(null, latest) ? latest : null;
+        if (latest == null || mayFollow(null, latest)) {
+            return latest;
+        }
+        return newestRetainedShared(latest);
+    }
+
+    /**
+     * The newest retained version older than {@code latest} that is shared, or null. Walks down the versioned cache
+     * fields ({@code id#vN}, the same cached lookup a pinned instance renders with, so a warm page view stays at
+     * zero DynamoDB reads) and stops at the first version that is gone: retention keeps a contiguous run of the
+     * newest versions, so nothing older is left. Rare (an aged-out instance of a template re-scoped to an
+     * organization), and bounded by the retention setting's ceiling.
+     */
+    private static ContentTemplate newestRetainedShared(final ContentTemplate latest) {
+        final int oldest = Math.max(1, latest.getVersion() - MAX_RETAINED_VERSIONS);
+        for (int version = latest.getVersion() - 1; version >= oldest; version--) {
+            final ContentTemplate candidate = loadTemplateVersion(latest.getId(), version, Cached.YES);
+            if (candidate == null) {
+                return null;
+            }
+            if (mayFollow(null, candidate)) {
+                return candidate;
+            }
+        }
+        return null;
     }
 
     /**
@@ -1686,7 +1714,7 @@ public class ContentCommands {
     }
 
     private int retainCount() {
-        return config.getInt(KnownSettings.CONTENT_VERSIONS_RETAINED, 0, 50);
+        return config.getInt(KnownSettings.CONTENT_VERSIONS_RETAINED, 0, MAX_RETAINED_VERSIONS);
     }
 
     private static void audit(final Caller caller, final String id, final String message) {
