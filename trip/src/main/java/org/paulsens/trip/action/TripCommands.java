@@ -1348,17 +1348,35 @@ public class TripCommands {
     /**
      * {@link #getTripsForUser} narrowed by {@link PeopleReach}, the rule of {@link #getRecentTripsInPeopleReach};
      * a site admin gets them all. THE list of "this person's trips the viewer may see" on the admin people pages:
-     * the admin person page's Trips list and the People and Manage People pages' Trips columns. The subject's
+     * the admin person page's Trips list and the People page's Trips column (Manage People's merge comparison
+     * lists {@link #getTripsForUserInPeopleReachOnAnySite}, of which this is the site-gated part). The subject's
      * rosters may include another organization's trips, which are not an org people admin's to read (owner
      * decision 2026-11-14), and like every trip list here it is site-gated, so a hosted organization's trip,
      * whose link would open blank on this host, is not listed either. A null id (an empty page row) gets nothing.
      */
     public List<Trip> getTripsForUserInPeopleReach(final Person.Id userId) {
+        return here(getTripsForUserInPeopleReachOnAnySite(userId));
+    }
+
+    /**
+     * {@link #getTripsForUserInPeopleReach} WITHOUT the site gate: the same people reach, whatever site each trip
+     * lists on. For Manage People's merge comparison only, where a person's trips are the evidence for which of two
+     * records to keep: site-gated, a record whose only trips belong to an organization hosted on its own domain
+     * looked unused on the shared host, and a site admin could discard it (review 2026-11-15). The page links
+     * only the trips {@link #reachesThisSite} and names the others as plain text, since their links would open
+     * blank here. Every other admin people page lists the site-gated set.
+     */
+    public List<Trip> getTripsForUserInPeopleReachOnAnySite(final Person.Id userId) {
         if (userId == null) {
             return List.of();
         }
         final PeopleReach reach = PeopleReach.of(orgSource.get());
-        return reach.isNone() ? List.of() : reach.filter(getTripsForUser(userId), Trip::getOrgId);
+        return reach.isNone() ? List.of() : reach.filter(everyTripForUser(userId), Trip::getOrgId);
+    }
+
+    /** Whether this request's site serves pages about {@code trip} ({@link #reachesHere}), for a page's links. */
+    public boolean reachesThisSite(final Trip trip) {
+        return trip != null && reachesHere(trip);
     }
 
     /**
@@ -1610,8 +1628,13 @@ public class TripCommands {
     }
 
     public List<Trip> getTripsForUser(final Person.Id userId) {
+        return here(everyTripForUser(userId));
+    }
+
+    /** The trips whose roster holds this person, on every site; empty (logged) when the read fails. */
+    private static List<Trip> everyTripForUser(final Person.Id userId) {
         try {
-            return here(DAO.getInstance().getTripsForUser(userId, Cached.YES));
+            return DAO.getInstance().getTripsForUser(userId, Cached.YES);
         } catch (final RuntimeException ex) {
             log.error("Failed to get trips for user!", ex);
             return Collections.emptyList();
