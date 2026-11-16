@@ -728,6 +728,14 @@
                     </plugins>
                     <excludeFilterFile>${project.basedir}/../spotbugs-exclude.xml</excludeFilterFile>
                     <failOnError>${spotbugs.failOnError}</failOnError>
+                    <!--
+                        The forked SpotBugs JVM defaults to 512 MB, which this module had already outgrown: the
+                        scan thrashed in full GCs there and the reminders commit (fc749fd2, ~45 classes) tipped it
+                        into OutOfMemoryError in GitHub Actions (2026-11-15). Measured with room to spare, the
+                        scan peaks near 870 MB live in ~30 s, the same before and after fc749fd2, so this is
+                        size, not a runaway. A local `mvn install` hides the crash because failOnError is false.
+                    -->
+                    <maxHeap>2048</maxHeap>
                 </configuration>
                 <executions>
                     <execution>
