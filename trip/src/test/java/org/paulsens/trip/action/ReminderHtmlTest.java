@@ -191,6 +191,40 @@ public class ReminderHtmlTest {
             assertEquals(ReminderHtml.clean(cleaned), cleaned, text.id());
             assertTrue(cleaned.contains("href=\"{{"), text.id() + " keeps its link: " + cleaned);
             assertTrue(cleaned.contains("{{firstName}}"), text.id());
+            assertFalse(ReminderHtml.dropsSomething(text.body()), text.id());
+        }
+    }
+
+    /** What Quill 2 writes from the reminder toolbar, list markers and a link's own rel and target included. */
+    @Test
+    public void aBodyTheEditorWritesDropsNothing() {
+        final String quill = "<h2>Getting ready</h2><p>Hello <strong>{{firstName}}</strong>, <em>soon</em> "
+                + "<u>now</u> <s>never</s>.</p><p class=\"ql-align-center\">Center</p>"
+                + "<ol><li data-list=\"bullet\"><span class=\"ql-ui\" contenteditable=\"false\"></span>Hat</li>"
+                + "<li data-list=\"ordered\"><span class=\"ql-ui\" contenteditable=\"false\"></span>One</li></ol>"
+                + "<blockquote>Quote</blockquote><p><br></p>"
+                + "<p><a href=\"https://example.com/pay\" rel=\"noopener noreferrer\" target=\"_blank\">Pay</a> or "
+                + "<a href=\"tel:+15551234567\" rel=\"noopener noreferrer\" target=\"_blank\">call</a> or "
+                + "<a href=\"{{paymentLink}}\">here</a> 1 < 2 > 0 <!-- a note --></p>  ";
+        assertFalse(ReminderHtml.dropsSomething(quill));
+        assertFalse(ReminderHtml.clean(quill).equals(quill.trim()), "Normalized, so a comparison would misfire");
+        assertFalse(ReminderHtml.dropsSomething(null));
+        assertFalse(ReminderHtml.dropsSomething(""));
+        assertFalse(ReminderHtml.dropsSomething("<p style=\"\" class=\"\">t</p>"), "Empty: nothing to see");
+        assertFalse(ReminderHtml.dropsSomething("<a href=\"https://a.test\" href=\"javascript:x\">t</a>"),
+                "A second address is ignored by a browser too");
+    }
+
+    @Test
+    public void colorsImagesAndRefusedLinksAreReportedAsDropped() {
+        for (final String lost : List.of("<p><span style=\"color: rgb(230, 0, 0);\">Due Friday</span></p>",
+                "<p><span style=\"background-color: yellow;\">x</span></p>",
+                "<p>Logo <img src=\"data:image/png;base64,AAAA\"></p>",
+                "<iframe class=\"ql-video\" src=\"https://video.test/x\"></iframe>",
+                "<p><a href=\"javascript:alert(1)\">x</a></p>", "<p><a href=\"example.com/pay\">pay</a></p>",
+                "<p><a href=\"\">x</a></p>", "<p class=\"ql-hidden\">x</p>", "<table><tr><td>x</td></tr></table>",
+                "text</font>")) {
+            assertTrue(ReminderHtml.dropsSomething(lost), lost);
         }
     }
 }

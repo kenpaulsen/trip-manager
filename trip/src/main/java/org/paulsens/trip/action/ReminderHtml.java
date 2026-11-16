@@ -25,7 +25,7 @@ import java.util.regex.Pattern;
  * <p>What is kept is what the page's editor (Quill 2, inside PrimeFaces) writes: paragraphs, line breaks,
  * bold, italic, underline, strike, links, lists, headings, block quotes, and the handful of {@code ql-} layout
  * classes named in {@link #QUILL_CLASS}. Inline styles and images are deliberately not kept, and the page's
- * toolbar does not offer them.
+ * toolbar does not offer them; a paste can still bring them, and {@link #dropsSomething} lets the save say so.
  *
  * <p>Quill 2 writes EVERY list as {@code <ol>} and says "bullet" only with {@code data-list} on each item. That
  * attribute is kept (the editor needs it to reopen the list as it was), and an {@code <ol>} whose first item is
@@ -73,6 +73,28 @@ public final class ReminderHtml {
 
     /** The body with only allowlisted markup left; null becomes blank. Cleaning a cleaned body changes nothing. */
     public static String clean(final String html) {
+        return clean(html, new Drops());
+    }
+
+    /**
+     * Whether cleaning this body removes something its writer could see: a tag that is not on the list (an image,
+     * a video, a table), an inline style (a color, a background), a class that is not one of Quill's kept ones,
+     * or a link address that is refused (which leaves the link's text in an {@code <a>} that goes nowhere). The
+     * save tells the facilitator, rather than reporting plain success over a body that lost them.
+     *
+     * <p>Answered by the cleaner itself, noting each drop where it happens, and NOT by comparing the cleaned body
+     * with the raw one: the cleaner always rewrites what it keeps (the fixed {@code rel} and {@code target} on a
+     * link, escaped {@code <} and {@code >}, trimmed whitespace, an {@code <ol>} of bullets written as
+     * {@code <ul>}), so nearly every body Quill writes differs from its clean copy. What is invisible is not
+     * counted either: a comment, Quill's {@code contenteditable} on a list marker, a link's own {@code rel}.
+     */
+    public static boolean dropsSomething(final String html) {
+        final Drops drops = new Drops();
+        clean(html, drops);
+        return drops.any;
+    }
+
+    private static String clean(final String html, final Drops drops) {
         if (html == null) {
             return "";
         }
@@ -92,7 +114,7 @@ public final class ReminderHtml {
                 final int end = html.indexOf("-->", at + 4);
                 at = (end < 0) ? html.length() : end + 3;
             } else if (tagEnd > 0) {
-                at = copyTag(html, at, tagEnd, out, lists);
+                at = copyTag(html, at, tagEnd, out, lists, drops);
             } else {
                 // A "<" that opens nothing this cleaner recognizes is text, and is written as text.
                 out.append("&lt;");
@@ -172,7 +194,7 @@ public final class ReminderHtml {
 
     /** Writes the tag spanning {@code start..end} when it is allowed; answers where reading goes on. */
     private static int copyTag(final String html, final int start, final int end, final StringBuilder out,
-            final Deque<String> lists) {
+            final Deque<String> lists, final Drops drops) {
         final boolean closing = html.charAt(start + 1) == '/';
         int nameEnd = start + (closing ? 2 : 1);
         final int nameStart = nameEnd;
@@ -181,19 +203,23 @@ public final class ReminderHtml {
         }
         final String name = html.substring(nameStart, nameEnd).toLowerCase(Locale.ROOT);
         if (!closing && DROP_WITH_CONTENT.contains(name)) {
+            drops.any = true;
             return afterClosing(html, name, end + 1);
         }
         if ("ol".equals(name)) {
             out.append(closing ? "</" + (lists.isEmpty() ? "ol" : lists.pop()) + ">" : openList(html, end, lists));
         } else if ("li".equals(name) && !closing) {
-            final String attributes = attributesOf(name, html.substring(nameEnd, end));
+            final String attributes = attributesOf(name, html.substring(nameEnd, end), drops);
             out.append(switchList(attributes, lists)).append("<li").append(attributes).append('>');
         } else if (ALLOWED.contains(name)) {
             if (closing) {
                 out.append(VOID.contains(name) ? "" : "</" + name + ">");
             } else {
-                out.append('<').append(name).append(attributesOf(name, html.substring(nameEnd, end))).append('>');
+                out.append('<').append(name).append(attributesOf(name, html.substring(nameEnd, end), drops))
+                        .append('>');
             }
+        } else {
+            drops.any = true;
         }
         return end + 1;
     }
@@ -207,7 +233,9 @@ public final class ReminderHtml {
         final int next = html.indexOf('<', afterOl);
         final boolean item = next >= 0 && opensTag(html, next, "li");
         final int itemEnd = item ? tagEnd(html, next) : -1;
-        final boolean bullets = itemEnd > 0 && isBullet(attributesOf("li", html.substring(next + 3, itemEnd)));
+        // Only a look ahead: what that item drops is noted when the item itself is written.
+        final boolean bullets = itemEnd > 0
+                && isBullet(attributesOf("li", html.substring(next + 3, itemEnd), new Drops()));
         lists.push(bullets ? "ul" : "ol");
         return bullets ? "<ul>" : "<ol>";
     }
@@ -258,7 +286,7 @@ public final class ReminderHtml {
     }
 
     /** The attributes this tag keeps, rebuilt: a link's checked address, a list item's kind, a Quill class. */
-    private static String attributesOf(final String name, final String raw) {
+    private static String attributesOf(final String name, final String raw, final Drops drops) {
         final StringBuilder kept = new StringBuilder();
         final Matcher attribute = ATTRIBUTE.matcher(raw);
         boolean linked = false;
@@ -276,6 +304,8 @@ public final class ReminderHtml {
             } else if ("li".equals(name) && "data-list".equals(key) && !listed && LIST_KINDS.contains(value)) {
                 kept.append(" data-list=\"").append(value).append('"');
                 listed = true;
+            } else if (refusedFormatting(name, key, value, linked, classed)) {
+                drops.any = true;
             }
         }
         if (linked) {
@@ -283,6 +313,17 @@ public final class ReminderHtml {
             kept.append(" rel=\"noopener noreferrer\" target=\"_blank\"");
         }
         return kept.toString();
+    }
+
+    /**
+     * Whether an attribute the cleaner did not keep was one its writer could see: a style or a class with a value,
+     * or the first address of a link (reached here only when it was refused). Read after the kept branches, so a
+     * second {@code href} or {@code class} on a tag that already kept one is not counted: a browser ignores it.
+     */
+    private static boolean refusedFormatting(final String name, final String key, final String value,
+            final boolean linked, final boolean classed) {
+        final boolean styled = "style".equals(key) || ("class".equals(key) && !classed);
+        return (styled && !value.isEmpty()) || ("a".equals(name) && "href".equals(key) && !linked);
     }
 
     /** Every class named is one of Quill's own layout classes ({@code ql-align-center}, {@code ql-indent-1}). */
@@ -308,5 +349,10 @@ public final class ReminderHtml {
      */
     static boolean isSafeAddress(final String value) {
         return WEB_ADDRESS.matcher(value).matches() || LINK_TOKEN.matcher(value).matches();
+    }
+
+    /** What one clean noted as dropped (see {@link #dropsSomething}); set where a drop happens, never cleared. */
+    private static final class Drops {
+        private boolean any;
     }
 }

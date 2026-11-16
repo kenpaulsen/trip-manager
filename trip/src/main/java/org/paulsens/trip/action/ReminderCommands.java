@@ -41,6 +41,7 @@ import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedExce
 
 import static org.paulsens.trip.action.PageFeedback.info;
 import static org.paulsens.trip.action.PageFeedback.refuse;
+import static org.paulsens.trip.action.PageFeedback.warn;
 
 /**
  * A trip's Communications page, exposed as {@code #{reminder}} ({@code docs/reminders.md}): what the trip says
@@ -67,6 +68,8 @@ public class ReminderCommands {
     private static final String TOO_LATE = "A message can be scheduled at most "
             + TripReminder.MAX_DAYS_AFTER_END + " days after the trip ends.";
     private static final String CHANGED_SINCE_SHOWN = "This message changed since you opened it: review it again.";
+    static final String FORMATTING_REMOVED = "Some formatting this message cannot carry (colors, images, or a link "
+            + "that is not a full web, email or phone address) was removed. Check the preview.";
     /** Test emails one person may send in one clock hour: plenty for wording work, useless as a mail relay. */
     static final int MAX_TESTS_PER_HOUR = 20;
     /** The raw body is refused above this before it is cleaned: the cleaner's cost grows with its input. */
@@ -402,6 +405,11 @@ public class ReminderCommands {
         form.setId(reminder.getId());
         form.setProblem(null);
         info("Saved as a draft. It will not be sent until it is approved.");
+        if (ReminderHtml.dropsSomething(bracesRestored(form.getBody()))) {
+            // Still saved: the stored body is safe and is what the review shows. But a pasted color or logo, or a
+            // link with no scheme, vanished without a word, and a dead link is easy to approve unnoticed.
+            warn(FORMATTING_REMOVED);
+        }
         return true;
     }
 
@@ -411,9 +419,12 @@ public class ReminderCommands {
      * writes this text and admins read it unescaped, so it is an allowlist, never a blocklist.
      */
     static String cleanBody(final String html) {
-        final String braces = (html == null) ? "" : html.replace("%7B%7B", "{{").replace("%7D%7D", "}}")
+        return ReminderHtml.clean(bracesRestored(html));
+    }
+
+    private static String bracesRestored(final String html) {
+        return (html == null) ? "" : html.replace("%7B%7B", "{{").replace("%7D%7D", "}}")
                 .replace("%7b%7b", "{{").replace("%7d%7d", "}}");
-        return ReminderHtml.clean(braces);
     }
 
     private static String formProblem(final ReminderViews.Form form) {

@@ -120,7 +120,12 @@ editor writes are kept, each rebuilt with no attributes except a link's checked 
 `mailto:`, `tel:`, `sms:` or exactly one `{{...Link}}` placeholder), a list item's `data-list` kind, and the few
 Quill layout classes the toolbar can produce (never `ql-hidden` or `ql-clipboard`, which Quill's stylesheet
 hides: the reviewer's page has that stylesheet and a mail client does not). Inline styles, images and every
-unknown tag are dropped, and the page's toolbar offers only what is kept. Quill 2 writes every list as `<ol>`
+unknown tag are dropped, and the page's toolbar offers only what is kept. A paste can still bring a color, an
+image or a link the cleaner refuses (a scheme-less `example.com` leaves an `<a>` that goes nowhere), so the save
+still stores the draft but then warns "Some formatting this message cannot carry (colors, images, or a link that
+is not a full web, email or phone address) was removed. Check the preview." The cleaner itself reports the drop
+(`ReminderHtml.dropsSomething`, noted where each tag, style, class or address is refused); a string comparison
+would fire on every body, since cleaning always rewrites a link's `rel`/`target`, escapes and trims. Quill 2 writes every list as `<ol>`
 and marks bullets with `data-list`; the cleaner writes a bullet list as `<ul>` so a mail client shows bullets.
 
 It runs when a message is saved and again at EVERY place the stored body is written out: the editor
