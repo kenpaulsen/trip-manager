@@ -1231,10 +1231,16 @@ public class ReminderCommandsTest {
         final String copyId = TemplateCommands.orgCopyId(ReminderDefaults.BALANCE_DUE_ID, org);
         final String body = "<p>Logo <img src=\"data:image/png;base64," + "A".repeat(ReminderHtml.MAX_TAG * 4)
                 + "\"></p>";
-        final ContentTemplate copy = new ContentTemplate(copyId, 0, "Pay up", "x", body, List.of(), null, null,
-                TemplateKind.MAIL, null, null, null);
+        final ContentTemplate copy = new ContentTemplate(copyId, 0, "Pay up", "x", "<p>Pay soon</p>", List.of(),
+                null, null, TemplateKind.MAIL, null, null, null);
         copy.setOrgId(orgId);
         try {
+            // First a clean copy, to show the org's own text IS what the suggestions use: without this, a copy
+            // that was never found at all would pass the fallback check below just the same.
+            assertTrue(DAO.getInstance().saveTemplate(copy, 5));
+            assertEquals(ReminderCommands.startingText(ReminderDefaults.BALANCE_DUE_ID, orgId).body(),
+                    "<p>Pay soon</p>", "the org's own copy");
+            copy.setBody(body);
             assertTrue(DAO.getInstance().saveTemplate(copy, 5));
             final ReminderDefaults.Text text = ReminderCommands.startingText(ReminderDefaults.BALANCE_DUE_ID, orgId);
             assertEquals(text, ReminderDefaults.text(ReminderDefaults.BALANCE_DUE_ID), "the built-in text");
