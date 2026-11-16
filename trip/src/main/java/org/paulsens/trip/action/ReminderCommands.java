@@ -68,6 +68,9 @@ public class ReminderCommands {
     private static final String TOO_LATE = "A message can be scheduled at most "
             + TripReminder.MAX_DAYS_AFTER_END + " days after the trip ends.";
     private static final String CHANGED_SINCE_SHOWN = "This message changed since you opened it: review it again.";
+    /** The refusal of a body holding a tag too long to read, in practice a pasted image (see hasUnreadableTag). */
+    static final String TAG_TOO_LONG = "Something pasted into this message (usually an image) is too large to "
+            + "send. Remove it, then save.";
     static final String FORMATTING_REMOVED = "Some formatting this message cannot carry (colors, images, or a link "
             + "that is not a full web, email or phone address) was removed. Check the preview.";
     /** Test emails one person may send in one clock hour: plenty for wording work, useless as a mail relay. */
@@ -384,6 +387,8 @@ public class ReminderCommands {
         final TripReminder.Anchor anchor = parse(TripReminder.Anchor.class, form.getAnchor());
         final boolean dated = anchor == TripReminder.Anchor.FIXED_DATE;
         final int days = (dated || "ON".equals(form.getTiming())) ? 0 : form.getDays();
+        // One clean gives both the stored body and the warning, so the two always judge the same input.
+        final ReminderHtml.Cleaned cleaned = cleanNoting(form.getBody());
         final TripReminder reminder = TripReminder.builder()
                 .id(adding ? UUID.randomUUID().toString() : existing.getId())
                 // The kind is what the message IS (and fixes its audience), so an edit can never change it.
@@ -392,7 +397,7 @@ public class ReminderCommands {
                 .offsetDays("BEFORE".equals(form.getTiming()) ? -days : days)
                 .fixedDate(dated ? form.getFixedDate() : null)
                 .audience(parse(TripReminder.Audience.class, form.getAudience()))
-                .subject(form.getSubject().trim()).body(cleanBody(form.getBody()))
+                .subject(form.getSubject().trim()).body(cleaned.body())
                 .pushText((form.getPushText() == null) ? "" : form.getPushText().trim())
                 .status(TripReminder.Status.DRAFT).build();
         if (!reminder.isReachable(trip)) {
@@ -405,7 +410,7 @@ public class ReminderCommands {
         form.setId(reminder.getId());
         form.setProblem(null);
         info("Saved as a draft. It will not be sent until it is approved.");
-        if (ReminderHtml.dropsSomething(bracesRestored(form.getBody()))) {
+        if (cleaned.dropped()) {
             // Still saved: the stored body is safe and is what the review shows. But a pasted color or logo, or a
             // link with no scheme, vanished without a word, and a dead link is easy to approve unnoticed.
             warn(FORMATTING_REMOVED);
@@ -419,7 +424,12 @@ public class ReminderCommands {
      * writes this text and admins read it unescaped, so it is an allowlist, never a blocklist.
      */
     static String cleanBody(final String html) {
-        return ReminderHtml.clean(bracesRestored(html));
+        return cleanNoting(html).body();
+    }
+
+    /** {@link #cleanBody}, with whether the cleaner dropped something the writer could see. */
+    private static ReminderHtml.Cleaned cleanNoting(final String html) {
+        return ReminderHtml.cleanNoting(bracesRestored(html));
     }
 
     private static String bracesRestored(final String html) {
@@ -465,6 +475,9 @@ public class ReminderCommands {
         }
         if (ReminderHtml.hasUnreadableLink(form.getBody())) {
             return "A link in this message has an address too long to send (or is not closed). Shorten it.";
+        }
+        if (ReminderHtml.hasUnreadableTag(form.getBody())) {
+            return TAG_TOO_LONG;
         }
         final String body = cleanBody(form.getBody());
         if (WaiverHtml.isBlank(body)) {

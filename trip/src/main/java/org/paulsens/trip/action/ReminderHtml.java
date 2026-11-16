@@ -73,14 +73,15 @@ public final class ReminderHtml {
 
     /** The body with only allowlisted markup left; null becomes blank. Cleaning a cleaned body changes nothing. */
     public static String clean(final String html) {
-        return clean(html, new Drops());
+        return cleanNoting(html).body();
     }
 
     /**
      * Whether cleaning this body removes something its writer could see: a tag that is not on the list (an image,
      * a video, a table), an inline style (a color, a background), a class that is not one of Quill's kept ones,
-     * or a link address that is refused (which leaves the link's text in an {@code <a>} that goes nowhere). The
-     * save tells the facilitator, rather than reporting plain success over a body that lost them.
+     * a link address that is refused (which leaves the link's text in an {@code <a>} that goes nowhere), or a
+     * tag too long to read (written out as its own text). The save tells the facilitator, rather than reporting
+     * plain success over a body that lost them.
      *
      * <p>Answered by the cleaner itself, noting each drop where it happens, and NOT by comparing the cleaned body
      * with the raw one: the cleaner always rewrites what it keeps (the fixed {@code rel} and {@code target} on a
@@ -89,9 +90,21 @@ public final class ReminderHtml {
      * counted either: a comment, Quill's {@code contenteditable} on a list marker, a link's own {@code rel}.
      */
     public static boolean dropsSomething(final String html) {
+        return cleanNoting(html).dropped();
+    }
+
+    /** A clean body and whether cleaning it dropped something ({@link #dropsSomething}), from ONE pass. */
+    public record Cleaned(String body, boolean dropped) {
+    }
+
+    /**
+     * {@link #clean} and {@link #dropsSomething} together, for a caller that needs both (the save): one pass of
+     * the cleaner, so the stored body and the warning are always about the same input.
+     */
+    public static Cleaned cleanNoting(final String html) {
         final Drops drops = new Drops();
-        clean(html, drops);
-        return drops.any;
+        final String body = clean(html, drops);
+        return new Cleaned(body, drops.any);
     }
 
     private static String clean(final String html, final Drops drops) {
@@ -116,7 +129,9 @@ public final class ReminderHtml {
             } else if (tagEnd > 0) {
                 at = copyTag(html, at, tagEnd, out, lists, drops);
             } else {
-                // A "<" that opens nothing this cleaner recognizes is text, and is written as text.
+                // A "<" that opens nothing this cleaner recognizes is text, and is written as text. When it began
+                // a tag (a pasted image's data address runs far past MAX_TAG), the writer saw no such text: a drop.
+                drops.any |= startsTagName(html, at);
                 out.append("&lt;");
                 at++;
             }
@@ -174,6 +189,47 @@ public final class ReminderHtml {
             }
         }
         return false;
+    }
+
+    /**
+     * Whether the body holds any tag the cleaner would write out as text: a {@code <} and a tag name, then no
+     * {@code >} within {@link #MAX_TAG} characters. In practice a pasted image, whose data address runs to
+     * thousands of characters: it would reach every traveler as that many characters of visible text, so the
+     * save refuses it (after {@link #hasUnreadableLink}, whose refusal names the link). Stops at the first one,
+     * and each tag that IS readable is scanned once, so the cost is linear.
+     */
+    static boolean hasUnreadableTag(final String html) {
+        if (html == null) {
+            return false;
+        }
+        for (int at = html.indexOf('<'); at >= 0; at = html.indexOf('<', at + 1)) {
+            if (startsTagName(html, at)) {
+                final int end = tagEnd(html, at);
+                if (end < 0) {
+                    return true;
+                }
+                at = end;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Whether a tag name starts at {@code at} ({@code <x} or {@code </x}) with something after the name: by the
+     * same rule as {@link #opensTag}, a name at the very end of the text opens nothing and is just text.
+     */
+    private static boolean startsTagName(final String html, final int at) {
+        int name = at + 1;
+        if (name < html.length() && html.charAt(name) == '/') {
+            name++;
+        }
+        if (name >= html.length() || !isLetter(html.charAt(name))) {
+            return false;
+        }
+        while (name < html.length() && (isLetter(html.charAt(name)) || Character.isDigit(html.charAt(name)))) {
+            name++;
+        }
+        return name < html.length();
     }
 
     /**

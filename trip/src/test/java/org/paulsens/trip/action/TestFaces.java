@@ -1,8 +1,11 @@
 package org.paulsens.trip.action;
 
+import jakarta.faces.application.FacesMessage;
 import jakarta.faces.context.ExternalContext;
 import jakarta.faces.context.FacesContext;
+import java.util.List;
 import java.util.Map;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 
 /**
@@ -24,5 +27,26 @@ abstract class TestFaces extends FacesContext {
 
     static void clear() {
         FacesContext.setCurrentInstance(null);
+    }
+
+    /**
+     * Every message {@code call} adds to a request answering {@code requestMap}, in order: what the page's growl
+     * would show, with each one's severity (so a warning is told from an info line). Installs and clears itself.
+     */
+    static List<FacesMessage> messagesOf(final Map<String, Object> requestMap, final Runnable call) {
+        final FacesContext ctx = install(requestMap);
+        try {
+            call.run();
+            final ArgumentCaptor<FacesMessage> messages = ArgumentCaptor.forClass(FacesMessage.class);
+            Mockito.verify(ctx, Mockito.atLeast(0)).addMessage(Mockito.any(), messages.capture());
+            return messages.getAllValues();
+        } finally {
+            clear();
+        }
+    }
+
+    /** The summaries of {@link #messagesOf}: the growl lines alone. */
+    static List<String> growlsOf(final Map<String, Object> requestMap, final Runnable call) {
+        return messagesOf(requestMap, call).stream().map(FacesMessage::getSummary).toList();
     }
 }

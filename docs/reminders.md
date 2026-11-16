@@ -124,9 +124,13 @@ unknown tag are dropped, and the page's toolbar offers only what is kept. A past
 image or a link the cleaner refuses (a scheme-less `example.com` leaves an `<a>` that goes nowhere), so the save
 still stores the draft but then warns "Some formatting this message cannot carry (colors, images, or a link that
 is not a full web, email or phone address) was removed. Check the preview." The cleaner itself reports the drop
-(`ReminderHtml.dropsSomething`, noted where each tag, style, class or address is refused); a string comparison
-would fire on every body, since cleaning always rewrites a link's `rel`/`target`, escapes and trims. Quill 2 writes every list as `<ol>`
-and marks bullets with `data-list`; the cleaner writes a bullet list as `<ul>` so a mail client shows bullets.
+(`ReminderHtml.cleanNoting`, the same single pass that produces the stored body, noting each tag, style, class or
+address it refuses); a string comparison would fire on every body, since cleaning always rewrites a link's
+`rel`/`target`, escapes and trims. A pasted IMAGE is refused outright instead: its data address runs to thousands
+of characters, past `MAX_TAG`, so the cleaner could only write it out as that much visible text
+(`ReminderHtml.hasUnreadableTag`; "Something pasted into this message (usually an image) is too large to send").
+Quill 2 writes every list as `<ol>` and marks bullets with `data-list`; the cleaner writes a bullet list as `<ul>`
+so a mail client shows bullets.
 
 It runs when a message is saved and again at EVERY place the stored body is written out: the editor
 (`formFor`), `ReminderText.renderBody` (the clean-then-merge helper behind the preview and the test email), and

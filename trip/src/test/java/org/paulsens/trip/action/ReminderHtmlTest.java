@@ -153,6 +153,39 @@ public class ReminderHtmlTest {
         // Long tags of name characters with no "=": every one is a tag, read for attributes it does not have.
         assertEquals(ReminderHtml.clean(("<a " + "b".repeat(1990) + ">").repeat(100)), "<a>".repeat(100));
         assertFalse(ReminderHtml.clean(("<ol><li " + "b".repeat(1980) + "></ol>").repeat(99)).isEmpty());
+        // The save's unreadable-tag check reads the same bodies first, and must be just as prompt.
+        assertTrue(ReminderHtml.hasUnreadableTag("<a \"".repeat(cap / 4 - 1) + "'>  "));
+        assertFalse(ReminderHtml.hasUnreadableTag(("<a " + "b".repeat(1990) + ">").repeat(100)));
+    }
+
+    /**
+     * A pasted image is an {@code <img>} whose data address runs to thousands of characters, past what the cleaner
+     * reads as a tag, so it would be written out as that many characters of text. The save refuses it, and the
+     * cleaner counts it as a drop either way.
+     */
+    @Test
+    public void aTagTooLongToReadIsFoundAndCountsAsDropped() {
+        final String logo = "<p>Logo <img src=\"data:image/png;base64," + "A".repeat(ReminderHtml.MAX_TAG * 4)
+                + "\"></p>";
+        assertTrue(ReminderHtml.hasUnreadableTag(logo));
+        assertTrue(ReminderHtml.dropsSomething(logo));
+        assertTrue(ReminderHtml.clean(logo).contains("&lt;img src="), "Why the save refuses it");
+        assertTrue(ReminderHtml.hasUnreadableTag("<p>an image never closed <img src=\"x\""));
+        assertTrue(ReminderHtml.hasUnreadableTag("<p>x</p></" + "p".repeat(ReminderHtml.MAX_TAG) + " more"));
+        assertFalse(ReminderHtml.hasUnreadableTag("<p><b>bold</b> <a href=\"https://example.com\">ok</a></p>"));
+        assertFalse(ReminderHtml.hasUnreadableTag(null));
+        assertFalse(ReminderHtml.hasUnreadableTag("plain < text, 1 <2"), "a < with no tag name is text");
+        assertFalse(ReminderHtml.hasUnreadableTag("ends in <a"), "a bare name at the end is text, as the cleaner says");
+        assertFalse(ReminderHtml.dropsSomething("ends in <a"));
+        assertFalse(ReminderHtml.dropsSomething("plain < text"));
+    }
+
+    @Test
+    public void oneCleanGivesTheBodyAndWhetherItDroppedSomething() {
+        final String pasted = "<p><span style=\"color: red;\">Due</span></p>";
+        assertEquals(ReminderHtml.cleanNoting(pasted), new ReminderHtml.Cleaned("<p><span>Due</span></p>", true));
+        assertEquals(ReminderHtml.cleanNoting("<p>Hi</p>"), new ReminderHtml.Cleaned("<p>Hi</p>", false));
+        assertEquals(ReminderHtml.cleanNoting(null), new ReminderHtml.Cleaned("", false));
     }
 
     @Test

@@ -1,7 +1,6 @@
 package org.paulsens.trip.action;
 
 import jakarta.faces.application.FacesMessage;
-import jakarta.faces.context.FacesContext;
 import java.io.IOException;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -12,8 +11,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
-import org.mockito.ArgumentCaptor;
-import org.mockito.Mockito;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.cache.NoopCacheClient;
@@ -136,19 +133,6 @@ public class ReminderCommandsTest {
     private String saved(final Trip trip, final ReminderViews.Form form) {
         assertTrue(admin().save(trip.getId(), form), form.getProblem());
         return form.getId();
-    }
-
-    /** The growl summaries a call raised, through a mock FacesContext. */
-    private static List<String> growlsOf(final Runnable call) {
-        final FacesContext ctx = TestFaces.install(new HashMap<>());
-        try {
-            call.run();
-            final ArgumentCaptor<FacesMessage> messages = ArgumentCaptor.forClass(FacesMessage.class);
-            Mockito.verify(ctx, Mockito.atLeast(0)).addMessage(Mockito.any(), messages.capture());
-            return messages.getAllValues().stream().map(FacesMessage::getSummary).toList();
-        } finally {
-            TestFaces.clear();
-        }
     }
 
     private static TripReminder stored(final Trip trip, final String id) {
@@ -1216,16 +1200,35 @@ public class ReminderCommandsTest {
         plain.setBody("<ol><li data-list=\"bullet\"><span class=\"ql-ui\" contenteditable=\"false\"></span>Hat</li>"
                 + "</ol><p><strong>Pay</strong> <a href=\"https://example.com/pay\" rel=\"noopener noreferrer\" "
                 + "target=\"_blank\">here</a> or <a href=\"%7B%7BpaymentLink%7D%7D\">there</a></p>");
-        assertEquals(growlsOf(() -> assertTrue(admin().save(trip.getId(), plain), plain.getProblem())),
-                List.of(saved));
+        assertEquals(TestFaces.growlsOf(new HashMap<>(),
+                () -> assertTrue(admin().save(trip.getId(), plain), plain.getProblem())), List.of(saved));
 
         final ReminderViews.Form pasted = form("Pasted", TODAY.plusDays(5));
         pasted.setBody("<p><span style=\"color: rgb(230, 0, 0);\">Pay by Friday</span> <img src=\"data:x\"> "
                 + "<a href=\"example.com/pay\">pay</a></p>");
-        assertEquals(growlsOf(() -> assertTrue(admin().save(trip.getId(), pasted), pasted.getProblem())),
+        final List<FacesMessage> onPaste = TestFaces.messagesOf(new HashMap<>(),
+                () -> assertTrue(admin().save(trip.getId(), pasted), pasted.getProblem()));
+        assertEquals(onPaste.stream().map(FacesMessage::getSummary).toList(),
                 List.of(saved, ReminderCommands.FORMATTING_REMOVED), "Still saved, and says what it lost");
+        assertEquals(onPaste.get(1).getSeverity(), FacesMessage.SEVERITY_WARN, "a warning, not a second info line");
         final TripReminder stored = stored(trip, pasted.getId());
         assertEquals(stored.getBody(), "<p><span>Pay by Friday</span>  <a>pay</a></p>");
         assertEquals(stored.getStatus(), TripReminder.Status.DRAFT);
+    }
+
+    /**
+     * A pasted image arrives as a data address thousands of characters long, past what the cleaner reads as a
+     * tag; it would be mailed as that many characters of visible text, so the save refuses it instead.
+     */
+    @Test
+    public void aPastedImageTooLongToReadIsRefusedNotMailedAsText() throws IOException {
+        final Trip trip = newTrip();
+        final ReminderViews.Form form = form("Logo", TODAY.plusDays(5));
+        form.setBody("<p>Logo <img src=\"data:image/png;base64," + "A".repeat(ReminderHtml.MAX_TAG * 4) + "\"></p>");
+        assertFalse(admin().save(trip.getId(), form));
+        assertEquals(form.getProblem(), ReminderCommands.TAG_TOO_LONG);
+        assertTrue(DAO.getInstance().getReminderPlan(trip.getId())
+                .map(plan -> plan.getReminders().stream().noneMatch(r -> "Logo".equals(r.getName()))).orElse(true),
+                "nothing was saved");
     }
 }

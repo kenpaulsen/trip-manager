@@ -1,8 +1,6 @@
 package org.paulsens.trip.action;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import jakarta.faces.application.FacesMessage;
-import jakarta.faces.context.FacesContext;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -17,8 +15,6 @@ import org.paulsens.trip.model.Placeholder;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.TemplateKind;
 import org.paulsens.trip.site.SiteContext;
-import org.mockito.ArgumentCaptor;
-import org.mockito.Mockito;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
@@ -268,19 +264,6 @@ public class ContentStayOnLatestTest {
         Assert.assertTrue(DAO.getInstance().saveTemplate(template, 5));
     }
 
-    /** The growl summaries a call raised, through a mock FacesContext with a request map of its own. */
-    private static List<String> growlsOf(final Map<String, Object> requestMap, final Runnable call) {
-        final FacesContext ctx = TestFaces.install(requestMap);
-        try {
-            call.run();
-            final ArgumentCaptor<FacesMessage> messages = ArgumentCaptor.forClass(FacesMessage.class);
-            Mockito.verify(ctx, Mockito.atLeast(0)).addMessage(Mockito.any(), messages.capture());
-            return messages.getAllValues().stream().map(FacesMessage::getSummary).toList();
-        } finally {
-            TestFaces.clear();
-        }
-    }
-
     @Test
     public void aTemplateThatMovesToAnotherOrganizationIsNotFollowed() {
         final ContentCommands content = admin();
@@ -462,19 +445,20 @@ public class ContentStayOnLatestTest {
         Assert.assertTrue(content.saveContent(item));
         saveTemplate("sol-report", "<p>{{when}} {{where}}</p>", text("when", "When"), text("where", "Where"));
 
-        final List<String> onOpen = growlsOf(new HashMap<>(), () -> content.getContent(item.getId()));
+        final List<String> onOpen = TestFaces.growlsOf(new HashMap<>(), () -> content.getContent(item.getId()));
         Assert.assertEquals(onOpen.size(), 1, onOpen.toString());
         Assert.assertTrue(onOpen.getFirst().contains("now v2") && onOpen.getFirst().contains("DROPPED")
                 && onOpen.getFirst().contains("date") && onOpen.getFirst().contains("Cancel keeps"), onOpen.getFirst());
 
         final ContentInstance stale = stored(item.getId()).copy();
-        final List<String> onSave = growlsOf(new HashMap<>(), () -> Assert.assertTrue(content.saveContent(stale)));
+        final List<String> onSave = TestFaces.growlsOf(new HashMap<>(),
+                () -> Assert.assertTrue(content.saveContent(stale)));
         Assert.assertTrue(onSave.stream().anyMatch(m -> m.contains("DROPPED") && !m.contains("Cancel keeps")),
                 "a save says what it stored, without promising an undo: " + onSave);
 
         // A carry that moved every value as it was stays quiet.
         saveTemplate("sol-report", "<div>{{when}} {{where}}</div>", text("when", "When"), text("where", "Where"));
-        Assert.assertTrue(growlsOf(new HashMap<>(), () -> content.getContent(item.getId())).isEmpty());
+        Assert.assertTrue(TestFaces.growlsOf(new HashMap<>(), () -> content.getContent(item.getId())).isEmpty());
     }
 
     /** Reads the version menu, saves the template again, and reads it again, all in one request. */
@@ -493,7 +477,7 @@ public class ContentStayOnLatestTest {
         final Map<String, Object> request = new HashMap<>();
         final List<String> before = new java.util.ArrayList<>();
         final List<String> during = new java.util.ArrayList<>();
-        growlsOf(request, () -> readMenuAcrossASave(content, item, before, during));
+        TestFaces.growlsOf(request, () -> readMenuAcrossASave(content, item, before, during));
         Assert.assertEquals(during, before, "the same request answers from its memo");
         Assert.assertEquals(content.versionChoices(item), List.of(ContentCommands.STAY_ON_LATEST, "2", "1"),
                 "a new request reads the row again");
