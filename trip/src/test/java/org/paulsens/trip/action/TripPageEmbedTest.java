@@ -2,11 +2,18 @@ package org.paulsens.trip.action;
 
 import java.io.IOException;
 import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
+import org.paulsens.trip.audit.RequestContext;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.FakeData;
+import org.paulsens.trip.model.BrandColor;
+import org.paulsens.trip.model.CustomPalette;
 import org.paulsens.trip.model.MediaItem;
+import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Trip;
+import org.paulsens.trip.site.SiteContext;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 import static org.testng.Assert.assertEquals;
@@ -27,6 +34,63 @@ public class TripPageEmbedTest {
     public void seed() throws IOException {
         FakeData.initFakeData();
         FakeData.addFakeData();
+    }
+
+    /**
+     * An org site in one of the org's OWN palettes: the embed the apps cache carries that palette's colors, AFTER the
+     * custom theme's own root block, whose defaults (Blue) would otherwise win and draw every such page in Blue.
+     */
+    @Test
+    public void theEmbedCarriesTheOrgsOwnPaletteAfterTheThemesDefaults() throws IOException {
+        final Organization org = Organization.builder().id(Organization.Id.newInstance()).name("Embed palette")
+                .build();
+        org.setSlug("embedpal" + System.nanoTime() % 100000);
+        org.setCustomPalettes(List.of(new CustomPalette("p1", "Ours", "blue",
+                Map.of("primary-color", "#8a2be2", "shade000", "#fefefe"), Map.of())));
+        org.getSettingsOverrides().put("site.theme.palette", "custom:p1");
+        assertTrue(DAO.getInstance().saveOrganization(org));
+        final SiteContext site = SiteContext.org(org.getId(), org.getSlug(), org.getSlug() + ".unitetrip.com");
+        final String css = ScopedValue.where(RequestContext.SCOPE, RequestContext.of(null, null, site))
+                .call(() -> new TripPageCommands(() -> null, () -> NOW).embedCss("no-such-trip"));
+        final int defaults = css.indexOf(":root{--ct-primary-color:#5297ff");
+        final int own = css.indexOf(":root{--ct-primary-color:#8a2be2;");
+        assertTrue(defaults >= 0, "the custom theme's own root block comes first: "
+                + css.substring(0, Math.min(200, css.length())));
+        assertTrue(own > defaults, "the org's palette follows it, so its colors win");
+    }
+
+    /**
+     * The trip's org's brand colors, which event notes colored in an editor read: in the embed's root block once each,
+     * in the light or the dark value as the org's site draws, and none for a trip the host does not reach.
+     */
+    @Test
+    public void theEmbedCarriesTheTripsOrgsBrandColorsOnce() throws IOException {
+        final Organization org = Organization.builder().id(Organization.Id.newInstance()).name("Embed brand")
+                .build();
+        org.setSlug("embedbrand" + System.nanoTime() % 100000);
+        org.setBrandColors(List.of(new BrandColor("gold1", "Parish gold", "#a07a2c", "#e0b85c")));
+        assertTrue(DAO.getInstance().saveOrganization(org));
+        final Trip trip = Trip.builder().title("Brand Trip").orgId(org.getId().getValue()).openToPublic(true)
+                .startDate(NOW.plusDays(20)).endDate(NOW.plusDays(22)).build();
+        assertTrue(DAO.getInstance().saveTrip(trip));
+        final SiteContext site = SiteContext.org(org.getId(), org.getSlug(), org.getSlug() + ".unitetrip.com");
+
+        final String light = embedOn(site, trip.getId());
+        assertTrue(light.contains("--brand-gold1:#a07a2c;"), light.substring(0, Math.min(300, light.length())));
+        assertEquals(light.split("--brand-gold1:", -1).length, 2, "written once, though the host is the trip's org");
+        assertFalse(embedOn(site, "no-such-trip").contains("--brand-gold1:#a07a2c"),
+                "no reachable trip, no brand colors");
+
+        org.getSettingsOverrides().put("site.theme.dark", "true");
+        assertTrue(DAO.getInstance().saveOrganization(org));
+        final Organization dark = DAO.getInstance().getOrganization(org.getId(), Cached.NO).orElseThrow();
+        assertEquals(dark.getSettingsOverrides().get("site.theme.dark"), "true");
+        assertTrue(embedOn(site, trip.getId()).contains("--brand-gold1:#e0b85c;"), "the dark value in dark mode");
+    }
+
+    private static String embedOn(final SiteContext site, final String tripId) {
+        return ScopedValue.where(RequestContext.SCOPE, RequestContext.of(null, null, site))
+                .call(() -> new TripPageCommands(() -> null, () -> NOW).embedCss(tripId));
     }
 
     @Test

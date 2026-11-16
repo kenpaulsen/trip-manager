@@ -20,6 +20,7 @@ import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.config.OrgSettingsTabs;
 import org.paulsens.trip.content.ContentRenderer;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.model.CustomPalette;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.SettingDef;
 import org.paulsens.trip.site.SiteContext;
@@ -64,6 +65,11 @@ public class BrandCommands {
     /** The platform's own theme when no palette is chosen (and on every non-org host). */
     static final String DEFAULT_THEME_LIGHT = "freya-medj-l";
     static final String DEFAULT_THEME_DARK = "freya-medj-d";
+    /**
+     * The palette name the freya build generates for an org's OWN palettes: one light and one dark theme whose
+     * palette colors read {@code --ct-*} custom properties, which {@link #getRootStyle()} sets from the palette.
+     */
+    static final String CUSTOM_PALETTE_THEME = "custom";
     /** The favicon href that makes a browser fetch nothing -- no stray /favicon.ico hit on an org site. */
     static final String NO_FAVICON = "data:,";
     private static final String PAYPAL_HOST = "paypal.com";
@@ -106,6 +112,15 @@ public class BrandCommands {
     /** The {@code ?tab=} that opens the settings page on its Appearance tab. */
     private static final String APPEARANCE_TAB = "&tab=" + OrgSettingsTabs.APPEARANCE;
     private static final String ORG_PARAM = "orgId";
+    /** The view-scope key the Appearance page pins its guarded org id under ({@code viewScope.theOrgId}). */
+    private static final String GUARDED_ORG_KEY = "theOrgId";
+
+    /**
+     * What the Appearance page's "Platform default" palette card carries for its palette. A card names its palette in
+     * an attribute and an {@code f:param}, and JSF drops either when its value is empty, so the blank the setting
+     * stores for "none" cannot ride the card itself.
+     */
+    public static final String PALETTE_CARD_NONE = "none";
 
     /**
      * The background chooser's mode, carried in the edit map under a key that is NOT a setting (it is never
@@ -145,9 +160,19 @@ public class BrandCommands {
     @Setter
     private Supplier<HttpSession> sessionSource = BrandCommands::currentSession;
 
-    /** Test seam: the org whose Appearance page this request renders, or null (the preview's trigger). */
+    /** Test seam: the org whose Appearance page this request renders, or null ({@link #appearancePageOrgId}). */
     @Setter
     private Supplier<String> appearanceViewSource = BrandCommands::appearanceViewOrgId;
+
+    /**
+     * Test seam: the org palette the palette editor page is editing, or null on every other view. That page is drawn
+     * in the palette itself (light; its script swaps to dark), wherever it is opened, so the whole page is the preview.
+     */
+    @Setter
+    private Supplier<CustomPalette> paletteEditorSource = this::editedPalette;
+
+    /** The org palettes' store: the instance every palette-drawing bean shares. */
+    private final CustomPalettes palettes = CustomPalettes.getInstance();
 
     /** Test seam: the org behind an org host (a failed read is the neutral look, never a broken page). */
     @Setter
@@ -173,6 +198,9 @@ public class BrandCommands {
      * menu classes -- reads this one answer, so an organization's choice reaches all of them.
      */
     public boolean isDark() {
+        if (paletteEditorSource.get() != null) {
+            return false;   // the palette editor opens light; its script switches the whole page to dark
+        }
         final Boolean own = darkSource.get();
         return (own == null) ? Boolean.parseBoolean(setting(KnownSettings.SITE_THEME_DARK)) : own;
     }
@@ -182,11 +210,8 @@ public class BrandCommands {
      * else the platform default.
      */
     public String getTheme() {
-        final String palette = palette();
-        if (palette == null) {
-            return isDark() ? DEFAULT_THEME_DARK : DEFAULT_THEME_LIGHT;
-        }
-        return "freya-" + palette + "-" + mode();
+        final CustomPalette editing = paletteEditorSource.get();
+        return editing != null ? themeName(editing.ref(), false) : themeName(palette(), isDark());
     }
 
     /**
@@ -194,12 +219,35 @@ public class BrandCommands {
      * default, {@code layout-{palette}-{light|dark}} when a palette is chosen.
      */
     public String getLayoutCss() {
-        final String palette = palette();
-        return palette == null ? "layout-" + mode() : "layout-" + palette + "-" + mode();
+        final CustomPalette editing = paletteEditorSource.get();
+        return editing != null ? layoutCssName(editing.ref(), false) : layoutCssName(palette(), isDark());
     }
 
-    private String mode() {
-        return isDark() ? "dark" : "light";
+    /**
+     * The ONE theme naming rule: a palette (null for the platform default) and a mode to the PrimeFaces theme
+     * name. {@link ThemePalettes} hands the same names to the stylesheet editor's palette preview, which swaps
+     * the page's links on the client, so the preview and the server cannot name a theme differently.
+     */
+    static String themeName(final String palette, final boolean dark) {
+        if (palette == null || palette.isEmpty()) {
+            return dark ? DEFAULT_THEME_DARK : DEFAULT_THEME_LIGHT;
+        }
+        return "freya-" + sheetPalette(palette) + "-" + mode(dark);
+    }
+
+    /** The ONE layout stylesheet naming rule, the partner of {@link #themeName}. */
+    static String layoutCssName(final String palette, final boolean dark) {
+        return (palette == null || palette.isEmpty()) ? "layout-" + mode(dark)
+                : "layout-" + sheetPalette(palette) + "-" + mode(dark);
+    }
+
+    /** Every {@code custom:<id>} palette draws with the one generated custom theme; a stock one with its own. */
+    private static String sheetPalette(final String palette) {
+        return CustomPalette.idOf(palette) == null ? palette : CUSTOM_PALETTE_THEME;
+    }
+
+    private static String mode(final boolean dark) {
+        return dark ? "dark" : "light";
     }
 
     // --- layout ---
@@ -229,13 +277,12 @@ public class BrandCommands {
     public record OrgLook(
             String palette, boolean dark, String layout, String logoUrl, String faviconUrl, String ogImageUrl,
             String backgroundUrl, String backgroundColor, String footerTitle, String footerText,
-            String contactName, String contactPhone, String donateUrl) {
+            String contactName, String contactPhone, String donateUrl, CustomPalette customPalette) {
     }
 
     public OrgLook lookOf(final Organization org) {
-        final String chosenPalette = stored(org, KnownSettings.SITE_THEME_PALETTE);
-        final String palette = chosenPalette != null && KnownSettings.SITE_THEME_PALETTE.allows(chosenPalette)
-                ? chosenPalette : null;
+        final String palette = resolvedPalette(org, stored(org, KnownSettings.SITE_THEME_PALETTE));
+        final CustomPalette custom = CustomPalettes.paletteOf(org, CustomPalette.idOf(palette));
         return new OrgLook(
                 palette,
                 Boolean.parseBoolean(stored(org, KnownSettings.SITE_THEME_DARK)),
@@ -249,15 +296,21 @@ public class BrandCommands {
                 stored(org, KnownSettings.SITE_FOOTER_TEXT),
                 stored(org, KnownSettings.SITE_CONTACT_NAME),
                 stored(org, KnownSettings.SITE_CONTACT_PHONE),
-                safeUrl(stored(org, KnownSettings.SITE_DONATE_URL)));
+                safeUrl(stored(org, KnownSettings.SITE_DONATE_URL)),
+                custom);
+    }
+
+    /**
+     * A look's own palette colors in one mode ({@code primary-color} to {@code #rrggbb}, the generated theme's
+     * input names), or null for a stock palette or none: what a native client needs to draw an org's own palette.
+     */
+    public Map<String, String> customColorsOf(final OrgLook look, final boolean dark) {
+        return look.customPalette() == null ? null : palettes.inputs(look.customPalette(), dark);
     }
 
     /** The PrimeFaces theme a look resolves to, the same naming {@link #getTheme()} uses on the site. */
     public String themeNameOf(final OrgLook look) {
-        if (look.palette() == null) {
-            return look.dark() ? DEFAULT_THEME_DARK : DEFAULT_THEME_LIGHT;
-        }
-        return "freya-" + look.palette() + "-" + (look.dark() ? "dark" : "light");
+        return themeName(look.palette(), look.dark());
     }
 
     /** One stored branding value for an explicit org: its override, else the compiled default, else null. */
@@ -267,11 +320,30 @@ public class BrandCommands {
 
     /**
      * The org's chosen palette, or null. Re-checked against the declared choices even though the save
-     * path refuses others: a palette that is not shipped is a stylesheet 404 on every page of the site.
+     * path refuses others: a palette that is not shipped is a stylesheet 404 on every page of the site. A
+     * {@code custom:<id>} choice stands only while the org still has that palette; once it is deleted the site
+     * draws the platform default rather than a custom theme with none of its colors set.
      */
     private String palette() {
-        final String chosen = setting(KnownSettings.SITE_THEME_PALETTE);
-        return chosen != null && KnownSettings.SITE_THEME_PALETTE.allows(chosen) ? chosen : null;
+        return resolvedPalette(org().orElse(null), setting(KnownSettings.SITE_THEME_PALETTE));
+    }
+
+    /**
+     * The ONE palette rule, for the site ({@link #palette()}) and the REST look ({@link #lookOf}) alike: a stock
+     * palette stands when the setting's declared choices allow it, a {@code custom:<id>} only while {@code org}'s row
+     * holds that palette; anything else is the platform default (null).
+     */
+    static String resolvedPalette(final Organization org, final String chosen) {
+        if (chosen != null && KnownSettings.SITE_THEME_PALETTE.allows(chosen)) {
+            return chosen;
+        }
+        return CustomPalettes.paletteOf(org, CustomPalette.idOf(chosen)) == null ? null : chosen;
+    }
+
+    /** The org's own palette a palette choice names, or null (a stock palette, none, or one since deleted). */
+    private CustomPalette customPalette(final String chosen) {
+        final String id = CustomPalette.idOf(chosen);
+        return id == null ? null : org().map(found -> CustomPalettes.paletteOf(found, id)).orElse(null);
     }
 
     // --- identity ---
@@ -315,7 +387,10 @@ public class BrandCommands {
      * The custom properties the root element carries on an org host, for {@code site.css} to paint:
      * {@code --site-bg:url(...)} with the org's background image, or {@code --site-bg:none} plus
      * {@code --site-bg-color:} when there is no image -- the org's chosen COLOR, or, when it has chosen
-     * none, {@link #PALETTE_BACKGROUND} so the page takes the palette's own tint. Null off an org host:
+     * none, {@link #PALETTE_BACKGROUND} so the page takes the palette's own tint -- plus, when the site uses
+     * one of the org's OWN palettes, that palette's {@code --ct-*} colors in the current mode, which the generated
+     * {@code freya-custom-*} theme reads for every palette color, and the org's brand colors ({@code --brand-<id>},
+     * {@link BrandColors}), which content colored in a rich-text editor reads. Null off an org host:
      * the shared site's stylesheet keeps its own fallbacks (its rainbow image and no color), so that page is
      * unchanged to the byte.
      *
@@ -325,10 +400,60 @@ public class BrandCommands {
      * declaration, and the color is re-screened as a hex value for the same reason.
      */
     public String getRootStyle() {
+        final CustomPalette editing = paletteEditorSource.get();
+        if (editing != null) {
+            return palettes.styleOf(editing, false);
+        }
         if (!isBranded()) {
             return null;
         }
-        return rootStyleOf(setting(KnownSettings.SITE_BACKGROUND_URL), setting(KnownSettings.SITE_BACKGROUND_COLOR));
+        return withOrgColors(rootStyleOf(setting(KnownSettings.SITE_BACKGROUND_URL),
+                setting(KnownSettings.SITE_BACKGROUND_COLOR)));
+    }
+
+    /**
+     * The root element's style when a page brings its OWN background declarations ({@code pageStyle}, a conference
+     * page's options): those, plus the org palette's colors, which the page's look never replaces -- a conference
+     * page with a picture of its own still draws in the org's palette. Blank: {@link #getRootStyle()}. The ONE
+     * expression {@code template.xhtml} puts on {@code <html>}.
+     */
+    public String rootStyleWith(final String pageStyle) {
+        if (pageStyle == null || pageStyle.isBlank()) {
+            return getRootStyle();
+        }
+        return isBranded() ? withOrgColors(pageStyle) : pageStyle;
+    }
+
+    /**
+     * The org's own palette's {@code --ct-*} declarations for this request's site and mode, or "" for a stock palette,
+     * none, or off an org host: what a page that carries no root style of its own needs to draw the custom theme (the
+     * embedded trip page the apps render, {@code TripPageCommands.embedCss}, which adds its TRIP's org's brand colors
+     * itself).
+     */
+    public String getPaletteVars() {
+        if (!isBranded()) {
+            return "";
+        }
+        final CustomPalette custom = customPalette(setting(KnownSettings.SITE_THEME_PALETTE));
+        return custom == null ? "" : palettes.styleOf(custom, isDark());
+    }
+
+    /**
+     * Every org color the root element carries on this request's site and mode: the palette's {@code --ct-*}
+     * ({@link #getPaletteVars()}) and the org's brand colors' {@code --brand-<id>} ({@link BrandColors}), which apply
+     * whatever the palette; "" off an org host.
+     */
+    public String getOrgColorVars() {
+        if (!isBranded()) {
+            return "";
+        }
+        return getPaletteVars() + BrandColors.styleOf(org().orElse(null), isDark());
+    }
+
+    /** {@code style} plus the org's own colors ({@link #getOrgColorVars()}) when it has any. */
+    private String withOrgColors(final String style) {
+        final String vars = getOrgColorVars();
+        return vars.isEmpty() ? style : style + ";" + vars;
     }
 
     /**
@@ -530,6 +655,32 @@ public class BrandCommands {
         session.setAttribute(Sessions.APPEARANCE_PREVIEW, stored);
     }
 
+    /**
+     * After a palette is deleted (from the Appearance card or the palette editor alike): this admin's unsaved
+     * Appearance preview for that org drops it when it was the one chosen, so the page previews the platform
+     * default it now falls back to, and its Save is not refused over a palette that no longer exists.
+     */
+    public void forgetDeletedPalette(final String orgId, final String ref) {
+        final String key = KnownSettings.SITE_THEME_PALETTE.getName();
+        final Map<String, String> preview = previewFor(orgId);
+        if (preview != null && ref != null && ref.equals(preview.get(key))) {
+            final Map<String, String> kept = new LinkedHashMap<>(preview);
+            kept.put(key, "");
+            preview(orgId, kept, null);
+        }
+    }
+
+    /**
+     * The Appearance page's palette cards: the picked card's palette into the edit map, {@link #PALETTE_CARD_NONE}
+     * (or nothing) meaning the platform default, which the setting stores as blank.
+     */
+    public void pickPalette(final Map<String, String> values, final String palette) {
+        if (values != null) {
+            values.put(KnownSettings.SITE_THEME_PALETTE.getName(),
+                    palette == null || PALETTE_CARD_NONE.equals(palette) ? "" : palette);
+        }
+    }
+
     /** Discards the preview: the page (and this admin's view of the site) returns to the stored values. */
     public void clearPreview() {
         final HttpSession session = sessionSource.get();
@@ -649,9 +800,45 @@ public class BrandCommands {
         return (values instanceof Map) ? (Map<String, String>) values : null;
     }
 
-    /** The org whose look this request renders: the previewed one, else the host's; null for neither. */
-    private String previewOrgId() {
-        return preview() == null ? null : appearanceViewSource.get();
+    /**
+     * The org whose Appearance page this request renders, or null. That page draws ITS org's look from the first
+     * render, preview or not: it used to draw the host's look until a first change started a preview, so on the
+     * shared host it showed the shared site's own background picture and the first change of anything made that
+     * picture "disappear", which read as the change deleting the org's background (owner report 2026-11-15).
+     */
+    private String appearancePageOrgId() {
+        return appearanceViewSource.get();
+    }
+
+    /**
+     * The Appearance page's background picker: a picture from the organization's library (or an earlier one) as
+     * the unsaved background, in Image mode. One call, so the page's command script stays one statement long.
+     */
+    public void pickBackground(final Map<String, String> values, final String url) {
+        if (values != null && url != null && !url.isBlank()) {
+            values.put(KnownSettings.SITE_BACKGROUND_URL.getName(), absolute(url.trim()));
+            values.put(BG_MODE_KEY, BG_MODE_IMAGE);
+        }
+    }
+
+    /**
+     * Whether a library picture is the background the unsaved choice holds, compared through {@link #absolute}, the
+     * same rule the pick is stored by (a local, site-relative library URL is stored absolute).
+     */
+    public boolean isPickedBackground(final Map<String, String> values, final String url) {
+        return values != null && url != null && !url.isBlank()
+                && absolute(url.trim()).equals(values.get(KnownSettings.SITE_BACKGROUND_URL.getName()));
+    }
+
+    /**
+     * A library picture's URL as the setting must store it: absolute. Local mode serves the library from this
+     * site ({@code /resources/...}), but the background setting is {@code withHttpUrl()}, so a site-relative pick
+     * previewed and then failed to save (review finding kenpaulsen/medjugorje#130). Made absolute from this
+     * request, the way a local-mode branding upload is ({@link BrandingPhotos#localBaseUrl}); production's library
+     * URLs are absolute already and pass through.
+     */
+    static String absolute(final String url) {
+        return url.startsWith("/") && !url.startsWith("//") ? BrandingPhotos.localBaseUrl() + url : url;
     }
 
     /**
@@ -660,15 +847,49 @@ public class BrandCommands {
      * is not reliably there yet, while the view id and the request's parameters always are. The page always
      * carries {@code ?orgId=} (every preview, Save and Cancel redirects to {@link #appearanceUrl}), so the
      * parameter is present on every render that has to show a preview.
+     *
+     * <p>The parameter alone is NOT trusted: it must name the org the page's guard checked, the view's
+     * {@code theOrgId} (pinned by its {@code initPage} once {@code canManageOrg} passed, and pinned only once). A
+     * postback of org A's page sent with {@code ?orgId=B} would otherwise draw org B's whole stored look, name and
+     * analytics tag for someone who was never checked against B (review finding kenpaulsen/medjugorje#128).
      */
     private static String appearanceViewOrgId() {
+        return guardedOrgParam(APPEARANCE_VIEW_ID);
+    }
+
+    /**
+     * The ONE tenancy guard for org-admin views drawn in their org's look: the request's {@code orgId}, only on
+     * {@code viewId} and only when it equals the org the page's own guard pinned in its view ({@code theOrgId}).
+     * Null otherwise (another view, no view scope yet, a blank or unchecked org).
+     */
+    private static String guardedOrgParam(final String viewId) {
         final FacesContext ctx = FacesContext.getCurrentInstance();
-        if (ctx == null || ctx.getViewRoot() == null
-                || !APPEARANCE_VIEW_ID.equals(ctx.getViewRoot().getViewId())) {
+        if (ctx == null || ctx.getViewRoot() == null || !viewId.equals(ctx.getViewRoot().getViewId())) {
             return null;
         }
         final String orgId = ctx.getExternalContext().getRequestParameterMap().get(ORG_PARAM);
-        return (orgId == null || orgId.isBlank()) ? null : orgId;
+        final Map<String, Object> view = ctx.getViewRoot().getViewMap(false);
+        final Object guarded = view == null ? null : view.get(GUARDED_ORG_KEY);
+        return (orgId == null || orgId.isBlank() || !orgId.equals(guarded)) ? null : orgId;
+    }
+
+    /**
+     * The palette the editor page is editing: on that view only, for the org its guard pinned
+     * ({@link #guardedOrgParam}), the palette its {@code paletteId} names while the org's row holds it, or in
+     * create mode the draft its {@code from} names (hidden fields re-supply both on a postback). Null anywhere
+     * else. The page itself admits only the org's admins; this only picks the stylesheet it is drawn with.
+     */
+    private CustomPalette editedPalette() {
+        final String orgId = guardedOrgParam(CustomPalettes.EDITOR_VIEW_ID);
+        final Organization org = orgId == null ? null : orgById(orgId).orElse(null);
+        if (org == null) {
+            return null;
+        }
+        final Map<String, String> params = FacesContext.getCurrentInstance().getExternalContext()
+                .getRequestParameterMap();
+        final String id = params.get(CustomPalettes.EDITOR_PALETTE_PARAM);
+        return id == null || id.isBlank() ? palettes.draftFor(org, params.get(CustomPalettes.EDITOR_FROM_PARAM))
+                : CustomPalettes.paletteOf(org, id);
     }
 
     /** This request's session if it already has one, never a new one. */
@@ -738,21 +959,22 @@ public class BrandCommands {
     // --- plumbing ---
 
     /**
-     * Whether this request renders an organization's look at all: its own host, or an admin previewing its
-     * Appearance page. False everywhere else, which is what keeps a shared page byte-for-byte what it was.
+     * Whether this request renders an organization's look at all: its own host, or that org's Appearance page.
+     * False everywhere else, which is what keeps a shared page byte-for-byte what it was.
      */
     private boolean isBranded() {
-        return previewOrgId() != null || SiteContext.current().isOrg();
+        return appearancePageOrgId() != null || SiteContext.current().isOrg();
     }
 
     /**
-     * The org whose look applies: the previewed one first (so the admin sees their unsaved choices), else
-     * the one behind an org host. Empty off both, and when the row cannot be read.
+     * The org whose look applies: the org whose Appearance page this is first (with its admin's unsaved choices
+     * over it, when there are any), else the one behind an org host. Empty off both, and when the row cannot be
+     * read.
      */
     private Optional<Organization> org() {
-        final String previewing = previewOrgId();
-        if (previewing != null) {
-            return orgById(Organization.Id.from(previewing));
+        final String appearanceOrg = appearancePageOrgId();
+        if (appearanceOrg != null) {
+            return orgById(Organization.Id.from(appearanceOrg));
         }
         final SiteContext site = SiteContext.current();
         return site.isOrg() ? orgById(site.orgId()) : Optional.empty();

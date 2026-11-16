@@ -137,6 +137,51 @@ public class OrgsResourceTest extends ResourceTestSupport {
 
 
     @Test
+    public void anOrgsOwnPaletteReachesTheClientWithItsColors() throws java.io.IOException {
+        signedInAsSiteAdmin(ME);
+        final String orgId = createOrg("Painted " + System.nanoTime());
+        final Person.Id member = somebody("Member");
+        assertOk(resource.addMember(orgId, member.getValue(), CSRF_OK));
+        final org.paulsens.trip.model.Organization stored = org.paulsens.trip.dynamo.DAO.getInstance()
+                .getOrganization(org.paulsens.trip.model.Organization.Id.from(orgId),
+                        org.paulsens.trip.cache.Cached.NO).orElseThrow();
+        stored.setCustomPalettes(List.of(new org.paulsens.trip.model.CustomPalette("p1", "Ours", "blue",
+                Map.of("primary-color", "#8a2be2", "shade000", "#ffffff"), Map.of("shade000", "#101010"))));
+        stored.getSettingsOverrides().put("site.theme.palette", "custom:p1");
+        stored.setBrandColors(List.of(new org.paulsens.trip.model.BrandColor("gold1", "Parish gold", "#a07a2c",
+                "#e0b85c")));
+        Assert.assertTrue(org.paulsens.trip.dynamo.DAO.getInstance().saveOrganization(stored));
+
+        signedInAs(member);
+        final Response response = resource(new OrgsResource()).mine(false);
+        assertOk(response);
+        @SuppressWarnings("unchecked")
+        final org.paulsens.trip.api.dto.OrgBrandingDto look =
+                ((List<org.paulsens.trip.api.dto.OrgSummaryDto>) response.getEntity()).get(0).branding();
+        Assert.assertEquals(look.palette(), "custom:p1");
+        Assert.assertEquals(look.themeName(), "freya-custom-light");
+        Assert.assertEquals(look.customColors().light().get("primary-color"), "#8a2be2");
+        Assert.assertEquals(look.customColors().dark().get("shade000"), "#101010", "the dark override");
+        Assert.assertEquals(look.customColors().dark().get("primary-dark-color"), "#8a2be2",
+                "dark is derived: one step up from the light accent");
+        Assert.assertEquals(look.brandColors(), List.of(new org.paulsens.trip.api.dto.OrgBrandingDto.BrandColorDto(
+                "--brand-gold1", "#a07a2c", "#e0b85c")), "the brand colors, never their names");
+        Assert.assertNotNull(look.editorColors(), "the editor colors per mode, for the apps' rich text");
+
+        // On a stock palette the test class path can resolve (blue, light and dark stand-ins): each mode its own.
+        final org.paulsens.trip.model.Organization blue = org.paulsens.trip.dynamo.DAO.getInstance()
+                .getOrganization(org.paulsens.trip.model.Organization.Id.from(orgId),
+                        org.paulsens.trip.cache.Cached.NO).orElseThrow();
+        blue.getSettingsOverrides().put("site.theme.palette", "blue");
+        Assert.assertTrue(org.paulsens.trip.dynamo.DAO.getInstance().saveOrganization(blue));
+        @SuppressWarnings("unchecked")
+        final org.paulsens.trip.api.dto.OrgBrandingDto blueLook = ((List<org.paulsens.trip.api.dto.OrgSummaryDto>)
+                resource(new OrgsResource()).mine(false).getEntity()).get(0).branding();
+        Assert.assertEquals(blueLook.editorColors().light().get("--text-color"), "#69707a");
+        Assert.assertEquals(blueLook.editorColors().dark().get("--text-color"), "#dee2e6", "the dark map is DARK");
+    }
+
+    @Test
     public void mineListsMembershipsWithStandingSiteAndLook() throws java.io.IOException {
         signedInAsSiteAdmin(ME);
         final String withSite = createOrg("Acme " + System.nanoTime());

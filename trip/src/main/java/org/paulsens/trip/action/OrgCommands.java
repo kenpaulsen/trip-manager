@@ -35,6 +35,7 @@ import org.paulsens.trip.site.ListingScope;
 import org.paulsens.trip.site.SiteContext;
 import org.paulsens.trip.model.FeesPaidBy;
 import org.paulsens.trip.model.OrgMember;
+import org.paulsens.trip.model.CustomPalette;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.PaymentProcessorConfig;
 import org.paulsens.trip.model.Person;
@@ -2858,9 +2859,12 @@ public class OrgCommands {
             return failText("Not saved", "'" + key + "' is not a setting an organization can override.");
         }
         final String value = (rawValue == null) ? "" : rawValue.trim();
-        // The same judge as the site Settings page: type, then the declaration's choices / URL rule.
-        final String rejection = new ConfigCommands().rejection(new org.paulsens.trip.model.Config(
-                def.getName(), value, def.getType(), null, null, null));
+        // The same judge as the site Settings page: type, then the declaration's choices / URL rule. One value
+        // lies outside every declared menu: the palette may name one of THIS org's own palettes ("custom:<id>"),
+        // which only the org row can answer, so it is judged here and nowhere else.
+        final String rejection = isOwnPaletteRef(org, def, value) ? null
+                : new ConfigCommands().rejection(new org.paulsens.trip.model.Config(
+                        def.getName(), value, def.getType(), null, null, null));
         if (rejection != null) {
             return failText("Not saved", rejection);
         }
@@ -2874,6 +2878,13 @@ public class OrgCommands {
         }
         overrides.put(def.getName(), value);
         return def.getName() + " = " + value;
+    }
+
+    /** Whether {@code value} selects one of {@code org}'s own palettes for the palette setting. */
+    private static boolean isOwnPaletteRef(final Organization owner, final org.paulsens.trip.model.SettingDef def,
+            final String value) {
+        return KnownSettings.SITE_THEME_PALETTE.getName().equals(def.getName())
+                && CustomPalettes.paletteOf(owner, CustomPalette.idOf(value)) != null;
     }
 
     private String failText(final String summary, final String detail) {

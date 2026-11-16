@@ -16,7 +16,9 @@ import jakarta.ws.rs.core.Response;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import org.paulsens.trip.action.BrandColors;
 import org.paulsens.trip.action.BrandCommands;
+import org.paulsens.trip.action.EditorColors;
 import org.paulsens.trip.action.OrgCommands;
 import org.paulsens.trip.action.SiteCommands;
 import org.paulsens.trip.api.dto.OrgBrandingDto;
@@ -122,7 +124,20 @@ public class OrgsResource extends BaseResource {
         final BrandCommands.OrgLook look = brand.lookOf(org);
         return new OrgSummaryDto(org.getId().getValue(), org.getName(), org.getAbbreviation(), slug, siteUrl,
                 member, admin, org.allowsSharedSites(), org.registerTarget().name(), org.getContactEmail(),
-                OrgBrandingDto.of(look, brand.themeNameOf(look)));
+                OrgBrandingDto.of(look, brand.themeNameOf(look), customColors(brand, look),
+                        BrandColors.colorsOf(org), editorColors(org)));
+    }
+
+    /** The editor theme colors in both modes, for a client that renders rich text (docs/api-contract.md). */
+    private static OrgBrandingDto.ModeColors editorColors(final Organization org) {
+        return new OrgBrandingDto.ModeColors(EditorColors.modeValues(org, false), EditorColors.modeValues(org, true));
+    }
+
+    /** The look's own palette colors in both modes, or null for a stock palette or none. */
+    private static OrgBrandingDto.CustomColors customColors(final BrandCommands brand,
+            final BrandCommands.OrgLook look) {
+        return look.customPalette() == null ? null
+                : new OrgBrandingDto.CustomColors(brand.customColorsOf(look, false), brand.customColorsOf(look, true));
     }
 
     /** Creates an organization (site admin only). 409 covers a duplicate name, the one expected refusal. */

@@ -1,0 +1,4 @@
+/* A test fixture standing in for the compiled Freya theme (ThemePalettesTest reads it off the class path). */
+:root{--surface-card:#ffffff;--surface-ground:#F2F4F6;--text-color:#69707A;--primary-color:#5297FF;--primary-color-text:#FFFFFF;}
+:root{--site-bg-default:rgb(242.4, 247.5, 255);}
+:root{--red-700:rgb(211.65, 47.15, 47.15);--status-danger:var(--red-700);--status-danger-bg:#ffebee;--surface-100:#d9dbdd;--primary-lighter-color:rgba(105, 183, 255, 0.1);}

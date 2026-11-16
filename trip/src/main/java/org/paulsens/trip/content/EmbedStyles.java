@@ -10,21 +10,30 @@ public final class EmbedStyles {
     }
 
     /**
-     * The theme's {@code :root{...}} block alone: its custom properties ({@code --primary-color}, the surfaces, the
-     * text color) are what {@code site.css} and a trip's own stylesheet read; the remaining 200 KB style PrimeFaces
-     * widgets the embed never renders. Found by index, never by a pattern over the whole file, and empty when the
-     * theme has no such block. A leading byte-order mark is skipped.
+     * The theme's {@code :root{...}} blocks alone, every one in order: their custom properties
+     * ({@code --primary-color}, the surfaces, the text color, the {@code --status-*} colors and the ramps they read,
+     * {@code --site-bg-default}) are what {@code site.css} and a trip's own stylesheet read; the remaining 200 KB
+     * style PrimeFaces widgets the embed never renders. ALL of them, not just the first: the compiled theme declares
+     * the ramps, the page tint and the status colors in later blocks, and an embed that kept only the first drew a
+     * "Danger" color from the stylesheet editor's catalog as plain text (review finding kenpaulsen/medjugorje#131).
+     * Found by index, never by a pattern over the whole file; empty when the theme has none. A block left
+     * unterminated ends the scan.
      */
     public static String rootBlockOf(final String themeCss) {
         if (themeCss == null) {
             return "";
         }
-        final int start = themeCss.indexOf(":root{");
-        if (start < 0) {
-            return "";
+        final StringBuilder out = new StringBuilder();
+        int start = themeCss.indexOf(":root{");
+        while (start >= 0) {
+            final int end = themeCss.indexOf('}', start);
+            if (end < 0) {
+                break;
+            }
+            out.append(themeCss, start, end + 1);
+            start = themeCss.indexOf(":root{", end);
         }
-        final int end = themeCss.indexOf('}', start);
-        return end < 0 ? "" : themeCss.substring(start, end + 1);
+        return out.toString();
     }
 
     /**

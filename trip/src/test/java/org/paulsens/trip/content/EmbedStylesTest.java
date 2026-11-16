@@ -7,13 +7,22 @@ import static org.testng.Assert.assertTrue;
 public class EmbedStylesTest {
 
     @Test
-    public void onlyTheRootBlockOfAThemeIsCarried() {
+    public void theRootBlockOfAThemeIsCarried() {
         final String theme = "﻿:root{--surface-a:#ffffff;--primary-color:#3366FF}.ui-widget{font-size:1rem}"
                 + ".other{color:red}";
         assertEquals(EmbedStyles.rootBlockOf(theme), ":root{--surface-a:#ffffff;--primary-color:#3366FF}");
         assertEquals(EmbedStyles.rootBlockOf(".ui-widget{font-size:1rem}"), "", "a theme without variables");
         assertEquals(EmbedStyles.rootBlockOf(":root{unterminated"), "");
         assertEquals(EmbedStyles.rootBlockOf(null), "");
+    }
+
+    @Test
+    public void everyRootBlockIsCarriedInOrder() {
+        final String theme = ":root{--a:1}.x{color:var(--a)}:root{--red-700:#b00}.y{}"
+                + ":root{--status-danger:var(--red-700)}:root{unterminated";
+        assertEquals(EmbedStyles.rootBlockOf(theme),
+                ":root{--a:1}:root{--red-700:#b00}:root{--status-danger:var(--red-700)}",
+                "the status colors and the ramps they read live in later blocks (#131)");
     }
 
     @Test

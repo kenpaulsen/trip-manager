@@ -66,7 +66,7 @@ edit that saved silently with no effect and no error was every org admin's profi
 
 The menu's per-org entries come from `org.menuOrgs()` — `visibleOrgs()` (admins ∪ holders of any org-scoped
 privilege), minus a SITE admin on a shared host, who would get an entry per tenant and uses the
-Organizations page instead. They are labelled **`Dashboard`** (user decision 2026-09-02, replacing
+Organizations page instead. They are labeled **`Dashboard`** (user decision 2026-09-02, replacing
 `Manage {name}`), or `{full name} Dashboard` when the person has several so the entries can be told
 apart, and are the FIRST items of the Admin submenu, inserted before the static ones by
 `jsftComp.insertUIComponentBefore` because `addUIComponent` can only append. On an organization's own site
@@ -908,7 +908,7 @@ apart from the two `BOOLEAN`s (`site.theme.dark`, `site.donate.paypalImage`):
 
 | Setting | Blank means | Notes |
 |---------|-------------|-------|
-| `site.theme.palette` | the platform's default look (`freya-medj-l/d`, `layout-light/dark`) | a MENU: `avocado, blue, green, orange, purple, red, turquoise, yellow` (`THEME_PALETTES`); the Freya build ships `freya-{palette}-{light|dark}` + `layout-{palette}-{light|dark}.css` for exactly these |
+| `site.theme.palette` | the platform's default look (`freya-medj-l/d`, `layout-light/dark`) | a MENU: `avocado, blue, green, orange, purple, red, turquoise, yellow` (`THEME_PALETTES`); the Freya build ships `freya-{palette}-{light|dark}` + `layout-{palette}-{light|dark}.css` for exactly these. Also `custom:<id>` for one of the org's OWN palettes ("Custom palettes" below) |
 | `site.theme.dark` | light (`BOOLEAN`, default `false`) | the org's own light/dark choice; a VISITOR who has used the topbar's Dark Mode toggle still overrides it for themselves — see the precedence below |
 | `site.layout` | `classic`: the HOME page keeps the content card beside the sidebar | a MENU: `classic`, `full-width` (`LAYOUT_CLASSIC` / `LAYOUT_FULL_WIDTH`). `full-width` drops the card and the sidebar on the home page only, so band sections (`content-templates.md`, "Bands") span the window; `BrandCommands.isFullWidth` is also unconditionally true on the product's marketing host. The Appearance page offers it as the "Page layout" radio |
 | `site.logo.url` | the org's name as a text wordmark | http(s) URL |
@@ -1038,11 +1038,18 @@ The **Appearance tab** of the organization settings page (`admin/orgConfig.jsf?o
 `canManageOrg`; it was its own page, `admin/orgAppearance.jsf`, until 2026-10-29, and that URL now
 redirects to the tab) is where an organization sets its look. Two fieldsets:
 
-- **Appearance** — the color palette as a menu, **Dark mode** as a radio right beneath it, the logo and
-  favicon URLs, and the background chooser (Color palette / Color with a `p:colorPicker` / Image with a
-  URL box).
+- **Appearance** -- the color palette as swatch cards (issue #26, 2026-11-15: each card a small picture of the
+  page in that palette, its tinted ground, a card with text and an accent chip, drawn in the current Dark mode
+  choice; `ThemePalettes`, `#{themePalettes}`, parses the swatch colors out of each compiled `theme.css` and names
+  the themes through `BrandCommands.themeName`/`layoutCssName`, so a card cannot name a stylesheet the server would
+  not; a card carries its palette in an `f:param` and runs the same preview; the old menu stands in when the
+  stylesheets cannot be read), **Dark mode** as a radio right beneath it, the logo and favicon URLs, and the
+  background chooser (Color palette / Color with a `p:colorPicker` / Image: the chosen picture shown, the org's media
+  library as one-click thumbnails, a URL box and the upload). The page draws the org's STORED look from its first
+  render, not only once a preview starts (2026-11-15: on the shared host it used to show the shared site's own
+  background until the first change, which looked like that change deleting the org's).
 - **Site details** -- every OTHER branding setting that is about the LOOK (`site.ogImage.url`, the footer
-  title and text, the three footer colors), as labelled text boxes, in the same preview / Save / Reset
+  title and text, the three footer colors), as labeled text boxes, in the same preview / Save / Reset
   flow. Contact name and phone moved to the Profile tab and the donate URL to the Home page tab
   (2026-10-29), beside the contact email and the home page they belong with; they are saved there, so
   the Appearance Save leaves them out of the map it hands `saveOrgSettings` (which writes only the
@@ -1102,6 +1109,118 @@ Guarded by `OrgAppearancePreviewTest` (background precedence, the hex rule, and 
 and by `OrgSubdomainPwIT.anOrgAdminPreviewsAPaletteBeforeSavingIt`, which changes the palette on
 `acme.localhost`, proves the new theme stylesheet is in the markup with nothing saved, cancels, saves, and
 restores the fixture.
+
+#### Custom palettes: an organization's own colors (2026-11-15)
+
+An organization can make its own color palettes, as many as 20, each with a name, and choose one for its site the
+same way it chooses a stock palette. Owner decisions (2026-11-15): **build-time generation** (no theme compiler at
+runtime, no new dependency), a palette covers **the accent family, the text and the surfaces**, **several named
+palettes** per org, and **dark mode is derived automatically, with per-color overrides**.
+
+**How a palette is drawn.** The Freya build generates ONE more theme pair, `freya-custom-{light|dark}` plus
+`layout-custom-{light|dark}.css` (`medjugorje/freya/src/build/GenerateCustomTheme.java`, which says how: Sass
+compiles the stock theme once per input with a sentinel color, every position that moves is attributed to its input
+and fitted as the input itself, a translucent copy, a mix with a constant or an HSL lightness shift, and the build
+fails on anything it cannot explain or on any stock palette the generated sheet does not reproduce). Every
+palette-dependent color in those sheets reads a **`--ct-<input>`** custom property (`--ct-primary-color`,
+`--ct-shade000`, `--ct-body-bg-color`, ...), and the sheets declare the base palette's (Blue's) values as defaults,
+so a page rendered without an org's values still draws as Blue. The generator also writes
+`freya-layout/custom-theme-inputs.json`: every input, and every stock palette's value for it in both modes.
+
+**Storage.** `Organization.customPalettes`, a list of `CustomPalette {id, name, source, light, darkOverrides}` on
+the org row (the `sitePages` precedent; no table). `light` holds every light input; `source` is the stock palette
+it was cloned from; `darkOverrides` holds only the dark colors set by hand. The palette setting stores
+**`custom:<id>`** (`CustomPalette.ref()`); `OrgCommands.saveOrgSettings` accepts that value only for a palette THIS
+org's row holds, and the id never changes, so a rename keeps the site on it.
+
+**The dark set is derived, once, on the server** (`CustomPalettes.darkInputs`): the source palette's stock dark
+values; the accent family moved one step up when the light accent family differs from the source's (dark accent
+= light soft shade, dark hover = light accent, dark pressed = light hover, `ThemeColorMath.darkAccentFamily`;
+every stock palette but the platform default's own is built exactly that way, `ThemeColorMathTest`); then the
+overrides. The editor asks for it over ajax rather than repeating the rule in the browser.
+
+**Resolution.** `BrandCommands.palette()` keeps a `custom:<id>` only while the org's row holds that palette (a
+deleted one, or an id another org holds, falls back to the platform default); `themeName`/`layoutCssName` map every
+custom palette to the one custom pair; `getRootStyle` (through `rootStyleWith`, the ONE expression on
+`template.xhtml`'s `<html>`, so a conference page's own background keeps them) appends the palette's `--ct-*`
+values in the current mode. The REST look carries them too (`OrgBrandingDto.customColors`, `api-contract.md`).
+Every value is re-screened to `#rrggbb(aa)` and every name to a plain token on the way to a style attribute.
+
+**The pages.**
+- **Appearance cards** (`themePalettes.cards(orgId, dark)`): the stock cards, then the org's own (built from their
+  stored colors), then a dashed **New palette** card (shown while `customPalettes.canAdd`) that starts from the
+  current choice. Under each card one clone command, **Customize** on a stock card (the platform default's card
+  clones `medj`) or **Duplicate** on an org palette, plus **Edit** and a confirmed, red **Delete** on an org palette.
+  Cloning stores NOTHING: it opens the editor on a draft (`customPalettes.newEditorUrl`, `?orgId=&from=`), and
+  only the editor's first Save creates the palette (`saveNew`), so looking costs nothing and leaving discards it.
+  The draft says so on the page, and its stock source is settled when the editor opens, so a duplicate whose
+  original is deleted meanwhile still saves (its colors are all in the submission).
+  Deleting the palette the site uses clears the setting in the same save, and a delete from either page drops the
+  palette from this admin's unsaved Appearance preview (`BrandCommands.forgetDeletedPalette`); the page reloads
+  with an `info` message saying so.
+- **The palette editor**, `admin/orgPalette.jsf?orgId=&paletteId=` for a stored palette or `?orgId=&from=` for a
+  draft (not `id`: a form field named `id` shadows the form element's own `id` property). It opens light whatever
+  the visitor's own Dark mode (`BrandCommands.isDark` answers false there). The WHOLE page is the preview: `BrandCommands` draws this view in the custom
+  theme with the palette's values, and `resources/trip-js/paletteEditor.js` sets a `--ct-*` property on every
+  picker change, so the page recolors with no round trip. Four groups of colors, each labeled by what it DRAWS
+  (`CustomPalettes.fields`, from Freya's own notes; the same input draws different things in the two modes, and an
+  input the catalog does not know yet is still offered by name); **Match the accent shades** fills the hover,
+  pressed and soft shades and the text on the accent from the accent (`ThemeColorMath.accentFamily`); **Show dark
+  mode** swaps the theme pair and shows the dark colors, where a changed color is an override and **Automatic**
+  drops it; a sample panel shows the components the colors draw; a **Readability** list measures five pairs
+  (`CustomPalettes.READ_PAIRS`) in both modes. Saving a pair that is hard to read is allowed, and the save message
+  repeats it. A leave-page guard holds unsaved changes until a Save SUCCEEDS (the ajax answer's `saved`).
+- **The trip page style editor**: Preview as and Readability include the org's own palettes
+  (`themePalettes.json(orgId)` entries carry their `vars`, which `tripTheme.preview` sets and `reset` restores), for
+  a viewer who may edit the org's styles ONLY: the dialog is built for every signed-in viewer, so the page hands
+  anyone else the stock list (an org's palette names are admin configuration, never another org's to read).
+
+Tests: `CustomPalettesTest`, `ThemeColorMathTest`, `BrandCommandsCustomPaletteTest`, `OrgsResourceTest`, and
+`CustomPalettePwIT` end to end.
+
+#### Brand colors: an organization's own named colors (2026-11-16)
+
+Owner decisions: brand colors are ORG-WIDE (set once on the Appearance tab, available whatever palette the site uses,
+stock or own, never inside a palette); each has one color and an OPTIONAL dark value (blank = the same color in both
+modes); the rich-text editors' color buttons offer theme colors and brand colors ONLY (Quill's fixed grid is gone).
+
+- **Stored** on the org row: `Organization.brandColors`, a list of `BrandColor {id, name, light, dark}`, at most 12
+  (`BrandColors.MAX_COLORS`), names 1 to 30 characters and unique in any case, every value an opaque `#rrggbb`. The id
+  never changes, so the page variable `--brand-<id>` survives a rename. Written only through `#{brandColors}`
+  (`BrandColors.save`/`delete`): an uncached org read, `canManageOrg`, the version-checked save and an audit record,
+  the `CustomPalettes` pattern. `colorsOf` re-screens a stored row (a bad light value drops the color, a bad dark one
+  reads as none) because the values land in style attributes.
+- **On the page**: `BrandCommands.getOrgColorVars` adds `--brand-<id>:<value for the mode>` after the palette's
+  `--ct-*` colors, so `getRootStyle`, `rootStyleWith` and the app embed carry them on the org's site. The embed also
+  adds the TRIP's org's colors whatever host the app asked on (`TripPageCommands.embedCss`). Off the org's site
+  (the shared hosts) nothing defines them, and content draws each color's fallback (below).
+- **In the editors** (`EditorColors`, `#{editorColors}`, read by `WEB-INF/quillEditor.xhtml`): text colors Text,
+  Accent and the four status colors; highlight colors Accent soft, the four status panels and One step off; then the
+  brand colors in both. Each swatch carries its property and the org's current LIGHT value, resolved from the org's
+  compiled theme (`ThemeVars`, which follows `var()` chains, decimal `rgb()`, and the custom theme's
+  `color-mix(..., transparent)`; translucent values are laid over the org's card). A web editor inserts
+  `var(--name, #rrggbb)`: the page follows palette and dark mode, and print and the shared site draw the fallback.
+  The phone apps carry no theme stylesheet, so the REST look hands them every editor color per mode
+  (`OrgBrandingDto.editorColors`, `EditorColors.modeValues`, beside `brandColors`) for their rich-text wrappers to
+  declare on a fragment's root. Neither app declares them yet, and that work is not yet planned; until both do, the
+  apps draw each fallback, so a pale highlight sits under their white dark-mode text. A `mailEditor` (mail merge, MAIL
+  templates) inserts the `#rrggbb` alone. Deleting a brand color rewrites nothing: text in it keeps its fallback and
+  stops following dark mode, which the Delete confirm says.
+- **Appearance tab**: a Brand colors fieldset under Appearance lists each color (light and dark swatches, name, how it
+  reads as text on the org's cards in each mode, `BrandColors.readNote`), with Edit and Delete (ids on `f:param`s) and
+  Add, which open ONE dialog bound to scalars (`viewScope.bc*`) whose Save stores at once (no preview, unlike the
+  rest of the tab). A new color starts on the org's accent (`starterColor`).
+- **Who sees names**: a color's NAME is the org's own configuration, never another org's to read (review finding
+  trip-manager 805aa082de4f F1/F2). Two gates: `EditorColors.json` puts the brand swatches in only for a caller who
+  belongs to the org (a member, one of its admins, or a site admin; cached reads), so a signed-in person from
+  another org, or a Hotel Operator on the lodging page, gets the theme colors alone; and each host renders the colors
+  element only where an editor can open for this viewer (`quillEditor.xhtml`'s `editorColorsShown` param: the
+  itinerary passes its trip-manager flag, the content sections their edit right). The trip page style editor lists
+  the colors (a Brand group under More, each inserting `var(--brand-<id>, #light)`) only under
+  `tripStylesheets.canEdit`; the REST look carries `{var, light, dark}` without names.
+
+Tests: `BrandColorsTest`, `EditorColorsTest`, `ThemeVarsTest`, `BrandCommandsCustomPaletteTest`, and
+`BrandColorsPwIT` end to end.
 
 #### Uploading the four images (2026-09-02)
 

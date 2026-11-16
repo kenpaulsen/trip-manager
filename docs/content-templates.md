@@ -389,6 +389,17 @@ registry never changes at runtime.
   contract in `contentSections.xhtml`): the include iterates viewScope-frozen lists, so in-place ajax
   cannot reflect adds/deletes/reorders.
 
+
+### Colors in the rich-text editors (2026-11-16)
+
+The text and highlight color buttons of every `p:textEditor` offer the theme's colors and the organization's brand
+colors only, never fixed hex values (`WEB-INF/quillEditor.xhtml`, `EditorColors`). Stored content therefore holds
+`style="color: var(--status-danger, #b71c1c)"` or `var(--brand-<id>, #a07a2c)`: the variable follows the org's palette
+and dark mode, the fallback is the org's light value at the time of writing. A MAIL template's body (and the mail
+merge) is a `mailEditor` and gets the plain `#rrggbb`. `HtmlFragmentValidator`, `RichTextRules.normalize` and
+`WaiverHtml.sanitize` keep these inline styles; `ReminderHtml` drops all styles, and the Communications editor has no
+color buttons. Doc for the brand colors themselves: `org-admin.md`, "Brand colors".
+
 ## A container's row (the body of a CONTAINER template)
 
 A container's body is **the row wrapped around EACH child**, not the container's own markup — the

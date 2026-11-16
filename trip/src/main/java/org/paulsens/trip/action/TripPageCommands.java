@@ -23,12 +23,14 @@ import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.content.EmbedStyles;
+import org.paulsens.trip.theme.ThemeResources;
 import org.paulsens.trip.content.OrgPageBootstrap;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.Language;
 import org.paulsens.trip.model.MediaItem;
 import org.paulsens.trip.model.OptionChoice;
+import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Registration;
 import org.paulsens.trip.model.RegistrationOption;
@@ -559,6 +561,14 @@ public class TripPageCommands {
     private String embedCssOf(final String tripId) {
         final StringBuilder css = new StringBuilder();
         css.append(themeRoot()).append('\n');
+        final BrandCommands brand = new BrandCommands();
+        // An org's own palette: the custom theme's :root reads these (docs/org-admin.md, "Custom palettes"). Then the
+        // TRIP's org's brand colors, whatever host the app asked on: event notes colored in an editor read them.
+        // getPaletteVars is the palette alone (not getOrgColorVars), so each brand color is written once.
+        final String orgVars = brand.getPaletteVars() + BrandColors.styleOf(tripOrg(tripId), brand.isDark());
+        if (!orgVars.isEmpty()) {
+            css.append(":root{").append(orgVars).append("}\n");
+        }
         css.append(siteResource("/resources/css/site.css")).append('\n');
         css.append(siteResource("/resources/css/albums.css")).append('\n');
         final PageLook look = lookFor(tripId);
@@ -568,6 +578,13 @@ public class TripPageCommands {
         }
         css.append(EmbedStyles.overrides());
         return css.toString();
+    }
+
+    /** The organization of a trip this host reaches, or null (cached reads). */
+    private static Organization tripOrg(final String tripId) {
+        final Trip trip = tripId == null || tripId.isBlank() ? null : reachableTrip(tripId.trim());
+        return trip == null || trip.getOrgId() == null ? null
+                : DAO.getInstance().getOrganization(Organization.Id.from(trip.getOrgId()), Cached.YES).orElse(null);
     }
 
     /** The media bean the embed reads a trip's stylesheet through. Seam for tests. */
@@ -582,10 +599,8 @@ public class TripPageCommands {
     }
 
     private static String loadThemeRoot(final String cacheKey) {
-        final String theme = cacheKey.substring("theme:".length());
-        final String path = "META-INF/resources/primefaces-" + theme + "/theme.css";
-        final ClassLoader loader = Thread.currentThread().getContextClassLoader();
-        return EmbedStyles.rootBlockOf(readAll(loader == null ? null : loader.getResourceAsStream(path), path));
+        // The ONE theme jar reader, shared with the palette cards (review finding kenpaulsen/medjugorje#132).
+        return EmbedStyles.rootBlockOf(ThemeResources.themeCss(cacheKey.substring("theme:".length())));
     }
 
     /** A webapp stylesheet's text (site.css, albums.css), read once; empty off-request or when missing. */

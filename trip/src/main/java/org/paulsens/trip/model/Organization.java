@@ -103,6 +103,22 @@ public final class Organization implements Serializable {
     private List<SitePage> sitePages;
 
     /**
+     * The organization's own color palettes (see {@link CustomPalette}), in the order its Appearance page shows
+     * them. Null or empty = none. Org-admin managed through {@code CustomPalettes}; the site uses one when its
+     * {@code site.theme.palette} setting is {@code custom:<id>}. Setter-populated, outside the 8-arg creator like
+     * {@link #sitePages}; the getter never lazy-inits, so an untouched row stays untouched.
+     */
+    private List<CustomPalette> customPalettes;
+
+    /**
+     * The organization's own named colors (see {@link BrandColor}), in the order its Appearance page lists them. Null
+     * or empty = none. Org-admin managed through {@code BrandColors}; unlike {@link #customPalettes} they apply
+     * whatever palette the site uses. Setter-populated, outside the 8-arg creator like {@link #sitePages}; the getter
+     * never lazy-inits, so an untouched row stays untouched.
+     */
+    private List<BrandColor> brandColors;
+
+    /**
      * The subdomain label of the PLATFORM's own organization -- the one whose site is
      * {@code www.{base}} and the base domain's apex (the product's marketing site). Exactly one org may
      * hold it (slugs are unique), a site admin assigns it, and {@code SiteContext.isMarketing()} is true

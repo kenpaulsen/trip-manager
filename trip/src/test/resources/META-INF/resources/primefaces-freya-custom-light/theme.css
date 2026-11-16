@@ -1,0 +1,2 @@
+/* A stand-in for the generated custom theme: its defaults block (Blue), which an org palette must override. */
+:root{--ct-primary-color:#5297ff;--ct-shade000:#ffffff}

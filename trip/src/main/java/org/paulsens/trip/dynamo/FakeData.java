@@ -1002,6 +1002,15 @@ public final class FakeData {
         saveMedia(new MediaItem("fake-css-cfpw", "org/" + CFPW_ORG_ID + "/stylesheets/sample.css",
                 "Sample trip page stylesheet", "Seeded for local mode", "text/css", 1_200L, null, 0,
                 now.minusDays(1), "fake-seed", null, null, CFPW_ORG_ID));
+        // Two pictures in CFPW's library, so the pickers that offer library images (the Appearance page's background
+        // chooser, the Trip Page dialog's background menu) have something to offer locally, where the library cannot
+        // be uploaded to. Their keys are images the webapp itself serves, so they really load.
+        saveMedia(new MediaItem("fake-img-cfpw-1", "resources/images/rainbow-bg.jpg", "Rainbow over the hills",
+                "Seeded for local mode", "image/jpeg", 300_000L, null, 0, now.minusDays(3), "fake-seed", null, null,
+                CFPW_ORG_ID));
+        saveMedia(new MediaItem("fake-img-cfpw-2", "resources/images/mary-sm.png", "Our Lady",
+                "Seeded for local mode", "image/png", 40_000L, null, 0, now.minusDays(3), "fake-seed", null, null,
+                CFPW_ORG_ID));
         // The galleria trip's album: 12 photos, one hidden -> 11 visible, above the min-count of 10.
         for (int i = 1; i <= 12; i++) {
             saveMedia(new MediaItem("fake-photo-past-" + i, chatPhotoKey(PUB_PAST_3D_TRIP_ID, i),

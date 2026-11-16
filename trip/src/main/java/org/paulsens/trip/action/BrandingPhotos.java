@@ -214,7 +214,7 @@ public class BrandingPhotos {
      * ({@code BrandCommands.safeUrl}) — a relative one would look stored and show nothing. It is built from
      * the request in hand, which on every path that mints a URL is the organization's own admin page.
      */
-    private static String localBaseUrl() {
+    static String localBaseUrl() {
         final FacesContext ctx = FacesContext.getCurrentInstance();
         if (ctx == null) {
             return "";

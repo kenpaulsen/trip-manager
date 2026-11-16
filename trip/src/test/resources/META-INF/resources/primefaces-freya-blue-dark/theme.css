@@ -1,0 +1,3 @@
+/* A test fixture standing in for the compiled Freya blue dark theme (EditorColorsTest reads its editor colors). */
+:root{--surface-card:#1c2023;--text-color:#dee2e6;--primary-color:#5297FF;--primary-lighter-color:rgba(105, 183, 255, 0.16);}
+:root{--status-danger:#ef9a9a;--status-warning-bg:#3a2f1e;}

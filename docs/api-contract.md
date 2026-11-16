@@ -336,11 +336,25 @@ HAS_OWN_ACCOUNT`; an unparseable `sex` is 422 `VALIDATION_FAILED`. `HAS_OWN_ACCO
 
 `GET /api/orgs/mine[?all=true]` → `[{id, name, abbreviation, slug, siteUrl, isMember, isAdmin,
 allowsSharedSites, registerTarget, contactEmail, branding{palette, dark, layout, themeName, logoUrl,
-faviconUrl, ogImageUrl, backgroundUrl, backgroundColor, footerTitle, footerText, contactName, contactPhone, donateUrl}}]`
+faviconUrl, ogImageUrl, backgroundUrl, backgroundColor, footerTitle, footerText, contactName, contactPhone, donateUrl,
+customColors{light{}, dark{}}, brandColors[{var, light, dark}], editorColors{light{}, dark{}}}}]`
 — the caller's memberships (`all=true` is site-admin only, 403 else). `siteUrl` is built from the host the
 request came in on (`http://acme.localhost:8080` locally, even for an org with a custom domain; in production the
 org's custom domain, `https://{customDomain}`, when it has one, else `https://acme.unitetrip.com`) and is null when
-the org has no slug; `branding.palette` is null when the org never chose a look. `registerTarget`
+the org has no slug; `branding.palette` is null when the org never chose a look. `palette` is a stock name
+(`blue`, ...) or `custom:<id>` for one of the org's OWN palettes (added 2026-11-15); only then is `customColors`
+present: per mode, its colors as `"input-name": "#rrggbb"` (or `#rrggbbaa`), keyed by the
+generated theme's inputs (`primary-color`, `primary-text-color`, `shade000`, ...; `docs/org-admin.md`, "Custom
+palettes"). `themeName` is then `freya-custom-light|dark`. A client that knows only stock palettes ignores both and
+draws its default. `brandColors` (added 2026-11-16, absent when the org has none) are the org's own named colors,
+which rich-text content (event notes, waivers, content pages) may be colored with as `var(--brand-<id>, #rrggbb)`:
+`var` is that property's name, `light`/`dark` its `#rrggbb` per mode (`dark` equals `light` when the org set no dark
+value). A web view that defines these on its root draws such text in the right mode; one that does not draws the
+fallback, the light value. Never the color's name, which is admin configuration. `editorColors` (added 2026-11-16)
+are the theme colors the same editors write as `var(--status-danger, #b32d23)`, per mode as `"--name": "#rrggbb"`
+(opaque, translucent ones laid over the org's card in that mode). A client that renders rich text should declare
+both these and the brand colors on the fragment's root for its current scheme; a pale highlight drawn from the light
+fallback under light-on-dark text is unreadable. `registerTarget`
 (`DETAIL_PAGE`, `ORG_TRIP_PAGE` or `ORG_HOME`) is where a shared site's Register link sends a visitor for the
 org's trips (`docs/org-admin.md`, "Shared-site Register target").
 `POST /api/orgs/{orgId}/members/{personId}` adds an existing person (org admins); `DELETE` the same path removes

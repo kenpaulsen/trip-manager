@@ -180,11 +180,38 @@ public class OrgAppearancePreviewTest {
         Assert.assertFalse(brand.isPreviewing());
         Assert.assertEquals(brand.getTheme(), BrandCommands.DEFAULT_THEME_LIGHT);
 
-        // And a visitor with no session sees nothing of it, on the Appearance page or anywhere else.
+        // And a request with no session sees nothing of it: on the Appearance page that is the org's STORED look,
+        // which the page draws from its first render (issue #26 follow-up), never the unsaved one.
         onAppearancePageOf(org.getId().getValue());
         brand.setSessionSource(() -> null);
         Assert.assertFalse(brand.isPreviewing());
-        Assert.assertEquals(brand.getTheme(), BrandCommands.DEFAULT_THEME_LIGHT);
+        Assert.assertEquals(brand.getTheme(), "freya-blue-light");
+    }
+
+    /**
+     * The Appearance page draws its org's stored look before anything is changed, even off the org's host: on the
+     * shared host it used to draw the shared site's own look (and background picture) until a first change, so
+     * that change seemed to delete the org's background.
+     */
+    @Test
+    public void theAppearancePageDrawsItsOrgsStoredLookBeforeAnyChange() throws IOException {
+        stored(Map.of(PALETTE, "blue", BG_URL, "https://cdn.example/bg.jpg"));
+        brand.setSessionSource(() -> null);
+        onAppearancePageOf(org.getId().getValue());
+        Assert.assertFalse(brand.isPreviewing(), "nothing unsaved, no banner");
+        Assert.assertEquals(brand.getTheme(), "freya-blue-light");
+        Assert.assertTrue(brand.getRootStyle().contains("https://cdn.example/bg.jpg"), brand.getRootStyle());
+    }
+
+    @Test
+    public void aPickedLibraryPictureBecomesTheUnsavedImageBackground() {
+        final Map<String, String> values = new java.util.HashMap<>(Map.of(BrandCommands.BG_MODE_KEY, "palette"));
+        brand.pickBackground(values, " https://cdn.example/lib.jpg ");
+        Assert.assertEquals(values.get(BG_URL), "https://cdn.example/lib.jpg");
+        Assert.assertEquals(values.get(BrandCommands.BG_MODE_KEY), BrandCommands.BG_MODE_IMAGE);
+        brand.pickBackground(values, " ");
+        Assert.assertEquals(values.get(BG_URL), "https://cdn.example/lib.jpg", "a blank pick changes nothing");
+        brand.pickBackground(null, "https://cdn.example/x.jpg");
     }
 
     @Test
@@ -201,7 +228,7 @@ public class OrgAppearancePreviewTest {
 
         brand.clearPreview();
         Assert.assertFalse(brand.isPreviewing(), "Cancel discards it");
-        Assert.assertEquals(brand.getTheme(), BrandCommands.DEFAULT_THEME_LIGHT, "off the org's host: neutral");
+        Assert.assertEquals(brand.getTheme(), "freya-blue-light", "Cancel: the page draws the STORED look again");
         Assert.assertEquals(brand.appearanceEdit(org.getId().getValue()).get(PALETTE), "blue",
                 "and the page starts from the stored values again");
         brand.clearPreview();      // idempotent, and harmless with nothing stored
@@ -238,6 +265,8 @@ public class OrgAppearancePreviewTest {
         final HttpSession session = fakeSession();
         final Map<String, String> params = new HashMap<>();
         Mockito.when(ctx.getViewRoot()).thenReturn(view);
+        final Map<String, Object> viewScope = new HashMap<>(Map.of("theOrgId", org.getId().getValue()));
+        Mockito.when(view.getViewMap(false)).thenReturn(viewScope);
         Mockito.when(ctx.getExternalContext().getRequestParameterMap()).thenReturn(params);
         Mockito.when(ctx.getExternalContext().getSession(false)).thenReturn(session);
         try (MockedStatic<FacesContext> faces = Mockito.mockStatic(FacesContext.class)) {
@@ -252,6 +281,17 @@ public class OrgAppearancePreviewTest {
             Mockito.when(view.getViewId()).thenReturn(BrandCommands.APPEARANCE_VIEW_ID);
             Assert.assertTrue(real.isPreviewing(), "the Appearance view, for the org the parameter names");
             Assert.assertEquals(real.getTheme(), "freya-purple-light");
+
+            params.put("orgId", "some-other-org");
+            Assert.assertFalse(real.isPreviewing(), "a parameter naming an org the page's guard never checked");
+            Assert.assertEquals(real.getTheme(), BrandCommands.DEFAULT_THEME_LIGHT, "...draws no org's look (#128)");
+            params.put("orgId", org.getId().getValue());
+            viewScope.clear();
+            Assert.assertFalse(real.isPreviewing(), "no guarded org pinned on the view, no org's look");
+            Mockito.when(view.getViewMap(false)).thenReturn(null);
+            Assert.assertFalse(real.isPreviewing(), "no view scope at all, none either");
+            Mockito.when(view.getViewMap(false)).thenReturn(viewScope);
+            viewScope.put("theOrgId", org.getId().getValue());
 
             params.remove("orgId");
             Assert.assertFalse(real.isPreviewing(), "the page always carries ?orgId=; without it, no preview");
@@ -442,8 +482,11 @@ public class OrgAppearancePreviewTest {
         ScopedValue.where(RequestContext.SCOPE, RequestContext.of(null, null, site)).run(body);
     }
 
-    /** A session that really holds what is put on it, so the preview can be read back as the page reads it. */
-    private static HttpSession fakeSession() {
+    /**
+     * A session that really holds what is put on it (get, set and remove), so the preview can be read back as the
+     * page reads it. Shared with the palette tests that need one.
+     */
+    static HttpSession fakeSession() {
         final Map<String, Object> attributes = new HashMap<>();
         final HttpSession session = Mockito.mock(HttpSession.class);
         Mockito.when(session.getAttribute(Mockito.anyString()))

@@ -468,4 +468,18 @@ public class BrandCommandsTest {
         fresh.setContactEmail(contactEmail);
         Assert.assertTrue(DAO.getInstance().saveOrganization(fresh));
     }
+
+    @Test
+    public void aPaletteCardPutsItsPaletteAndNoneMeansThePlatformDefault() {
+        final BrandCommands brand = new BrandCommands();
+        final Map<String, String> values = new java.util.HashMap<>();
+        brand.pickPalette(values, "purple");
+        Assert.assertEquals(values.get(KnownSettings.SITE_THEME_PALETTE.getName()), "purple");
+        brand.pickPalette(values, BrandCommands.PALETTE_CARD_NONE);
+        Assert.assertEquals(values.get(KnownSettings.SITE_THEME_PALETTE.getName()), "",
+                "blank is the platform default");
+        brand.pickPalette(values, null);
+        Assert.assertEquals(values.get(KnownSettings.SITE_THEME_PALETTE.getName()), "");
+        brand.pickPalette(null, "red");
+    }
 }

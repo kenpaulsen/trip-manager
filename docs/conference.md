@@ -307,7 +307,18 @@ organization's"):
   links rather than inlines any sheet that holds `</style`. The editor is `pe:codeMirror` in CSS mode; `completeMethod`
   (`complete`, Ctrl+Space) and the "Classes on this page" list (`classReport`: every `class` the page's rendered
   sections and typed rich text reference, tagged custom / hook / styled through `content/CssClassScan`) point a
-  designer at the classes the page really uses; its plus drops an empty `.contentItem .name {}` at the cursor. A
+  designer at the classes the page really uses; its plus drops an empty `.contentItem .name {}` at the cursor.
+  Color tools (issue #26, 2026-11-15), all client-side on `resources/trip-js/themeTools.js` (`window.tripTheme`):
+  **Preview as** draws the page in any palette, light or dark, by swapping the theme and layout `<link>`s and the
+  wrapper's `layout-topbar-*`/`layout-menu-*` classes (the names come from `ThemePalettes.json()`, i.e. the
+  server's own naming; the trip's org's OWN palettes follow the stock ones, their entries carrying the `--ct-*`
+  values the preview sets; only this browser sees it and Close resets it); **Theme colors** inserts a `var()` from
+  `ThemeColors` (the ONE catalog of author-facing colors, which the guide's table also renders) at the cursor; a
+  swatch precedes every color in the CSS (CodeMirror bookmarks, a `var()` one painting with the var itself); and
+  **Readability** audits text contrast (WCAG AA, composited backgrounds, text over a picture reported as
+  unmeasurable) in every palette and mode combination (the 18 stock ones and the org's own), with a cell per combination that previews it and lists
+  the failures. Text in the palette's own `--text-color-secondary` is reported apart: the platform default's
+  light value is a known 2.1:1 the owner chose to keep. `ThemeContrastPwIT` runs the same audit in CI. A
   new stylesheet starts as `resources/css/trip-page-starter.css` (every hook as a commented empty rule); the
   designer guide is `admin/help/stylesheet.xhtml` (stateless, in the anonymous sweep). Local mode has no bucket:
   the bytes live in a `LocalObjectStore` served by `web/StylesheetServlet` at `/trip-stylesheets/{key}`, which is
