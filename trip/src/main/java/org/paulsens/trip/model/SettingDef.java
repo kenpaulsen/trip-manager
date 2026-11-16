@@ -4,6 +4,8 @@ import java.io.Serial;
 import java.io.Serializable;
 import java.util.List;
 import java.util.Locale;
+import lombok.AccessLevel;
+import lombok.Builder;
 import lombok.Value;
 
 /**
@@ -97,6 +99,14 @@ public class SettingDef implements Serializable {
                 false);
     }
 
+    /*
+     * The withers below copy through toBuilder() so each names the one field it sets. They used to call this
+     * constructor positionally, five adjacent booleans deep, where a value in the wrong slot still compiled and
+     * (say) made an email setting refuse every address as "not a hex color". The builder is PRIVATE because a
+     * fresh builder() starts every field at its Java default (the persistence-gotchas trap) and choices at null;
+     * only toBuilder() of an already-built instance is used, so every field it does not name is carried over.
+     */
+    @Builder(toBuilder = true, access = AccessLevel.PRIVATE)
     private SettingDef(final String name, final Config.Type type, final String defaultValue, final String label,
             final String description, final boolean orgOverridable, final boolean orgOnly,
             final List<String> choices, final boolean httpUrl, final boolean hexColor, final boolean email,
@@ -116,52 +126,48 @@ public class SettingDef implements Serializable {
         this.analyticsId = analyticsId;
     }
 
-    /** This declaration, marked as one an organization may override on its own site. */
+    /**
+     * This declaration, marked as one an organization may override on its own site. Leaves {@link #orgOnly} as it
+     * was: an org-only setting is already overridable, and quietly dropping the org-only marking would let an org
+     * host inherit the site's value.
+     */
     public SettingDef withOrgOverride() {
-        return new SettingDef(name, type, defaultValue, label, description, true, false, choices, httpUrl,
-                hexColor, email, siteFrom, analyticsId);
+        return toBuilder().orgOverridable(true).build();
     }
 
     /** This declaration, marked org-explicit: an org host never inherits the site's value (see {@link #orgOnly}). */
     public SettingDef withOrgOnly() {
-        return new SettingDef(name, type, defaultValue, label, description, true, true, choices, httpUrl,
-                hexColor, email, siteFrom, analyticsId);
+        return toBuilder().orgOnly(true).build();
     }
 
     /** This declaration, restricted to exactly these values (see {@link #choices}); blank stays "unset". */
     public SettingDef withChoices(final String... allowed) {
-        return new SettingDef(name, type, defaultValue, label, description, orgOverridable, orgOnly,
-                List.of(allowed), httpUrl, hexColor, email, siteFrom, analyticsId);
+        return toBuilder().choices(List.of(allowed)).build();
     }
 
     /** This declaration, requiring a non-blank value to be an {@code http(s)} URL (see {@link #httpUrl}). */
     public SettingDef withHttpUrl() {
-        return new SettingDef(name, type, defaultValue, label, description, orgOverridable, orgOnly, choices,
-                true, hexColor, email, siteFrom, analyticsId);
+        return toBuilder().httpUrl(true).build();
     }
 
     /** This declaration, requiring a non-blank value to be a CSS hex color (see {@link #hexColor}). */
     public SettingDef withHexColor() {
-        return new SettingDef(name, type, defaultValue, label, description, orgOverridable, orgOnly, choices,
-                httpUrl, true, email, siteFrom, analyticsId);
+        return toBuilder().hexColor(true).build();
     }
 
     /** This declaration, requiring a non-blank value to be one email address (see {@link #email}). */
     public SettingDef withEmail() {
-        return new SettingDef(name, type, defaultValue, label, description, orgOverridable, orgOnly, choices,
-                httpUrl, hexColor, true, siteFrom, analyticsId);
+        return toBuilder().email(true).build();
     }
 
     /** This declaration, requiring a non-blank value to be a site-level From address (see {@link #siteFrom}). */
     public SettingDef withSiteFrom() {
-        return new SettingDef(name, type, defaultValue, label, description, orgOverridable, orgOnly, choices,
-                httpUrl, hexColor, email, true, analyticsId);
+        return toBuilder().siteFrom(true).build();
     }
 
     /** This declaration, requiring a non-blank value to be an analytics property id (see {@link #analyticsId}). */
     public SettingDef withAnalyticsId() {
-        return new SettingDef(name, type, defaultValue, label, description, orgOverridable, orgOnly, choices,
-                httpUrl, hexColor, email, siteFrom, true);
+        return toBuilder().analyticsId(true).build();
     }
 
     /**
