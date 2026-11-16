@@ -171,7 +171,7 @@ public class BrandCommands {
     @Setter
     private Supplier<CustomPalette> paletteEditorSource = this::editedPalette;
 
-    /** The org palettes' store: the instance every palette-drawing bean shares. */
+    /** The org palettes' store (its own instance; every instance shares the one manifest read). */
     private final CustomPalettes palettes = new CustomPalettes();
 
     /** Test seam: the org behind an org host (a failed read is the neutral look, never a broken page). */

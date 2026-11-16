@@ -171,7 +171,8 @@ public final class ThemeColorMath {
         final double max = Math.max(r, Math.max(g, b));
         final double min = Math.min(r, Math.min(g, b));
         final double l = (max + min) / 2;
-        // Double.compare, not ==: max and min are copies of the channels, so exact equality is the intended test.
+        // Double.compare, not ==, for SpotBugs (FE_FLOATING_POINT_EQUALITY); max and min are copies of the channels,
+        // so exact equality is the intended test.
         if (Double.compare(max, min) == 0) {
             return new double[] {0, 0, l};
         }
