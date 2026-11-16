@@ -329,6 +329,13 @@ public class SitePageCommandsTest {
         final Person orgAdmin = savedPerson();
         final Organization acme = hostedOrgWithAdmin(orgAdmin);
         assertTrue(pages.helpMenuShown(acme.getId().getValue()), "an org site always has Help (Make Payment)");
+        // Make Payment: every org's Help but the platform org's, and the menu asks the same rule per host.
+        assertTrue(pages.paymentInHelp(acme.getId().getValue()));
+        assertFalse(pages.paymentInHelp(platformId), "the product's own site takes no payments");
+        assertFalse(onSite(platform, pages::isPaymentInHelp));
+        assertTrue(onSite(SiteContext.org(acme.getId(), acme.getSlug(), "acme.example.org"), pages::isPaymentInHelp));
+        assertTrue(onSite(SiteContext.shared("visitqueenofpeace.com"), pages::isPaymentInHelp));
+        assertFalse(onSite(SiteContext.marketing("unitetrip.com"), pages::isPaymentInHelp), "placeholder: none");
 
         assertTrue(pages.addLink(platformId, "Getting started", "https://example.org/start", "HELP"));
         final String link = pages.pagesIn(platformId, "HELP").get(0).name();

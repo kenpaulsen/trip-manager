@@ -130,18 +130,12 @@ public final class ReminderText {
 
     /**
      * A reminder's stored body, ready to be written out as HTML: cleaned again ({@link ReminderHtml#clean}), then
-     * merged. THE one way a body leaves the store for a page or a mailbox, so no caller can forget the cleaning.
+     * merged. Every page and test-mail path writes a stored body out through this, so none can forget the
+     * cleaning. The one exception is the send: {@code ReminderSender.sendAll} cleans the body once for the
+     * whole send and merges it per traveler with {@link #render}, so the cleaning is not paid per traveler.
      */
     public static String renderBody(final String storedBody, final Map<String, String> values) {
         return render(ReminderHtml.clean(storedBody), values);
-    }
-
-    /**
-     * {@link #renderBody} for a caller that merges ONE body for many people: {@code cleanedBody} is the result
-     * of one {@link ReminderHtml#clean}, so the cleaning is paid once per send and not once per traveler.
-     */
-    public static String renderCleaned(final String cleanedBody, final Map<String, String> values) {
-        return render(cleanedBody, values);
     }
 
     private static String substitute(final String text, final Map<String, String> values, final boolean html) {

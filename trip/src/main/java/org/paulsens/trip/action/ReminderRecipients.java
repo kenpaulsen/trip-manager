@@ -110,7 +110,11 @@ public final class ReminderRecipients {
                 shown.put(ReminderText.PASSPORT_ISSUE, issue ? PASSPORT_HIDDEN : "");
                 why = (discloses == Discloses.PASSPORT) ? "Passport needs attention" : why;
             }
-            return new Target(traveler, why, Discloses.NOTHING, mailTo, shown);
+            // The mark stays when the reason was left as it is: it still discloses, and a later viewer with less
+            // sight, applied to this copy, must still have it replaced.
+            final boolean kept = (discloses == Discloses.AMOUNT && sight.money())
+                    || (discloses == Discloses.PASSPORT && sight.travelDocuments());
+            return new Target(traveler, why, kept ? discloses : Discloses.NOTHING, mailTo, shown);
         }
 
         /** {@link #getAddresses} as this viewer may see it: how many addresses, not which. */

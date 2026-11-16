@@ -58,7 +58,6 @@ public class SitePageCommands {
     static final int MAX_TITLE = 60;
     /** The starter body of a new page, so it is never blank (and says where its words are edited). */
     static final String STARTER_BODY = "<p>This page is new. Open the page's edit mode to replace this text.</p>";
-    private static final String PAGE_PATH = "/page.jsf?name=";
 
     private final Supplier<Caller> callerSource;
     private final OrgCommands orgs;
@@ -155,16 +154,35 @@ public class SitePageCommands {
     }
 
     /**
+     * Whether {@code orgId}'s Help menu holds Make Payment: every org's but the platform org's, because the product's
+     * own site takes no payments. The ONE place that says so: the menu ({@link #isPaymentInHelp}), the Site Pages
+     * preview and {@link #helpMenuShown} all read it.
+     */
+    public boolean paymentInHelp(final String orgId) {
+        final Organization org = orgs.findOrganization(orgId);
+        return org == null || !org.isPlatform();
+    }
+
+    /**
+     * {@link #paymentInHelp} for the current host, the menu's gate on Make Payment: an org site asks its org, a
+     * shared host holds it, and the placeholder marketing host, which no org holds, does not.
+     */
+    public boolean isPaymentInHelp() {
+        final SiteContext site = SiteContext.current();
+        return site.isOrg() ? paymentInHelp(site.orgId().getValue()) : !site.isMarketing();
+    }
+
+    /**
      * Whether {@code orgId}'s site shows the Help submenu: the ONE rule the menu ({@link #isHelpMenuShown}) and the
-     * Site Pages preview both read, so they cannot disagree. An org site always has one (it holds Make Payment).
-     * The product's own site (the platform org) takes no payments, so it shows Help only once there is something in
-     * it: a Help-placed page or link, or the org's own donate link (its Donate entry).
+     * Site Pages preview both read, so they cannot disagree. A site whose Help holds Make Payment always has one;
+     * otherwise (the product's own site) Help shows only once there is something in it: a Help-placed page or
+     * link, or the org's own donate link (its Donate entry).
      */
     public boolean helpMenuShown(final String orgId) {
-        final Organization org = orgs.findOrganization(orgId);
-        if (org == null || !org.isPlatform()) {
+        if (paymentInHelp(orgId)) {
             return true;
         }
+        final Organization org = orgs.findOrganization(orgId);
         return !pagesIn(orgId, Placement.HELP.name()).isEmpty() || new BrandCommands().lookOf(org).donateUrl() != null;
     }
 
@@ -182,7 +200,7 @@ public class SitePageCommands {
 
     /** The menu's target for an entry: a page's own address on this site, or a link's URL. */
     public String hrefOf(final SitePage page) {
-        return page.isLink() ? page.url() : PAGE_PATH + page.name();
+        return page.isLink() ? page.url() : SitePage.PATH + page.name();
     }
 
     /** The Help menu's icon for an entry, like the built-in items have: a page here, or a link elsewhere. */
@@ -201,13 +219,13 @@ public class SitePageCommands {
             return page.url();
         }
         if (SiteContext.current().isSiteOf(orgId)) {
-            return PAGE_PATH + page.name();
+            return SitePage.PATH + page.name();
         }
         final Organization org = orgs.findOrganization(orgId);
         if (org == null || org.getSlug() == null || org.getSlug().isBlank()) {
             return null;
         }
-        return SiteCommands.orgSiteRoot(org, SiteCommands.facesRequest()) + PAGE_PATH + page.name();
+        return SiteCommands.orgSiteRoot(org, SiteCommands.facesRequest()) + SitePage.PATH + page.name();
     }
 
     /** Whether the caller may edit page CONTENT on this org's site: the content edit mode's own gate. */
@@ -408,7 +426,7 @@ public class SitePageCommands {
                     + " pages and links. Delete one first.");
         }
         if (find(pages, entry.name()).isPresent()) {
-            return PageFeedback.refuse("Address taken", "This site already has a page at " + PAGE_PATH
+            return PageFeedback.refuse("Address taken", "This site already has a page at " + SitePage.PATH
                     + entry.name() + ". Choose another address.");
         }
         pages.add(new SitePage(entry.name(), cleanTitle, entry.url(), entry.placement()));

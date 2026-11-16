@@ -33,4 +33,14 @@ public final class ReminderClock {
     public static LocalDate today(final ConfigCommands config, final Instant now) {
         return LocalDate.ofInstant(now, zone(config));
     }
+
+    /** The hour of the day (in {@link #zone}) the daily run sends: the {@code reminders.hour} setting. */
+    public static int runHour(final ConfigCommands config) {
+        return config.getInt(KnownSettings.REMINDERS_HOUR, 0, 23);
+    }
+
+    /** Whether today's run is still to come at {@code now}; at the run hour itself it has started. */
+    public static boolean isBeforeTodaysRun(final ConfigCommands config, final Instant now) {
+        return now.atZone(zone(config)).getHour() < runHour(config);
+    }
 }

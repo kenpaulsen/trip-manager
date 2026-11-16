@@ -897,7 +897,7 @@ logo, footer and contact details are literals in the sibling repo's XHTML and st
 override or, when blank, to the NEUTRAL platform default (never the `config` table's site row, which the
 Branding section on the site Settings page can still write but nothing applies). The defs live in
 `KnownSettings`' **Branding** section (`BRANDING_SECTION`, right after Site), all `STRING` and default `""`
-apart from the one `BOOLEAN`:
+apart from the two `BOOLEAN`s (`site.theme.dark`, `site.donate.paypalImage`):
 
 | Setting | Blank means | Notes |
 |---------|-------------|-------|
@@ -986,7 +986,7 @@ the root element's `style`), `getDetailFields()` (the branding settings the Appe
 `getFooterTitle()`/`getFooterText()`, `getFooterTitleStyle()`/`getFooterTextStyle()`/`getFooterLinksStyle()`
 (`color:#hex` or null, re-screened as hex; every footer link is a `p:link`, because a null EL value in a plain
 tag's style prints the word "null"), `getContactName()`/`getContactPhone()`/`getContactEmail()` +
-`isShowContact()`, `getDonateUrl()` + `isShowDonate()`, `getAnalyticsId()`. An org whose row cannot be
+`isShowContact()`, `getDonateUrl()` + `isShowDonate()`, `getPageAnalyticsId()` (screened; also answers a shared host). An org whose row cannot be
 read gets the neutral look and its slug as the name — never a broken page. Every URL is re-screened in the
 bean even though the save paths validate (a hand-written row bypasses the page): anything with a quote,
 angle bracket, backslash or whitespace is dropped (null → the blank behaviour), and the background URL is

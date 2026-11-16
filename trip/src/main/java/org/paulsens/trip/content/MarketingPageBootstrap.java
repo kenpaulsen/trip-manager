@@ -8,6 +8,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.function.ToIntFunction;
 import org.paulsens.trip.model.ContentInstance;
+import org.paulsens.trip.model.SitePage;
 
 /**
  * The product's own home page ({@link OrgPageBootstrap#MARKETING_PAGE_KEY}, the {@code www} host): the
@@ -34,7 +35,6 @@ public final class MarketingPageBootstrap {
     static final String SEED_AUTHOR = "marketing-bootstrap";
     private static final String ID_NAMESPACE = "unitetrip-home:";
     private static final String PAGE = OrgPageBootstrap.MARKETING_PAGE_KEY;
-    private static final String PAGE_PATH = "/page.jsf?name=";
 
     /** The platform organization's Site Pages, in menu order: one JSON list of starter-format pages. */
     public static final String SITE_PAGES_RESOURCE = "/content/marketing-site-pages.json";
@@ -174,7 +174,7 @@ public final class MarketingPageBootstrap {
                                 + "shared between organizations.</p>", templateVersion),
                 question(parent, 5, "What does it cost?",
                         "<p>Nothing while UniteTrip is in early access. Your payment processor's own fee is the "
-                                + "only cost. See <a href=\"" + PAGE_PATH + PRICING_PAGE + "\">Pricing</a> for "
+                                + "only cost. See <a href=\"" + SitePage.PATH + PRICING_PAGE + "\">Pricing</a> for "
                                 + "what is included.</p>", templateVersion));
     }
 

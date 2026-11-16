@@ -59,7 +59,7 @@ public class BearerRequestBindingTest {
 
             TokenService.getInstance().revoke(grant.refreshToken());
         } finally {
-            // Local mode SEEDS the switch on (FakeData.seedLocalApiAccess); a blank would delete the row and
+            // Local mode SEEDS the switch on (FakeData.seedLocalSiteSettings); a blank would delete the row and
             // fall to the production default, off, so the seeded value is restored explicitly.
             Assert.assertTrue(config.saveKnown(Map.of("api.token.enabled", "true"), "test"));
         }

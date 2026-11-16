@@ -303,7 +303,7 @@ on a cache read path.
 
 Turning the switch on is a setup step, so it is a script: `medjugorje/scripts/enable-api-tokens.sh`
 (cookie login as an admin → `PUT /api/config {"api.token.enabled":"true"}` → logout; `--off` is the kill
-switch). Local mode does not need it: `FakeData.seedLocalApiAccess` seeds the switch ON plus the app's
+switch). Local mode does not need it: `FakeData.seedLocalSiteSettings` seeds the switch ON plus the app's
 PayPal return scheme on every start, so a fresh local container accepts the iOS app straight away. A test
 that needs tokens OFF writes "false" and restores "true" -- a blank falls to the production default.
 

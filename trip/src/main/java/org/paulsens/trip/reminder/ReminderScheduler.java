@@ -281,7 +281,7 @@ public final class ReminderScheduler {
 
     /** How long until the next configured send time; always strictly positive. */
     Duration untilNextRun(final ZonedDateTime now) {
-        final int hour = config.getInt(KnownSettings.REMINDERS_HOUR, 0, 23);
+        final int hour = ReminderClock.runHour(config);
         ZonedDateTime next = now.with(LocalTime.of(hour, 0));
         if (!next.isAfter(now)) {
             next = next.plusDays(1);

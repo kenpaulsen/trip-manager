@@ -12,6 +12,7 @@ import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.cache.Cached;
+import org.paulsens.trip.cache.NoopCacheClient;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.model.BindingType;
@@ -339,6 +340,12 @@ public class ReminderCommandsTest {
         rawTooLong.setBody("<a".repeat(ReminderCommands.MAX_RAW_BODY));
         assertFalse(admin().save(tripId, rawTooLong));
         assertEquals(rawTooLong.getProblem(), "The message is too long.");
+
+        final ReminderViews.Form longLink = form("Bad", TODAY);
+        longLink.setBody("<p><a href=\"https://example.com/" + "x".repeat(ReminderHtml.MAX_TAG) + "\">Sign</a></p>");
+        assertFalse(admin().save(tripId, longLink));
+        assertTrue(longLink.getProblem().startsWith("A link in this message has an address too long"),
+                longLink.getProblem());
 
         final ReminderViews.Form longPush = form("Bad", TODAY);
         longPush.setPushText("x".repeat(181));
@@ -970,6 +977,32 @@ public class ReminderCommandsTest {
     }
 
     @Test
+    public void withSendingOnTheApprovalNamesTheRunThatSendsIt() {
+        // The default run hour is 9 AM Pacific; NOW is exactly 9 AM, so today's run has started.
+        final ConfigCommands on = new SendingOn();
+        assertEquals(beanAt(NOW.minusSeconds(3600), on).whenItGoes(TODAY),
+                "is due today and goes out with today's run");
+        final String after = "is due today, after today's run: use Send now, or it goes out with tomorrow's run";
+        assertEquals(beanAt(NOW, on).whenItGoes(TODAY), after, "At the run hour the run has started");
+        assertEquals(beanAt(NOW.plusSeconds(3600), on).whenItGoes(TODAY), after);
+        assertEquals(beanAt(NOW, on).whenItGoes(TODAY.plusDays(5)), "will be sent on Mon, Mar 8, 2027");
+        assertEquals(ReminderClock.runHour(on), 9);
+    }
+
+    /** The site's settings with {@code reminders.enabled} switched on and everything else at its default. */
+    private static final class SendingOn extends ConfigCommands {
+        @Override
+        public boolean getBoolean(final String name, final boolean defaultValue) {
+            return "reminders.enabled".equals(name) || defaultValue;
+        }
+    }
+
+    private ReminderCommands beanAt(final Instant now, final ConfigCommands config) {
+        return new ReminderCommands(TestCallers::siteAdmin, AuditCommands::new, this::sender,
+                new ReminderRecipients(), () -> now, () -> config, () -> DAO.getInstance().getCacheClient());
+    }
+
+    @Test
     public void aMessageCannotBeScheduledPastTheLastDayTheDailyRunReaches() throws IOException {
         final Trip trip = newTrip();
         final LocalDate lastDay = START.plusDays(9).toLocalDate().plusDays(TripReminder.MAX_DAYS_AFTER_END);
@@ -1060,6 +1093,21 @@ public class ReminderCommandsTest {
     }
 
     @Test
+    public void aReasonLeftAsItIsKeepsItsMarkForTheNextViewer() {
+        final Person traveler = new Person();
+        traveler.setFirst("Pat");
+        traveler.setLast("Test");
+        final ReminderRecipients.Target owes = new ReminderRecipients.Target(traveler, "Owes $250.00",
+                ReminderRecipients.Discloses.AMOUNT, List.of(), Map.of(ReminderText.BALANCE_DUE, "$250.00"));
+        final ReminderRecipients.Target forFinance = owes.seenBy(ReminderRecipients.Sight.ALL);
+        assertEquals(forFinance.getReason(), "Owes $250.00");
+        assertEquals(forFinance.discloses(), ReminderRecipients.Discloses.AMOUNT, "Still discloses the amount");
+        final ReminderRecipients.Target thenNobody = forFinance.seenBy(ReminderRecipients.Sight.NONE);
+        assertEquals(thenNobody.getReason(), "Owes a balance");
+        assertEquals(thenNobody.discloses(), ReminderRecipients.Discloses.NOTHING);
+    }
+
+    @Test
     public void testEmailsAreCappedPerPersonPerHour() throws IOException {
         final Trip trip = newTrip();
         final String id = saved(trip, form("Capped", TODAY));
@@ -1069,6 +1117,29 @@ public class ReminderCommandsTest {
         }
         assertFalse(tester.sendTest(trip.getId(), id, "capped@example.com"), "One more than the cap");
         assertEquals(mailTo("capped@example.com").size(), ReminderCommands.MAX_TESTS_PER_HOUR);
+    }
+
+    @Test
+    public void theTestCapHoldsWhenTheCacheCannotCount() throws IOException {
+        final Trip trip = newTrip();
+        final String id = saved(trip, form("Capped here", TODAY));
+        final Caller caller = TestCallers.person(grant(PrivilegeCommands.TRIP_MGR, trip.getId()));
+        // An hour no other test uses, so this JVM's counts start empty.
+        final Instant hour = NOW.plusSeconds(7 * 24 * 3600);
+        final ReminderCommands tester = noCountingCache(caller, hour);
+        for (int i = 0; i < ReminderCommands.MAX_TESTS_PER_HOUR; i++) {
+            assertTrue(tester.sendTest(trip.getId(), id, "here@example.com"), "send " + i);
+        }
+        assertFalse(tester.sendTest(trip.getId(), id, "here@example.com"), "One more than the cap, counted here");
+        assertTrue(noCountingCache(caller, hour.plusSeconds(3600)).sendTest(trip.getId(), id, "here@example.com"),
+                "A new hour starts a new count");
+        assertTrue(noCountingCache(TestCallers.siteAdmin(), hour.plusSeconds(3600))
+                .sendTest(trip.getId(), id, "here@example.com"), "Each person has their own count");
+    }
+
+    private ReminderCommands noCountingCache(final Caller caller, final Instant now) {
+        return new ReminderCommands(() -> caller, AuditCommands::new, this::sender, new ReminderRecipients(),
+                () -> now, ConfigCommands::new, NoopCacheClient::new);
     }
 
     // ------------------------------------------------------------------ sender, automatic mail

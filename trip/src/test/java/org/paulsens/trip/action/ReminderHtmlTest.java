@@ -136,9 +136,10 @@ public class ReminderHtmlTest {
 
     /**
      * Bodies built to be slow, at the largest size a save hands the cleaner (ReminderCommands.MAX_RAW_BODY): each
-     * made the cleaner quadratic before the tag scan was bounded and the list look-ahead read one tag only.
+     * made the cleaner quadratic before the tag scan was bounded, the list look-ahead read one tag only, and the
+     * attribute pattern stopped retrying a name from inside itself (the last two bodies, 3.6 and 7.1 s before).
      */
-    @Test(timeOut = 10_000)
+    @Test(timeOut = 2_000)
     public void aHostileBodyAtTheSizeCapIsCleanedPromptly() {
         final int cap = ReminderCommands.MAX_RAW_BODY;
         assertEquals(ReminderHtml.clean("<a".repeat(cap / 2)), "&lt;a".repeat(cap / 2));
@@ -149,6 +150,30 @@ public class ReminderHtmlTest {
         assertFalse(ReminderHtml.clean("<a \"".repeat(cap / 4 - 1) + "'>  ").isEmpty());
         assertFalse(ReminderHtml.clean("<a".repeat(cap / 2 - 1) + "\">").isEmpty());
         assertEquals(ReminderHtml.clean("x\u0130<script>a</script>y"), "x\u0130y", "A case that changes length");
+        // Long tags of name characters with no "=": every one is a tag, read for attributes it does not have.
+        assertEquals(ReminderHtml.clean(("<a " + "b".repeat(1990) + ">").repeat(100)), "<a>".repeat(100));
+        assertFalse(ReminderHtml.clean(("<ol><li " + "b".repeat(1980) + "></ol>").repeat(99)).isEmpty());
+    }
+
+    @Test
+    public void anAttributeIsReadOnlyFromTheStartOfItsName() {
+        assertEquals(ReminderHtml.clean("<a xhref=\"https://example.com\">t</a>"), "<a>t</a>");
+        assertEquals(ReminderHtml.clean("<a data-x=1 href = \"https://example.com\">t</a>"),
+                "<a href=\"https://example.com\" rel=\"noopener noreferrer\" target=\"_blank\">t</a>");
+    }
+
+    @Test
+    public void aLinkTooLongToBeATagIsFound() {
+        final String longLink = "<p><a href=\"https://example.com/" + "x".repeat(ReminderHtml.MAX_TAG)
+                + "\">Sign here</a></p>";
+        assertTrue(ReminderHtml.hasUnreadableLink(longLink));
+        assertTrue(ReminderHtml.clean(longLink).contains("&lt;a href="), "Why the save refuses it");
+        assertTrue(ReminderHtml.hasUnreadableLink("<p>see <a href=\"https://example.com\""));
+        assertFalse(ReminderHtml.hasUnreadableLink("<p><a href=\"https://example.com\">ok</a> <abbr " + "y".repeat(
+                ReminderHtml.MAX_TAG) + "</p>"), "Only a link counts");
+        assertFalse(ReminderHtml.hasUnreadableLink("<p><a>x</a><A HREF='https://example.com'>y</A></p>"));
+        assertFalse(ReminderHtml.hasUnreadableLink(null));
+        assertFalse(ReminderHtml.hasUnreadableLink("plain < text"));
     }
 
     @Test

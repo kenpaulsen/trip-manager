@@ -26,6 +26,9 @@ public record SitePage(String name, String title, String url, String placement) 
     @Serial
     private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
 
+    /** The address of a PAGE, before its {@link #name}: ONE copy, so a menu link and a link in copy agree. */
+    public static final String PATH = "/page.jsf?name=";
+
     /** Where a site page appears in the menu. */
     public enum Placement {
         /** The "About" submenu, rendered only when it has entries. */

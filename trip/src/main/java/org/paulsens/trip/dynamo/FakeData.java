@@ -2,6 +2,7 @@ package org.paulsens.trip.dynamo;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -35,6 +36,7 @@ import org.paulsens.trip.model.OptionChoice;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.PaymentProcessorConfig;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.model.ReminderSend;
 import org.paulsens.trip.model.ProcessorType;
 import org.paulsens.trip.security.ProcessorSecrets;
 import org.paulsens.trip.model.Person.Sex;
@@ -543,7 +545,8 @@ public final class FakeData {
         seedBetaBranding();
         seedPlatformBranding();
         seedPlatformSitePages();
-        seedLocalApiAccess();
+        seedLocalSiteSettings();
+        seedFailedReminderSend(admin.getId());
         seedOrgScopedPrivileges(commands, kevin);
         seedOrgSiteEditor(commands);
         // Each org SITE gets its default home page and its starter Site Pages (About Us, Board of Directors)
@@ -763,17 +766,45 @@ public final class FakeData {
         }
     }
 
+    /** The message id on {@link #seedFailedReminderSend}'s history row (CommunicationsPwIT finds it by name). */
+    public static final String FAILED_REMINDER_ID = "cc7fa8c4-0910-4af6-a683-4526b620729c";
+
+    /**
+     * One FAILED send in the long-past demo trip's Communications history ({@code docs/reminders.md}). Local mode
+     * delivers every mail, so a send never fails by itself, and the history's "Allow resend" shows only on a
+     * failed one. The trip ended weeks ago and has no messages of its own, so no other page or list sees the row.
+     */
+    private static void seedFailedReminderSend(final Person.Id traveler) {
+        final ReminderSend failed = ReminderSend.builder().tripId(PUB_PAST_30D_TRIP_ID)
+                .reminderId(FAILED_REMINDER_ID).sendDate(LocalDate.now().minusDays(45)).personId(traveler)
+                .reminderName("Seeded failed send").personName("Seeded Traveler")
+                .toEmail("seeded.traveler@example.com").subject("Seeded").outcome(ReminderSend.Outcome.FAILED)
+                .manual(false).at(Instant.now().minusSeconds(86_400)).build();
+        try {
+            if (!DAO.getInstance().saveReminderSend(failed)) {
+                throw new IllegalStateException("Fake seed: could not save the failed reminder send");
+            }
+        } catch (final IOException ex) {
+            throw new IllegalStateException("Fake seed: could not save the failed reminder send", ex);
+        }
+    }
+
     /** The shared site's analytics id in local mode (the site row of site.analytics.id). */
     public static final String SHARED_ANALYTICS_FIXTURE = "G-SHAREDFIXTURE";
 
     /**
-     * Local mode is where the native app is developed against, so bearer tokens are ON here and the app's
-     * PayPal return scheme is allow-listed -- the two rows {@code enable-api-tokens.sh} writes, which every
-     * client workflow used to have to run after each container start. The DECLARED defaults stay off/absent:
-     * they are the production posture (the kill switch, docs/api-tokens.md), and a blank save still falls
-     * back to them, which is why tests that need tokens off restore "true" rather than blanking.
+     * The site-level settings rows local mode needs that production sets by script, in one save:
+     * <ul>
+     *   <li>API access. Local mode is where the native app is developed against, so bearer tokens are ON here and
+     *   the app's PayPal return scheme is allow-listed -- the two rows {@code enable-api-tokens.sh} writes, which
+     *   every client workflow used to have to run after each container start. The DECLARED defaults stay
+     *   off/absent: they are the production posture (the kill switch, docs/api-tokens.md), and a blank save
+     *   still falls back to them, which is why tests that need tokens off restore "true" rather than blanking.</li>
+     *   <li>The shared sending domains, with the fixtures' example.com added.</li>
+     *   <li>The shared site's analytics id ({@link #SHARED_ANALYTICS_FIXTURE}).</li>
+     * </ul>
      */
-    private static void seedLocalApiAccess() {
+    private static void seedLocalSiteSettings() {
         final Map<String, String> values = new HashMap<>();
         values.put(KnownSettings.API_TOKEN_ENABLED.getName(), "true");
         values.put(KnownSettings.PAYMENT_RETURN_URL_PREFIXES.getName(),
@@ -786,7 +817,8 @@ public final class FakeData {
         // consent-gated tag exercised. Local mode never loads the external gtag.js, so nothing is reported.
         values.put(KnownSettings.SITE_ANALYTICS_ID.getName(), SHARED_ANALYTICS_FIXTURE);
         if (!new ConfigCommands().saveKnown(values, "local-seed")) {
-            throw new IllegalStateException("Fake seed: could not enable API tokens for local mode");
+            throw new IllegalStateException("Fake seed: could not save local mode's site settings "
+                    + "(API access, shared mail domains, analytics id)");
         }
     }
 

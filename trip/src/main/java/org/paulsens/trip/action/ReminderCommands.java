@@ -16,9 +16,11 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.cache.CacheClient;
 import org.paulsens.trip.cache.CacheKeys;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.config.KnownSettings;
@@ -72,15 +74,28 @@ public class ReminderCommands {
     private static final DateTimeFormatter DAY = DateTimeFormatter.ofPattern("EEE, MMM d, yyyy", Locale.US);
     private static final DateTimeFormatter MOMENT = DateTimeFormatter.ofPattern("MMM d, yyyy h:mm a", Locale.US);
 
-    /** The test-send counts kept here when the cache cannot count ({@link #underTestLimit}). */
-    private static final Map<String, AtomicLong> LOCAL_TEST_COUNTS = new ConcurrentHashMap<>();
+    /**
+     * The test-send counts kept here when the cache cannot count ({@link #underTestLimit}): one clock hour's
+     * counts per person. The hour is held beside them, never read back out of a key, so a change to the cache
+     * key's format cannot make the sweep drop the current hour.
+     */
+    private static final AtomicReference<HourCounts> LOCAL_TEST_COUNTS = new AtomicReference<>(new HourCounts(-1));
 
     private final Supplier<Caller> callerSource;
     private final Supplier<AuditCommands> auditSource;
     private final Supplier<ReminderSender> senderSource;
     private final Supplier<Instant> clock;
+    private final Supplier<ConfigCommands> configSource;
+    private final Supplier<CacheClient> cacheSource;
     private final ReminderGate gate;
     private final ReminderRecipients recipients;
+
+    /** One clock hour of in-JVM test-send counts, keyed by person id. */
+    private record HourCounts(long hour, Map<String, AtomicLong> counts) {
+        HourCounts(final long hour) {
+            this(hour, new ConcurrentHashMap<>());
+        }
+    }
 
     public ReminderCommands() {
         this(Caller::current);
@@ -94,11 +109,22 @@ public class ReminderCommands {
     ReminderCommands(final Supplier<Caller> callerSource, final Supplier<AuditCommands> auditSource,
             final Supplier<ReminderSender> senderSource, final ReminderRecipients recipients,
             final Supplier<Instant> clock) {
+        this(callerSource, auditSource, senderSource, recipients, clock, ConfigCommands::new,
+                () -> DAO.getInstance().getCacheClient());
+    }
+
+    /** Test seam for the settings ({@code reminders.enabled}, the run hour) and the cache that counts test sends. */
+    ReminderCommands(final Supplier<Caller> callerSource, final Supplier<AuditCommands> auditSource,
+            final Supplier<ReminderSender> senderSource, final ReminderRecipients recipients,
+            final Supplier<Instant> clock, final Supplier<ConfigCommands> configSource,
+            final Supplier<CacheClient> cacheSource) {
         this.callerSource = callerSource;
         this.auditSource = auditSource;
         this.senderSource = senderSource;
         this.recipients = recipients;
         this.clock = clock;
+        this.configSource = configSource;
+        this.cacheSource = cacheSource;
         final Supplier<OrgCommands> orgSource = () -> new OrgCommands(callerSource);
         this.gate = new ReminderGate(callerSource, () -> new TripCommands(orgSource), orgSource);
     }
@@ -112,12 +138,12 @@ public class ReminderCommands {
 
     /** Whether the site's daily send is switched on; off, approved messages wait (Send now still works). */
     public boolean isSendingOn() {
-        return new ConfigCommands().getBoolean(KnownSettings.REMINDERS_ENABLED);
+        return configSource.get().getBoolean(KnownSettings.REMINDERS_ENABLED);
     }
 
     /** Today where the messages are scheduled: {@link ReminderClock}, the scheduler's own answer. */
     LocalDate today() {
-        return ReminderClock.today(new ConfigCommands(), clock.get());
+        return ReminderClock.today(configSource.get(), clock.get());
     }
 
     private Caller caller() {
@@ -426,6 +452,9 @@ public class ReminderCommands {
         if (form.getBody() != null && form.getBody().length() > MAX_RAW_BODY) {
             return "The message is too long.";
         }
+        if (ReminderHtml.hasUnreadableLink(form.getBody())) {
+            return "A link in this message has an address too long to send (or is not closed). Shorten it.";
+        }
         final String body = cleanBody(form.getBody());
         if (WaiverHtml.isBlank(body)) {
             return "Write the message.";
@@ -569,9 +598,7 @@ public class ReminderCommands {
         if (!on) {
             return "is due today, and scheduled sending is off: use Send now to send it";
         }
-        final ConfigCommands config = new ConfigCommands();
-        final int runHour = config.getInt(KnownSettings.REMINDERS_HOUR, 0, 23);
-        return (clock.get().atZone(ReminderClock.zone(config)).getHour() < runHour)
+        return ReminderClock.isBeforeTodaysRun(configSource.get(), clock.get())
                 ? "is due today and goes out with today's run"
                 : "is due today, after today's run: use Send now, or it goes out with tomorrow's run";
     }
@@ -739,16 +766,21 @@ public class ReminderCommands {
      */
     private boolean underTestLimit() {
         final long hour = clock.get().getEpochSecond() / 3600;
-        final String key = CacheKeys.reminderTestSendsKey(caller().personId().getValue(), hour);
-        final long count = DAO.getInstance().getCacheClient().increment(key, 1, Duration.ofHours(1))
-                .orElseGet(() -> countHere(key, hour));
+        final String personId = caller().personId().getValue();
+        final String key = CacheKeys.reminderTestSendsKey(personId, hour);
+        final long count = cacheSource.get().increment(key, 1, Duration.ofHours(1))
+                .orElseGet(() -> countHere(personId, hour));
         return count <= MAX_TESTS_PER_HOUR;
     }
 
-    private static long countHere(final String key, final long hour) {
-        // Only this hour's counters are kept; one facilitator's hour is one entry.
-        LOCAL_TEST_COUNTS.keySet().removeIf(old -> !old.endsWith(":" + hour));
-        return LOCAL_TEST_COUNTS.computeIfAbsent(key, k -> new AtomicLong()).incrementAndGet();
+    /** Counts in this JVM; a new hour replaces the old hour's counts whole. */
+    private static long countHere(final String personId, final long hour) {
+        final HourCounts current = LOCAL_TEST_COUNTS.updateAndGet(held -> sameHourOrNew(held, hour));
+        return current.counts().computeIfAbsent(personId, k -> new AtomicLong()).incrementAndGet();
+    }
+
+    private static HourCounts sameHourOrNew(final HourCounts held, final long hour) {
+        return (held.hour() == hour) ? held : new HourCounts(hour);
     }
 
     // ================================================================== sender (From and Reply-To)
@@ -822,7 +854,7 @@ public class ReminderCommands {
         if (!canManage(tripId)) {
             return List.of();
         }
-        final ZoneId zone = ReminderClock.zone(new ConfigCommands());
+        final ZoneId zone = ReminderClock.zone(configSource.get());
         final boolean addresses = gate.sight(tripId).contact();
         final List<ReminderViews.HistoryRow> rows = new ArrayList<>();
         for (final ReminderSend send : DAO.getInstance().getReminderSends(tripId)) {

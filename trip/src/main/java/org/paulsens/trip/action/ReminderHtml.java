@@ -41,8 +41,13 @@ public final class ReminderHtml {
     private static final Set<String> DROP_WITH_CONTENT = Set.of("script", "style", "iframe", "object", "embed",
             "noscript", "template", "svg", "math", "textarea", "title", "select", "xmp", "noembed", "noframes");
 
+    /**
+     * One {@code name=value}. The name may not start inside another name, and is read possessively: without
+     * both, a long run of name characters with no {@code =} is retried from every offset in it, and a tag of
+     * 2,000 such characters cost about 36 ms to read (a body of them at the size cap, seconds).
+     */
     private static final Pattern ATTRIBUTE = Pattern.compile(
-            "([a-zA-Z_:][-a-zA-Z0-9_:.]*)\\s*=\\s*(\"[^\"]*\"|'[^']*'|[^\\s\"'>]+)");
+            "(?<![-a-zA-Z0-9_:.])([a-zA-Z_:][-a-zA-Z0-9_:.]*+)\\s*+=\\s*(\"[^\"]*\"|'[^']*'|[^\\s\"'>]+)");
     /** An apostrophe is fine in an address: the value is always written back inside double quotes. */
     private static final Pattern WEB_ADDRESS =
             Pattern.compile("(?i)(https?://|mailto:|tel:|sms:)[^\\s\"<>`\\\\]+");
@@ -100,8 +105,9 @@ public final class ReminderHtml {
     /**
      * Where the tag opening at {@code from} ends (the index of its {@code >}), or -1 when this is not a tag: no
      * name after the {@code <}, or no {@code >} outside a quoted value within {@link #MAX_TAG} characters.
-     * Scanned by hand rather than by a regular expression, and never further than that bound, so the whole
-     * clean costs at most its length times the bound.
+     * Scanned by hand rather than by a regular expression, and never further than that bound. Each tag found
+     * is then read once more for its attributes, by a pattern that is linear in the tag's length, so the cost
+     * of a clean is bounded by its length times {@link #MAX_TAG}.
      */
     private static int tagEnd(final String html, final int from) {
         int at = from + 1;
@@ -124,6 +130,30 @@ public final class ReminderHtml {
             }
         }
         return -1;
+    }
+
+    /**
+     * Whether the body holds a link opening ({@code <a ...}) that the cleaner would write out as text: one with
+     * no {@code >} within {@link #MAX_TAG} characters (an address of about 1,950 characters or more, or a tag
+     * never closed). The save refuses such a body, rather than mailing the raw tag and its address as words.
+     * Stops at the first one, and each link that IS a tag is scanned once, so the cost is linear.
+     */
+    static boolean hasUnreadableLink(final String html) {
+        if (html == null) {
+            return false;
+        }
+        for (int at = html.indexOf('<'); at >= 0; at = html.indexOf('<', at + 1)) {
+            final boolean link = html.regionMatches(true, at, "<a", 0, 2)
+                    && (at + 2 == html.length() || !isLetter(html.charAt(at + 2)));
+            if (link) {
+                final int end = tagEnd(html, at);
+                if (end < 0) {
+                    return true;
+                }
+                at = end;
+            }
+        }
+        return false;
     }
 
     private static boolean isLetter(final char c) {
@@ -207,6 +237,11 @@ public final class ReminderHtml {
         return -1;
     }
 
+    /**
+     * The index just past {@code </name>}, or the end of the text when the tag is never closed: an unclosed
+     * {@code <script>} or {@code <svg>} swallows the rest of the body on purpose, because resuming after its
+     * opening tag would let its content through as text.
+     */
     private static int afterClosing(final String html, final String name, final int from) {
         final int close = indexOfIgnoreCase(html, "</" + name, from);
         final int end = (close < 0) ? -1 : html.indexOf('>', close);

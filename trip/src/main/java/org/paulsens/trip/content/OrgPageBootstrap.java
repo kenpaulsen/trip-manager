@@ -123,22 +123,24 @@ public final class OrgPageBootstrap {
      * The section key of the SITE's page called {@code pageName}. The home page keeps the keys it has always
      * had (no stored row moves); every other page is namespaced by site the same way, so an organization's
      * {@code board} page and the shared site's are different pages an editor of one can never reach from
-     * the other: {@code page:shared:board}, {@code page:org:{uuid}:board}, {@code page:unitetrip:board}.
+     * the other: {@code page:shared:board}, {@code page:org:{uuid}:board}. The product's own site is the
+     * platform org's, so its named pages are {@code page:org:} keys too; {@code page:unitetrip:board} is only
+     * the placeholder marketing host's (no platform org yet).
      */
     public static String pageKeyOf(final SiteContext site, final String pageName) {
         final String name = requirePageName(pageName);
-        // The marketing key first: the platform organization's site is an org site too, but its HOME page is
-        // the script-seeded marketing page, keyed independently of whichever org row holds the slug. Its other
+        // The marketing HOME page first: the platform organization's site is an org site too, but its home page
+        // is the script-seeded marketing page, keyed independently of whichever org row holds the slug. Its other
         // pages are its Site Pages (Pricing, Why UniteTrip), keyed like every org's, which is where the Site Pages
-        // admin page seeds and deletes them; only the placeholder host (no platform org yet) keeps the old prefix.
-        if (site.isMarketing()) {
-            if (HOME_PAGE.equals(name)) {
-                return MARKETING_PAGE_KEY;
-            }
-            return site.isPlatformOrg() ? pageKey(site.orgId(), name) : MARKETING_PAGE_PREFIX + name;
+        // admin page seeds and deletes them.
+        if (site.isMarketing() && HOME_PAGE.equals(name)) {
+            return MARKETING_PAGE_KEY;
         }
         if (site.isOrg()) {
             return pageKey(site.orgId(), name);
+        }
+        if (site.isMarketing()) {
+            return MARKETING_PAGE_PREFIX + name;
         }
         return HOME_PAGE.equals(name) ? V2PageBootstrap.PAGE_KEY : SHARED_PAGE_PREFIX + name;
     }
@@ -175,7 +177,11 @@ public final class OrgPageBootstrap {
         return TRIP_ID.matcher(id).matches() ? id : null;
     }
 
-    /** Whether {@code pageKey} is one of the marketing host's pages: its home page or a named one. */
+    /**
+     * Whether {@code pageKey} is the marketing home page, or a named page of the PLACEHOLDER marketing host
+     * ({@code page:unitetrip:{name}}). The product site's own named pages (Pricing, Why UniteTrip) are the platform
+     * org's Site Pages, {@code page:org:{uuid}:{name}} keys, and answer false here: use {@link #orgOf} for them.
+     */
     public static boolean isMarketingPageKey(final String pageKey) {
         return MARKETING_PAGE_KEY.equals(pageKey)
                 || pageKey != null && pageKey.startsWith(MARKETING_PAGE_PREFIX)

@@ -124,8 +124,11 @@ unknown tag are dropped, and the page's toolbar offers only what is kept. Quill 
 and marks bullets with `data-list`; the cleaner writes a bullet list as `<ul>` so a mail client shows bullets.
 
 It runs when a message is saved and again at EVERY place the stored body is written out: the editor
-(`formFor`), and `ReminderText.renderBody`, the one clean-then-merge helper behind the preview, the test email
-and the send. The raw body is refused above `MAX_RAW_BODY` before it is cleaned. Never clean this body with
+(`formFor`), `ReminderText.renderBody` (the clean-then-merge helper behind the preview and the test email), and
+the send, which cleans the body once in `ReminderSender.sendAll` and merges it per traveler with
+`ReminderText.render`. The raw body is refused above `MAX_RAW_BODY` before it is cleaned, and a save is refused
+when a link's tag runs past `ReminderHtml.MAX_TAG` (an address of about 1,950 characters or more): the cleaner
+would otherwise write that link out as visible text. Never clean this body with
 `WaiverHtml.sanitize`: that is a blocklist for text only an org admin writes, and the first review found three
 bodies it passes unchanged (`ReminderHtmlTest` pins them).
 

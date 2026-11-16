@@ -272,7 +272,8 @@ public class BrandCommandsTest {
             onSite(ACME_SITE, () -> Assert.assertNull(brand.getPageAnalyticsId(),
                     "an org without an id never inherits the shared one"));
             onSite(SiteContext.marketing("unitetrip.com"), () -> Assert.assertNull(brand.getPageAnalyticsId(),
-                    "the product's own host reports to no property, not even the shared site's"));
+                    "the placeholder marketing host, which no org holds, reports to no property, "
+                            + "not even the shared site's"));
             Assert.assertFalse(new ConfigCommands().saveKnown(
                     Map.of(KnownSettings.SITE_ANALYTICS_ID.getName(), "G-X');alert(1);//"), "test"),
                     "the save refuses an id that is not a plain token");
