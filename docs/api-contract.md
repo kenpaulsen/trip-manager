@@ -70,7 +70,8 @@ and no token change, the bearer stays the manager. A manager of someone on the r
 roster, events, lodging) without a seat of their own -- the website's `canSeeTrip` rule, on the API since this
 date. Chat posts while acting carry `onBehalfOf` (Chat section).
 
-`TripDto`: id, title, description, detailsUrl, openToPublic, chatEnabled, startDate, endDate, regLimit, provider,
+`TripDto`: id, title, description, detailsUrl, pictures, destination, country, tags, openToPublic, chatEnabled,
+startDate, endDate, regLimit, provider,
 orgId, language, estimatedPrice, director, localGuide, facilitators, flyerUrl, nonHostedTripUrl,
 nonHostedRegNumber, regOptions[{id, shortDesc, longDesc, show, type, required?, choices?[{id, label, priceCents?,
 capacity?, attestationText?, days?, enabled?}]}] (see "Registration questions" below), people[ids], tripEvents[],
@@ -112,6 +113,32 @@ one in, and warn when the copy shown is older than eight hours. A trip still car
 page; `description` itself is read-only legacy text: never edited by the website, sent by `POST`/`PUT` only for
 compatibility (a NEW trip created with one gets it as its page's About section). Absent only from an older server;
 a client without it falls back to `description`.
+
+**Pictures, destination, country and tags (2026-11-16, issue 154; backend `docs/trip-pictures.md`).** Every
+`TripDto` carries `pictures`, on lists and single reads alike: `[{key, url, url480, url960, alt?, width, height,
+placeholder}]`, cover FIRST (position 0), then up to eight gallery pictures; `[]` when the trip has none (an older
+server sends no field). Every picture is cut to 3:2; `url` is the full 1920-pixel rendition, `url480`/`url960` the
+smaller ones, all absolute and public by URL (CDN in production). `width`/`height` are the full rendition's (smaller
+when the upload was), `placeholder` the picture's average color (`#rrggbb`) to paint while it loads, `alt` the
+manager's description (absent: use the title). A trip with no picture shows the organization's picture, then a
+generated cover; never an empty box. Also `destination` (free text, "Medjugorje, Bosnia and Herzegovina"),
+`country` (ISO 3166-1 alpha-2, `BA`) and `tags` (ids from the platform's one list, the "Trip tags" setting; default
+`pilgrimage, retreat, conference, mission, youth, family, study, service, tour`). On `POST`/`PUT` the last three are
+written like the other details (absent: left alone): the destination is trimmed (blank clears it), an unknown
+country is dropped, and only listed tags are kept, in the list's order. `pictures` on a write is ignored; they
+change only through:
+
+- `POST /api/trips/{id}/pictures[?alt=&cropX=&cropY=&cropW=&cropH=]`, raw body (`image/*` or
+  `application/octet-stream`, at most 16 MB; JPEG, PNG, GIF, HEIC) → `{picture: {...}, warning?}`. Appended LAST,
+  so a trip's first picture is its cover. The crop is in source pixels and is shrunk to 3:2 inside it; no crop takes
+  the largest centered 3:2 region. `warning` says when the cut is smaller than 1600x1067 (stored anyway). 409
+  `CONFLICT` when the trip already has 9; 400 `VALIDATION_FAILED` for something that is not an image.
+- `PUT /api/trips/{id}/pictures` `{key, position?, alt?}` → the trip's `pictures` in their new order. `position` 0
+  makes it the cover; `alt` null or blank clears the description. One of the two is required.
+- `DELETE /api/trips/{id}/pictures?key=` → `{picture}`; the stored objects go with it.
+
+All three take the CSRF header and answer 403 `FORBIDDEN` unless the caller manages the trip (`tripMgr`), administers
+its organization, or is a site admin; 404 `NOT_FOUND` for an unknown trip or key.
 
 Sample:
 

@@ -62,19 +62,29 @@ public class TripDeleteCommands {
     private final Supplier<Caller> callerSource;
     private final Supplier<OrgCommands> orgSource;
     private final Supplier<BadgePhotoCommands> badgeSource;
+    private final Supplier<TripPictureCommands> pictureSource;
 
     public TripDeleteCommands() {
         this(Caller::current,
                 () -> org.paulsens.trip.api.Beans.get(OrgCommands.class),
-                () -> org.paulsens.trip.api.Beans.get(BadgePhotoCommands.class));
+                () -> org.paulsens.trip.api.Beans.get(BadgePhotoCommands.class),
+                () -> org.paulsens.trip.api.Beans.get(TripPictureCommands.class));
     }
 
-    /** Explicit-collaborator constructor -- the {@link OrgCommands} test seam. */
+    /** Explicit-collaborator constructor -- the {@link OrgCommands} test seam; trip pictures come from CDI. */
     TripDeleteCommands(final Supplier<Caller> callerSource, final Supplier<OrgCommands> orgSource,
             final Supplier<BadgePhotoCommands> badgeSource) {
+        this(callerSource, orgSource, badgeSource,
+                () -> org.paulsens.trip.api.Beans.get(TripPictureCommands.class));
+    }
+
+    /** Every collaborator explicit, for a test that also answers the trip-picture cascade. */
+    TripDeleteCommands(final Supplier<Caller> callerSource, final Supplier<OrgCommands> orgSource,
+            final Supplier<BadgePhotoCommands> badgeSource, final Supplier<TripPictureCommands> pictureSource) {
         this.callerSource = callerSource;
         this.orgSource = orgSource;
         this.badgeSource = badgeSource;
+        this.pictureSource = pictureSource;
     }
 
     /** Whether the signed-in user may delete this trip at all (state conditions are separate). */
@@ -266,11 +276,13 @@ public class TripDeleteCommands {
             DAO.getInstance().deleteTripEvent(eventId);
         }
         final int badges = badgePhotos().deleteAllForTrip(trip);
+        final int pictures = pictureSource.get().deleteAllForTrip(trip);
         DAO.getInstance().deleteTrip(trip);
         return "deleted trip '" + trip.getTitle() + "' with " + regs + " registrations, " + todoIds.size()
                 + " todos (" + pdvRows + " person-data rows), " + privs + " privilege rows, "
                 + eventIds.size() + " events, " + lodging + " lodging rows (" + plans + " rate plans unlinked), "
-                + (budget ? "the budget, " : "") + badges + " badge objects; chat purged";
+                + (budget ? "the budget, " : "") + badges + " badge objects, " + pictures
+                + " picture objects; chat purged";
     }
 
     private List<String> computeBlockers(final Trip trip) {

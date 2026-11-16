@@ -12,6 +12,9 @@ import org.mockito.Mockito;
 import org.paulsens.trip.action.PersonCommands;
 import org.paulsens.trip.action.PrivilegeCommands;
 import org.paulsens.trip.action.TripCommands;
+import org.paulsens.trip.action.TripPictureCommands;
+import org.paulsens.trip.api.dto.TripPictureDto;
+import org.paulsens.trip.model.TripPicture;
 import org.paulsens.trip.api.dto.TripDto;
 import org.paulsens.trip.api.dto.TripEventDto;
 import org.paulsens.trip.api.dto.TripPaymentConfigDto;
@@ -1506,5 +1509,164 @@ public class TripsResourceTest extends ResourceTestSupport {
         TripCommands.stampCreationDefaults(conference);
         Assert.assertFalse(conference.getItinerarySharing(), "a new conference does not");
         Assert.assertFalse(Trip.builder().build().getItinerarySharing(), "an existing (unset) trip reads as off");
+    }
+
+    // ------------------------------------------------------------------ pictures and place (issue 154)
+
+    private TripPictureCommands picturesAtLocalhost() {
+        Mockito.when(request.getScheme()).thenReturn("http");
+        Mockito.when(request.getServerName()).thenReturn("localhost");
+        Mockito.when(request.getServerPort()).thenReturn(8080);
+        Mockito.when(request.getContextPath()).thenReturn("");
+        final TripPictureCommands pictures = bindMock(TripPictureCommands.class);
+        Mockito.when(pictures.url(ArgumentMatchers.any(TripPicture.class), ArgumentMatchers.anyInt()))
+                .thenAnswer(call -> "/trip-pictures/" + call.<TripPicture>getArgument(0).keyAt(call.getArgument(1)));
+        Mockito.when(pictures.url(ArgumentMatchers.any(TripPicture.class)))
+                .thenAnswer(call -> "/trip-pictures/" + call.<TripPicture>getArgument(0).keyAt(1920));
+        return pictures;
+    }
+
+    @Test
+    public void tripsCarryTheirPicturesWithAbsoluteUrlsAndTheirPlace() {
+        signedInAs(ME);
+        picturesAtLocalhost();
+        final Trip trip = trip(TRIP_ID, ME);
+        trip.getPictures().add(new TripPicture("tripPictures/trip-1/5", "Cover", 1920, 1280, "#112233"));
+        trip.getPictures().add(new TripPicture("tripPictures/trip-1/6", null, 960, 640, "#445566"));
+        trip.setDestination("Medjugorje, Bosnia and Herzegovina");
+        trip.setCountry("BA");
+        trip.setTags(List.of("retreat"));
+        tripExists(trip);
+        Mockito.when(trips.getTripsForUser(ME)).thenReturn(List.of(trip));
+
+        final TripDto one = (TripDto) resource.get(TRIP_ID, null).getEntity();
+        Assert.assertEquals(one.pictures().size(), 2, "Cover first, then the gallery");
+        final TripPictureDto cover = one.pictures().getFirst();
+        Assert.assertEquals(cover.key(), "tripPictures/trip-1/5");
+        Assert.assertEquals(cover.url(), "http://localhost:8080/trip-pictures/tripPictures/trip-1/5-1920.jpg");
+        Assert.assertEquals(cover.url480(), "http://localhost:8080/trip-pictures/tripPictures/trip-1/5-480.jpg");
+        Assert.assertEquals(cover.url960(), "http://localhost:8080/trip-pictures/tripPictures/trip-1/5-960.jpg");
+        Assert.assertEquals(cover.alt(), "Cover");
+        Assert.assertEquals(cover.width(), 1920);
+        Assert.assertEquals(cover.height(), 1280);
+        Assert.assertEquals(cover.placeholder(), "#112233");
+        Assert.assertEquals(one.destination(), "Medjugorje, Bosnia and Herzegovina");
+        Assert.assertEquals(one.country(), "BA");
+        Assert.assertEquals(one.tags(), List.of("retreat"));
+        Assert.assertEquals(one.redactedFor(false, false).pictures(), one.pictures(), "Public by URL: kept");
+        Assert.assertEquals(one.withPeople(List.of()).tags(), one.tags());
+
+        final TripDto row = (TripDto) ((List<?>) resource.list("mine", 50, null).getEntity()).getFirst();
+        Assert.assertEquals(row.pictures(), one.pictures(), "A listing carries them too");
+        Assert.assertEquals(row.withoutEvents().country(), "BA");
+
+        trip.getPictures().clear();
+        final TripDto none = (TripDto) resource(new TripsResource()).get(TRIP_ID, null).getEntity();
+        Assert.assertEquals(none.pictures(), List.of(), "None is an empty list, not an absent field");
+    }
+
+    private static java.io.InputStream bodyOf(final byte[] bytes) {
+        return new java.io.ByteArrayInputStream(bytes);
+    }
+
+    private static TripPictureCommands.PictureResult result(final TripPictureCommands.PictureResult.Status status) {
+        return new TripPictureCommands.PictureResult(status, status.name(), null, null);
+    }
+
+    @Test
+    public void addPictureWrapsTheBeanAndMapsItsRefusals() {
+        signedInAs(ME);
+        final TripPictureCommands pictures = picturesAtLocalhost();
+        final byte[] bytes = org.paulsens.trip.media.PhotoFixtures.jpeg(60, 40);
+        assertError(resource.addPicture(TRIP_ID, null, null, null, null, null, null, null, bodyOf(bytes)), 403,
+                ApiErrors.CSRF);
+        assertError(resource.addPicture(TRIP_ID, CSRF_OK, null, null, 1, 2, null, null, bodyOf(bytes)), 400,
+                ApiErrors.BAD_REQUEST);
+        assertError(resource.addPicture(TRIP_ID, CSRF_OK, 17L * 1024 * 1024, null, null, null, null, null,
+                bodyOf(bytes)), 413, ApiErrors.PAYLOAD_TOO_LARGE);
+        assertError(resource.addPicture(TRIP_ID, CSRF_OK, null, null, null, null, null, null, bodyOf(new byte[0])),
+                400, ApiErrors.VALIDATION_FAILED);
+
+        final TripPicture added = new TripPicture("tripPictures/trip-1/9", "Hill", 900, 600, "#000000");
+        Mockito.when(pictures.add(ArgumentMatchers.any(), ArgumentMatchers.eq(TRIP_ID), ArgumentMatchers.eq(bytes),
+                ArgumentMatchers.eq(new org.paulsens.trip.media.PhotoProcessor.CropRect(1, 2, 30, 20)),
+                ArgumentMatchers.eq("Hill")))
+                .thenReturn(new TripPictureCommands.PictureResult(TripPictureCommands.PictureResult.Status.OK,
+                        "Cover picture added.", added, "Low resolution"));
+        final Response ok = resource.addPicture(TRIP_ID, CSRF_OK, (long) bytes.length, "Hill", 1, 2, 30, 20,
+                bodyOf(bytes));
+        assertOk(ok);
+        final Map<?, ?> body = (Map<?, ?>) ok.getEntity();
+        Assert.assertEquals(((TripPictureDto) body.get("picture")).url480(),
+                "http://localhost:8080/trip-pictures/tripPictures/trip-1/9-480.jpg");
+        Assert.assertEquals(body.get("warning"), "Low resolution");
+
+        Mockito.when(pictures.add(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(result(TripPictureCommands.PictureResult.Status.NOT_FOUND))
+                .thenReturn(result(TripPictureCommands.PictureResult.Status.FORBIDDEN))
+                .thenReturn(result(TripPictureCommands.PictureResult.Status.LIMIT))
+                .thenReturn(result(TripPictureCommands.PictureResult.Status.INVALID))
+                .thenReturn(result(TripPictureCommands.PictureResult.Status.FAILED));
+        assertError(resource.addPicture(TRIP_ID, CSRF_OK, null, null, null, null, null, null, bodyOf(bytes)), 404,
+                ApiErrors.NOT_FOUND);
+        assertError(resource.addPicture(TRIP_ID, CSRF_OK, null, null, null, null, null, null, bodyOf(bytes)), 403,
+                ApiErrors.FORBIDDEN);
+        assertError(resource.addPicture(TRIP_ID, CSRF_OK, null, null, null, null, null, null, bodyOf(bytes)), 409,
+                ApiErrors.CONFLICT);
+        assertError(resource.addPicture(TRIP_ID, CSRF_OK, null, null, null, null, null, null, bodyOf(bytes)), 400,
+                ApiErrors.VALIDATION_FAILED);
+        assertError(resource.addPicture(TRIP_ID, CSRF_OK, null, null, null, null, null, null, bodyOf(bytes)), 500,
+                ApiErrors.STORE_FAILED);
+    }
+
+    @Test
+    public void removeAndChangePictureWrapTheBean() {
+        signedInAs(ME);
+        final TripPictureCommands pictures = picturesAtLocalhost();
+        final String key = "tripPictures/trip-1/9";
+        final TripPicture pic = new TripPicture(key, null, 1920, 1280, "#000000");
+        final TripPictureCommands.PictureResult ok = new TripPictureCommands.PictureResult(
+                TripPictureCommands.PictureResult.Status.OK, "done", pic, null);
+
+        assertError(resource.removePicture(TRIP_ID, key, null), 403, ApiErrors.CSRF);
+        Mockito.when(pictures.remove(ArgumentMatchers.any(), ArgumentMatchers.eq(TRIP_ID), ArgumentMatchers.eq(key)))
+                .thenReturn(ok, result(TripPictureCommands.PictureResult.Status.NOT_FOUND));
+        assertOk(resource.removePicture(TRIP_ID, key, CSRF_OK));
+        assertError(resource.removePicture(TRIP_ID, key, CSRF_OK), 404, ApiErrors.NOT_FOUND);
+
+        assertError(resource.changePicture(TRIP_ID, null, Map.of("key", key)), 403, ApiErrors.CSRF);
+        assertError(resource.changePicture(TRIP_ID, CSRF_OK, null), 400, ApiErrors.VALIDATION_FAILED);
+        assertError(resource.changePicture(TRIP_ID, CSRF_OK, Map.of("key", key)), 400, ApiErrors.VALIDATION_FAILED);
+        assertError(resource.changePicture(TRIP_ID, CSRF_OK, Map.of("key", key, "position", "first")), 400,
+                ApiErrors.VALIDATION_FAILED);
+
+        final Trip trip = trip(TRIP_ID, ME);
+        trip.getPictures().add(pic);
+        tripExists(trip);
+        Mockito.when(pictures.describe(ArgumentMatchers.any(), ArgumentMatchers.eq(TRIP_ID), ArgumentMatchers.eq(key),
+                ArgumentMatchers.any())).thenReturn(ok);
+        Mockito.when(pictures.move(ArgumentMatchers.any(), ArgumentMatchers.eq(TRIP_ID), ArgumentMatchers.eq(key),
+                ArgumentMatchers.eq(0))).thenReturn(ok);
+        final java.util.Map<String, Object> both = new java.util.HashMap<>();
+        both.put("key", key);
+        both.put("alt", null);
+        both.put("position", 0);
+        final Response changed = resource.changePicture(TRIP_ID, CSRF_OK, both);
+        assertOk(changed);
+        Assert.assertEquals(((List<?>) changed.getEntity()).size(), 1, "Answers the pictures in their new order");
+        Mockito.verify(pictures).describe(ArgumentMatchers.any(), ArgumentMatchers.eq(TRIP_ID),
+                ArgumentMatchers.eq(key), ArgumentMatchers.isNull());
+        assertOk(resource.changePicture(TRIP_ID, CSRF_OK, Map.of("key", key, "alt", "Text")));
+
+        Mockito.when(pictures.describe(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.eq("Refused"))).thenReturn(result(TripPictureCommands.PictureResult.Status.FORBIDDEN));
+        assertError(resource.changePicture(TRIP_ID, CSRF_OK, Map.of("key", key, "alt", "Refused", "position", 0)),
+                403, ApiErrors.FORBIDDEN);
+        Mockito.verify(pictures, Mockito.times(1)).move(ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any(), ArgumentMatchers.anyInt());
+
+        Mockito.when(trips.getTrip(TRIP_ID)).thenReturn(null);
+        assertOk(resource.changePicture(TRIP_ID, CSRF_OK, Map.of("key", key, "position", 0)));
     }
 }

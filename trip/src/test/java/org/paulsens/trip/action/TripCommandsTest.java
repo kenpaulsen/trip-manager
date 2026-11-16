@@ -62,6 +62,44 @@ public class TripCommandsTest {
         assertEquals(asSiteAdmin().getTripCountForOrg(orgId), 1);
     }
 
+    /**
+     * Issue 154: pictures are written only by TripPictureCommands, so a save from a copy taken before an upload
+     * (the editor's working copy, a REST body) keeps the STORED list; the place fields are normalized.
+     */
+    @Test
+    public void aSaveKeepsTheStoredPicturesAndNormalizesThePlace() throws java.io.IOException {
+        final Trip trip = Trip.builder().title("Pictures " + java.util.UUID.randomUUID()).build();
+        assertTrue(asSiteAdmin().saveTrip(trip));
+        final Trip staleCopy = org.paulsens.trip.dynamo.DAO.getInstance()
+                .getTrip(trip.getId(), org.paulsens.trip.cache.Cached.NO).orElseThrow();
+
+        final Trip uploaded = org.paulsens.trip.dynamo.DAO.getInstance()
+                .getTrip(trip.getId(), org.paulsens.trip.cache.Cached.NO).orElseThrow();
+        uploaded.getPictures().add(new org.paulsens.trip.model.TripPicture("tripPictures/x/1", null, 960, 640,
+                "#102030"));
+        assertTrue(org.paulsens.trip.dynamo.DAO.getInstance().saveTrip(uploaded));
+
+        staleCopy.setDestination("  Assisi, Italy  ");
+        staleCopy.setCountry("it");
+        staleCopy.setTags(List.of("Youth", "made-up", "retreat"));
+        assertTrue(asSiteAdmin().saveTrip(staleCopy));
+        final Trip reread = org.paulsens.trip.dynamo.DAO.getInstance()
+                .getTrip(trip.getId(), org.paulsens.trip.cache.Cached.NO).orElseThrow();
+        assertEquals(reread.getPictures().size(), 1, "The stale copy did not erase the uploaded picture");
+        assertEquals(reread.getDestination(), "Assisi, Italy");
+        assertEquals(reread.getCountry(), "IT");
+        assertEquals(reread.getTags(), List.of("retreat", "youth"), "Offered tags only, in the list's order");
+        assertEquals(tripCommands.tagLabels(reread), "Retreat, Youth");
+        assertTrue(tripCommands.getCountries().size() > 240);
+        assertEquals(tripCommands.getTagChoices().size(), 9);
+
+        staleCopy.setDestination("   ");
+        staleCopy.setCountry("Narnia");
+        TripCommands.normalizePlace(staleCopy, TripTags.current());
+        assertNull(staleCopy.getDestination(), "Blank is none");
+        assertNull(staleCopy.getCountry(), "Not a country is none");
+    }
+
     private static TripCommands asSiteAdmin() {
         return new TripCommands(() -> new OrgCommands(() -> new Caller(Person.Id.from("admin"), true,
                 org.paulsens.trip.audit.AuditActor.system(), new PrivilegeCommands())));

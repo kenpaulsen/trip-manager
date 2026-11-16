@@ -140,6 +140,8 @@ public class SerializationCompatibilityTest {
             of(ContentTemplate.class, SerializationCompatibilityTest::contentTemplate, ContentTemplate::getId),
             of(MediaItem.class, SerializationCompatibilityTest::mediaItem, MediaItem::getId),
             of(BadgeImage.class, () -> new BadgeImage("badgeImages/trip-rome/1.jpg", "Rome"), BadgeImage::getKey),
+            of(TripPicture.class, () -> new TripPicture("tripPictures/trip-rome/1", "Rome", 1920, 1280, "#336699"),
+                    TripPicture::getKey),
             of(Accommodation.class, SerializationCompatibilityTest::accommodation, Accommodation::getName),
             of(ReservationOffer.class, SerializationCompatibilityTest::reservationOffer, ReservationOffer::getName),
             of(Reservation.class, SerializationCompatibilityTest::reservation, Reservation::getNotes),

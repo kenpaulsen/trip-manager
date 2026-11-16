@@ -82,6 +82,48 @@ public class TripTest {
                 "The builder treats null as empty, like every other list here");
     }
 
+    /** Pictures, destination, country and tags (issue 154): lazy lists, copy setters, cover, JSON round trip. */
+    @Test
+    void picturesAndPlaceFieldsBehaveLikeTheOtherTripLists() throws Exception {
+        final Trip trip = Trip.builder().build();
+        assertTrue(trip.getPictures().isEmpty(), "A new trip has an empty (not null) picture list");
+        assertTrue(trip.getTags().isEmpty(), "and an empty tag list");
+        assertNull(trip.getCover(), "No pictures means no cover");
+
+        trip.getPictures().add(new TripPicture("tripPictures/t/1", "Cover", 1920, 1280, "#112233"));
+        trip.getPictures().add(new TripPicture("tripPictures/t/2", "Gallery", 960, 640, "#445566"));
+        assertEquals(trip.getCover().getKey(), "tripPictures/t/1", "Position 0 is the cover");
+        assertEquals(trip.getPicture("tripPictures/t/2").getAlt(), "Gallery");
+        assertNull(trip.getPicture("tripPictures/t/3"));
+        assertNull(trip.getPicture(null));
+        assertEquals(trip.getCover().getKeys(), List.of("tripPictures/t/1-480.jpg", "tripPictures/t/1-960.jpg",
+                "tripPictures/t/1-1920.jpg"), "Three renditions under one stem");
+
+        final List<String> mine = new ArrayList<>(List.of("retreat"));
+        trip.setTags(mine);
+        mine.clear();
+        assertEquals(trip.getTags(), List.of("retreat"), "The setter copies, callers cannot mutate through");
+        trip.setDestination("Medjugorje, Bosnia and Herzegovina");
+        trip.setCountry("BA");
+
+        final ObjectMapper mapper = DAO.getInstance().getMapper();
+        final Trip reread = mapper.readValue(mapper.writeValueAsString(trip), Trip.class);
+        assertEquals(reread.getPictures(), trip.getPictures(), "Pictures survive the stored JSON in order");
+        assertEquals(reread.getTags(), List.of("retreat"));
+        assertEquals(reread.getDestination(), "Medjugorje, Bosnia and Herzegovina");
+        assertEquals(reread.getCountry(), "BA");
+
+        final Trip legacy = mapper.readValue("{\"id\":\"t1\",\"title\":\"Older trip\"}", Trip.class);
+        assertTrue(legacy.getPictures().isEmpty(), "A pre-feature trip reads back with no pictures");
+        assertTrue(legacy.getTags().isEmpty(), "and no tags");
+        assertNull(legacy.getDestination());
+
+        trip.setPictures(null);
+        assertTrue(trip.getPictures().isEmpty(), "A null list reads as empty");
+        assertEquals(Trip.builder().pictures(null).tags(null).build().getPictures().size(), 0,
+                "The builder treats null as empty, like every other list here");
+    }
+
     @Test
     void newTripHasId() {
         final Trip trip = Trip.builder().build();

@@ -971,8 +971,8 @@ public class MediaCommands {
     }
 
     /**
-     * Whether {@code key} lives where a DIFFERENT feature or site reads: profile photos, chat photos and
-     * badge images index their whole prefixes, so a caller-chosen key under any of them would be writing
+     * Whether {@code key} lives where a DIFFERENT feature or site reads: profile photos, chat photos, badge
+     * images and trip pictures index their whole prefixes, so a caller-chosen key under any of them would be writing
      * into someone else's namespace; and {@code org/...} is an organization's namespace, which only that
      * org's own site may write (a shared host never writes under {@code org/} at all). A malformed key
      * counts as reserved -- there is no safe answer for it.
@@ -983,6 +983,7 @@ public class MediaCommands {
                 || cleanKey.startsWith(ProfilePhotos.PREFIX)
                 || cleanKey.startsWith(ChatPhotos.KEY_PREFIX)
                 || cleanKey.startsWith(BadgePhotoCommands.PREFIX)
+                || cleanKey.startsWith(TripPictureCommands.PREFIX)
                 || cleanKey.startsWith(ExpenseReceipts.KEY_PREFIX)
                 || isForeignOrgKey(cleanKey);
     }

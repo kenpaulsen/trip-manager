@@ -20,6 +20,10 @@ import java.util.List;
  * <p>{@code detailsUrl} (2026-11) is read-only: the absolute address of the trip's page as the apps embed it
  * ({@link #withDetailsUrl}); {@code description} is the legacy single-field details, rendered read-only until a
  * trip's page converts it (docs/conference.md "Legacy trips") and never edited by the website.
+ *
+ * <p>{@code pictures}, {@code destination}, {@code country} and {@code tags} (issue 154): the pictures are read-only
+ * here (position 0 is the cover; the {@code /pictures} endpoints change them), the other three are written on
+ * {@code POST}/{@code PUT} like the other details, a null leaving the stored value alone.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record TripDto(
@@ -47,7 +51,26 @@ public record TripDto(
         String kind,
         TripPaymentConfigDto paymentConfig,
         TripPageOptionsDto page,
-        String detailsUrl) {
+        String detailsUrl,
+        List<TripPictureDto> pictures,
+        String destination,
+        String country,
+        List<String> tags) {
+
+    /** The shape before pictures, destination, country and tags (issue 154), for the same reason as the others. */
+    public TripDto(final String id, final String title, final String description, final Boolean openToPublic,
+            final boolean chatEnabled, final LocalDateTime startDate, final LocalDateTime endDate,
+            final Integer regLimit, final String provider, final String orgId, final String language,
+            final String estimatedPrice, final String director, final String localGuide, final String facilitators,
+            final String flyerUrl, final String nonHostedTripUrl, final Integer nonHostedRegNumber,
+            final List<RegOptionDto> regOptions, final List<String> people, final List<TripEventDto> tripEvents,
+            final String kind, final TripPaymentConfigDto paymentConfig, final TripPageOptionsDto page,
+            final String detailsUrl) {
+        this(id, title, description, openToPublic, chatEnabled, startDate, endDate, regLimit, provider, orgId,
+                language, estimatedPrice, director, localGuide, facilitators, flyerUrl, nonHostedTripUrl,
+                nonHostedRegNumber, regOptions, people, tripEvents, kind, paymentConfig, page, detailsUrl, null, null,
+                null, null);
+    }
 
     /**
      * The shape before {@code kind} existed (2026-11): kept so a client and the tests that build a body without
@@ -107,7 +130,8 @@ public record TripDto(
     public TripDto withoutEvents() {
         return new TripDto(id, title, description, openToPublic, chatEnabled, startDate, endDate, regLimit,
                 provider, orgId, language, estimatedPrice, director, localGuide, facilitators, flyerUrl,
-                nonHostedTripUrl, nonHostedRegNumber, regOptions, people, null, kind, null, null, detailsUrl);
+                nonHostedTripUrl, nonHostedRegNumber, regOptions, people, null, kind, null, null, detailsUrl, pictures,
+                destination, country, tags);
     }
 
     /**
@@ -119,7 +143,8 @@ public record TripDto(
         return new TripDto(id, title, description, openToPublic, chatEnabled, startDate, endDate, regLimit,
                 provider, orgId, language, estimatedPrice, director, localGuide, facilitators, flyerUrl,
                 nonHostedTripUrl, nonHostedRegNumber, regOptions, people, tripEvents, kind,
-                paymentsAdmin ? paymentConfig : null, manager ? page : null, detailsUrl);
+                paymentsAdmin ? paymentConfig : null, manager ? page : null, detailsUrl, pictures, destination,
+                country, tags);
     }
 
     /** The same trip with this roster in place of its own (an {@code open} listing narrows it to the caller's). */
@@ -127,7 +152,7 @@ public record TripDto(
         return new TripDto(id, title, description, openToPublic, chatEnabled, startDate, endDate, regLimit,
                 provider, orgId, language, estimatedPrice, director, localGuide, facilitators, flyerUrl,
                 nonHostedTripUrl, nonHostedRegNumber, regOptions, narrowed, tripEvents, kind, paymentConfig, page,
-                detailsUrl);
+                detailsUrl, pictures, destination, country, tags);
     }
 
     /**
@@ -138,6 +163,18 @@ public record TripDto(
     public TripDto withDetailsUrl(final String url) {
         return new TripDto(id, title, description, openToPublic, chatEnabled, startDate, endDate, regLimit,
                 provider, orgId, language, estimatedPrice, director, localGuide, facilitators, flyerUrl,
-                nonHostedTripUrl, nonHostedRegNumber, regOptions, people, tripEvents, kind, paymentConfig, page, url);
+                nonHostedTripUrl, nonHostedRegNumber, regOptions, people, tripEvents, kind, paymentConfig, page, url,
+                pictures, destination, country, tags);
+    }
+
+    /**
+     * The same trip with its pictures as the resource resolved them (absolute URLs depend on the request, which the
+     * mapper does not have). Absent only from an older server; docs/api-contract.md "Trips".
+     */
+    public TripDto withPictures(final List<TripPictureDto> resolved) {
+        return new TripDto(id, title, description, openToPublic, chatEnabled, startDate, endDate, regLimit,
+                provider, orgId, language, estimatedPrice, director, localGuide, facilitators, flyerUrl,
+                nonHostedTripUrl, nonHostedRegNumber, regOptions, people, tripEvents, kind, paymentConfig, page,
+                detailsUrl, resolved, destination, country, tags);
     }
 }

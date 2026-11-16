@@ -146,3 +146,4 @@ caveat, is `.claude/rules/dependencies.md` (it loads with any `pom.xml`).
 | `migrations/` | one-time data migrations (`conference-import.md` holds the owner's rules) |
 | `code-map.md` | finding a bean by EL name; the conference / trip page / checkout / check-in overview |
 | `moderation.md`, `shared-itineraries.md`, `trip-delete.md` | those features |
+| `trip-pictures.md` | a trip's pictures, destination, country and tags; `TripPictureCommands` |

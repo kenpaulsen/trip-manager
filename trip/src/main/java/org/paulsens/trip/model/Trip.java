@@ -40,6 +40,9 @@ public final class Trip implements Serializable {
     @Serial
     private static final long serialVersionUID = 1L;
 
+    /** The cover plus up to eight gallery pictures (issue 154, owner decision 2026-11-16). */
+    public static final int MAX_PICTURES = 9;
+
     @JsonProperty("id")
     private String id;   // Trip ID
     @JsonProperty("title")
@@ -152,6 +155,28 @@ public final class Trip implements Serializable {
     private List<RegistrationOption> regOptions;        // Registration page questions
     @JsonProperty("badgeImages")
     private List<BadgeImage> badgeImages;               // Manager-uploaded itinerary-badge pictures
+    /**
+     * The trip's pictures (issue 154): position 0 is the cover every listing card shows, the rest a gallery for
+     * the trip's own page, at most {@link #MAX_PICTURES} in all. Written only by {@code TripPictureCommands}, which
+     * saves the stored row directly (the Required Documents pattern), so the editor's Save never adds or drops
+     * one. Read through the lazy getter; absent on every trip stored before pictures existed, which reads as none.
+     */
+    @JsonProperty("pictures")
+    @Getter(AccessLevel.NONE)
+    private List<TripPicture> pictures;
+    /** Where the trip goes, as people say it ("Medjugorje, Bosnia and Herzegovina"); free text, may be null. */
+    @JsonProperty("destination")
+    private String destination;
+    /** The destination's country as an ISO 3166-1 alpha-2 code ({@code BA}); null when not set. */
+    @JsonProperty("country")
+    private String country;
+    /**
+     * The trip's tags, as ids from the platform's fixed list ({@code KnownSettings.TRIP_TAGS}, read through
+     * {@code TripTags}). Read through the lazy getter; absent on older trips, which reads as none.
+     */
+    @JsonProperty("tags")
+    @Getter(AccessLevel.NONE)
+    private List<String> tags;
     /**
      * The {@link Organization} (tenancy boundary) offering this trip; null on legacy rows until the org
      * migration backfills. While both exist, {@link #provider} is a denormalized DISPLAY string synced from
@@ -601,6 +626,43 @@ public final class Trip implements Serializable {
         return getBadgeImages().stream().filter(img -> key.equals(img.getKey())).findAny().orElse(null);
     }
 
+    public List<TripPicture> getPictures() {
+        if (pictures == null) {
+            pictures = new ArrayList<>();
+        }
+        return pictures;
+    }
+
+    public void setPictures(final List<TripPicture> pictures) {
+        this.pictures = (pictures == null) ? new ArrayList<>() : new ArrayList<>(pictures);
+    }
+
+    /** The cover picture (position 0), or null when the trip has none. */
+    @JsonIgnore
+    public TripPicture getCover() {
+        return getPictures().isEmpty() ? null : getPictures().getFirst();
+    }
+
+    /** This trip's picture whose stem is {@code key}, or null: the belongs-to-THIS-trip check. */
+    @JsonIgnore
+    public TripPicture getPicture(final String key) {
+        if (key == null) {
+            return null;
+        }
+        return getPictures().stream().filter(pic -> key.equals(pic.getKey())).findAny().orElse(null);
+    }
+
+    public List<String> getTags() {
+        if (tags == null) {
+            tags = new ArrayList<>();
+        }
+        return tags;
+    }
+
+    public void setTags(final List<String> tags) {
+        this.tags = (tags == null) ? new ArrayList<>() : new ArrayList<>(tags);
+    }
+
     /**
      * Returns {@code true} if the the given person can join this Trip. This requires the Person to not already be on
      * the trip, and for the trip to not yet be started.
@@ -773,6 +835,8 @@ public final class Trip implements Serializable {
         private List<RegistrationOption> regOptions = new ArrayList<>();
         private List<BadgeImage> badgeImages = new ArrayList<>();
         private List<TripWaiver> waivers = new ArrayList<>();
+        private List<TripPicture> pictures = new ArrayList<>();
+        private List<String> tags = new ArrayList<>();
 
         public TripBuilder id(final String id) {
             this.id = (id == null) ? UUID.randomUUID().toString() : id;
@@ -818,6 +882,14 @@ public final class Trip implements Serializable {
         }
         public TripBuilder waivers(final List<TripWaiver> waivers) {
             this.waivers = (waivers == null) ? new ArrayList<>() : new ArrayList<>(waivers);
+            return this;
+        }
+        public TripBuilder pictures(final List<TripPicture> pictures) {
+            this.pictures = (pictures == null) ? new ArrayList<>() : new ArrayList<>(pictures);
+            return this;
+        }
+        public TripBuilder tags(final List<String> tags) {
+            this.tags = (tags == null) ? new ArrayList<>() : new ArrayList<>(tags);
             return this;
         }
     }

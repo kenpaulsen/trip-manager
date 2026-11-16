@@ -56,6 +56,20 @@ public final class KnownSettings {
                     + "domain. The site's own From addresses use these domains only.");
 
     /**
+     * The tags a trip editor may put on a trip (issue 154): ONE platform-wide list, so a visitor filtering trips
+     * across organizations sees one vocabulary. Comma-separated labels; a trip stores each tag's id, the label's
+     * lowercase slug ({@code TripTags}), so a label's capitalization can change without touching any trip.
+     * Starter list confirmed by the owner 2026-11-16.
+     */
+    public static final SettingDef TRIP_TAGS = new SettingDef(
+            "trip.tags", Config.Type.STRING,
+            "Pilgrimage, Retreat, Conference, Mission, Youth, Family, Study, Service, Tour",
+            "Trip tags",
+            "The tags trip editors can put on a trip, comma-separated, in the order the editor offers them. Every "
+                    + "organization uses this one list. Renaming a tag in a way that changes more than its "
+                    + "capitalization, or removing one, takes it off every trip that had it.");
+
+    /**
      * Org-EXPLICIT (see {@link SettingDef#isOrgOnly()}): the shared site's property must never collect an
      * organization site's traffic, so an org host emits a tag only when the org set its own id. The SITE's own
      * value is the shared hosts' id ({@code BrandCommands.getPageAnalyticsId}); blank there means no tag on them.
@@ -899,6 +913,8 @@ public final class KnownSettings {
                     List.of(FAMILY_MAX_MEMBERS)),
             new SettingSection("Registration", null,
                     List.of(REG_ALLOW_EDITS)),
+            new SettingSection("Trips", null,
+                    List.of(TRIP_TAGS)),
             new SettingSection("Scheduled trip messages",
                     "Each trip's messages are written and approved on its Communications page (Reports tab). "
                             + "Nothing here sends mail on its own.",

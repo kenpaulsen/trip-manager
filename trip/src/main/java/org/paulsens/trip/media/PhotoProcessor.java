@@ -11,7 +11,9 @@ import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.List;
 import java.util.function.Supplier;
 import javax.imageio.IIOImage;
 import javax.imageio.ImageIO;
@@ -74,6 +76,9 @@ public final class PhotoProcessor {
 
     /** How many halvings {@link #encodeJpegWithin} will try; 8 takes any plausible upload past the floor. */
     private static final int MAX_SHRINK_STEPS = 8;
+
+    /** The side of the small copy {@link #averageRgb} averages over: plenty for one color, and cheap. */
+    private static final int AVERAGE_SAMPLE_WIDTH = 32;
 
     /**
      * The quality ladder tried before any shrinking: at these sizes the difference between 0.9 and 0.5 is
@@ -222,6 +227,61 @@ public final class PhotoProcessor {
     public byte[] cropToBoundedJpeg(final byte[] original, final CropRect rect, final double aspect,
             final int maxWidth, final long maxBytes) {
         return budgeted(original, () -> boundedJpeg(cutOut(original, rect, aspect), maxWidth, maxBytes));
+    }
+
+    /**
+     * One trip picture's renditions (issue 154): JPEGs at each requested width, smallest first, the largest one's
+     * size, and the picture's average color for the placeholder a page paints before the image arrives.
+     */
+    public record PictureRenditions(List<byte[]> jpegs, int width, int height, int averageRgb) {
+    }
+
+    /**
+     * A trip picture: the region forced to {@code aspect} (null rect = the largest centered region of that shape),
+     * then one JPEG per width in {@code widths}. Nothing is enlarged: a width wider than the cut region is written
+     * at the region's own width, so the largest rendition never invents pixels and the caller warns instead. Every
+     * rendition is a fresh encode, so no EXIF (camera, GPS) survives; HEIC arrives here already decoded.
+     */
+    public PictureRenditions processPicture(final byte[] original, final CropRect rect, final double aspect,
+            final List<Integer> widths) {
+        return budgeted(original, () -> pictureRenditions(cutOut(original, rect, aspect), widths));
+    }
+
+    private static PictureRenditions pictureRenditions(final BufferedImage cut, final List<Integer> widths) {
+        final List<byte[]> jpegs = new ArrayList<>();
+        BufferedImage largest = cut;
+        for (final int width : widths) {
+            largest = fitWithin(cut, width, Integer.MAX_VALUE);
+            jpegs.add(encodeJpeg(largest, SMALL_JPEG_QUALITY));
+        }
+        return new PictureRenditions(List.copyOf(jpegs), largest.getWidth(), largest.getHeight(), averageRgb(cut));
+    }
+
+    /**
+     * The image's average color as {@code 0xRRGGBB}, transparent pixels counted as white the way
+     * {@link #encodeJpeg} flattens them, from a small copy so a 1920-pixel picture costs a thousand reads.
+     */
+    static int averageRgb(final BufferedImage img) {
+        final BufferedImage sample = img.getWidth() > AVERAGE_SAMPLE_WIDTH
+                ? resizeToWidth(img, AVERAGE_SAMPLE_WIDTH) : img;
+        long red = 0;
+        long green = 0;
+        long blue = 0;
+        final long count = (long) sample.getWidth() * sample.getHeight();
+        for (int y = 0; y < sample.getHeight(); y++) {
+            for (int x = 0; x < sample.getWidth(); x++) {
+                final int argb = sample.getRGB(x, y);
+                final int alpha = (argb >>> 24) & 0xFF;
+                red += onWhite((argb >> 16) & 0xFF, alpha);
+                green += onWhite((argb >> 8) & 0xFF, alpha);
+                blue += onWhite(argb & 0xFF, alpha);
+            }
+        }
+        return (int) (red / count) << 16 | (int) (green / count) << 8 | (int) (blue / count);
+    }
+
+    private static int onWhite(final int channel, final int alpha) {
+        return (channel * alpha + 0xFF * (0xFF - alpha)) / 0xFF;
     }
 
     private static byte[] boundedJpeg(final BufferedImage cut, final int maxWidth, final long maxBytes) {

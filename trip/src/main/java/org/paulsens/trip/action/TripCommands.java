@@ -218,6 +218,8 @@ public class TripCommands {
         // agree: a chat still listing people who are no longer on the trip is the wrong answer everywhere.
         final List<Person.Id> removed = peopleRemovedBy(trip);
         syncProviderFromOrg(trip);
+        keepStoredPictures(trip);
+        normalizePlace(trip, TripTags.current());
         try {
             result = DAO.getInstance().saveTrip(sortTripPeople(trip));
         } catch (final RuntimeException ex) {
@@ -266,6 +268,49 @@ public class TripCommands {
             return;
         }
         trip.setProvider(owner.getName());
+    }
+
+    /**
+     * A trip's pictures are written ONLY by {@link TripPictureCommands}, straight onto the stored row; every other
+     * save keeps what is stored. Without this, the trip editor's working copy (taken when the page opened) or a
+     * REST body would put back the list as it was before an upload or a delete made since, silently dropping a
+     * picture whose objects still exist or reviving one whose objects are gone. A brand-new trip has none to keep.
+     */
+    static void keepStoredPictures(final Trip trip) {
+        final Optional<Trip> stored;
+        try {
+            stored = DAO.getInstance().getTrip(trip.getId(), Cached.NO);
+        } catch (final RuntimeException ex) {
+            log.warn("Could not read trip {} to keep its pictures; saving the caller's list", trip.getId(), ex);
+            return;
+        }
+        stored.ifPresent(row -> trip.setPictures(row.getPictures()));
+    }
+
+    /**
+     * The place fields as they may be stored: a trimmed destination (blank is none), a real ISO country code or
+     * none, and only the tags the platform list offers ({@link TripTags#sanitize}), so every write path agrees.
+     */
+    static void normalizePlace(final Trip trip, final List<TripTags.Tag> offered) {
+        final String destination = trip.getDestination();
+        trip.setDestination(destination == null || destination.isBlank() ? null : destination.trim());
+        trip.setCountry(IsoCountries.normalize(trip.getCountry()));
+        trip.setTags(TripTags.sanitize(trip.getTags(), offered));
+    }
+
+    /** The countries the editor's Country menu offers, sorted by name. */
+    public List<IsoCountries.Country> getCountries() {
+        return IsoCountries.all();
+    }
+
+    /** The tags the editor's Tags menu offers, in the platform list's order. */
+    public List<TripTags.Tag> getTagChoices() {
+        return TripTags.current();
+    }
+
+    /** A trip's tag labels, comma-separated, for the editor's summary and the listing; "" when none. */
+    public String tagLabels(final Trip trip) {
+        return String.join(", ", TripTags.labelsOf(trip, TripTags.current()));
     }
 
     /**

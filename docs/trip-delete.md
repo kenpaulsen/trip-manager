@@ -63,6 +63,8 @@ LAST so a crash mid-cascade leaves a findable trip, and a re-run finishes the jo
    is the only handle on them.
 6. **Badge images** — `BadgePhotoCommands.deleteAllForTrip`: every key on `Trip.badgeImages` plus a store
    sweep of `badgeImages/{tripId}/` (superseded versions, never-saved uploads).
+   **Trip pictures** (issue 154) the same way: `TripPictureCommands.deleteAllForTrip` removes all three renditions
+   of every picture on `Trip.pictures`, then sweeps `tripPictures/{tripId}/` (an upload whose row save failed).
 7. **Lodging** — every `ReservationOffer` and `Reservation` in the trip's two partitions
    (`DAO.deleteLodgingForTrip`, raw reads so rows the cache never saw go too). Their lodging Bill rows are
    transactions and follow the transaction rule: never destroyed, soft-deleted by the blocker before the
@@ -96,4 +98,5 @@ they are the permanent record of the deletion itself.
 - `TripChatPurgeTest` — the chat cascade incl. invites and guest reverse rows.
 - `TripDeleteDaoTest` — the raw-table (production) enumeration shapes the in-memory store cannot exercise.
 - `BadgePhotoCommandsTest` — listed + stray badge sweeps, local and remote.
+- `TripPictureCommandsTest` -- the same for trip pictures.
 - `TripDeletePwIT` (webtest) — the page wiring: soft button + explanation, dialog, typed challenge, gone.

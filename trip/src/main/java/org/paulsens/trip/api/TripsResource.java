@@ -1,6 +1,7 @@
 package org.paulsens.trip.api;
 
 import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.DefaultValue;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.HeaderParam;
@@ -12,6 +13,8 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
@@ -30,6 +33,11 @@ import org.paulsens.trip.action.LodgingCommands;
 import org.paulsens.trip.action.LodgingViews;
 import org.paulsens.trip.action.TripPageCommands;
 import org.paulsens.trip.action.TripCommands;
+import org.paulsens.trip.action.TripPictureCommands;
+import org.paulsens.trip.action.PhotoUploadBean;
+import org.paulsens.trip.media.PhotoProcessor;
+import org.paulsens.trip.model.TripPicture;
+import org.paulsens.trip.api.dto.TripPictureDto;
 import org.paulsens.trip.api.dto.RegChoiceDto;
 import org.paulsens.trip.api.dto.RegOptionDto;
 import org.paulsens.trip.api.dto.SharedItineraryDto;
@@ -136,7 +144,28 @@ public class TripsResource extends BaseResource {
     }
 
     private TripDto listingDto(final Trip trip) {
-        return TripMapper.INSTANCE.toDto(trip).withoutEvents().withDetailsUrl(detailsUrl(trip));
+        return TripMapper.INSTANCE.toDto(trip).withoutEvents().withDetailsUrl(detailsUrl(trip))
+                .withPictures(pictureDtos(trip));
+    }
+
+    /**
+     * The trip's pictures with absolute URLs (issue 154), cover first. Public by URL like every CDN object, so a
+     * reader who may list the trip may see them; an empty list, never null, so a client can tell "none" from an
+     * older server (which sends no field at all).
+     */
+    private List<TripPictureDto> pictureDtos(final Trip trip) {
+        if (trip.getPictures().isEmpty()) {
+            return List.of();
+        }
+        final TripPictureCommands pictures = Beans.get(TripPictureCommands.class);
+        return trip.getPictures().stream().map(pic -> pictureDto(pictures, pic)).toList();
+    }
+
+    private TripPictureDto pictureDto(final TripPictureCommands pictures, final TripPicture pic) {
+        return new TripPictureDto(pic.getKey(), absoluteUrl(pictures.url(pic)),
+                absoluteUrl(pictures.url(pic, TripPicture.WIDTHS.get(0))),
+                absoluteUrl(pictures.url(pic, TripPicture.WIDTHS.get(1))),
+                pic.getAlt(), pic.getWidth(), pic.getHeight(), pic.getPlaceholder());
     }
 
     /**
@@ -794,7 +823,8 @@ public class TripsResource extends BaseResource {
                 dto.startDate(), dto.endDate(), dto.regLimit(), dto.provider(), dto.orgId(), dto.language(),
                 dto.estimatedPrice(), dto.director(), dto.localGuide(), dto.facilitators(), dto.flyerUrl(),
                 dto.nonHostedTripUrl(), dto.nonHostedRegNumber(), dto.regOptions(), dto.people(),
-                eventDtos(trip, me), dto.kind(), dto.paymentConfig(), dto.page(), detailsUrl(trip));
+                eventDtos(trip, me), dto.kind(), dto.paymentConfig(), dto.page(), detailsUrl(trip),
+                pictureDtos(trip), dto.destination(), dto.country(), dto.tags());
     }
 
     private static List<TripEventDto> eventDtos(final Trip trip, final Person.Id viewer) {
@@ -1135,5 +1165,141 @@ public class TripsResource extends BaseResource {
         if (body.nonHostedTripUrl() != null) {
             trip.setNonHostedTripUrl(body.nonHostedTripUrl());
         }
+        // Place fields (issue 154); TripCommands.saveTrip normalizes all three, dropping an unknown country or tag.
+        if (body.destination() != null) {
+            trip.setDestination(body.destination());
+        }
+        if (body.country() != null) {
+            trip.setCountry(body.country());
+        }
+        if (body.tags() != null) {
+            trip.setTags(body.tags());
+        }
+    }
+
+    // ------------------------------------------------------------------ pictures (issue 154)
+
+    /**
+     * Adds a picture at the end of the trip's list (the first one becomes the cover). A RAW body, like profile
+     * pictures: {@code image/*} or {@code application/octet-stream}, the optional crop in the four {@code crop*}
+     * query parameters (source pixels; it is shrunk to 3:2), and the optional description in {@code alt}. Answers
+     * the picture; a small one is stored and its {@code warning} says so. Same authority as the editor's Pictures
+     * dialog: the trip's managers, its organization's admins, site admins.
+     */
+    @POST
+    @Path("{tripId}/pictures")
+    @Consumes({"image/*", MediaType.APPLICATION_OCTET_STREAM})
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response addPicture(
+            @PathParam("tripId") final String tripId,
+            @HeaderParam(CSRF_HEADER) final String csrf,
+            @HeaderParam("Content-Length") final Long contentLength,
+            @QueryParam("alt") final String alt,
+            @QueryParam("cropX") final Integer cropX,
+            @QueryParam("cropY") final Integer cropY,
+            @QueryParam("cropW") final Integer cropW,
+            @QueryParam("cropH") final Integer cropH,
+            final InputStream body) {
+        if (csrfMissing(csrf)) {
+            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+        }
+        final PhotoProcessor.CropRect rect;
+        try {
+            rect = cropRect(cropX, cropY, cropW, cropH);
+        } catch (final IllegalArgumentException ex) {
+            return error(400, ApiErrors.BAD_REQUEST, ex.getMessage());
+        }
+        final java.util.Optional<byte[]> bytes;
+        try {
+            bytes = readUpload(body, contentLength, PhotoUploadBean.MAX_UPLOAD_BYTES);
+        } catch (final IOException ex) {
+            return error(400, ApiErrors.BAD_REQUEST, "The upload could not be read.");
+        }
+        if (bytes.isEmpty()) {
+            return error(413, ApiErrors.PAYLOAD_TOO_LARGE,
+                    "A picture can be at most " + (PhotoUploadBean.MAX_UPLOAD_BYTES / (1024 * 1024)) + " MB.");
+        }
+        if (bytes.get().length == 0) {
+            return error(400, ApiErrors.VALIDATION_FAILED, "The upload was empty.");
+        }
+        final TripPictureCommands pictures = Beans.get(TripPictureCommands.class);
+        return pictureResponse(pictures, pictures.add(caller(), tripId, bytes.get(), rect, alt));
+    }
+
+    /** Removes one picture (its key from {@code pictures[].key}); the objects go with it. */
+    @DELETE
+    @Path("{tripId}/pictures")
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response removePicture(
+            @PathParam("tripId") final String tripId,
+            @QueryParam("key") final String key,
+            @HeaderParam(CSRF_HEADER) final String csrf) {
+        if (csrfMissing(csrf)) {
+            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+        }
+        final TripPictureCommands pictures = Beans.get(TripPictureCommands.class);
+        return pictureResponse(pictures, pictures.remove(caller(), tripId, key));
+    }
+
+    /**
+     * Changes one picture: {@code {"key": ..., "position": n}} moves it to position {@code n} (0 makes it the
+     * cover), {@code {"key": ..., "alt": "..."}} sets its description; both may be given. Answers the trip's
+     * pictures in their new order.
+     */
+    @PUT
+    @Path("{tripId}/pictures")
+    @Consumes({V1, MediaType.APPLICATION_JSON})
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response changePicture(
+            @PathParam("tripId") final String tripId,
+            @HeaderParam(CSRF_HEADER) final String csrf,
+            final Map<String, Object> body) {
+        if (csrfMissing(csrf)) {
+            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+        }
+        final Object key = body == null ? null : body.get("key");
+        final Object position = body == null ? null : body.get("position");
+        if (!(key instanceof String) || position != null && !(position instanceof Number)
+                || position == null && !body.containsKey("alt")) {
+            return error(400, ApiErrors.VALIDATION_FAILED,
+                    "Give the picture's key and a numeric position, an alt, or both.");
+        }
+        final TripPictureCommands pictures = Beans.get(TripPictureCommands.class);
+        TripPictureCommands.PictureResult result = null;
+        if (body.containsKey("alt")) {
+            final Object alt = body.get("alt");
+            result = pictures.describe(caller(), tripId, (String) key, alt == null ? null : alt.toString());
+        }
+        if (position != null && (result == null || result.isOk())) {
+            result = pictures.move(caller(), tripId, (String) key, ((Number) position).intValue());
+        }
+        if (!result.isOk()) {
+            return pictureError(result);
+        }
+        final Trip trip = findTrip(tripId);
+        return ok(trip == null ? List.of() : pictureDtos(trip));
+    }
+
+    private Response pictureResponse(final TripPictureCommands pictures,
+            final TripPictureCommands.PictureResult result) {
+        if (!result.isOk()) {
+            return pictureError(result);
+        }
+        final Map<String, Object> answer = new LinkedHashMap<>();
+        answer.put("picture", pictureDto(pictures, result.picture()));
+        if (result.warning() != null) {
+            answer.put("warning", result.warning());
+        }
+        return ok(answer);
+    }
+
+    private Response pictureError(final TripPictureCommands.PictureResult result) {
+        return switch (result.status()) {
+            case NOT_FOUND -> error(404, ApiErrors.NOT_FOUND, result.message());
+            case FORBIDDEN -> error(403, ApiErrors.FORBIDDEN, result.message());
+            case LIMIT -> error(409, ApiErrors.CONFLICT, result.message());
+            case INVALID -> error(400, ApiErrors.VALIDATION_FAILED, result.message());
+            case FAILED, OK -> error(500, ApiErrors.STORE_FAILED, result.message());
+        };
     }
 }

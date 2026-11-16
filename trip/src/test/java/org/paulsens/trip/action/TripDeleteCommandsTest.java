@@ -278,6 +278,7 @@ public class TripDeleteCommandsTest {
         assertEquals(dao.getRatePlan(hotel.getId().getValue(), plan.getId(), Cached.NO).orElseThrow()
                 .getLinkedTripIds(), List.of("another-trip"), "the rate plan unlinks the deleted trip and no other");
         Mockito.verify(badges).deleteAllForTrip(Mockito.argThat(t -> tripId.equals(t.getId())));
+        Mockito.verify(lastPictures).deleteAllForTrip(Mockito.argThat(t -> tripId.equals(t.getId())));
 
         // The financial record survives, dangling on purpose. (The tx row itself is unobservable here:
         // local mode evicts soft-deleted transactions from the cache-as-store; the binding is the witness.)
@@ -517,8 +518,10 @@ public class TripDeleteCommandsTest {
     }
 
     private TripDeleteCommands siteAdmin(final BadgePhotoCommands badges) {
+        lastPictures = pictureMock();
+        final TripPictureCommands pictures = lastPictures;
         return new TripDeleteCommands(TripDeleteCommandsTest::siteAdminCaller,
-                () -> new OrgCommands(TripDeleteCommandsTest::siteAdminCaller), () -> badges);
+                () -> new OrgCommands(TripDeleteCommandsTest::siteAdminCaller), () -> badges, () -> pictures);
     }
 
     /** A non-admin caller, optionally holding the trip's Editor Admin ({@code tripMgr}) privilege. */
@@ -528,12 +531,21 @@ public class TripDeleteCommandsTest {
         final Caller caller = new Caller(person.getId(), false,
                 new AuditActor(person.getEmail(), person.getId().getValue()), privileges);
         return new TripDeleteCommands(() -> caller, () -> new OrgCommands(() -> caller),
-                TripDeleteCommandsTest::badgeMock);
+                TripDeleteCommandsTest::badgeMock, TripDeleteCommandsTest::pictureMock);
     }
 
     private static Caller siteAdminCaller() {
         return new Caller(Person.Id.from("site-admin"), true,
                 new AuditActor("admin@test", "admin"), grantsNothing());
+    }
+
+    /** The trip-picture cascade of the last {@link #siteAdmin(BadgePhotoCommands)} deleter, for verification. */
+    private TripPictureCommands lastPictures;
+
+    private static TripPictureCommands pictureMock() {
+        final TripPictureCommands pictures = Mockito.mock(TripPictureCommands.class);
+        Mockito.when(pictures.deleteAllForTrip(Mockito.any())).thenReturn(0);
+        return pictures;
     }
 
     private static BadgePhotoCommands badgeMock() {
