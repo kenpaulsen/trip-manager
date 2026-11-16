@@ -50,7 +50,9 @@ public class BrandColors {
     public BrandColors(final Supplier<Caller> callerSource) {
         this.callerSource = callerSource;
         this.orgs = new OrgCommands(callerSource);
-        this.orgSource = orgs::findOrganization;
+        // A lambda, not orgs::findOrganization: a method reference null-checks its target, which SpotBugs reads as a
+        // constructor that can throw (CT_CONSTRUCTOR_THROW).
+        this.orgSource = id -> this.orgs.findOrganization(id);
     }
 
     // ------------------------------------------------------------------ reads

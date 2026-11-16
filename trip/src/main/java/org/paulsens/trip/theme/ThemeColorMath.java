@@ -171,15 +171,16 @@ public final class ThemeColorMath {
         final double max = Math.max(r, Math.max(g, b));
         final double min = Math.min(r, Math.min(g, b));
         final double l = (max + min) / 2;
-        if (max == min) {
+        // Double.compare, not ==: max and min are copies of the channels, so exact equality is the intended test.
+        if (Double.compare(max, min) == 0) {
             return new double[] {0, 0, l};
         }
         final double d = max - min;
         final double s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
         final double h;
-        if (max == r) {
+        if (Double.compare(max, r) == 0) {
             h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
-        } else if (max == g) {
+        } else if (Double.compare(max, g) == 0) {
             h = ((b - r) / d + 2) / 6;
         } else {
             h = ((r - g) / d + 4) / 6;

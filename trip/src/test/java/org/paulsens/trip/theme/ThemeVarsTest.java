@@ -47,4 +47,17 @@ public class ThemeVarsTest {
         assertNull(ThemeVars.over("red", "#ffffff"));
         assertNull(ThemeVars.over("#123456", null));
     }
+
+    @Test
+    public void rgbTakesThreeOrFourPlainNumbersOnly() {
+        final Map<String, String> vars = Map.of("--spaced", "rgb( 0 , 128 , 255 )", "--two", "rgb(1, 2)",
+                "--five", "rgba(1, 2, 3, 0.5, 9)", "--signed", "rgb(-1, 2, 3)", "--dots", "rgb(1.2.3, 2, 3)",
+                "--percent", "rgb(10%, 2, 3)");
+        assertEquals(ThemeVars.resolve(vars, "--spaced"), "#0080ff");
+        assertNull(ThemeVars.resolve(vars, "--two"));
+        assertNull(ThemeVars.resolve(vars, "--five"));
+        assertNull(ThemeVars.resolve(vars, "--signed"), "a sign is not a plain number");
+        assertNull(ThemeVars.resolve(vars, "--dots"), "not a number at all");
+        assertNull(ThemeVars.resolve(vars, "--percent"), "percent channels are not what the Sass build writes");
+    }
 }

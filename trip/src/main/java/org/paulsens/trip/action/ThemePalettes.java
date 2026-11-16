@@ -79,7 +79,7 @@ public class ThemePalettes {
 
     /** The org palettes' store (test seam). */
     @Setter
-    private CustomPalettes customPalettes = CustomPalettes.getInstance();
+    private CustomPalettes customPalettes = new CustomPalettes();
 
     /** Test seam: a theme name ({@code freya-blue-light}) to its compiled stylesheet's text, or null. */
     @Setter

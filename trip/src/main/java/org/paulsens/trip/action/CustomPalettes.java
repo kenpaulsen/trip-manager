@@ -180,8 +180,6 @@ public class CustomPalettes {
      */
     private static final AtomicReference<Map<String, Map<String, Map<String, String>>>> SHARED_MANIFEST =
             new AtomicReference<>();
-    /** The instance BrandCommands and ThemePalettes draw with (the codebase's INSTANCE / getInstance shape). */
-    private static final CustomPalettes INSTANCE = new CustomPalettes();
 
     /** An instance's own manifest, used only when a test set {@link #manifestSource}. */
     private final AtomicReference<Map<String, Map<String, Map<String, String>>>> manifest = new AtomicReference<>();
@@ -209,12 +207,9 @@ public class CustomPalettes {
     public CustomPalettes(final Supplier<Caller> callerSource) {
         this.callerSource = callerSource;
         this.orgs = new OrgCommands(callerSource);
-        this.orgSource = orgs::findOrganization;
-    }
-
-    /** The instance BrandCommands and ThemePalettes draw with; every instance shares the one manifest read. */
-    public static CustomPalettes getInstance() {
-        return INSTANCE;
+        // A lambda, not orgs::findOrganization: a method reference null-checks its target, which SpotBugs reads as a
+        // constructor that can throw (CT_CONSTRUCTOR_THROW).
+        this.orgSource = id -> this.orgs.findOrganization(id);
     }
 
     // ------------------------------------------------------------------ reads

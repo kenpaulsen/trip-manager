@@ -25,8 +25,9 @@ public final class ThemeVars {
 
     private static final Pattern DECLARATION = Pattern.compile("(--[A-Za-z0-9-]+)\\s*:\\s*([^;}]*)");
     private static final Pattern VAR = Pattern.compile("var\\(\\s*(--[A-Za-z0-9-]+)\\s*(?:,\\s*(.*))?\\)");
-    private static final Pattern RGB = Pattern.compile(
-            "rgba?\\(\\s*([0-9.]+)\\s*,\\s*([0-9.]+)\\s*,\\s*([0-9.]+)\\s*(?:,\\s*([0-9.]+)\\s*)?\\)");
+    /** The argument list is split on commas in {@link #rgb}, not matched channel by channel (REDOS). */
+    private static final Pattern RGB = Pattern.compile("rgba?\\(([^()]*)\\)");
+    private static final Pattern NUMBER = Pattern.compile("[0-9.]+");
     private static final Pattern MIX_TRANSPARENT = Pattern.compile(
             "color-mix\\(\\s*in srgb\\s*,\\s*(.+?)\\s+([0-9.]+)%\\s*,\\s*transparent\\s*\\)");
     /** Deeper than any real chain (the custom theme's longest is three); a cycle ends here too. */
@@ -85,9 +86,7 @@ public final class ThemeVars {
         }
         final Matcher rgb = RGB.matcher(text.toLowerCase(Locale.ROOT));
         if (rgb.matches()) {
-            final double alpha = rgb.group(4) == null ? 1 : Double.parseDouble(rgb.group(4));
-            return ThemeColorMath.hex(new double[] {Double.parseDouble(rgb.group(1)),
-                Double.parseDouble(rgb.group(2)), Double.parseDouble(rgb.group(3)), alpha});
+            return rgb(rgb.group(1));
         }
         final Matcher mix = MIX_TRANSPARENT.matcher(text);
         if (mix.matches()) {
@@ -96,5 +95,26 @@ public final class ThemeVars {
                 base[3] * Double.parseDouble(mix.group(2)) / 100});
         }
         return null;
+    }
+
+    /** {@code r, g, b[, a]} as decimal numbers to {@code #rrggbb(aa)}; anything else is null. */
+    private static String rgb(final String args) {
+        final String[] parts = args.split(",", -1);
+        if (parts.length != 3 && parts.length != 4) {
+            return null;
+        }
+        final double[] channels = {0, 0, 0, 1};
+        for (int i = 0; i < parts.length; i++) {
+            final String part = parts[i].trim();
+            if (!NUMBER.matcher(part).matches()) {
+                return null;
+            }
+            try {
+                channels[i] = Double.parseDouble(part);
+            } catch (final NumberFormatException ex) {
+                return null;
+            }
+        }
+        return ThemeColorMath.hex(channels);
     }
 }

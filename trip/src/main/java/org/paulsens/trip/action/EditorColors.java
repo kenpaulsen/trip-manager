@@ -83,7 +83,9 @@ public class EditorColors {
 
     public EditorColors() {
         final OrgCommands orgs = new OrgCommands();
-        this.orgSource = orgs::findOrganization;
+        // A lambda, not orgs::findOrganization: a method reference null-checks its target, which SpotBugs reads as a
+        // constructor that can throw (CT_CONSTRUCTOR_THROW).
+        this.orgSource = id -> orgs.findOrganization(id);
     }
 
     /**
@@ -168,7 +170,7 @@ public class EditorColors {
         }
         final CustomPalette custom = look == null ? null : look.customPalette();
         if (custom != null) {
-            CustomPalettes.getInstance().inputs(custom, dark).forEach((input, color) -> vars.put("--ct-" + input,
+            new CustomPalettes().inputs(custom, dark).forEach((input, color) -> vars.put("--ct-" + input,
                     color));
         }
         BrandColors.colorsOf(org).forEach(color -> vars.put(color.varName(), color.valueFor(dark)));

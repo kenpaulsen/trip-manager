@@ -172,7 +172,7 @@ public class BrandCommands {
     private Supplier<CustomPalette> paletteEditorSource = this::editedPalette;
 
     /** The org palettes' store: the instance every palette-drawing bean shares. */
-    private final CustomPalettes palettes = CustomPalettes.getInstance();
+    private final CustomPalettes palettes = new CustomPalettes();
 
     /** Test seam: the org behind an org host (a failed read is the neutral look, never a broken page). */
     @Setter
