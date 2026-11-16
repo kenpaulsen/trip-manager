@@ -168,7 +168,7 @@ public class ReminderHtmlTest {
         final String logo = "<p>Logo <img src=\"data:image/png;base64," + "A".repeat(ReminderHtml.MAX_TAG * 4)
                 + "\"></p>";
         assertTrue(ReminderHtml.hasUnreadableTag(logo));
-        assertTrue(ReminderHtml.dropsSomething(logo));
+        assertTrue(dropped(logo));
         assertTrue(ReminderHtml.clean(logo).contains("&lt;img src="), "Why the save refuses it");
         assertTrue(ReminderHtml.hasUnreadableTag("<p>an image never closed <img src=\"x\""));
         assertTrue(ReminderHtml.hasUnreadableTag("<p>x</p></" + "p".repeat(ReminderHtml.MAX_TAG) + " more"));
@@ -176,8 +176,8 @@ public class ReminderHtmlTest {
         assertFalse(ReminderHtml.hasUnreadableTag(null));
         assertFalse(ReminderHtml.hasUnreadableTag("plain < text, 1 <2"), "a < with no tag name is text");
         assertFalse(ReminderHtml.hasUnreadableTag("ends in <a"), "a bare name at the end is text, as the cleaner says");
-        assertFalse(ReminderHtml.dropsSomething("ends in <a"));
-        assertFalse(ReminderHtml.dropsSomething("plain < text"));
+        assertFalse(dropped("ends in <a"));
+        assertFalse(dropped("plain < text"));
     }
 
     @Test
@@ -224,7 +224,7 @@ public class ReminderHtmlTest {
             assertEquals(ReminderHtml.clean(cleaned), cleaned, text.id());
             assertTrue(cleaned.contains("href=\"{{"), text.id() + " keeps its link: " + cleaned);
             assertTrue(cleaned.contains("{{firstName}}"), text.id());
-            assertFalse(ReminderHtml.dropsSomething(text.body()), text.id());
+            assertFalse(dropped(text.body()), text.id());
         }
     }
 
@@ -239,12 +239,12 @@ public class ReminderHtmlTest {
                 + "<p><a href=\"https://example.com/pay\" rel=\"noopener noreferrer\" target=\"_blank\">Pay</a> or "
                 + "<a href=\"tel:+15551234567\" rel=\"noopener noreferrer\" target=\"_blank\">call</a> or "
                 + "<a href=\"{{paymentLink}}\">here</a> 1 < 2 > 0 <!-- a note --></p>  ";
-        assertFalse(ReminderHtml.dropsSomething(quill));
+        assertFalse(dropped(quill));
         assertFalse(ReminderHtml.clean(quill).equals(quill.trim()), "Normalized, so a comparison would misfire");
-        assertFalse(ReminderHtml.dropsSomething(null));
-        assertFalse(ReminderHtml.dropsSomething(""));
-        assertFalse(ReminderHtml.dropsSomething("<p style=\"\" class=\"\">t</p>"), "Empty: nothing to see");
-        assertFalse(ReminderHtml.dropsSomething("<a href=\"https://a.test\" href=\"javascript:x\">t</a>"),
+        assertFalse(dropped(null));
+        assertFalse(dropped(""));
+        assertFalse(dropped("<p style=\"\" class=\"\">t</p>"), "Empty: nothing to see");
+        assertFalse(dropped("<a href=\"https://a.test\" href=\"javascript:x\">t</a>"),
                 "A second address is ignored by a browser too");
     }
 
@@ -257,7 +257,12 @@ public class ReminderHtmlTest {
                 "<p><a href=\"javascript:alert(1)\">x</a></p>", "<p><a href=\"example.com/pay\">pay</a></p>",
                 "<p><a href=\"\">x</a></p>", "<p class=\"ql-hidden\">x</p>", "<table><tr><td>x</td></tr></table>",
                 "text</font>")) {
-            assertTrue(ReminderHtml.dropsSomething(lost), lost);
+            assertTrue(dropped(lost), lost);
         }
+    }
+
+    /** Whether cleaning {@code html} dropped something the writer could see. */
+    private static boolean dropped(final String html) {
+        return ReminderHtml.cleanNoting(html).dropped();
     }
 }

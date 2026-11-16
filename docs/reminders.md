@@ -126,9 +126,10 @@ still stores the draft but then warns "Some formatting this message cannot carry
 is not a full web, email or phone address) was removed. Check the preview." The cleaner itself reports the drop
 (`ReminderHtml.cleanNoting`, the same single pass that produces the stored body, noting each tag, style, class or
 address it refuses); a string comparison would fire on every body, since cleaning always rewrites a link's
-`rel`/`target`, escapes and trims. A pasted IMAGE is refused outright instead: its data address runs to thousands
-of characters, past `MAX_TAG`, so the cleaner could only write it out as that much visible text
-(`ReminderHtml.hasUnreadableTag`; "Something pasted into this message (usually an image) is too large to send").
+`rel`/`target`, escapes and trims. A small image (a remote `https://` one) is dropped with that warning, but a
+pasted image whose tag runs past `MAX_TAG` (any data address of real size) is refused outright: the cleaner could
+only write it out as that much visible text (`ReminderHtml.hasUnreadableTag`; "Something pasted into this message
+(usually an image) is too large to send").
 Quill 2 writes every list as `<ol>` and marks bullets with `data-list`; the cleaner writes a bullet list as `<ul>`
 so a mail client shows bullets.
 
@@ -136,8 +137,9 @@ It runs when a message is saved and again at EVERY place the stored body is writ
 (`formFor`), `ReminderText.renderBody` (the clean-then-merge helper behind the preview and the test email), and
 the send, which cleans the body once in `ReminderSender.sendAll` and merges it per traveler with
 `ReminderText.render`. The raw body is refused above `MAX_RAW_BODY` before it is cleaned, and a save is refused
-when a link's tag runs past `ReminderHtml.MAX_TAG` (an address of about 1,950 characters or more): the cleaner
-would otherwise write that link out as visible text. Never clean this body with
+when any tag runs past `ReminderHtml.MAX_TAG` (a link's, an address of about 1,950 characters or more, gets its own
+message): the cleaner would otherwise write that tag out as visible text. "Add suggested messages" never copies
+such a tag either: an org starter template holding one falls back to the built-in text. Never clean this body with
 `WaiverHtml.sanitize`: that is a blocklist for text only an org admin writes, and the first review found three
 bodies it passes unchanged (`ReminderHtmlTest` pins them).
 

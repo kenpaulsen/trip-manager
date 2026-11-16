@@ -25,7 +25,7 @@ import java.util.regex.Pattern;
  * <p>What is kept is what the page's editor (Quill 2, inside PrimeFaces) writes: paragraphs, line breaks,
  * bold, italic, underline, strike, links, lists, headings, block quotes, and the handful of {@code ql-} layout
  * classes named in {@link #QUILL_CLASS}. Inline styles and images are deliberately not kept, and the page's
- * toolbar does not offer them; a paste can still bring them, and {@link #dropsSomething} lets the save say so.
+ * toolbar does not offer them; a paste can still bring them, and {@link #cleanNoting} lets the save say so.
  *
  * <p>Quill 2 writes EVERY list as {@code <ol>} and says "bullet" only with {@code data-list} on each item. That
  * attribute is kept (the editor needs it to reopen the list as it was), and an {@code <ol>} whose first item is
@@ -77,29 +77,25 @@ public final class ReminderHtml {
     }
 
     /**
-     * Whether cleaning this body removes something its writer could see: a tag that is not on the list (an image,
-     * a video, a table), an inline style (a color, a background), a class that is not one of Quill's kept ones,
-     * a link address that is refused (which leaves the link's text in an {@code <a>} that goes nowhere), or a
-     * tag too long to read (written out as its own text). The save tells the facilitator, rather than reporting
-     * plain success over a body that lost them.
+     * A clean body and whether cleaning it removed something its writer could see: a tag that is not on the list
+     * (an image, a video, a table), an inline style (a color, a background), a class that is not one of Quill's
+     * kept ones, a link address that is refused (which leaves the link's text in an {@code <a>} that goes
+     * nowhere), or a tag too long to read (written out as its own text). The save tells the facilitator, rather
+     * than reporting plain success over a body that lost them.
      *
-     * <p>Answered by the cleaner itself, noting each drop where it happens, and NOT by comparing the cleaned body
-     * with the raw one: the cleaner always rewrites what it keeps (the fixed {@code rel} and {@code target} on a
-     * link, escaped {@code <} and {@code >}, trimmed whitespace, an {@code <ol>} of bullets written as
-     * {@code <ul>}), so nearly every body Quill writes differs from its clean copy. What is invisible is not
-     * counted either: a comment, Quill's {@code contenteditable} on a list marker, a link's own {@code rel}.
+     * <p>{@code dropped} is answered by the cleaner itself, noting each drop where it happens, and NOT by
+     * comparing the cleaned body with the raw one: the cleaner always rewrites what it keeps (the fixed
+     * {@code rel} and {@code target} on a link, escaped {@code <} and {@code >}, trimmed whitespace, an
+     * {@code <ol>} of bullets written as {@code <ul>}), so nearly every body Quill writes differs from its clean
+     * copy. What is invisible is not counted either: a comment, Quill's {@code contenteditable} on a list marker,
+     * a link's own {@code rel}.
      */
-    public static boolean dropsSomething(final String html) {
-        return cleanNoting(html).dropped();
-    }
-
-    /** A clean body and whether cleaning it dropped something ({@link #dropsSomething}), from ONE pass. */
     public record Cleaned(String body, boolean dropped) {
     }
 
     /**
-     * {@link #clean} and {@link #dropsSomething} together, for a caller that needs both (the save): one pass of
-     * the cleaner, so the stored body and the warning are always about the same input.
+     * {@link #clean}, noting what it dropped ({@link Cleaned}): ONE pass, so a caller that stores the body and
+     * warns about what it lost (the save) judges both on the same input.
      */
     public static Cleaned cleanNoting(final String html) {
         final Drops drops = new Drops();
@@ -173,37 +169,40 @@ public final class ReminderHtml {
      * Whether the body holds a link opening ({@code <a ...}) that the cleaner would write out as text: one with
      * no {@code >} within {@link #MAX_TAG} characters (an address of about 1,950 characters or more, or a tag
      * never closed). The save refuses such a body, rather than mailing the raw tag and its address as words.
-     * Stops at the first one, and each link that IS a tag is scanned once, so the cost is linear.
      */
     static boolean hasUnreadableLink(final String html) {
-        if (html == null) {
-            return false;
-        }
-        for (int at = html.indexOf('<'); at >= 0; at = html.indexOf('<', at + 1)) {
-            if (opensTag(html, at, "a")) {
-                final int end = tagEnd(html, at);
-                if (end < 0) {
-                    return true;
-                }
-                at = end;
-            }
-        }
-        return false;
+        return hasUnreadable(html, LINK);
     }
 
     /**
      * Whether the body holds any tag the cleaner would write out as text: a {@code <} and a tag name, then no
      * {@code >} within {@link #MAX_TAG} characters. In practice a pasted image, whose data address runs to
      * thousands of characters: it would reach every traveler as that many characters of visible text, so the
-     * save refuses it (after {@link #hasUnreadableLink}, whose refusal names the link). Stops at the first one,
-     * and each tag that IS readable is scanned once, so the cost is linear.
+     * save refuses it (after {@link #hasUnreadableLink}, whose refusal names the link).
      */
     static boolean hasUnreadableTag(final String html) {
+        return hasUnreadable(html, ReminderHtml::startsTagName);
+    }
+
+    /** Where a tag the unreadable-tag scan cares about opens: {@code (html, at)} for each {@code <}. */
+    @FunctionalInterface
+    private interface Opening {
+        boolean at(String html, int at);
+    }
+
+    private static final Opening LINK = (html, at) -> opensTag(html, at, "a");
+
+    /**
+     * The ONE scan behind both refusals: the first {@code <} where {@code opening} says a tag opens and no
+     * {@code >} follows within {@link #MAX_TAG}. Stops at the first one, and each opening that IS a tag is
+     * skipped past once read, so the cost is linear.
+     */
+    private static boolean hasUnreadable(final String html, final Opening opening) {
         if (html == null) {
             return false;
         }
         for (int at = html.indexOf('<'); at >= 0; at = html.indexOf('<', at + 1)) {
-            if (startsTagName(html, at)) {
+            if (opening.at(html, at)) {
                 final int end = tagEnd(html, at);
                 if (end < 0) {
                     return true;
@@ -407,7 +406,7 @@ public final class ReminderHtml {
         return WEB_ADDRESS.matcher(value).matches() || LINK_TOKEN.matcher(value).matches();
     }
 
-    /** What one clean noted as dropped (see {@link #dropsSomething}); set where a drop happens, never cleared. */
+    /** What one clean noted as dropped (see {@link Cleaned}); set where a drop happens, never cleared. */
     private static final class Drops {
         private boolean any;
     }

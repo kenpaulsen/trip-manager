@@ -556,9 +556,11 @@ public class ReminderCommands {
         final ReminderDefaults.Text builtIn = ReminderDefaults.text(templateId);
         final ContentTemplate stored = new TemplateCommands().resolveForOrg(templateId, orgId);
         if (stored == null || stored.getKind() != TemplateKind.MAIL
-                || !ReminderText.unknownTokens(stored.getName() + stored.getBody()).isEmpty()) {
-            // A missing template, or one reworded with a placeholder this page cannot fill, falls back to the
-            // text that is known to render rather than putting a broken draft in front of the facilitator.
+                || !ReminderText.unknownTokens(stored.getName() + stored.getBody()).isEmpty()
+                || ReminderHtml.hasUnreadableTag(stored.getBody())) {
+            // A missing template, one reworded with a placeholder this page cannot fill, or one holding a tag too
+            // long to read (a pasted image the save would refuse) falls back to the text that is known to render
+            // rather than putting a broken draft in front of the facilitator.
             return builtIn;
         }
         return new ReminderDefaults.Text(templateId, stored.getName(), builtIn.description(), stored.getBody());

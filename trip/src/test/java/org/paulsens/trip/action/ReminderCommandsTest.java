@@ -14,14 +14,17 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.cache.NoopCacheClient;
+import org.paulsens.trip.content.ReminderDefaults;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.model.BindingType;
+import org.paulsens.trip.model.ContentTemplate;
 import org.paulsens.trip.model.Family;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Passport;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Registration;
+import org.paulsens.trip.model.TemplateKind;
 import org.paulsens.trip.model.Transaction;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripReminder;
@@ -1214,6 +1217,31 @@ public class ReminderCommandsTest {
         final TripReminder stored = stored(trip, pasted.getId());
         assertEquals(stored.getBody(), "<p><span>Pay by Friday</span>  <a>pay</a></p>");
         assertEquals(stored.getStatus(), TripReminder.Status.DRAFT);
+    }
+
+    /**
+     * "Add suggested messages" copies the org's starter template, which the template editor does not clean. One
+     * holding a pasted image too long to read would become a draft of thousands of characters of visible text,
+     * so the built-in text is used instead, as for a template with a placeholder the page cannot fill.
+     */
+    @Test
+    public void aStarterTemplateHoldingAnUnreadableImageFallsBackToTheBuiltInText() {
+        final Organization org = DAO.getInstance().getOrganization(Organization.Id.from(orgId), Cached.NO)
+                .orElseThrow();
+        final String copyId = TemplateCommands.orgCopyId(ReminderDefaults.BALANCE_DUE_ID, org);
+        final String body = "<p>Logo <img src=\"data:image/png;base64," + "A".repeat(ReminderHtml.MAX_TAG * 4)
+                + "\"></p>";
+        final ContentTemplate copy = new ContentTemplate(copyId, 0, "Pay up", "x", body, List.of(), null, null,
+                TemplateKind.MAIL, null, null, null);
+        copy.setOrgId(orgId);
+        try {
+            assertTrue(DAO.getInstance().saveTemplate(copy, 5));
+            final ReminderDefaults.Text text = ReminderCommands.startingText(ReminderDefaults.BALANCE_DUE_ID, orgId);
+            assertEquals(text, ReminderDefaults.text(ReminderDefaults.BALANCE_DUE_ID), "the built-in text");
+            assertFalse(ReminderCommands.cleanBody(text.body()).contains("&lt;img"));
+        } finally {
+            DAO.getInstance().deleteTemplate(copyId);
+        }
     }
 
     /**
