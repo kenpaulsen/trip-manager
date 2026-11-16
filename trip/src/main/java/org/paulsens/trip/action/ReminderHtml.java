@@ -143,9 +143,7 @@ public final class ReminderHtml {
             return false;
         }
         for (int at = html.indexOf('<'); at >= 0; at = html.indexOf('<', at + 1)) {
-            final boolean link = html.regionMatches(true, at, "<a", 0, 2)
-                    && (at + 2 == html.length() || !isLetter(html.charAt(at + 2)));
-            if (link) {
+            if (opensTag(html, at, "a")) {
                 final int end = tagEnd(html, at);
                 if (end < 0) {
                     return true;
@@ -154,6 +152,18 @@ public final class ReminderHtml {
             }
         }
         return false;
+    }
+
+    /**
+     * Whether the tag {@code <name} opens at {@code at}, any case: the name, then a character that is not a
+     * letter ({@code <a>} or {@code <a href}, never {@code <abbr}). A name at the very end of the text opens
+     * nothing: with no character after it there is no tag to close, so the cleaner writes it out as text, and
+     * nothing that reads tags may treat it otherwise.
+     */
+    private static boolean opensTag(final String html, final int at, final String name) {
+        final int after = at + 1 + name.length();
+        return after < html.length() && html.regionMatches(true, at, "<" + name, 0, after - at)
+                && !isLetter(html.charAt(after));
     }
 
     private static boolean isLetter(final char c) {
@@ -195,8 +205,7 @@ public final class ReminderHtml {
      */
     private static String openList(final String html, final int afterOl, final Deque<String> lists) {
         final int next = html.indexOf('<', afterOl);
-        final boolean item = next >= 0 && html.regionMatches(true, next, "<li", 0, 3)
-                && next + 3 < html.length() && !isLetter(html.charAt(next + 3));
+        final boolean item = next >= 0 && opensTag(html, next, "li");
         final int itemEnd = item ? tagEnd(html, next) : -1;
         final boolean bullets = itemEnd > 0 && isBullet(attributesOf("li", html.substring(next + 3, itemEnd)));
         lists.push(bullets ? "ul" : "ol");

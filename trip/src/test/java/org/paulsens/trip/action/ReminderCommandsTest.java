@@ -1131,10 +1131,11 @@ public class ReminderCommandsTest {
             assertTrue(tester.sendTest(trip.getId(), id, "here@example.com"), "send " + i);
         }
         assertFalse(tester.sendTest(trip.getId(), id, "here@example.com"), "One more than the cap, counted here");
+        // In the SAME hour, while the first person is at the cap: passes only if each person is counted apart.
+        assertTrue(noCountingCache(TestCallers.siteAdmin(), hour).sendTest(trip.getId(), id, "here@example.com"),
+                "Each person has their own count");
         assertTrue(noCountingCache(caller, hour.plusSeconds(3600)).sendTest(trip.getId(), id, "here@example.com"),
                 "A new hour starts a new count");
-        assertTrue(noCountingCache(TestCallers.siteAdmin(), hour.plusSeconds(3600))
-                .sendTest(trip.getId(), id, "here@example.com"), "Each person has their own count");
     }
 
     private ReminderCommands noCountingCache(final Caller caller, final Instant now) {

@@ -114,9 +114,11 @@ public final class ReminderText {
     /**
      * {@code text} as HTML with every known token replaced: the mail BODY. A value is HTML-escaped; a known
      * token with no value becomes empty (a countdown message has no balance), and an unknown token is left as
-     * typed, which only a message that skipped {@link #unknownTokens} can contain.
+     * typed, which only a message that skipped {@link #unknownTokens} can contain. Does NOT clean: the caller
+     * passes a body already cleaned by {@link ReminderHtml#clean} (the send, once per send); a stored body goes
+     * through {@link #renderBody}. Package-private so no page or other package can skip the cleaning.
      */
-    public static String render(final String text, final Map<String, String> values) {
+    static String render(final String text, final Map<String, String> values) {
         return substitute(text, values, true);
     }
 

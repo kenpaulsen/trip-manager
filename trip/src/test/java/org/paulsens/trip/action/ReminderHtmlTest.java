@@ -174,6 +174,8 @@ public class ReminderHtmlTest {
         assertFalse(ReminderHtml.hasUnreadableLink("<p><a>x</a><A HREF='https://example.com'>y</A></p>"));
         assertFalse(ReminderHtml.hasUnreadableLink(null));
         assertFalse(ReminderHtml.hasUnreadableLink("plain < text"));
+        assertFalse(ReminderHtml.hasUnreadableLink("ends in <a"), "a bare <a at the end is text, as the cleaner says");
+        assertEquals(ReminderHtml.clean("ends in <a"), "ends in &lt;a");
     }
 
     @Test
