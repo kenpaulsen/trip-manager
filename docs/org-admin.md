@@ -1202,9 +1202,10 @@ modes); the rich-text editors' color buttons offer theme colors and brand colors
   `var(--name, #rrggbb)`: the page follows palette and dark mode, and print and the shared site draw the fallback.
   The phone apps carry no theme stylesheet, so the REST look hands them every editor color per mode
   (`OrgBrandingDto.editorColors`, `EditorColors.modeValues`, beside `brandColors`) for their rich-text wrappers to
-  declare on a fragment's root. Neither app declares them yet, and that work is not yet planned; until both do, the
-  apps draw each fallback, so a pale highlight sits under their white dark-mode text. A `mailEditor` (mail merge, MAIL
-  templates) inserts the `#rrggbb` alone. Deleting a brand color rewrites nothing: text in it keeps its fallback and
+  declare on a fragment's root. Both apps declare them (2026-11-16) on the rich-text web views they render server
+  HTML in (trip documents, a trip description), for the reader's current scheme; an app build from before then draws
+  each fallback, so a pale highlight sits under its white dark-mode text. A `mailEditor` (mail merge, MAIL templates)
+  inserts the `#rrggbb` alone. Deleting a brand color rewrites nothing: text in it keeps its fallback and
   stops following dark mode, which the Delete confirm says.
 - **Appearance tab**: a Brand colors fieldset under Appearance lists each color (light and dark swatches, name, how it
   reads as text on the org's cards in each mode, `BrandColors.readNote`), with Edit and Delete (ids on `f:param`s) and

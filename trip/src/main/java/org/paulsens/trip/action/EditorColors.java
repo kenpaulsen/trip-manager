@@ -32,9 +32,9 @@ import org.paulsens.trip.theme.ThemeVars;
  *
  * <p>Each swatch carries its custom property AND the org's current light value for it, resolved here from the org's
  * theme ({@link ThemeVars}). A web editor inserts {@code var(--name, #rrggbb)}: the page follows the palette and dark
- * mode, and a place without the theme's variables (print, the shared site, and the phone apps, which do not yet
- * declare the REST look's {@link #modeValues} themselves; that app work is not yet planned) draws the fallback. An
- * email editor inserts the {@code #rrggbb} alone, since mail clients have no variables.
+ * mode, and a place without the theme's variables (print, the shared site, and phone-app builds from before
+ * 2026-11-16; current apps declare the REST look's {@link #modeValues} on their rich-text views) draws the fallback.
+ * An email editor inserts the {@code #rrggbb} alone, since mail clients have no variables.
  *
  * <p>Tenancy: a brand color's NAME is its org's own configuration. The lists carry the brand swatches only for a
  * caller who belongs to that org (a member or one of its admins) or a site admin ({@link #mayName}); anyone else, on
