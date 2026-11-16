@@ -571,8 +571,8 @@ script, no DNS step, no deploy (wildcard DNS and the wildcard certificate alread
   admin creates the org through the Organizations page like any other and assigns the slug). `SiteIndex`
   resolves the apex and www to that org, so its Appearance settings, `contentAdmin@org` editors, media
   library, dashboard and audit trail are the ordinary org machinery; `SiteContext.isMarketing()` stays
-  true there (`isPlatformOrg()`) for the marketing-only rules: no auto-join on signup, no Trips/Help
-  menus, the mark links home, full-width layout always, and the page key stays the fixed
+  true there (`isPlatformOrg()`) for the marketing-only rules: no auto-join on signup, no Trips menu, a Help
+  menu only once it holds something and never Make Payment ("Site Pages" below), the mark links home, full-width layout always, and the page key stays the fixed
   `page:unitetrip-home` (seeded by `bootstrap-marketing-page.sh`, independent of the org row; the org's
   slug assignment seeds no starter rows). Its OTHER pages are ordinary Site Pages ("Site Pages" below), keyed
   `page:org:{its uuid}:{name}`: Pricing and Why UniteTrip in its About menu (issue medjugorje#41, defined in
@@ -649,6 +649,13 @@ named-page key) or a LINK (any http(s) URL or site path). Each has a placement: 
 when it has entries), the Help submenu (above Donate and Make Payment, each entry with an icon), or HIDDEN
 (served, reached only by a link, such as the steps of a multi-page guide). A page's NAME is its address and
 content key, fixed at creation.
+
+- **The product's own site is the exception to that Help menu** (issue medjugorje#41): the platform org takes
+  no payments, so its Help never lists Make Payment, and Help shows there only once it holds something: a
+  Help-placed page or link, or the org's own donate link (its Donate entry). Every other org site always shows
+  Help with Make Payment. The rule is written once, in `SitePageCommands.paymentInHelp` and `helpMenuShown`
+  (`isPaymentInHelp` / `isHelpMenuShown` for the current host); `menu.xhtml` and the Site Pages preview on
+  `admin/orgPages.xhtml` both read it, so they cannot disagree. `MarketingSitePagesPwIT` holds it in the browser.
 
 - **Everything is a Site Page on an org site** (issue medjugorje#124): an org site's content pages exist only
   as these entries. `/board/index.jsf` on an org host redirects to `/page.jsf?name=board`; it renders
