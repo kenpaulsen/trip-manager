@@ -49,6 +49,8 @@ public class TripPageTest {
     private static final LocalDateTime NOW = LocalDateTime.of(2027, 1, 10, 12, 0);
     private static final SiteContext ACME_SITE = SiteContext.org(Organization.Id.from(FakeData.ACME_ORG_ID),
             "acme", "acme.localhost");
+    private static final SiteContext CFPW_SITE = SiteContext.org(Organization.Id.from(FakeData.CFPW_ORG_ID),
+            "cfpw", "cfpw.localhost");
 
     private final PrivilegeCommands priv = new PrivilegeCommands();
     private DAO dao;
@@ -307,7 +309,8 @@ public class TripPageTest {
         external.setNonHostedTripUrl("https://example.com/cfpw-reg");
         assertTrue(dao.saveTrip(external));
         final String link = TripPageCommands.JOIN_URL + external.getId();
-        assertEquals(TripPageCommands.contentLink(link), "https://example.com/cfpw-reg", "its own site resolves it");
+        assertEquals(onSite(CFPW_SITE, () -> TripPageCommands.contentLink(link)), "https://example.com/cfpw-reg",
+                "its own organization's site resolves it");
         assertEquals(onSite(ACME_SITE, () -> TripPageCommands.contentLink(link)), link,
                 "another organization's site never puts this trip's registration on its pages");
 

@@ -113,7 +113,7 @@ public class TripPageCommands {
                     .filter(trip -> ListingScope.reachable(trip.getOrgId()))
                     .orElse(null);
         } catch (final RuntimeException ex) {
-            log.error("Unable to resolve the trip for a conference section: " + id, ex);
+            log.error("Unable to read reachable trip " + id, ex);
             return null;
         }
     }
@@ -291,7 +291,9 @@ public class TripPageCommands {
 
     /**
      * {@link #contentLink(String)} with the trip lookup supplied: the testable half. A lookup that fails keeps the
-     * stored link: thrown, it would blank the whole section ({@code ContentCommands.render}), hero and all.
+     * stored link: thrown, it would blank the whole section ({@code ContentCommands.render}), hero and all. The
+     * production lookup ({@link #reachableTrip}) already absorbs and logs a DAO failure, so this catch guards
+     * {@link #registerTarget} and any other lookup handed to this seam.
      */
     static String contentLink(final String url, final Function<String, Optional<Trip>> trips) {
         final Matcher join = url == null ? null : JOIN_LINK.matcher(url.trim());
