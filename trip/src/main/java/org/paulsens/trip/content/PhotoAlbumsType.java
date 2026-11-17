@@ -1,8 +1,12 @@
 package org.paulsens.trip.content;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import org.paulsens.trip.action.MediaCommands;
 import org.paulsens.trip.action.TripPageCommands;
+import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.Placeholder;
 
 /**
@@ -59,6 +63,35 @@ final class PhotoAlbumsType implements ProgrammaticContentTemplate {
     @Override
     public String getFragmentPath() {
         return "/WEB-INF/ptypes/photoAlbums.xhtml";
+    }
+
+    /** Where the sample's pictures go; the text block cannot name the constant itself. */
+    private static final String PICTURE_SLOT = "@picture@";
+
+    @Override
+    public String getSampleHtml() {
+        return """
+                <h3>Trip pictures</h3>
+                <div class="homeAlbums">
+                    <div class="homeAlbum"><h4>Rome and Assisi (May 3 - 12, 2027)</h4>
+                        <img src="@picture@" alt="" style="width:100%;display:block;" loading="lazy" /></div>
+                    <div class="homeAlbum"><h4>Holy Land (October 8 - 18, 2027)</h4>
+                        <img src="@picture@" alt="" style="width:100%;display:block;" loading="lazy" /></div>
+                </div>
+                """.replace(PICTURE_SLOT, StarterTemplates.SAMPLE_PICTURE);
+    }
+
+    /**
+     * The type's defaults (on an event's page, that event's album) when they show at least one album; a site
+     * with no qualifying album shows the sample.
+     */
+    @Override
+    public Map<String, String> previewValues(final PreviewContext context) {
+        final Map<String, String> values = context.tripId() == null ? Map.of()
+                : Map.of(TripPageCommands.PROP_TRIP_ID, context.tripId());
+        final ContentInstance probe = new ContentInstance("preview", null, "", TYPE_ID, 0, new HashMap<>(values),
+                null, 0, 0, null, null);
+        return new MediaCommands().getHomeAlbumsFor(probe).isEmpty() ? null : values;
     }
 
     @Override

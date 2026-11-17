@@ -1,8 +1,12 @@
 package org.paulsens.trip.content;
 
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import org.paulsens.trip.action.TripCommands;
+import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.Language;
 import org.paulsens.trip.model.Placeholder;
 
@@ -60,6 +64,40 @@ final class PilgrimagesType implements ProgrammaticContentTemplate {
     @Override
     public String getFragmentPath() {
         return "/WEB-INF/ptypes/pilgrimages.xhtml";
+    }
+
+    @Override
+    public String getSampleHtml() {
+        return """
+                <h3>Upcoming trips</h3>
+                <div class="ui-accordion ui-widget ui-helper-reset pilgrimages">
+                    <div class="ui-accordion-header ui-helper-reset ui-state-default ui-corner-all">
+                        <div class="tripTitle"><span class="title">Rome and Assisi</span></div>
+                        <div class="info">May 3 - 12, 2027</div>
+                    </div>
+                    <div class="ui-accordion-header ui-helper-reset ui-state-default ui-corner-all">
+                        <div class="tripTitle"><span class="title">Holy Land</span></div>
+                        <div class="info">October 8 - 18, 2027</div>
+                    </div>
+                </div>
+                """;
+    }
+
+    /** The first language this site lists a trip in; a site with no public trip shows the sample. */
+    @Override
+    public Map<String, String> previewValues(final PreviewContext context) {
+        final TripCommands trips = new TripCommands();
+        for (final Language language : Language.values()) {
+            final Map<String, String> values = Map.of(PROP_LANGUAGE, language.name());
+            if (!trips.getPublicTripsFor(listing(values)).isEmpty()) {
+                return values;
+            }
+        }
+        return null;
+    }
+
+    private static ContentInstance listing(final Map<String, String> values) {
+        return new ContentInstance("preview", null, "", TYPE_ID, 0, new HashMap<>(values), null, 0, 0, null, null);
     }
 
     /** Provider and org curation are shared-site questions; an org's site is implicitly its own provider. */

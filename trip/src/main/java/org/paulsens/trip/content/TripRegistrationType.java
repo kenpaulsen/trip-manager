@@ -1,6 +1,7 @@
 package org.paulsens.trip.content;
 
 import java.util.List;
+import java.util.Map;
 import org.paulsens.trip.model.Placeholder;
 
 /**
@@ -41,6 +42,26 @@ final class TripRegistrationType implements ProgrammaticContentTemplate {
     @Override
     public String getFragmentPath() {
         return "/WEB-INF/ptypes/tripRegistration.xhtml";
+    }
+
+    @Override
+    public String getSampleHtml() {
+        return """
+                <div class="regStatus">
+                    <div class="regStatus-state"><span class="regStatus-open">Registration is open</span>
+                        <span class="regStatus-seats"> &#183; 42 of 120 places left</span></div>
+                    <div class="regStatus-countdown"><span class="tripCountdown">86</span> days to go</div>
+                    <div class="regStatus-prices"><div class="regStatus-question">Registration type</div>
+                        <ul><li>Adult: $120.00</li><li>Student: $60.00</li></ul></div>
+                    <div class="regStatus-cta"><a class="ui-button regStatus-button">Register</a></div>
+                </div>
+                """;
+    }
+
+    /** Any trip the site lists has a registration block: its state, its places, its prices. */
+    @Override
+    public Map<String, String> previewValues(final PreviewContext context) {
+        return EventTripChoices.previewValues(context, trip -> true);
     }
 
     @Override

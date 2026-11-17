@@ -1,12 +1,14 @@
 package org.paulsens.trip.action;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.content.ProgrammaticTypes;
 import org.paulsens.trip.content.StarterTemplates;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.FakeData;
+import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.ContentTemplate;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Placeholder;
@@ -330,5 +332,120 @@ public class TemplateCommandsTest {
         final List<String> ids = as(true).getTemplates().stream().map(ContentTemplate::getId).toList();
         Assert.assertTrue(ids.contains(StarterTemplates.TEXT_ONLY_ID), "" + ids);
         Assert.assertTrue(ids.contains(StarterTemplates.YOUTUBE_VIDEO_ID), "" + ids);
+    }
+
+    @Test
+    public void tagsAreNormalizedOnSaveAndOfferedBackForReuse() {
+        Assert.assertEquals(TemplateCommands.normalizeTags(null), List.of());
+        final List<String> typed = new ArrayList<>(List.of("  Hero ", "HERO", "", "full   width", "x".repeat(45)));
+        typed.add(null);
+        Assert.assertEquals(TemplateCommands.normalizeTags(typed),
+                List.of("hero", "full width", "x".repeat(TemplateCommands.MAX_TAG_LENGTH)),
+                "trimmed, lower-cased, collapsed, deduplicated, cut to length");
+        final List<String> many = new ArrayList<>();
+        for (int i = 0; i < TemplateCommands.MAX_TAGS + 5; i++) {
+            many.add("tag" + i);
+        }
+        Assert.assertEquals(TemplateCommands.normalizeTags(many).size(), TemplateCommands.MAX_TAGS);
+
+        final TemplateCommands admin = as(true);
+        final ContentTemplate tpl = new ContentTemplate("tc-tags-" + System.nanoTime(), 0, "Tagged", null, "{{a}}",
+                List.of(new Placeholder("a", Placeholder.Type.TEXT, "A", null, false)), null, null);
+        tpl.setTags(List.of(" Zebra-Crossing ", "zebra-crossing", "Okapi"));
+        tpl.setChildOnly(true);
+        tpl.setFullWidth(true);
+        Assert.assertTrue(admin.saveTemplate(tpl));
+        final ContentTemplate stored = admin.getTemplate(tpl.getId());
+        Assert.assertEquals(stored.getTags(), List.of("zebra-crossing", "okapi"));
+        Assert.assertTrue(stored.isChildOnly() && stored.isFullWidth(), "a section template keeps both flags");
+
+        Assert.assertEquals(admin.completeTag("ZEBRA"), List.of("zebra", "zebra-crossing"),
+                "what was typed, as it would be stored, then the tag in use that holds it");
+        Assert.assertEquals(admin.completeTag(" Zebra-Crossing"), List.of("zebra-crossing"), "a tag in use, once");
+        final List<String> crossings = admin.completeTag("cross");
+        Assert.assertEquals(crossings.get(0), "cross", "the typed word leads, so one Enter takes it");
+        Assert.assertTrue(crossings.contains("zebra-crossing"), crossings.toString());
+        final List<String> all = admin.completeTag(null);
+        Assert.assertTrue(all.containsAll(List.of("okapi", "zebra-crossing", "hero", "full-width")), all.toString());
+        Assert.assertEquals(all, all.stream().sorted().distinct().toList(), "each once, in order");
+        Assert.assertEquals(admin.completeTag("no-tag-holds-this"), List.of("no-tag-holds-this"),
+                "a new tag is offered as itself");
+        final List<String> startsFirst = admin.completeTag("o");
+        Assert.assertTrue(startsFirst.indexOf("okapi") < startsFirst.indexOf("zebra-crossing"),
+                "a tag that starts with what was typed comes before one that only holds it: " + startsFirst);
+    }
+
+    @Test
+    public void listingFlagsAreClearedWhereTheyCannotApply() {
+        final TemplateCommands admin = as(true);
+        final ContentTemplate mail = new ContentTemplate("tc-mail-flags-" + System.nanoTime(), 0, "Subject", null,
+                "<p>x</p>", List.of(), null, null, TemplateKind.MAIL, null, null, null);
+        mail.setTags(List.of("hero"));
+        mail.setChildOnly(true);
+        mail.setFullWidth(true);
+        Assert.assertTrue(admin.saveTemplate(mail));
+        final ContentTemplate storedMail = admin.getTemplate(mail.getId());
+        Assert.assertTrue(storedMail.getTags().isEmpty(), "no Add dialog offers an email body");
+        Assert.assertFalse(storedMail.isChildOnly() || storedMail.isFullWidth());
+
+        final ContentTemplate group = new ContentTemplate("tc-group-flags-" + System.nanoTime(), 0, "Group", null, "",
+                List.of(), null, null, TemplateKind.CONTAINER, null, null, null);
+        group.setChildOnly(true);
+        group.setFullWidth(true);
+        Assert.assertTrue(admin.saveTemplate(group));
+        final ContentTemplate storedGroup = admin.getTemplate(group.getId());
+        Assert.assertFalse(storedGroup.isChildOnly(), "a group can never sit inside a group");
+        Assert.assertTrue(storedGroup.isFullWidth(), "but it may be a band");
+    }
+
+    @Test
+    public void usageCountsCurrentItemsPerTemplateWithinTheScope() {
+        final String id = "tc-usage-" + System.nanoTime();
+        Assert.assertTrue(DAO.getInstance().saveTemplate(new ContentTemplate(id, 0, "Counted", null, "<p>{{a}}</p>",
+                List.of(new Placeholder("a", Placeholder.Type.TEXT, "A", null, false)), null, null), 5));
+        // Pages of this test's own, so no other test's page gains a row: one of no organization, one of Acme's.
+        final String acmePage = "page:org:" + FakeData.ACME_ORG_ID + ":" + id;
+        saveItem(id + "-shared", "page:shared:" + id, id);
+        saveItem(id + "-acme", acmePage, id);
+        // A group on Acme's page with one item inside: the item's organization comes from its group's row.
+        saveItem(id + "-group", acmePage, StarterTemplates.CONTAINER_ID);
+        saveItem(id + "-inside", id + "-group", id);
+
+        final TemplateCommands admin = as(true);
+        Assert.assertEquals(admin.usageCounts(null).get(id), Integer.valueOf(3), "every page");
+        Assert.assertEquals(admin.usageCounts().get(id), Integer.valueOf(3), "the shared site has no scope of its own");
+        Assert.assertEquals(admin.usageCounts(FakeData.ACME_ORG_ID).get(id), Integer.valueOf(2),
+                "an organization's pages only, its groups' items included");
+        Assert.assertNull(admin.usageCounts("no-such-org").get(id));
+        Assert.assertNull(admin.usageCounts(null).get("no-such-template"), "an unused template has no entry");
+        Assert.assertEquals(admin.usedBy(id), 3, "one template's count, for the Add drawer");
+        Assert.assertEquals(admin.usedBy("no-such-template"), 0);
+        Assert.assertEquals(admin.usedBy(null), 0);
+        Assert.assertTrue(admin.usageCounts(null).get(StarterTemplates.TEXT_ONLY_ID) > 0, "the seeded page uses it");
+        Assert.assertTrue(as(false).usageCounts(null).isEmpty(), "site-wide counts are for site staff");
+        Assert.assertTrue(as(false).usageCounts(FakeData.ACME_ORG_ID).isEmpty(), "and an org's for its own editors");
+    }
+
+    private static void saveItem(final String id, final String section, final String templateId) {
+        Assert.assertTrue(DAO.getInstance().saveContent(new ContentInstance(id, section, "Usage " + id, templateId, 1,
+                new HashMap<>(), null, 0, 0, null, "tpl-tester"), 5), id);
+    }
+
+    @Test
+    public void aDeepLinkOpensABlankTemplateOrOneTheCallerMayAuthor() {
+        final TemplateCommands admin = as(true);
+        final ContentTemplate fresh = admin.deepLinkTemplate("1", null);
+        Assert.assertEquals(fresh.getId(), "", "what the New Template button starts from");
+        Assert.assertEquals(fresh.getVersion(), 0);
+        final ContentTemplate edit = admin.deepLinkTemplate(null, StarterTemplates.TEXT_ONLY_ID);
+        Assert.assertEquals(edit.getId(), StarterTemplates.TEXT_ONLY_ID);
+        Assert.assertTrue(edit.getVersion() > 0, "the stored row, as an editable copy");
+        Assert.assertEquals(admin.deepLinkTemplate("1", StarterTemplates.TEXT_ONLY_ID).getId(), "", "new wins");
+
+        Assert.assertNull(admin.deepLinkTemplate(null, null), "no deep link at all");
+        Assert.assertNull(admin.deepLinkTemplate("0", " "));
+        Assert.assertNull(admin.deepLinkTemplate("", "no-such-template"), "an unknown id opens nothing");
+        Assert.assertNull(as(false).deepLinkTemplate(null, StarterTemplates.TEXT_ONLY_ID),
+                "a row the caller may only read opens nothing");
     }
 }

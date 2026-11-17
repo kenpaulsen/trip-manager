@@ -7,9 +7,11 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.Supplier;
 import lombok.Setter;
@@ -47,6 +49,10 @@ import org.paulsens.trip.site.SiteContext;
 @Named("contentTemplate")
 @ApplicationScoped
 public class TemplateCommands {
+
+    /** The most tags a template keeps, and the longest one: search words, not sentences. */
+    static final int MAX_TAGS = 12;
+    static final int MAX_TAG_LENGTH = 30;
 
     private final ConfigCommands config = new ConfigCommands();
     /** Test seam: the caller behind the current request. */
@@ -158,6 +164,7 @@ public class TemplateCommands {
             return false;
         }
         normalizePlaceholders(template);
+        normalizeListing(template);
         template.setModifiedBy(caller.auditActor().email());
         final boolean saved;
         try {
@@ -756,6 +763,159 @@ public class TemplateCommands {
             }
         }
         template.setPlaceholders(cleaned);
+    }
+
+    /**
+     * What the Add dialog reads about a template besides its name: the search tags, cleaned, and the two "where
+     * it fits" flags, cleared where they cannot mean anything. A MAIL template is never in a picker; a container
+     * can never sit inside a group, so it cannot be "only inside a group".
+     */
+    private static void normalizeListing(final ContentTemplate template) {
+        if (template.getKind() == TemplateKind.MAIL) {
+            template.setTags(null);
+            template.setChildOnly(false);
+            template.setFullWidth(false);
+            return;
+        }
+        template.setTags(normalizeTags(template.getTags()));
+        if (template.getKind() == TemplateKind.CONTAINER) {
+            template.setChildOnly(false);
+        }
+    }
+
+    /**
+     * Tags as stored: trimmed, lower-case, inner whitespace collapsed, no blanks, no repeats (first spelling
+     * wins its place), each cut to {@link #MAX_TAG_LENGTH} and the list to {@link #MAX_TAGS}. The editor's chips
+     * are free-typed, so this is the only place the shape is decided.
+     */
+    static List<String> normalizeTags(final List<String> tags) {
+        if (tags == null) {
+            return List.of();
+        }
+        final Set<String> cleaned = new LinkedHashSet<>();
+        for (final String tag : tags) {
+            final String normalized = normalizeTag(tag);
+            if (!normalized.isEmpty()) {
+                cleaned.add(normalized);
+            }
+        }
+        return cleaned.stream().limit(MAX_TAGS).toList();
+    }
+
+    private static String normalizeTag(final String tag) {
+        if (tag == null) {
+            return "";
+        }
+        final String collapsed = tag.trim().toLowerCase(Locale.ROOT).replaceAll("\\s+", " ");
+        return collapsed.length() > MAX_TAG_LENGTH ? collapsed.substring(0, MAX_TAG_LENGTH).trim() : collapsed;
+    }
+
+    /**
+     * Autocomplete for the editor's Tags chips: what was typed, as it would be stored, FIRST, then the tags
+     * already in use on the templates the caller may see that contain it, those that start with it before the
+     * rest (all of them, alphabetically, for an empty query). The typed word leads so that Enter or a click
+     * always takes it: with only the tags in use on offer, a new tag met a "no results" list that swallowed the
+     * first Enter. Reusing a tag is what makes it a filter, so the ones in use are one arrow key away.
+     */
+    public List<String> completeTag(final String query) {
+        final String typed = normalizeTag(query);
+        final Set<String> offered = new LinkedHashSet<>();
+        if (!typed.isEmpty()) {
+            offered.add(typed);
+        }
+        getTemplates().stream()
+                .map(ContentTemplate::getTags)
+                .flatMap(List::stream)
+                .filter(tag -> tag.contains(typed))
+                .distinct()
+                .sorted(Comparator.comparing((String tag) -> !tag.startsWith(typed))
+                        .thenComparing(Comparator.naturalOrder()))
+                .forEach(offered::add);
+        return List.copyOf(offered);
+    }
+
+    /**
+     * How many CURRENT content items are built on each template, by template id; a template nothing uses has no
+     * entry. With an organization scope (the manager page's {@code viewScope.orgScope}, or the organization
+     * whose site the request is on) only that organization's pages count, which is also all its own editor may
+     * learn; with none, every page counts and only site staff may ask.
+     *
+     * <p>One raw, uncached scan of the content table ({@code DAO.getAllContentRecords}, the same read the
+     * referenced-delete check makes): an admin click, never a page render. The pages load it on a "Show usage"
+     * click and keep the scalar map in the view; no aggregate is cached anywhere (docs/caching.md: the DAO
+     * caches are the shared layer, and this table has no per-template index to invalidate).
+     */
+    public Map<String, Integer> usageCounts(final String orgId) {
+        final String scope = blankToNull(orgId);
+        final Caller caller = callerSource.get();
+        final boolean allowed = scope == null ? caller.has(PrivilegeCommands.CONTENT_ADMIN)
+                : caller.has(PrivilegeCommands.CONTENT_ADMIN, scope);
+        if (!allowed) {
+            return new HashMap<>();
+        }
+        try {
+            return countUsage(scope);
+        } catch (final RuntimeException ex) {
+            log.error("Unable to count template usage", ex);
+            return new HashMap<>();
+        }
+    }
+
+    /** {@link #usageCounts(String)} for the request's own site: an organization's site counts its own pages. */
+    public Map<String, Integer> usageCounts() {
+        return usageCounts(orgScope(null));
+    }
+
+    /**
+     * How many current items on the request's own site use one template: the Add drawer's "How often is it
+     * used?" for a designer. The same scan as {@link #usageCounts()}, so it too runs on a click, never a render.
+     */
+    public int usedBy(final String templateId) {
+        return templateId == null ? 0 : usageCounts().getOrDefault(templateId, 0);
+    }
+
+    private static Map<String, Integer> countUsage(final String scope) {
+        final Map<String, ContentInstance> current = new HashMap<>();
+        DAO.getInstance().getAllContentRecords(Cached.NO).stream()
+                .map(ContentRecord::getCurrent)
+                .filter(Objects::nonNull)
+                .forEach(instance -> current.put(instance.getId(), instance));
+        final Map<String, Integer> counts = new HashMap<>();
+        for (final ContentInstance instance : current.values()) {
+            if (instance.getTemplateId() != null && onPageOf(scope, instance, current)) {
+                counts.merge(instance.getTemplateId(), 1, Integer::sum);
+            }
+        }
+        return counts;
+    }
+
+    /**
+     * Whether an item sits on a page of the scope's organization (any page when there is no scope). The
+     * organization comes from the item's SECTION exactly as the edit gate derives it
+     * ({@code ContentCommands.orgOf}): a container's child through its container's row.
+     */
+    private static boolean onPageOf(final String scope, final ContentInstance instance,
+            final Map<String, ContentInstance> current) {
+        if (scope == null) {
+            return true;
+        }
+        final Organization.Id org = ContentCommands.orgOf(instance.getSection(), current.get(instance.getSection()));
+        return org != null && scope.equals(org.getValue());
+    }
+
+    /**
+     * The template a deep link into the manager opens in the editor, or null for none: {@code ?new=1} answers a
+     * blank template (what the New Template button starts from), {@code ?edit=<id>} an editable copy of a stored
+     * template the caller may author. An unknown id, or a row the caller may only read, opens nothing, the same
+     * as that row's missing Edit button. The Add dialog's "New template" and "Edit this template" links use it.
+     */
+    public ContentTemplate deepLinkTemplate(final String newParam, final String editId) {
+        if ("1".equals(newParam)) {
+            return getTemplate("");
+        }
+        final String id = blankToNull(editId);
+        final ContentTemplate stored = id == null ? null : storedTemplate(id);
+        return mayAuthor(stored) ? getTemplate(id) : null;
     }
 
     /**

@@ -1,8 +1,12 @@
 package org.paulsens.trip.action;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.regex.Pattern;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.content.ProgrammaticTypes;
 import org.paulsens.trip.content.StarterTemplates;
@@ -778,36 +782,405 @@ public class ContentCommandsTest {
     }
 
     @Test
-    public void thePickerCardsRenderEveryStandardStarterFromItsSamples() {
+    public void thePickerCardsRenderEveryStarterAsAFilledInSection() {
         final ContentCommands content = new ContentCommands();
         final List<ContentCommands.TemplateCard> cards = content.templateCards(FakeData.PAGE_KEY);
         Assert.assertFalse(cards.isEmpty());
         for (final ContentCommands.TemplateCard card : cards) {
             Assert.assertFalse(card.name().isBlank(), card.id());
-            Assert.assertFalse(card.kindLabel().isBlank(), card.id());
             Assert.assertTrue(card.icon().startsWith("pi-"), card.id() + " " + card.icon());
-            if ("STANDARD".equals(card.kind())) {
-                Assert.assertFalse(card.html().isBlank(), card.id() + " renders a thumbnail");
+            Assert.assertTrue(card.searchText().contains(card.name().toLowerCase()), card.id());
+            Assert.assertEquals(card.searchText(), card.searchText().toLowerCase(), card.id());
+            if (StarterTemplates.IDS.contains(card.id())) {
+                Assert.assertFalse(card.html().isBlank(), card.id() + " renders a sample, whatever its kind");
                 Assert.assertFalse(card.html().contains("{{"), card.id() + " leaves a token unfilled");
-            } else {
-                Assert.assertEquals(card.html(), "", card.id() + " shows an icon, not a render");
+                Assert.assertFalse(card.tags().isEmpty(), card.id() + " is findable by a tag");
+                Assert.assertTrue(card.searchText().contains(card.tags().get(0)), card.id());
             }
+            Assert.assertEquals(card.kindLabel(), switch (card.kind()) {
+                case "CONTAINER" -> "Group";
+                case "PROGRAMMATIC" -> "Live";
+                default -> "";
+            }, card.id());
+            Assert.assertEquals(card.holds().isEmpty(), !"CONTAINER".equals(card.kind()), card.id());
         }
-        final ContentCommands.TemplateCard hero = cards.stream()
-                .filter(c -> StarterTemplates.BAND_HERO_ID.equals(c.id())).findFirst().orElseThrow();
+        final ContentCommands.TemplateCard hero = card(cards, StarterTemplates.BAND_HERO_ID);
         Assert.assertTrue(hero.html().contains("A weekend that changes"), "the hero's headline sample");
-        Assert.assertEquals(hero.kindLabel(), "Section");
-        final ContentCommands.TemplateCard albums = cards.stream()
-                .filter(c -> StarterTemplates.PHOTO_ALBUMS_ID.equals(c.id())).findFirst().orElseThrow();
+        Assert.assertEquals(hero.name(), "Opening banner");
+        Assert.assertEquals(hero.kindLabel(), "", "a plain section template carries no kind badge");
+        Assert.assertTrue(hero.fullWidth());
+        Assert.assertTrue(hero.searchText().contains("hero"), "the old jargon stays findable: " + hero.searchText());
+        Assert.assertTrue(hero.fields().contains("Headline *"), "a required prompt is marked: " + hero.fields());
+        Assert.assertTrue(hero.fields().contains("Eyebrow"), hero.fields().toString());
+        Assert.assertTrue(hero.html().contains("src=\"" + StarterTemplates.SAMPLE_PICTURE + "\""),
+                "a picture prompt with no sample shows the bundled picture: " + hero.html());
+        final ContentCommands.TemplateCard albums = card(cards, StarterTemplates.PHOTO_ALBUMS_ID);
         Assert.assertEquals(albums.icon(), "pi-images");
         Assert.assertEquals(albums.kindLabel(), "Live");
+        Assert.assertTrue(albums.html().contains("homeAlbum"), "a live type shows its static sample");
+        Assert.assertFalse(card(cards, StarterTemplates.TEXT_ONLY_ID).fullWidth());
+        final ContentCommands.TemplateCard stats = card(cards, StarterTemplates.BAND_STATS_ID);
+        Assert.assertEquals(stats.holds(), "Stat item (up to 4)");
+        Assert.assertEquals(card(cards, StarterTemplates.CONTAINER_ID).holds(), "Any item");
+        Assert.assertEquals(card(cards, StarterTemplates.BAND_FAQ_ID).holds(), "Text Only");
         // A template with no samples renders its labels, so a hand-authored template still gets a picture.
         final ContentTemplate bare = new ContentTemplate("bare-" + UUID.randomUUID(), 1, "Bare", "d",
-                "<div class=\"contentItem\"><b>{{heading}}</b>{{body}}</div>",
+                "<div class=\"contentItem\"><b>{{heading}}</b>{{body}}<a href=\"{{more}}\">x</a></div>",
                 List.of(new Placeholder("heading", Placeholder.Type.TEXT, "Heading", null, true),
-                        new Placeholder("body", Placeholder.Type.RICH_TEXT, "Content", null, true)), null, null);
+                        new Placeholder("body", Placeholder.Type.RICH_TEXT, "Content", null, true),
+                        new Placeholder("more", Placeholder.Type.URL, "Link", null, false)), null, null);
         Assert.assertTrue(content.sampleRender(bare).contains("<b>Heading</b>"));
+        Assert.assertTrue(content.sampleRender(bare).contains("href=\"\""), "a link has no sample");
         Assert.assertEquals(content.sampleRender(null), "");
+        final ContentTemplate mail = new ContentTemplate("mail-" + UUID.randomUUID(), 1, "Subject", "d", "<p>x</p>",
+                List.of(), null, null, TemplateKind.MAIL, null, null, null);
+        Assert.assertEquals(content.sampleRender(mail), "", "an email body is never a page section");
+    }
+
+    private static ContentCommands.TemplateCard card(final List<ContentCommands.TemplateCard> cards,
+            final String id) {
+        return cards.stream().filter(c -> id.equals(c.id())).findFirst().orElseThrow();
+    }
+
+    /** A stored picture value must be an absolute URL; only the SAMPLE render lets the bundled picture through. */
+    @Test
+    public void theSamplePictureNeverReachesARealRender() {
+        final ContentCommands content = as(ADMIN, false);
+        final ContentTemplate image = DAO.getInstance().getTemplate(StarterTemplates.IMAGE_ID, Cached.NO).orElseThrow();
+        Assert.assertTrue(content.sampleRender(image).contains("src=\"" + StarterTemplates.SAMPLE_PICTURE + "\""));
+        final ContentInstance real = content.createContent("cc.sample-picture", StarterTemplates.IMAGE_ID);
+        real.getValues().put("imageUrl", StarterTemplates.SAMPLE_PICTURE);
+        real.getValues().put("altText", "x");
+        Assert.assertTrue(content.render(real).contains("src=\"\""), "a site-relative picture renders nothing");
+    }
+
+    @Test
+    public void aGroupsSampleIsItsWrapperAndRowAroundSampleItems() {
+        final ContentCommands content = new ContentCommands();
+        final String features = content.sampleRender(starter(StarterTemplates.BAND_FEATURES_ID));
+        Assert.assertEquals(count(features, "class=\"feature-cell\""), 3, features);
+        Assert.assertTrue(features.contains("<h3 class=\"feature-title\">Group chat</h3>"), "the items' own titles");
+        Assert.assertTrue(features.contains("band-center\">Feature cards</h2>"), "the group's title in its slot");
+        Assert.assertTrue(features.contains("<div class=\"contentItem\"><div>"), "the page's wrappers around a child");
+        Assert.assertTrue(features.contains("class=\"feature-card\""), "built on the admitted template");
+        Assert.assertTrue(features.trim().endsWith("</section>"), "the once-around wrapper closes: " + features);
+        Assert.assertFalse(features.contains("{{"), features);
+
+        final String faq = content.sampleRender(starter(StarterTemplates.BAND_FAQ_ID));
+        Assert.assertTrue(faq.contains("<summary class=\"faqQuestion\">When does registration open?</summary>"), faq);
+        final String logos = content.sampleRender(starter(StarterTemplates.BAND_LOGOS_ID));
+        Assert.assertEquals(count(logos, StarterTemplates.SAMPLE_PICTURE), 3, "three logo pictures: " + logos);
+
+        // No title slot: the title goes above, as the page writes it; no allow-list: plain text items.
+        final String plain = content.sampleRender(starter(StarterTemplates.CONTAINER_ID));
+        Assert.assertTrue(plain.startsWith("<h3 class=\"contentTitle\">Container</h3>"), plain);
+        Assert.assertTrue(plain.contains("<div class=\"contentTitle\">Welcome evening</div>"), plain);
+        Assert.assertEquals(count(plain, "contentText"), 3, plain);
+
+        // Only live items admitted: their static sample, and no title (a live item titles itself).
+        final String people = content.sampleRender(starter(StarterTemplates.PEOPLE_LIST_ID));
+        Assert.assertEquals(count(people, "class=\"personCard\""), 3, people);
+        Assert.assertEquals(count(people, "class=\"peopleRow\""), 3, people);
+
+        // Fewer items when the group holds fewer; an empty group when nothing it admits exists.
+        final Map<String, ContentTemplate> known = new HashMap<>();
+        known.put(StarterTemplates.TEXT_ONLY_ID, starter(StarterTemplates.TEXT_ONLY_ID));
+        final ContentTemplate two = new ContentTemplate("cc-two", 1, "Two", null, "<li>{{child}}</li>", List.of(), null,
+                null, TemplateKind.CONTAINER, null, 2, null);
+        Assert.assertEquals(count(content.sampleRenderContainer(two, known), "<li>"), 2);
+        final ContentTemplate orphan = new ContentTemplate("cc-orphan", 1, "Orphan", null, "<li>{{child}}</li>",
+                List.of(), null, null, TemplateKind.CONTAINER, List.of("no-such-template"), null, null);
+        Assert.assertEquals(content.sampleRenderContainer(orphan, known), "<h3 class=\"contentTitle\">Orphan</h3>");
+        final ContentTemplate untyped = new ContentTemplate("cc-untyped", 1, "Untyped", null, "", List.of(), null, null,
+                TemplateKind.PROGRAMMATIC, null, null, "no-such-type");
+        Assert.assertEquals(content.sampleRender(untyped), "", "an unregistered type has no sample");
+    }
+
+    private static ContentTemplate starter(final String id) {
+        return DAO.getInstance().getTemplate(id, Cached.NO).orElseThrow();
+    }
+
+    private static int count(final String haystack, final String needle) {
+        return haystack.split(Pattern.quote(needle), -1).length - 1;
+    }
+
+    @Test
+    public void aChildOnlyTemplateIsOfferedInsideItsGroupAndNeverAtPageLevel() {
+        final ContentCommands content = as(ADMIN, false);
+        final List<String> atPage = content.getTemplateChoicesFor("cc.page-childonly").stream()
+                .map(ContentTemplate::getId).toList();
+        Assert.assertFalse(atPage.contains(StarterTemplates.FEATURE_CARD_ID), "a feature card needs its grid");
+        Assert.assertFalse(atPage.contains(StarterTemplates.STAT_ITEM_ID));
+        Assert.assertTrue(atPage.contains(StarterTemplates.BAND_FEATURES_ID), "its group is offered");
+        Assert.assertTrue(atPage.contains(StarterTemplates.BAND_HERO_ID),
+                "a full-width template is flagged on a classic page, never hidden");
+        Assert.assertTrue(atPage.contains(StarterTemplates.TEXT_ONLY_ID));
+
+        final ContentInstance band = content.createContent("cc.page-childonly", StarterTemplates.BAND_FEATURES_ID);
+        band.setTitle("Why us");
+        Assert.assertTrue(content.saveContent(band));
+        Assert.assertEquals(content.getTemplateChoicesFor(band.getId()).stream().map(ContentTemplate::getId).toList(),
+                List.of(StarterTemplates.FEATURE_CARD_ID), "inside its group nothing changed");
+        Assert.assertNotNull(content.autoStartContent(band.getId()), "and the single choice still skips the picker");
+
+        // A group with no allow-list takes any item that is not itself a group, child-only ones included.
+        final ContentInstance open = content.createContent("cc.page-childonly", StarterTemplates.CONTAINER_ID);
+        open.setAllowedChildTemplateIds(null);
+        Assert.assertTrue(content.saveContent(open));
+        Assert.assertTrue(content.getTemplateChoicesFor(open.getId()).stream()
+                .anyMatch(t -> StarterTemplates.STAT_ITEM_ID.equals(t.getId())));
+    }
+
+    @Test
+    public void onAClassicPageTheFullWidthTemplatesTrailTheOffer() {
+        final ContentCommands content = new ContentCommands();
+        final List<ContentCommands.TemplateCard> asOffered = content.templateCards(FakeData.PAGE_KEY);
+        Assert.assertEquals(content.templateCards(FakeData.PAGE_KEY, true), asOffered,
+                "a full-width page lists the offer as it is");
+        final List<ContentCommands.TemplateCard> classic = content.templateCards(FakeData.PAGE_KEY, false);
+        Assert.assertEquals(classic.size(), asOffered.size(), "nothing is hidden");
+        final int firstBand = firstFullWidth(classic);
+        Assert.assertTrue(firstBand > 0, "the page's own templates come first");
+        Assert.assertTrue(classic.subList(firstBand, classic.size()).stream()
+                .allMatch(ContentCommands.TemplateCard::fullWidth), "then one trailing group of bands");
+        Assert.assertEquals(classic.subList(0, firstBand),
+                asOffered.stream().filter(c -> !c.fullWidth()).toList(), "each group keeps its own order");
+    }
+
+    private static int firstFullWidth(final List<ContentCommands.TemplateCard> cards) {
+        for (int i = 0; i < cards.size(); i++) {
+            if (cards.get(i).fullWidth()) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    @Test
+    public void aNewSectionIsSavedInFrontOfTheOneChosen() {
+        final ContentCommands content = as(ADMIN, false);
+        final String page = "cc.page-insert-" + UUID.randomUUID();
+        final List<String> ids = new ArrayList<>();
+        for (final String title : List.of("A", "B", "C")) {
+            ids.add(added(content, page, title, null).getId());
+        }
+        Assert.assertEquals(content.idsFor(page, true), ids);
+
+        final ContentInstance fresh = content.createContent(page, "cc-test-tpl");
+        fresh.setTitle("New");
+        fresh.getValues().put("msg", "new");
+        Assert.assertEquals(content.landingAnchor(fresh, page), fresh.getId(), "a new section lands on itself");
+        Assert.assertTrue(content.saveNewContentAt(fresh, ids.get(1)));
+        Assert.assertEquals(content.idsFor(page, true),
+                List.of(ids.get(0), fresh.getId(), ids.get(1), ids.get(2)), "in front of B");
+        Assert.assertEquals(content.getAllForSection(page).stream().map(ContentInstance::getPosition).toList(),
+                List.of(0, 1, 2, 3), "and the rest renumbered");
+        Assert.assertEquals(content.landingAnchor(fresh, page), "", "once stored it is an edit: reload in place");
+
+        // An edit carrying a stale place keeps its position.
+        fresh.setTitle("Renamed");
+        Assert.assertTrue(content.saveNewContentAt(fresh, ids.get(2)));
+        Assert.assertEquals(content.idsFor(page, true).indexOf(fresh.getId()), 1);
+
+        // No place, or one that is not in the section, saves at the end like any Add.
+        final ContentInstance last = added(content, page, "Last", " ");
+        final ContentInstance stray = added(content, page, "Stray", "no-such-section");
+        final List<String> order = content.idsFor(page, true);
+        Assert.assertEquals(order.subList(order.size() - 2, order.size()), List.of(last.getId(), stray.getId()));
+        Assert.assertFalse(content.saveNewContentAt(null, ids.get(0)));
+
+        // First place: in front of the first section.
+        final ContentInstance first = added(content, page, "First", order.get(0));
+        Assert.assertEquals(content.idsFor(page, true).get(0), first.getId());
+
+        // A refused save moves nothing, and the item keeps the position it was created with.
+        final List<String> before = content.idsFor(page, true);
+        final ContentCommands stranger = as(NOBODY, false);
+        final ContentInstance refused = stranger.createContent(page, "cc-test-tpl");
+        refused.setTitle("Refused");
+        refused.getValues().put("msg", "x");
+        final int atEnd = refused.getPosition();
+        Assert.assertFalse(stranger.saveNewContentAt(refused, before.get(0)));
+        Assert.assertEquals(refused.getPosition(), atEnd);
+        Assert.assertEquals(content.idsFor(page, true), before);
+    }
+
+    @Test
+    public void theFillInPreviewShowsAnExampleUntilAPromptIsTouched() {
+        final ContentCommands content = as(ADMIN, false);
+        final String page = "cc.page-live-" + UUID.randomUUID();
+        final ContentInstance fresh = content.createContent(page, "cc-test-tpl");
+        Assert.assertTrue(content.isNewContent(fresh));
+        Assert.assertFalse(content.isNewContent(null));
+        Assert.assertTrue(content.liveHtml(fresh, null, null).contains(">Msg<"), "untouched: the prompt's example");
+        Assert.assertFalse(content.liveHtml(fresh, "other, msg", "").contains("Msg"), "touched and blank: blank");
+        fresh.getValues().put("msg", "typed");
+        Assert.assertTrue(content.liveHtml(fresh, "", null).contains(">typed<"), "a value that is there shows");
+        Assert.assertEquals(fresh.getValues().get("msg"), "typed", "and the working copy is never changed");
+        Assert.assertEquals(content.liveHtml(fresh, "", "1"), "", "examples hidden: the page's own render instead");
+        Assert.assertEquals(content.liveHtml(null, "", null), "");
+        Assert.assertSame(content.liveInstance(fresh, "", null), fresh, "a plain section is its own preview");
+        Assert.assertNull(content.liveInstance(null, "", null));
+
+        // A picture prompt shows the bundled sample until it is typed in; then the page's own rule decides.
+        final ContentInstance image = content.createContent(page, StarterTemplates.IMAGE_ID);
+        Assert.assertTrue(content.liveHtml(image, "", null)
+                .contains("src=\"" + StarterTemplates.SAMPLE_PICTURE + "\""));
+        image.getValues().put("imageUrl", StarterTemplates.SAMPLE_PICTURE);
+        Assert.assertTrue(content.liveHtml(image, "imageUrl", null).contains("src=\"\""),
+                "a typed site-relative picture renders nothing, as on the page");
+
+        // An item that already exists never shows an example.
+        fresh.setTitle("Stored");
+        Assert.assertTrue(content.saveContent(fresh));
+        final ContentInstance stored = content.getContent(fresh.getId());
+        Assert.assertFalse(content.isNewContent(stored));
+        stored.getValues().put("msg", "");
+        Assert.assertEquals(content.liveHtml(stored, "", null), "");
+        Assert.assertSame(content.liveInstance(stored, "", null), stored);
+
+        // A group has no examples of its own: the drawer retitles its sample in the browser.
+        final ContentInstance group = content.createContent(page, StarterTemplates.CONTAINER_ID);
+        Assert.assertEquals(content.liveHtml(group, "", null), "");
+        Assert.assertSame(content.liveInstance(group, "", null), group);
+    }
+
+    @Test
+    public void aNewLiveSectionBorrowsTheSitesRealValuesForChoicesNotMadeYet() {
+        final ContentCommands content = as(ADMIN, false);
+        final ContentInstance person = content.createContent(FakeData.PAGE_KEY, StarterTemplates.PERSON_ID);
+        Assert.assertEquals(content.liveHtml(person, "", null), "", "a live section renders through its fragment");
+
+        final ContentInstance live = content.liveInstance(person, "", null);
+        Assert.assertNotSame(live, person, "a transient copy");
+        Assert.assertEquals(live.getValues().get("personId"), ADMIN.getValue(), "the signed-in person's own card");
+        Assert.assertFalse(live.getTitle().isBlank(), "and a title to show");
+        Assert.assertTrue(person.getValues().get("personId").isBlank(), "the working copy keeps what was typed");
+
+        Assert.assertTrue(content.liveInstance(person, "personId", null).getValues().get("personId").isBlank(),
+                "a choice the author touched, even cleared, is theirs");
+        Assert.assertSame(content.liveInstance(person, "", "1"), person, "examples hidden");
+        person.setTitle("Our director");
+        Assert.assertEquals(content.liveInstance(person, "", null).getTitle(), "Our director");
+
+        // Nobody signed in has no card of their own, so there is nothing real to borrow.
+        final ContentCommands anonymous = as(null, true);
+        final ContentInstance theirs = anonymous.createContent(FakeData.PAGE_KEY, StarterTemplates.PERSON_ID);
+        Assert.assertSame(anonymous.liveInstance(theirs, "", null), theirs);
+    }
+
+    @Test
+    public void theTitleOfAPlainSectionOnAPageShowsNowhere() {
+        final ContentCommands content = as(ADMIN, false);
+        final String page = "cc.page-title-" + UUID.randomUUID();
+        Assert.assertTrue(content.isTitleUnseen(content.createContent(page, "cc-test-tpl"), page));
+        Assert.assertFalse(content.isTitleUnseen(content.createContent(page, StarterTemplates.CONTAINER_ID), page),
+                "a group shows its title");
+        Assert.assertFalse(content.isTitleUnseen(content.createContent(page, StarterTemplates.PERSON_ID), page),
+                "a live type titles itself");
+        Assert.assertFalse(content.isTitleUnseen(content.createContent("some-group", "cc-test-tpl"), page),
+                "a group's row shows its item's title");
+        Assert.assertFalse(content.isTitleUnseen(null, page));
+
+        // The drawer's heading says what is happening: adding or editing, a section or a group's item.
+        final ContentInstance stored = added(content, page, "Kept", null);
+        Assert.assertEquals(content.drawerTitle(null, page, page), "Add a section", "the picker step");
+        Assert.assertEquals(content.drawerTitle(content.createContent(page, "cc-test-tpl"), page, page),
+                "Add a section");
+        Assert.assertEquals(content.drawerTitle(content.getContent(stored.getId()), page, page), "Edit section");
+        Assert.assertEquals(content.drawerTitle(null, "some-group", page), "Add an item");
+        Assert.assertEquals(content.drawerTitle(content.getContent(stored.getId()), "some-group", page), "Edit item");
+        Assert.assertEquals(content.drawerTitle(null, null, page), "Add a section");
+        Assert.assertFalse(content.isTitleUnseen(content.createContent(page, "cc-test-tpl"), null));
+    }
+
+    @Test
+    public void theInsertPointIsNamedAndMovesOneSectionAtATime() {
+        final ContentCommands content = as(ADMIN, false);
+        final String page = "cc.page-where-" + UUID.randomUUID();
+        final String first = added(content, page, "First <b>one</b>", null).getId();
+        final String second = added(content, page, "Second", null).getId();
+
+        Assert.assertEquals(content.insertLabel(page, page, second), "Adding above \u201cSecond\u201d");
+        Assert.assertEquals(content.insertLabel(page, page, first), "Adding above \u201cFirst one\u201d",
+                "a title's markup is not part of its name");
+        Assert.assertEquals(content.insertLabel(page, page, ""), "Adding at the end of the page");
+        Assert.assertEquals(content.insertLabel(page, page, null), "Adding at the end of the page");
+        Assert.assertEquals(content.insertLabel(page, page, "no-such-section"), "Adding at the end of the page");
+        Assert.assertEquals(content.insertLabel(second, page, null), "Adding to \u201cSecond\u201d", "inside a group");
+        Assert.assertEquals(content.insertLabel("no-such-group", page, null), "Adding to this group");
+        Assert.assertEquals(content.insertLabel(null, page, null), "");
+        Assert.assertEquals(content.insertLabel(" ", page, null), "");
+
+        final ContentInstance untitled = content.createContent(page, StarterTemplates.CONTAINER_ID);
+        Assert.assertTrue(content.saveContent(untitled));
+        Assert.assertEquals(content.insertLabel(page, page, untitled.getId()), "Adding above an untitled section");
+
+        Assert.assertEquals(content.moveInsertPoint(page, "", true), untitled.getId(), "up from the end");
+        Assert.assertEquals(content.moveInsertPoint(page, untitled.getId(), true), second);
+        Assert.assertEquals(content.moveInsertPoint(page, second, true), first);
+        Assert.assertEquals(content.moveInsertPoint(page, first, true), first, "the top is the top");
+        Assert.assertEquals(content.moveInsertPoint(page, first, false), second);
+        Assert.assertEquals(content.moveInsertPoint(page, untitled.getId(), false), "", "down from the last: the end");
+        Assert.assertEquals(content.moveInsertPoint(page, null, false), "", "the end is the end");
+        Assert.assertEquals(content.moveInsertPoint(page, "no-such-section", true), untitled.getId());
+    }
+
+    private static ContentInstance added(final ContentCommands content, final String page, final String title,
+            final String beforeId) {
+        final ContentInstance instance = content.createContent(page, "cc-test-tpl");
+        instance.setTitle(title);
+        instance.getValues().put("msg", title);
+        Assert.assertTrue(content.saveNewContentAt(instance, beforeId), title);
+        return instance;
+    }
+
+    @Test
+    public void anItemAddedInsideAGroupLandsOnTheGroup() {
+        final ContentCommands content = as(ADMIN, false);
+        final ContentInstance child = content.createContent("events", StarterTemplates.TEXT_ONLY_ID);
+        Assert.assertEquals(content.landingAnchor(child, FakeData.PAGE_KEY), "events");
+        Assert.assertEquals(content.landingAnchor(null, FakeData.PAGE_KEY), "");
+        Assert.assertEquals(content.landingAnchor(child, null), "");
+        child.setSection(null);
+        Assert.assertEquals(content.landingAnchor(child, FakeData.PAGE_KEY), "");
+    }
+
+    @Test
+    public void aLivePreviewShowsTheSitesOwnDataOrNothing() {
+        final ContentCommands content = as(ADMIN, false);
+        final ContentInstance file = content.previewInstance(FakeData.PAGE_KEY, StarterTemplates.FILE_ID);
+        Assert.assertNotNull(file, "the seeded library has a visible document");
+        Assert.assertFalse(file.getValues().get("mediaId").isBlank());
+        Assert.assertEquals(file.getSection(), FakeData.PAGE_KEY);
+        Assert.assertEquals(file.getVersion(), 0, "transient: never saved");
+        Assert.assertTrue(DAO.getInstance().getContent(file.getId(), Cached.NO).isEmpty());
+
+        final ContentInstance person = content.previewInstance(FakeData.PAGE_KEY, StarterTemplates.PERSON_ID);
+        Assert.assertEquals(person.getValues().get("personId"), ADMIN.getValue(), "the signed-in person's own card");
+        Assert.assertNotNull(content.previewInstance(FakeData.PAGE_KEY, StarterTemplates.PILGRIMAGES_ID)
+                .getValues().get("language"), "the seeded site lists public trips");
+
+        Assert.assertNull(content.previewInstance(FakeData.PAGE_KEY, StarterTemplates.TEXT_ONLY_ID),
+                "a section template's preview is its sample render");
+        Assert.assertNull(content.previewInstance(FakeData.PAGE_KEY, "no-such-template"));
+        Assert.assertNull(content.previewInstance(" ", StarterTemplates.FILE_ID));
+        Assert.assertNull(content.previewInstance(FakeData.PAGE_KEY, null));
+        Assert.assertNull(as(NOBODY, false).previewInstance(FakeData.PAGE_KEY, StarterTemplates.FILE_ID),
+                "only someone who may edit the section previews into it");
+        Assert.assertNull(as(null, true).previewInstance(FakeData.PAGE_KEY, StarterTemplates.PERSON_ID),
+                "nobody is signed in, so there is no card of their own to show");
+
+        // Another organization's template is not this site's to preview; an unregistered type has no values.
+        final ContentTemplate foreign = new ContentTemplate("cc-foreign-file", 0, "Foreign file", null, "", List.of(),
+                null, null, TemplateKind.PROGRAMMATIC, null, null, StarterTemplates.FILE_ID);
+        foreign.setOrgId(FakeData.ACME_ORG_ID);
+        Assert.assertTrue(DAO.getInstance().saveTemplate(foreign, 5));
+        Assert.assertNull(content.previewInstance(FakeData.PAGE_KEY, foreign.getId()));
+        final ContentTemplate retired = new ContentTemplate("cc-retired-type", 0, "Retired", null, "", List.of(),
+                null, null, TemplateKind.PROGRAMMATIC, null, null, "no-such-type");
+        Assert.assertTrue(DAO.getInstance().saveTemplate(retired, 5));
+        Assert.assertNull(content.previewInstance(FakeData.PAGE_KEY, retired.getId()));
     }
 
     @Test

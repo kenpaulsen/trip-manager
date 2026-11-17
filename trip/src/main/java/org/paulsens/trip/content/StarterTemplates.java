@@ -2,6 +2,7 @@ package org.paulsens.trip.content;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import org.paulsens.trip.model.ContentTemplate;
 import org.paulsens.trip.model.Placeholder;
 import org.paulsens.trip.model.TemplateKind;
@@ -56,6 +57,14 @@ public final class StarterTemplates {
     /** The most stat items a {@link #BAND_STATS_ID} band lays out: four across is the widest row that reads. */
     public static final int STATS_MAX = 4;
 
+    /**
+     * The neutral picture a template's SAMPLE render shows where a picture prompt has no sample (the Add dialog's
+     * thumbnails and previews): a static resource of the pages repo ({@code webapp/resources/images}), named by
+     * its site-relative resource URL, never fetched from anywhere else. Only sample renders use it; a stored
+     * picture value is still an absolute http(s) URL ({@link ContentRenderer#requireHttpUrl}).
+     */
+    public static final String SAMPLE_PICTURE = "/jakarta.faces.resource/images/samplePicture.svg.jsf";
+
     /** The values the band templates' {@code tone} prompt understands, each a stylesheet class suffix. */
     public static final List<String> TONES = List.of("plain", "tint", "dark");
 
@@ -75,17 +84,67 @@ public final class StarterTemplates {
     }
 
     public static List<ContentTemplate> all() {
-        final List<ContentTemplate> all = new ArrayList<>(List.of(youtubeVideo(), image(), textOnly(), container(),
-                pilgrimages(), photoAlbums(),
-                file(), person(), peopleList(), registrationReceived(), registrationApproved(), supportRequest(),
+        final List<ContentTemplate> all = new ArrayList<>(List.of(
+                tagged(youtubeVideo(), "video"), tagged(image(), "picture"), tagged(textOnly(), "text"),
+                tagged(container(), "group"), tagged(pilgrimages(), "trips"), tagged(photoAlbums(), "photos", "trips"),
+                tagged(file(), "documents"), tagged(person(), "people"), tagged(peopleList(), "people", "group"),
+                registrationReceived(), registrationApproved(), supportRequest(),
                 paymentConfirmation(), paymentFailed(), checkoutConfirmation(), orgInvite(),
-                bandHero(), bandSplit(), bandCta(), bandTestimonial(), bandText(), featureCard(), statItem(),
-                bandFeatures(), bandStats(), bandFaq(), bandLogos(), tripSchedule(), tripRegistration()));
+                band(bandHero(), "hero", "header", "banner"), band(bandSplit(), "text", "picture"),
+                band(bandCta(), "button", "invitation", "cta"), band(bandTestimonial(), "testimonial", "quote"),
+                band(bandText(), "text"),
+                childOnly(featureCard(), "features", "cards"), childOnly(statItem(), "stats", "numbers"),
+                band(bandFeatures(), "features", "cards", "group"), band(bandStats(), "stats", "numbers", "group"),
+                band(bandFaq(), "faq", "questions", "group"), band(bandLogos(), "logos", "partners", "group"),
+                tagged(tripSchedule(), "events"), tagged(tripRegistration(), "events")));
         // The trip reminders' starting texts (docs/reminders.md): MAIL kind, so an org rewords its own copy.
         for (final ReminderDefaults.Text text : ReminderDefaults.TEXTS) {
             all.add(mail(text.id(), text.subject(), text.description(), text.body()));
         }
         return List.copyOf(all);
+    }
+
+    // --- what the Add dialog reads: search tags and "where it fits" (2026-11) ---
+
+    /** The tag every band carries besides its own: the old "Band:" name prefix, kept findable. */
+    private static final String FULL_WIDTH_TAG = "full-width";
+
+    private static ContentTemplate tagged(final ContentTemplate template, final String... tags) {
+        template.setTags(List.of(tags));
+        return template;
+    }
+
+    /** A band: made for full-width pages (it still renders inside a classic page's card, so it is never hidden). */
+    private static ContentTemplate band(final ContentTemplate template, final String... tags) {
+        final List<String> all = new ArrayList<>(List.of(tags));
+        all.add(FULL_WIDTH_TAG);
+        template.setTags(all);
+        template.setFullWidth(true);
+        return template;
+    }
+
+    /** A leaf made for one band's row: offered inside a group, never at page level. */
+    private static ContentTemplate childOnly(final ContentTemplate template, final String... tags) {
+        template.setChildOnly(true);
+        return tagged(template, tags);
+    }
+
+    /** The item titles a group's sample render shows when the group has no list of its own. */
+    private static final List<String> DEFAULT_SAMPLE_TITLES = List.of("First item", "Second item", "Third item");
+
+    /**
+     * Titles for the sample items of a group template's sample render, where the group's row shows them (a
+     * feature card's heading, a question): what a real section would say, not the template's name three times.
+     */
+    private static final Map<String, List<String>> SAMPLE_CHILD_TITLES = Map.of(
+            BAND_FEATURES_ID, List.of("Group chat", "Online payments", "One itinerary"),
+            BAND_FAQ_ID, List.of("When does registration open?", "What is included?", "Can I bring my family?"),
+            CONTAINER_ID, List.of("Welcome evening", "Day trip", "Closing dinner"));
+
+    /** The titles of the sample items a group template's sample render lists; a generic three for any other id. */
+    public static List<String> sampleChildTitles(final String containerTemplateId) {
+        return SAMPLE_CHILD_TITLES.getOrDefault(containerTemplateId == null ? "" : containerTemplateId,
+                DEFAULT_SAMPLE_TITLES);
     }
 
     // --- the band family ---
@@ -155,7 +214,7 @@ public final class StarterTemplates {
                     </div>
                 </section>
                 """;
-        return standard(BAND_HERO_ID, "Band: Hero",
+        return standard(BAND_HERO_ID, "Opening banner",
                 "The full-width opening section of a page: a short label, a headline, a line under it, one or "
                         + "two buttons and an optional picture beside the text.",
                 body, List.of(
@@ -195,7 +254,7 @@ public final class StarterTemplates {
                     </div>
                 </section>
                 """;
-        return standard(BAND_SPLIT_ID, "Band: Text beside a picture",
+        return standard(BAND_SPLIT_ID, "Text beside a picture",
                 "A heading and rich text on one side, a picture (or a large icon) on the other; a full-width "
                         + "section in the page's chosen tone.",
                 body, List.of(tone(),
@@ -225,7 +284,7 @@ public final class StarterTemplates {
                     </div>
                 </section>
                 """;
-        return standard(BAND_CTA_ID, "Band: Call to action",
+        return standard(BAND_CTA_ID, "Call to action",
                 "A centered heading, a line of text and one button; usually the last section of a page, "
                         + "in the dark tone.",
                 body, List.of(tone(),
@@ -250,7 +309,7 @@ public final class StarterTemplates {
                     </div>
                 </section>
                 """;
-        return standard(BAND_TESTIMONIAL_ID, "Band: Testimonial",
+        return standard(BAND_TESTIMONIAL_ID, "Quote",
                 "A centered quotation with the speaker's name, role and optional photo.",
                 body, List.of(tone(),
                         richText("quote", "Quotation", "What they said", true,
@@ -271,7 +330,7 @@ public final class StarterTemplates {
                     </div>
                 </section>
                 """;
-        return standard(BAND_TEXT_ID, "Band: Text",
+        return standard(BAND_TEXT_ID, "Heading and text",
                 "A full-width section holding a heading and rich text in a readable column.",
                 body, List.of(tone(),
                         text("heading", "Heading", "Blank shows no heading", false, "About"),
@@ -293,8 +352,8 @@ public final class StarterTemplates {
                 </div>
                 """;
         return standard(FEATURE_CARD_ID, "Feature card",
-                "One card in a Features band: the item's title is its heading; an icon and a short text go "
-                        + "with it.",
+                "One card in a Feature cards section: the item's title is its heading; an icon and a short text "
+                        + "go with it.",
                 body, List.of(
                         text("icon", "Icon", "A PrimeIcons class such as pi-globe; blank shows no icon",
                                 false),
@@ -308,7 +367,7 @@ public final class StarterTemplates {
                 <div class="stat"><div class="stat-value">{{value}}</div><div class="stat-label">{{label}}</div></div>
                 """;
         return standard(STAT_ITEM_ID, "Stat item",
-                "One figure in a Stats band: a large value with a short label under it.",
+                "One figure in a Key numbers section: a large value with a short label under it.",
                 body, List.of(
                         text("value", "Value", "The big figure or phrase", true, "1,200"),
                         text("label", "Label", "What the value is", true, "attendees last year")));
@@ -327,7 +386,7 @@ public final class StarterTemplates {
                     </div>
                 </section>
                 """;
-        return containerBand(BAND_FEATURES_ID, "Band: Features",
+        return containerBand(BAND_FEATURES_ID, "Feature cards",
                 "A full-width section laying its Feature cards out in a responsive grid under the section's "
                         + "title. Add only Feature cards to it.",
                 body, List.of(FEATURE_CARD_ID), null);
@@ -346,7 +405,7 @@ public final class StarterTemplates {
                     </div>
                 </section>
                 """;
-        return containerBand(BAND_STATS_ID, "Band: Stats",
+        return containerBand(BAND_STATS_ID, "Key numbers",
                 "A dark full-width section showing up to four Stat items in a row under the section's title.",
                 body, List.of(STAT_ITEM_ID), STATS_MAX);
     }
@@ -366,7 +425,7 @@ public final class StarterTemplates {
                     </div>
                 </section>
                 """;
-        return containerBand(BAND_FAQ_ID, "Band: Questions and answers",
+        return containerBand(BAND_FAQ_ID, "Questions and answers",
                 "A full-width section of questions that open to show their answers. Add Text Only items: "
                         + "each item's title is the question and its text the answer.",
                 body, List.of(TEXT_ONLY_ID), null);
@@ -385,7 +444,7 @@ public final class StarterTemplates {
                     </div>
                 </section>
                 """;
-        return containerBand(BAND_LOGOS_ID, "Band: Logo strip",
+        return containerBand(BAND_LOGOS_ID, "Logo strip",
                 "A full-width row of small logos (Image items) under the section's title, e.g. the "
                         + "organizations or partners a site wants to name.",
                 body, List.of(IMAGE_ID), null);

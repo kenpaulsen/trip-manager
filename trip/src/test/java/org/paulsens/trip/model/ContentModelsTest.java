@@ -50,6 +50,38 @@ public class ContentModelsTest {
         Assert.assertEquals(tpl.getPlaceholders().size(), 1, "editing a copy must not touch the original");
     }
 
+    /** Tags and the two "where it fits" flags: written only when set, so a row from before them is unchanged. */
+    @Test
+    public void templateTagsAndFlagsRoundTripAndLeaveOldRowsAlone() throws Exception {
+        final ContentTemplate plain = template();
+        final String plainJson = MAPPER.writeValueAsString(plain);
+        Assert.assertFalse(plainJson.contains("tags") || plainJson.contains("childOnly")
+                || plainJson.contains("fullWidth"), "a template with none writes none: " + plainJson);
+        Assert.assertTrue(plain.getTags().isEmpty(), "no tags reads as an empty list, never null");
+        Assert.assertFalse(plain.isChildOnly() || plain.isFullWidth());
+
+        final ContentTemplate tagged = template();
+        tagged.setTags(List.of("hero", "banner"));
+        tagged.setChildOnly(true);
+        tagged.setFullWidth(true);
+        final String json = MAPPER.writeValueAsString(tagged);
+        Assert.assertTrue(json.contains("\"tags\":[\"hero\",\"banner\"]"), json);
+        Assert.assertTrue(json.contains("\"childOnly\":true") && json.contains("\"fullWidth\":true"), json);
+        final ContentTemplate back = MAPPER.readValue(json, ContentTemplate.class);
+        Assert.assertEquals(back, tagged);
+        Assert.assertEquals(back.getTags(), List.of("hero", "banner"));
+
+        final ContentTemplate copy = tagged.copy();
+        Assert.assertEquals(copy, tagged);
+        Assert.assertNotSame(copy.getTags(), tagged.getTags(), "a copy's tags are its own list");
+        copy.setTags(List.of());
+        Assert.assertEquals(MAPPER.readValue(MAPPER.writeValueAsString(copy), ContentTemplate.class), copy,
+                "an emptied list is stored as none, so it still equals what comes back");
+        copy.setTags(null);
+        Assert.assertTrue(copy.getTags().isEmpty());
+        Assert.assertEquals(tagged.getTags().size(), 2, "editing a copy must not touch the original");
+    }
+
     @Test
     public void instanceRoundTripsCopiesAndLazyInits() throws Exception {
         final ContentInstance inst = instance(4);

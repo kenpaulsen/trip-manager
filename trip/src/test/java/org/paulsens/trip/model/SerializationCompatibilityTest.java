@@ -438,8 +438,12 @@ public class SerializationCompatibilityTest {
     }
 
     private static ContentTemplate contentTemplate() {
-        return new ContentTemplate("template-1", 3, "Name", "Desc", "<p>{{a}}</p>",
+        final ContentTemplate template = new ContentTemplate("template-1", 3, "Name", "Desc", "<p>{{a}}</p>",
                 List.of(new Placeholder("a", Placeholder.Type.RICH_TEXT, "A", "hint", true)), AT, "person-ada");
+        template.setTags(List.of("hero", "banner"));
+        template.setChildOnly(true);
+        template.setFullWidth(true);
+        return template;
     }
 
     private static MediaItem mediaItem() {

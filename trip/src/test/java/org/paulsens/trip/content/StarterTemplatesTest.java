@@ -54,6 +54,79 @@ public class StarterTemplatesTest {
         }
     }
 
+    /** The plain names the Add dialog lists (2026-11): ids never change, the "Band:" prefix is gone. */
+    @Test
+    public void bandsCarryPlainNamesAndStayFindableByTheirOldWords() {
+        final Map<String, String> names = Map.of(
+                StarterTemplates.BAND_HERO_ID, "Opening banner",
+                StarterTemplates.BAND_SPLIT_ID, "Text beside a picture",
+                StarterTemplates.BAND_CTA_ID, "Call to action",
+                StarterTemplates.BAND_TESTIMONIAL_ID, "Quote",
+                StarterTemplates.BAND_TEXT_ID, "Heading and text",
+                StarterTemplates.BAND_FEATURES_ID, "Feature cards",
+                StarterTemplates.BAND_STATS_ID, "Key numbers",
+                StarterTemplates.BAND_FAQ_ID, "Questions and answers",
+                StarterTemplates.BAND_LOGOS_ID, "Logo strip");
+        names.forEach((id, name) -> Assert.assertEquals(byId(id).getName(), name, id));
+        for (final String id : names.keySet()) {
+            final ContentTemplate band = byId(id);
+            Assert.assertTrue(band.isFullWidth(), id + " is made for full-width pages");
+            Assert.assertFalse(band.isChildOnly(), id + " is a section of its own");
+            Assert.assertTrue(band.getTags().contains("full-width"), id + " " + band.getTags());
+        }
+        Assert.assertEquals(byId(StarterTemplates.BAND_HERO_ID).getTags(),
+                List.of("hero", "header", "banner", "full-width"));
+        Assert.assertTrue(byId(StarterTemplates.BAND_TESTIMONIAL_ID).getTags().contains("testimonial"));
+        Assert.assertTrue(byId(StarterTemplates.BAND_CTA_ID).getTags().contains("cta"));
+        Assert.assertTrue(byId(StarterTemplates.BAND_FAQ_ID).getTags().containsAll(List.of("faq", "group")));
+        for (final ContentTemplate starter : StarterTemplates.all()) {
+            Assert.assertFalse(starter.getName().startsWith("Band:"), starter.getId());
+        }
+    }
+
+    /** What the Add dialog reads besides the name: tags on everything a page can hold, and where it fits. */
+    @Test
+    public void everyPageStarterIsTaggedAndOnlyTheBandLeavesAreChildOnly() {
+        for (final ContentTemplate starter : StarterTemplates.all()) {
+            final String id = starter.getId();
+            if (starter.getKind() == TemplateKind.MAIL) {
+                Assert.assertTrue(starter.getTags().isEmpty(), id + ": no Add dialog offers an email body");
+                Assert.assertFalse(starter.isChildOnly() || starter.isFullWidth(), id);
+                continue;
+            }
+            Assert.assertFalse(starter.getTags().isEmpty(), id + " has no search tag");
+            for (final String tag : starter.getTags()) {
+                Assert.assertEquals(tag, tag.trim().toLowerCase(), id + " tags are stored as they are searched");
+            }
+            Assert.assertEquals(starter.isChildOnly(),
+                    List.of(StarterTemplates.FEATURE_CARD_ID, StarterTemplates.STAT_ITEM_ID).contains(id), id);
+            Assert.assertEquals(starter.isFullWidth(), id.startsWith("band-"), id);
+            Assert.assertFalse(starter.isChildOnly() && starter.getKind() == TemplateKind.CONTAINER, id);
+        }
+        Assert.assertEquals(byId(StarterTemplates.TEXT_ONLY_ID).getTags(), List.of("text"));
+        Assert.assertEquals(byId(StarterTemplates.PHOTO_ALBUMS_ID).getTags(), List.of("photos", "trips"));
+        // Every child-only leaf is admitted by some group, or nothing could ever add it.
+        for (final String leaf : List.of(StarterTemplates.FEATURE_CARD_ID, StarterTemplates.STAT_ITEM_ID)) {
+            Assert.assertTrue(StarterTemplates.all().stream()
+                    .anyMatch(t -> t.getAllowedChildTemplateIds() != null
+                            && t.getAllowedChildTemplateIds().contains(leaf)), leaf);
+        }
+    }
+
+    @Test
+    public void aGroupsSampleItemsHaveTitlesOfTheirOwn() {
+        Assert.assertEquals(StarterTemplates.sampleChildTitles(StarterTemplates.BAND_FEATURES_ID).size(), 3);
+        Assert.assertTrue(StarterTemplates.sampleChildTitles(StarterTemplates.BAND_FAQ_ID).get(0).endsWith("?"),
+                "a question group's items are questions");
+        Assert.assertEquals(StarterTemplates.sampleChildTitles("anything-else"),
+                StarterTemplates.sampleChildTitles(null), "one generic list for every other group");
+        Assert.assertEquals(StarterTemplates.sampleChildTitles(null).size(), 3);
+        Assert.assertEquals(ContentRenderer.requireLinkUrl(StarterTemplates.SAMPLE_PICTURE),
+                StarterTemplates.SAMPLE_PICTURE, "the sample picture is a site-relative path");
+        Assert.assertEquals(ContentRenderer.requireHttpUrl(StarterTemplates.SAMPLE_PICTURE), "",
+                "which no stored picture value may be");
+    }
+
     private static ContentTemplate byId(final String id) {
         return StarterTemplates.all().stream()
                 .filter(t -> t.getId().equals(id))

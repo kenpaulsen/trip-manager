@@ -9,11 +9,13 @@ import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -30,6 +32,7 @@ import org.paulsens.trip.content.PersonType;
 import org.paulsens.trip.content.ProgrammaticContentTemplate;
 import org.paulsens.trip.content.ProgrammaticTypes;
 import org.paulsens.trip.content.RichTextRules;
+import org.paulsens.trip.content.StarterTemplates;
 import org.paulsens.trip.content.TemplateValueMigrator;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.AuditAction;
@@ -179,6 +182,52 @@ public class ContentCommands {
             publishContainerOf(caller, instance);
         }
         return saved;
+    }
+
+    /**
+     * {@link #saveContent} for the Add flow's "Add section here": a NEW item is saved in front of
+     * {@code beforeId} (an item of the same section) rather than at the end. The item takes that place's position
+     * before it is saved, and the rest of the section is then renumbered through {@link #applyOrder}, the
+     * arrange dialog's own version-silent path; the new id is spliced into the order by hand, because a read
+     * right after a write may not list it yet. An item that already exists (an edit carrying a stale
+     * {@code beforeId}), a blank {@code beforeId}, and one that is not in the section (deleted meanwhile, or
+     * left over from another Add) all save exactly as {@link #saveContent} does.
+     */
+    public boolean saveNewContentAt(final ContentInstance instance, final String beforeId) {
+        if (instance == null || instance.getSection() == null || beforeId == null || beforeId.isBlank()
+                || instance.getVersion() > 0) {
+            return saveContent(instance);
+        }
+        final ArrayList<String> order = idsFor(instance.getSection(), true);
+        order.remove(instance.getId());
+        final int at = order.indexOf(beforeId.trim());
+        if (at < 0) {
+            return saveContent(instance);
+        }
+        final int atEnd = instance.getPosition();
+        instance.setPosition(at);
+        if (!saveContent(instance)) {
+            instance.setPosition(atEnd);
+            return false;
+        }
+        order.add(at, instance.getId());
+        if (!applyOrder(instance.getSection(), order)) {
+            PageFeedback.warn("Saved, but the sections after it could not be moved down; use Arrange sections.");
+        }
+        return true;
+    }
+
+    /**
+     * The page anchor to land on after an item is ADDED ({@code contentSections.xhtml} writes one per page
+     * section, {@code <a id="...">}): the new section's own id, or for an item added inside a group the group's.
+     * "" for an item that already exists (an edit reloads in place) and for anything that is not on the page.
+     * Asked BEFORE the save, while the item is still new.
+     */
+    public String landingAnchor(final ContentInstance instance, final String pageKey) {
+        if (instance == null || instance.getVersion() > 0 || instance.getSection() == null || pageKey == null) {
+            return "";
+        }
+        return instance.getSection().equals(pageKey) ? instance.getId() : instance.getSection();
     }
 
     /**
@@ -387,23 +436,59 @@ public class ContentCommands {
         };
     }
 
-    /** One template as the picker's card shows it: name, description, kind, an icon and a rendered thumbnail. */
+    /**
+     * One template as the Add dialog shows it, everything a picker needs without another server call:
+     * {@code kindLabel} is "" for a plain section template, "Group" for a container and "Live" for a programmatic
+     * type; {@code html} is the template's sample render ({@link #sampleRender}, never blank for a shipped
+     * starter); {@code searchText} is the lower-cased name, description and tags a search box filters on;
+     * {@code fullWidth} marks a template made for full-width pages (shown, flagged, on a classic one);
+     * {@code fields} are the prompts an author will fill in, a required one ending in " *"; {@code holds} says
+     * what a group takes ("Feature card (up to 4)"), "" for anything else.
+     */
     public record TemplateCard(String id, String name, String description, String kind, String kindLabel,
-            String icon, String html) implements Serializable {
+            String icon, String html, List<String> tags, String searchText, boolean fullWidth, List<String> fields,
+            String holds) implements Serializable {
         @Serial
         private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
     }
 
     /** The templates the Add dialog offers for {@code section} ({@link #getTemplateChoicesFor}), as cards. */
     public List<TemplateCard> templateCards(final String section) {
+        final Map<String, ContentTemplate> known = knownTemplates();
         final List<TemplateCard> cards = new ArrayList<>();
         for (final ContentTemplate template : getTemplateChoicesFor(section)) {
-            cards.add(cardOf(template));
+            cards.add(cardOf(template, known));
         }
         return cards;
     }
 
-    private TemplateCard cardOf(final ContentTemplate template) {
+    /**
+     * {@link #templateCards(String)} for a page whose layout is known: on a CLASSIC page the templates made for
+     * full-width pages keep their place in the offer (they render there by design, inside the card) but sort
+     * after everything else, so the picker can list them as one trailing group. The host passes its own
+     * {@code fullWidth} ui:param: the page decides, since an organization's Site Pages stay classic whatever
+     * its home page's layout is.
+     */
+    public List<TemplateCard> templateCards(final String section, final boolean pageFullWidth) {
+        final List<TemplateCard> cards = templateCards(section);
+        if (pageFullWidth) {
+            return cards;
+        }
+        final List<TemplateCard> ordered = new ArrayList<>(cards);
+        ordered.sort(Comparator.comparing(TemplateCard::fullWidth));
+        return ordered;
+    }
+
+    private static List<ContentTemplate> allTemplates() {
+        try {
+            return DAO.getInstance().getAllTemplates(Cached.NO);
+        } catch (final RuntimeException ex) {
+            log.error("Unable to list templates for the picker's sample renders", ex);
+            return List.of();
+        }
+    }
+
+    private TemplateCard cardOf(final ContentTemplate template, final Map<String, ContentTemplate> known) {
         final TemplateKind kind = template.getKind() == null ? TemplateKind.STANDARD : template.getKind();
         final String icon = switch (kind) {
             case CONTAINER -> "pi-th-large";
@@ -411,41 +496,414 @@ public class ContentCommands {
                     .map(ProgrammaticContentTemplate::getIcon).orElse("pi-cog");
             default -> "pi-file-edit";
         };
+        // No label for a plain section template: "Section" named both the thing being added and one kind of it.
         final String kindLabel = switch (kind) {
-            case CONTAINER -> "Container";
+            case CONTAINER -> "Group";
             case PROGRAMMATIC -> "Live";
-            default -> "Section";
+            default -> "";
         };
-        return new TemplateCard(template.getId(), template.getName(),
-                template.getDescription() == null ? "" : template.getDescription(), kind.name(), kindLabel, icon,
-                sampleRender(template));
+        final String description = template.getDescription() == null ? "" : template.getDescription();
+        final List<String> tags = List.copyOf(template.getTags());
+        return new TemplateCard(template.getId(), template.getName(), description, kind.name(), kindLabel, icon,
+                sampleRender(template, known), tags, searchTextOf(template.getName(), description, tags),
+                template.isFullWidth(), fieldsOf(template), holdsOf(template, known));
+    }
+
+    private static String searchTextOf(final String name, final String description, final List<String> tags) {
+        return ((name == null ? "" : name) + " " + description + " " + String.join(" ", tags))
+                .toLowerCase(Locale.ROOT).trim();
     }
 
     /**
-     * The template rendered with its placeholders' SAMPLE values (the label where a prompt has none), for the
-     * picker's thumbnail; "" for anything but a STANDARD template, whose card shows an icon instead. Nothing is
-     * stored: a transient instance that never reaches a scope.
+     * The prompts an author fills in for a template, as the content dialog would label them, a required one
+     * marked " *"; on an organization's site without the shared-site-only ones the dialog hides there.
      */
-    public String sampleRender(final ContentTemplate template) {
-        if (template == null || template.getKind() != TemplateKind.STANDARD) {
+    private List<String> fieldsOf(final ContentTemplate template) {
+        final Set<String> hidden = !SiteContext.current().isOrg() ? Set.of()
+                : ProgrammaticTypes.byId(template.getProgrammaticTypeId())
+                        .map(ProgrammaticContentTemplate::sharedSiteOnlyProperties).orElse(Set.of());
+        final List<String> fields = new ArrayList<>();
+        for (final Placeholder ph : ProgrammaticTypes.placeholdersOf(template)) {
+            if (!hidden.contains(ph.getName())) {
+                fields.add(promptLabel(ph) + (ph.isRequired() ? " *" : ""));
+            }
+        }
+        return List.copyOf(fields);
+    }
+
+    /** What a group template takes: its allowed item templates by name and its limit; "" for any other kind. */
+    private static String holdsOf(final ContentTemplate template, final Map<String, ContentTemplate> known) {
+        if (template.getKind() != TemplateKind.CONTAINER) {
             return "";
         }
+        final List<String> allowed = template.getAllowedChildTemplateIds() == null
+                ? List.of() : template.getAllowedChildTemplateIds();
+        final String names = allowed.stream()
+                .map(known::get)
+                .filter(Objects::nonNull)
+                .map(ContentTemplate::getName)
+                .collect(Collectors.joining(", "));
+        final String what = names.isEmpty() ? "Any item" : names;
+        return template.getMaxChildren() == null ? what : what + " (up to " + template.getMaxChildren() + ")";
+    }
+
+    /** How many sample items a group's sample render lists (fewer when the group holds fewer). */
+    private static final int SAMPLE_CHILDREN = 3;
+    /**
+     * The two wrappers the page puts around a group's child ({@code contentSections.xhtml}: the item's block,
+     * then the leaf's), so a row's own selectors match a sample as they match the page.
+     */
+    private static final String SAMPLE_CHILD_OPEN = "<div class=\"contentItem\"><div>";
+    private static final String SAMPLE_CHILD_CLOSE = "</div></div>";
+
+    /**
+     * A template as a filled-in section, for the Add dialog's thumbnail and preview, whatever its kind: a
+     * STANDARD body rendered with its placeholders' SAMPLE values, a CONTAINER's wrapper and row around a few
+     * sample items ({@link #sampleRenderContainer}), a PROGRAMMATIC type's static sample markup
+     * ({@code ProgrammaticContentTemplate.getSampleHtml}; a card never runs a live fragment). Nothing is stored
+     * and nothing reaches a scope: every instance here is transient.
+     */
+    public String sampleRender(final ContentTemplate template) {
+        return sampleRender(template, null);
+    }
+
+    /** {@link #sampleRender(ContentTemplate)} with the other templates already in hand (a group's item lookup). */
+    private String sampleRender(final ContentTemplate template, final Map<String, ContentTemplate> known) {
+        if (template == null) {
+            return "";
+        }
+        try {
+            return switch (template.getKind()) {
+                case STANDARD -> sampleRenderStandard(template, template.getName());
+                case CONTAINER -> sampleRenderContainer(template, known == null ? knownTemplates() : known);
+                case PROGRAMMATIC -> ProgrammaticTypes.byId(template.getProgrammaticTypeId())
+                        .map(ProgrammaticContentTemplate::getSampleHtml).orElse("");
+                case MAIL -> "";
+            };
+        } catch (final RuntimeException ex) {
+            log.warn("Unable to render a sample of template " + template.getId(), ex);
+            return "";
+        }
+    }
+
+    private static Map<String, ContentTemplate> knownTemplates() {
+        final Map<String, ContentTemplate> known = new HashMap<>();
+        allTemplates().forEach(template -> known.put(template.getId(), template));
+        return known;
+    }
+
+    /**
+     * A STANDARD template rendered with its placeholders' SAMPLE values: the label where a text prompt has none,
+     * and the bundled neutral picture ({@link StarterTemplates#SAMPLE_PICTURE}) where a picture prompt has none,
+     * so no card shows an empty frame where its picture goes.
+     */
+    private static String sampleRenderStandard(final ContentTemplate template, final String title) {
+        final ContentTemplate lenient = withSamplePictures(template);
         final ContentInstance sample = blank();
         sample.setTemplateId(template.getId());
         sample.setTemplateVersion(template.getVersion());
-        sample.setTitle(template.getName());
+        sample.setTitle(title);
         for (final Placeholder ph : template.getPlaceholders()) {
-            final String value = ph.getSample() != null ? ph.getSample()
-                    : (ph.getType() == Placeholder.Type.TEXT || ph.getType() == Placeholder.Type.RICH_TEXT)
-                            ? ph.getLabel() : "";
-            sample.getValues().put(ph.getName(), value);
+            sample.getValues().put(ph.getName(), sampleValue(ph));
+        }
+        return ContentRenderer.render(lenient, sample);
+    }
+
+    private static String sampleValue(final Placeholder ph) {
+        if (ph.getSample() != null) {
+            return ph.getSample();
+        }
+        return switch (ph.getType()) {
+            case TEXT, RICH_TEXT -> ph.getLabel();
+            case IMAGE_URL -> StarterTemplates.SAMPLE_PICTURE;
+            default -> "";
+        };
+    }
+
+    /**
+     * A copy whose sample-less picture prompts are typed as LINKS, for the sample render only. A real picture
+     * value must be an absolute http(s) URL ({@code ContentRenderer.requireHttpUrl}); the bundled sample picture
+     * is a site-relative path, which only the link rule ({@code requireLinkUrl}) lets through. Both escape the
+     * value the same way, and a stored row is never touched.
+     */
+    private static ContentTemplate withSamplePictures(final ContentTemplate template) {
+        return withSamplePictures(template, Set.of());
+    }
+
+    /**
+     * {@link #withSamplePictures(ContentTemplate)} for the fill-in preview: a picture prompt the author has typed
+     * in ({@code typed}) keeps its real type, so the preview refuses exactly the values the page would refuse.
+     */
+    private static ContentTemplate withSamplePictures(final ContentTemplate template, final Set<String> typed) {
+        final ContentTemplate copy = template.copy();
+        final List<Placeholder> prompts = new ArrayList<>();
+        for (final Placeholder ph : copy.getPlaceholders()) {
+            final boolean sampled = ph.getType() == Placeholder.Type.IMAGE_URL && ph.getSample() == null
+                    && !typed.contains(ph.getName());
+            prompts.add(sampled
+                    ? new Placeholder(ph.getName(), Placeholder.Type.URL, ph.getLabel(), ph.getHint(), ph.isRequired())
+                    : ph);
+        }
+        copy.setPlaceholders(prompts);
+        return copy;
+    }
+
+    /**
+     * A CONTAINER template as a filled-in section: its once-around wrapper and its row, exactly as the page
+     * emits them ({@code ContentRenderer.containerBody} / {@code renderChildRow} / {@code fillContainerTokens}),
+     * around up to {@link #SAMPLE_CHILDREN} sample items (fewer when {@code maxChildren} is lower) built on the
+     * first template the group admits. The group's title is the template's name; the items' titles come from
+     * {@link StarterTemplates#sampleChildTitles}, since a feature card or a question shows its title.
+     */
+    String sampleRenderContainer(final ContentTemplate template, final Map<String, ContentTemplate> known) {
+        final ContentRenderer.ContainerBody body = ContentRenderer.containerBody(template.getBody());
+        final ContentInstance container = blank();
+        container.setTitle(template.getName());
+        final ContentTemplate item = sampleItemTemplate(template, known);
+        final boolean live = item != null && item.getKind() == TemplateKind.PROGRAMMATIC;
+        final List<String> titles = StarterTemplates.sampleChildTitles(template.getId());
+        final int count = template.getMaxChildren() == null ? SAMPLE_CHILDREN
+                : Math.min(SAMPLE_CHILDREN, template.getMaxChildren());
+        // Parts joined as they are: every one is markup the renderer produced from a trusted template.
+        final List<String> out = new ArrayList<>();
+        if (!ContentRenderer.hasContainerTitleSlot(template.getBody())) {
+            out.add(ContentRenderer.renderContainerTitle(container.getTitle()));
+        }
+        out.add(ContentRenderer.fillContainerTokens(body.beforeAll(), container));
+        for (int index = 0; item != null && index < count; index++) {
+            // A fixed id per place ({{child:id}} is an anchor in some rows): the same sample every time it is asked.
+            final ContentInstance child = blank();
+            child.setId("sample-" + (index + 1));
+            child.setTitle(titles.get(index % titles.size()));
+            final ContentRenderer.ChildRow row = ContentRenderer.renderChildRow(body.row(), child, live, index);
+            out.add(ContentRenderer.fillContainerTokens(row.before(), container));
+            out.add(SAMPLE_CHILD_OPEN);
+            out.add(live ? sampleRender(item, known) : sampleRenderStandard(item, child.getTitle()));
+            out.add(SAMPLE_CHILD_CLOSE);
+            out.add(ContentRenderer.fillContainerTokens(row.after(), container));
+        }
+        out.add(ContentRenderer.fillContainerTokens(body.afterAll(), container));
+        return String.join("", out);
+    }
+
+    /**
+     * The template a group's sample items are built on: the first one its allow-list names that exists and is
+     * not itself a group, a STANDARD one before a live one; with no allow-list, the plain text starter. Null
+     * when none can be found, and the sample is then the empty group.
+     */
+    private static ContentTemplate sampleItemTemplate(final ContentTemplate container,
+            final Map<String, ContentTemplate> known) {
+        final List<String> allowed = container.getAllowedChildTemplateIds() == null
+                || container.getAllowedChildTemplateIds().isEmpty()
+                        ? List.of(StarterTemplates.TEXT_ONLY_ID) : container.getAllowedChildTemplateIds();
+        final List<ContentTemplate> candidates = allowed.stream()
+                .map(known::get)
+                .filter(Objects::nonNull)
+                .filter(candidate -> candidate.getKind() != TemplateKind.CONTAINER)
+                .toList();
+        return candidates.stream()
+                .filter(candidate -> candidate.getKind() == TemplateKind.STANDARD)
+                .findFirst()
+                .orElse(candidates.isEmpty() ? null : candidates.getFirst());
+    }
+
+    /**
+     * A transient item of a LIVE template filled with the site's REAL data, for the Add dialog's preview pane,
+     * which renders it through the same leaf branches as the page ({@code WEB-INF/contentLeaf.xhtml}): the trip
+     * whose page the section is on, else the site's next public trip; its first visible document; the
+     * signed-in person. Null when there is nothing real to show (the preview is then the card's static sample,
+     * labeled as sample data), for a template that is not a live type, one this site may not use, and a caller
+     * who may not edit the section. Never stored and never put in a view: the dialog asks again each request.
+     */
+    public ContentInstance previewInstance(final String section, final String templateId) {
+        if (section == null || section.isBlank() || templateId == null || templateId.isBlank()) {
+            return null;
+        }
+        return RequestMemo.get("previewInstance:" + section + ":" + templateId,
+                () -> buildPreviewInstance(section, templateId));
+    }
+
+    private ContentInstance buildPreviewInstance(final String section, final String templateId) {
+        final Caller caller = callerSource.get();
+        if (!mayEdit(caller, section)) {
+            return null;
         }
         try {
-            return ContentRenderer.render(template, sample);
+            final ContentTemplate template = DAO.getInstance().getTemplate(templateId, Cached.NO).orElse(null);
+            if (template == null || template.getKind() != TemplateKind.PROGRAMMATIC
+                    || (template.isOrgOwned() && !SiteContext.current().isSiteOf(template.getOrgId()))) {
+                return null;
+            }
+            final Map<String, String> values = ProgrammaticTypes.byId(template.getProgrammaticTypeId())
+                    .map(type -> type.previewValues(previewContext(caller, section)))
+                    .orElse(null);
+            return values == null ? null : previewOf(section, template, values);
         } catch (final RuntimeException ex) {
-            log.warn("Unable to render a thumbnail for template " + template.getId(), ex);
+            // The preview is a convenience: the picker falls back to the sample rather than failing with it.
+            log.warn("Unable to build a live preview of template " + templateId, ex);
+            return null;
+        }
+    }
+
+    private ProgrammaticContentTemplate.PreviewContext previewContext(final Caller caller, final String section) {
+        final Person.Id person = caller.personId();
+        return new ProgrammaticContentTemplate.PreviewContext(tripOf(section, containerOf(section)),
+                person == null ? null : person.getValue());
+    }
+
+    private ContentInstance previewOf(final String section, final ContentTemplate template,
+            final Map<String, String> values) {
+        final ContentInstance preview = createContent(section, template.getId());
+        preview.setTitle(template.getName());
+        preview.getValues().putAll(values);
+        return preview;
+    }
+
+    /** Whether the dialog's working copy is a NEW item: one no save has stored yet. */
+    public boolean isNewContent(final ContentInstance instance) {
+        return instance != null && instance.getVersion() == 0;
+    }
+
+    /** The content drawer's heading: adding or editing, a section of the page or an item of a group. */
+    public String drawerTitle(final ContentInstance working, final String section, final String pageKey) {
+        final boolean item = section != null && !section.equals(pageKey);
+        if (working != null && !isNewContent(working)) {
+            return item ? "Edit item" : "Edit section";
+        }
+        return item ? "Add an item" : "Add a section";
+    }
+
+    /**
+     * The in-page preview of a NEW section while its form is filled in (the content drawer redraws it on every
+     * field change): the working copy rendered with an EXAMPLE in each prompt the author has not touched yet, so
+     * a new section does not collapse to nothing on the first keystroke. A prompt named in {@code touched} (the
+     * drawer's comma-separated list) shows exactly what was typed, blank included; a value that is already there
+     * always shows. Nothing here is stored: only typed values ever reach a save.
+     *
+     * <p>"" whenever the page's own render is the right preview instead ({@code contentLeaf.xhtml} over
+     * {@link #liveInstance}): an item that already exists, the "Hide example text" switch ({@code plain}), and
+     * any kind but STANDARD.
+     */
+    public String liveHtml(final ContentInstance working, final String touched, final String plain) {
+        final ContentTemplate template = showsExamples(working, plain) ? resolveTemplate(working) : null;
+        if (template == null || template.getKind() != TemplateKind.STANDARD) {
             return "";
         }
+        final Set<String> typed = namesOf(touched);
+        final ContentInstance filled = working.copy();
+        for (final Placeholder ph : template.getPlaceholders()) {
+            if (isUntouched(filled, ph.getName(), typed)) {
+                filled.getValues().put(ph.getName(), sampleValue(ph));
+            }
+        }
+        try {
+            return ContentRenderer.render(withSamplePictures(template, typed), filled);
+        } catch (final RuntimeException ex) {
+            log.warn("Unable to render the fill-in preview of template " + template.getId(), ex);
+            return "";
+        }
+    }
+
+    /**
+     * The item {@code contentLeaf.xhtml} renders as the in-page preview: the working copy itself, except that a
+     * NEW live section borrows the site's real preview values ({@link #previewInstance}) for the choices the
+     * author has not made yet, so it shows the site's own trip or document from the start. The copy is transient
+     * and the working copy is never changed by it.
+     */
+    public ContentInstance liveInstance(final ContentInstance working, final String touched, final String plain) {
+        final ContentTemplate template = showsExamples(working, plain) ? resolveTemplate(working) : null;
+        if (template == null || template.getKind() != TemplateKind.PROGRAMMATIC) {
+            return working;
+        }
+        final ContentInstance real = previewInstance(working.getSection(), working.getTemplateId());
+        if (real == null) {
+            return working;
+        }
+        final Set<String> typed = namesOf(touched);
+        final ContentInstance filled = working.copy();
+        for (final Map.Entry<String, String> value : real.getValues().entrySet()) {
+            if (isUntouched(filled, value.getKey(), typed)) {
+                filled.getValues().put(value.getKey(), value.getValue());
+            }
+        }
+        if (hasNoText(filled.getTitle())) {
+            filled.setTitle(real.getTitle());
+        }
+        return filled;
+    }
+
+    private boolean showsExamples(final ContentInstance working, final String plain) {
+        return isNewContent(working) && hasNoText(plain);
+    }
+
+    private static boolean isUntouched(final ContentInstance instance, final String name, final Set<String> typed) {
+        return !typed.contains(name) && hasNoText(instance.getValues().get(name));
+    }
+
+    private static boolean hasNoText(final String value) {
+        return value == null || value.isBlank();
+    }
+
+    /** The prompt names in the drawer's comma-separated {@code touched} list. */
+    private static Set<String> namesOf(final String csv) {
+        final Set<String> names = new HashSet<>();
+        if (csv != null) {
+            for (final String name : csv.split(",")) {
+                names.add(name.trim());
+            }
+        }
+        return names;
+    }
+
+    /**
+     * Whether the Title the form asks for shows nowhere on the page: a plain section template placed straight on
+     * a page has no slot for it (a group shows its title, a group's row shows its item's, and a live type titles
+     * itself). The title still names the section in Arrange sections and in History, which the form then says.
+     */
+    public boolean isTitleUnseen(final ContentInstance working, final String pageKey) {
+        return working != null && pageKey != null && pageKey.equals(working.getSection())
+                && TemplateKind.STANDARD.name().equals(getKind(working));
+    }
+
+    /**
+     * Where the Add drawer's new item will go, in the author's words: above a named section of the page, at the
+     * end of the page, or inside the group it was opened from. "" with no target at all.
+     */
+    public String insertLabel(final String section, final String pageKey, final String beforeId) {
+        if (section == null || section.isBlank()) {
+            return "";
+        }
+        if (!section.equals(pageKey)) {
+            final String group = plainTitleOf(section);
+            return group.isEmpty() ? "Adding to this group" : "Adding to \u201c" + group + "\u201d";
+        }
+        if (beforeId == null || !idsFor(section, true).contains(beforeId)) {
+            return "Adding at the end of the page";
+        }
+        final String next = plainTitleOf(beforeId);
+        return next.isEmpty() ? "Adding above an untitled section" : "Adding above \u201c" + next + "\u201d";
+    }
+
+    /** A stored item's title as plain text (a title may carry markup); "" when there is none or no such item. */
+    private static String plainTitleOf(final String id) {
+        try {
+            final String title = DAO.getInstance().getContent(id, Cached.NO).map(ContentInstance::getTitle).orElse("");
+            return title == null ? "" : title.replaceAll("<[^>]*>", "").trim();
+        } catch (final RuntimeException ex) {
+            log.warn("Unable to read the title of content " + id, ex);
+            return "";
+        }
+    }
+
+    /**
+     * The Add drawer's "move it up / down the page": the id the new section will go in front of after one step
+     * from {@code beforeId} ("" or an id that is not on the page means the end), "" for the end of the page.
+     */
+    public String moveInsertPoint(final String pageKey, final String beforeId, final boolean up) {
+        final List<String> ids = idsFor(pageKey, true);
+        final int at = beforeId == null || !ids.contains(beforeId) ? ids.size() : ids.indexOf(beforeId);
+        final int next = Math.max(0, Math.min(ids.size(), at + (up ? -1 : 1)));
+        return next >= ids.size() ? "" : ids.get(next);
     }
 
     /** The title (when it carries markup) and every RICH_TEXT value must be structurally sound HTML. */
@@ -577,13 +1035,16 @@ public class ContentCommands {
     /**
      * What a {@code person} section shows ({@code ptypes/person.xhtml}): the instance's own words plus the
      * named account's live, privacy-filtered fields (see {@link PersonType}). Memoized per request, because
-     * the fragment reads a dozen properties of one card through a lazily-evaluated ui:param.
+     * the fragment reads a dozen properties of one card through a lazily-evaluated ui:param. The memo is keyed
+     * on the VALUES as well as the row's id and version: the edit view renders the unsaved working copy through
+     * this same fragment, and its values change while its id and version stand still.
      */
     public PersonType.Card personCard(final ContentInstance instance, final boolean signedIn) {
         if (instance == null) {
             return PersonType.card(Map.of(), null, signedIn);
         }
-        return RequestMemo.get("personCard:" + instance.getId() + ":" + instance.getVersion() + ":" + signedIn,
+        return RequestMemo.get("personCard:" + instance.getId() + ":" + instance.getVersion() + ":"
+                        + instance.getValues().hashCode() + ":" + signedIn,
                 () -> PersonType.card(instance.getValues(), cardPerson(instance), signedIn));
     }
 
@@ -1332,7 +1793,8 @@ public class ContentCommands {
     /**
      * The templates the Add dialog may offer for a section: inside a container, its effective allow-list
      * -- the container INSTANCE's when set, else its template's, else any non-container template; at page
-     * level, everything -- always narrowed to what the request's SITE may use: an org site sees the shared
+     * level, everything but the templates marked "only inside a group" ({@code childOnly}) -- always narrowed
+     * to what the request's SITE may use: an org site sees the shared
      * templates plus its own, any other site only the shared ones (an org's template never reaches another
      * tenant's page, or the shared page).
      */
@@ -1358,10 +1820,14 @@ public class ContentCommands {
             return List.of();
         }
         if (container == null) {
-            // A page key: any kind may become a section, except that a trip's page leaves out the types
-            // that list OTHER trips (fitsTripPage, docs/conference.md).
-            return OrgPageBootstrap.tripOf(section) == null ? all
-                    : all.stream().filter(ContentCommands::fitsTripPage).toList();
+            // A page key: any kind may become a section, except a leaf made for one group's row (childOnly:
+            // a feature card on its own has no heading and no grid), and except that a trip's page leaves out
+            // the types that list OTHER trips (fitsTripPage, docs/conference.md).
+            final boolean tripPage = OrgPageBootstrap.tripOf(section) != null;
+            return all.stream()
+                    .filter(t -> !t.isChildOnly())
+                    .filter(t -> !tripPage || fitsTripPage(t))
+                    .toList();
         }
         final ContentTemplate containerTemplate =
                 DAO.getInstance().getTemplate(container.getTemplateId(), Cached.NO).orElse(null);

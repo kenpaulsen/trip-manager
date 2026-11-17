@@ -1,6 +1,7 @@
 package org.paulsens.trip.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.io.Serial;
 import java.io.Serializable;
@@ -71,6 +72,29 @@ public final class ContentTemplate implements Serializable {
      */
     @JsonProperty("orgId")
     private String orgId;
+    /**
+     * Words an author may search the Add dialog by, beyond the name and description ("hero", "faq", "picture"):
+     * lower-case, normalized on save ({@code TemplateCommands.saveTemplate}). Stored as null when there are none,
+     * and written only when there are some, so a row from before tags existed keeps its exact JSON.
+     */
+    @JsonProperty("tags")
+    @JsonInclude(JsonInclude.Include.NON_EMPTY)
+    private List<String> tags;
+    /**
+     * "Only inside a group": a leaf made for one container's row (a feature card, a stat item), which the Add
+     * dialog leaves out at page level, where it would render without the row that gives it its heading and
+     * layout. Inside a container nothing changes. Written only when true.
+     */
+    @JsonProperty("childOnly")
+    @JsonInclude(JsonInclude.Include.NON_DEFAULT)
+    private boolean childOnly;
+    /**
+     * "Made for full-width pages": a band. It still renders on a classic page (inside the card, by design), so
+     * the Add dialog flags it there rather than hiding it. Written only when true.
+     */
+    @JsonProperty("fullWidth")
+    @JsonInclude(JsonInclude.Include.NON_DEFAULT)
+    private boolean fullWidth;
 
     private ContentTemplate() {
     }
@@ -83,7 +107,7 @@ public final class ContentTemplate implements Serializable {
             final String body, final List<Placeholder> placeholders, final LocalDateTime modified,
             final String modifiedBy) {
         this(id, version, name, description, body, placeholders, modified, modifiedBy,
-                null, null, null, null);
+                null, null, null, null, null, null, false, false);
     }
 
     /** The v2 shape without an owning organization: a site-level template (the pre-org-sites rows). */
@@ -92,7 +116,7 @@ public final class ContentTemplate implements Serializable {
             final String modifiedBy, final TemplateKind kind, final List<String> allowedChildTemplateIds,
             final Integer maxChildren, final String programmaticTypeId) {
         this(id, version, name, description, body, placeholders, modified, modifiedBy, kind,
-                allowedChildTemplateIds, maxChildren, programmaticTypeId, null);
+                allowedChildTemplateIds, maxChildren, programmaticTypeId, null, null, false, false);
     }
 
     /** Whether this template belongs to one organization's site rather than to every site. */
@@ -122,12 +146,23 @@ public final class ContentTemplate implements Serializable {
         this.placeholders = new ArrayList<>(placeholders);
     }
 
+    /** The search tags; never null (no tags reads as an empty list, whatever the row stored). */
+    public List<String> getTags() {
+        return tags == null ? List.of() : tags;
+    }
+
+    /** No tags is stored as null (the shape of every row before tags), so equality survives a JSON round trip. */
+    public void setTags(final List<String> tags) {
+        this.tags = (tags == null || tags.isEmpty()) ? null : new ArrayList<>(tags);
+    }
+
     /** @return a deep copy for dialog editing -- placeholders are mutable rows and must not be aliased. */
     public ContentTemplate copy() {
         final List<Placeholder> copies = new ArrayList<>(getPlaceholders().size());
         getPlaceholders().forEach(ph -> copies.add(ph.copy()));
         return new ContentTemplate(id, version, name, description, body, copies, modified, modifiedBy,
                 kind, allowedChildTemplateIds == null ? null : new ArrayList<>(allowedChildTemplateIds),
-                maxChildren, programmaticTypeId, orgId);
+                maxChildren, programmaticTypeId, orgId, tags == null ? null : new ArrayList<>(tags), childOnly,
+                fullWidth);
     }
 }

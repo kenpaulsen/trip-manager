@@ -59,6 +59,25 @@ public final class PersonType implements ProgrammaticContentTemplate {
     }
 
     @Override
+    public String getSampleHtml() {
+        return """
+                <div class="personCard">
+                    <div class="personAvatar"><div class="ui-avatar ui-widget ui-avatar-circle ui-avatar-lg">
+                        <span class="ui-avatar-text">AS</span></div></div>
+                    <div class="personName"><b>Ana Sample (President)</b></div>
+                    <div class="personEmail"><b>president@example.org</b></div>
+                    <div class="personPhone"><b>(555) 010-0100</b></div>
+                </div>
+                """;
+    }
+
+    /** The signed-in person's own card: whoever is adding the section is someone the site can show. */
+    @Override
+    public Map<String, String> previewValues(final PreviewContext context) {
+        return context.personId() == null ? null : Map.of(PROP_PERSON_ID, context.personId());
+    }
+
+    @Override
     public List<Placeholder> getProperties() {
         return List.of(
                 new Placeholder(PROP_PERSON_ID, Placeholder.Type.PERSON, "Person",

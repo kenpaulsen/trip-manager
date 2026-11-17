@@ -2,6 +2,7 @@ package org.paulsens.trip.content;
 
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.FakeData;
@@ -146,5 +147,116 @@ public class ProgrammaticTypesTest {
         public String getFragmentPath() {
             return "/WEB-INF/ptypes/bare.xhtml";
         }
+    }
+
+    /**
+     * Every registered type ships a static sample: the Add dialog's thumbnail, and its preview where the site has
+     * nothing real. Sound markup in the fragment's own classes, with no token and no color of its own.
+     */
+    @Test
+    public void everyTypeHasAStaticSampleThatIsSoundThemedMarkup() {
+        for (final ProgrammaticContentTemplate type : ProgrammaticTypes.ALL) {
+            final String sample = type.getSampleHtml();
+            Assert.assertFalse(sample.isBlank(), type.getTypeId() + " has no sample");
+            Assert.assertNull(HtmlFragmentValidator.validate(sample), type.getTypeId());
+            Assert.assertFalse(sample.contains("{{") || sample.contains("#{"), type.getTypeId());
+            Assert.assertFalse(BundledContentColorTest.COLOR.matcher(sample).find(),
+                    type.getTypeId() + " writes a literal color");
+            Assert.assertFalse(sample.contains("\u2014") || sample.contains("&mdash;"), type.getTypeId());
+            Assert.assertFalse(sample.contains("<script") || sample.contains("href="), type.getTypeId());
+        }
+        Assert.assertTrue(ProgrammaticTypes.byId("person").orElseThrow().getSampleHtml().contains("personCard"));
+        Assert.assertTrue(ProgrammaticTypes.byId("file").orElseThrow().getSampleHtml().contains("qopBullets"));
+        Assert.assertTrue(ProgrammaticTypes.byId("pilgrimages").orElseThrow().getSampleHtml().contains("pilgrimages"));
+        Assert.assertTrue(ProgrammaticTypes.byId("trip-schedule").orElseThrow().getSampleHtml()
+                .contains("agenda-item"));
+        Assert.assertTrue(ProgrammaticTypes.byId("trip-registration").orElseThrow().getSampleHtml()
+                .contains("regStatus-button"));
+        Assert.assertTrue(ProgrammaticTypes.byId("photo-albums").orElseThrow().getSampleHtml()
+                .contains("src=\"" + StarterTemplates.SAMPLE_PICTURE + "\""));
+    }
+
+    /** A type that says nothing has no sample and no real data to preview with: the interface's defaults. */
+    @Test
+    public void aTypeWithoutASampleOrPreviewFallsBackToItsIcon() {
+        final ProgrammaticContentTemplate bare = new ProgrammaticContentTemplate() {
+            @Override
+            public String getTypeId() {
+                return "bare";
+            }
+
+            @Override
+            public String getDisplayName() {
+                return "Bare";
+            }
+
+            @Override
+            public String getDescription() {
+                return "Nothing";
+            }
+
+            @Override
+            public List<Placeholder> getProperties() {
+                return List.of();
+            }
+
+            @Override
+            public String getFragmentPath() {
+                return "/WEB-INF/ptypes/bare.xhtml";
+            }
+        };
+        Assert.assertEquals(bare.getSampleHtml(), "");
+        Assert.assertNull(bare.previewValues(new ProgrammaticContentTemplate.PreviewContext(null, null)));
+        Assert.assertEquals(bare.getIcon(), "pi-cog");
+    }
+
+    /** A preview shows the site's own data: the seeded library's first document, the signed-in person. */
+    @Test
+    public void previewsUseTheSitesOwnDataWhereThereIsSome() {
+        final ProgrammaticContentTemplate.PreviewContext nobody =
+                new ProgrammaticContentTemplate.PreviewContext(null, null);
+        final ProgrammaticContentTemplate file = ProgrammaticTypes.byId("file").orElseThrow();
+        Assert.assertEquals(file.previewValues(nobody).get("mediaId"), file.choicesFor("mediaId").get(0).value());
+
+        final ProgrammaticContentTemplate person = ProgrammaticTypes.byId("person").orElseThrow();
+        Assert.assertNull(person.previewValues(nobody), "nobody signed in: the sample");
+        Assert.assertEquals(person.previewValues(new ProgrammaticContentTemplate.PreviewContext(null, "p-1")),
+                Map.of(PersonType.PROP_PERSON_ID, "p-1"));
+
+        final Map<String, String> listing = ProgrammaticTypes.byId("pilgrimages").orElseThrow().previewValues(nobody);
+        Assert.assertNotNull(listing, "the seeded site lists public trips");
+        Assert.assertTrue(List.of("English", "Spanish").contains(listing.get("language")), listing.toString());
+
+        // The recent trips' albums when some qualify (the seed has one), and an event's own on its page.
+        final ProgrammaticContentTemplate albums = ProgrammaticTypes.byId("photo-albums").orElseThrow();
+        Assert.assertEquals(albums.previewValues(nobody), Map.of(), "the type's defaults already show the seed's");
+        Assert.assertNull(albums.previewValues(new ProgrammaticContentTemplate.PreviewContext("no-such-trip", null)),
+                "an event with no pictures shows the sample");
+    }
+
+    /** The two trip sections: the page's own trip, else the site's next public one with something to show. */
+    @Test
+    public void tripSectionPreviewsPickThePagesTripOrTheNextPublicOne() {
+        final ProgrammaticContentTemplate schedule = ProgrammaticTypes.byId("trip-schedule").orElseThrow();
+        final ProgrammaticContentTemplate registration = ProgrammaticTypes.byId("trip-registration").orElseThrow();
+        final ProgrammaticContentTemplate.PreviewContext onConference =
+                new ProgrammaticContentTemplate.PreviewContext(FakeData.CONF_TRIP_ID, null);
+        Assert.assertEquals(schedule.previewValues(onConference), Map.of("tripId", FakeData.CONF_TRIP_ID),
+                "the conference seed has a public agenda");
+        Assert.assertEquals(registration.previewValues(onConference), Map.of("tripId", FakeData.CONF_TRIP_ID));
+
+        final ProgrammaticContentTemplate.PreviewContext unknownTrip =
+                new ProgrammaticContentTemplate.PreviewContext("no-such-trip", null);
+        Assert.assertNull(schedule.previewValues(unknownTrip), "a page whose trip cannot be shown: the sample");
+        Assert.assertNull(registration.previewValues(unknownTrip));
+
+        final ProgrammaticContentTemplate.PreviewContext elsewhere =
+                new ProgrammaticContentTemplate.PreviewContext(null, null);
+        final Map<String, String> anyTrip = registration.previewValues(elsewhere);
+        Assert.assertNotNull(anyTrip, "the seeded site lists public trips");
+        Assert.assertFalse(anyTrip.get("tripId").isBlank());
+        final Map<String, String> withAgenda = schedule.previewValues(elsewhere);
+        Assert.assertTrue(withAgenda == null || !withAgenda.get("tripId").isBlank(),
+                "a trip with sessions, or the sample when the site lists none");
     }
 }

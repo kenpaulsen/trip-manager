@@ -1,6 +1,7 @@
 package org.paulsens.trip.content;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import org.paulsens.trip.model.Placeholder;
 
@@ -43,6 +44,33 @@ public interface ProgrammaticContentTemplate {
      */
     default String getIcon() {
         return "pi-cog";
+    }
+
+    /**
+     * What an item of this type looks like, as STATIC markup in the fragment's own CSS classes with made-up
+     * data: the Add dialog's thumbnail for the type, and its preview (labeled "Sample data") where the site has
+     * nothing real to show ({@link #previewValues}). Never a rendered fragment: a card must not run a live
+     * listing. Trusted markup written here, with no token and no literal color; "" shows the type's icon.
+     */
+    default String getSampleHtml() {
+        return "";
+    }
+
+    /**
+     * What the Add dialog's preview knows about where the item would go: the trip whose page it is (null on
+     * every other page) and the signed-in person (null for none).
+     */
+    record PreviewContext(String tripId, String personId) {
+    }
+
+    /**
+     * The property values that make a PREVIEW of this type show the site's REAL data (its next trip, its first
+     * document, the signed-in person), or null when the site has nothing to show, in which case the preview is
+     * {@link #getSampleHtml}. An empty map means the type's defaults already show something. Read-only, and
+     * only ever data this site lists publicly or the caller's own.
+     */
+    default Map<String, String> previewValues(final PreviewContext context) {
+        return null;
     }
 
     /** Dropdown options for a {@link Placeholder.Type#CHOICE} property; empty for non-choice names. */

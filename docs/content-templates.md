@@ -266,7 +266,8 @@ registry never changes at runtime.
   `autoStartContent`, `getChoices`, `idsFor`, `titleOf`, `canEdit`, `canEditPage`, `applyOrder`,
   `frameClass`, `completeEditorPriv`, `getEditorPrivNamesJson`, `offersVersionMenu`, `versionChoices`,
   `choiceLabel`, `getTemplateVersions`, `pinnedVersion`, `versionLabel`, `isTemplateOutdated`,
-  `retargetTemplateVersion`.
+  `retargetTemplateVersion`, and for adding a section (below) `templateCards`, `sampleRender`,
+  `previewInstance`, `saveNewContentAt`, `landingAnchor`.
 - **Privileges**: contentAdmin (or a site admin) edits everything. A container instance may name
   `editorPrivileges` (only contentAdmin can set them — the save path guards the field): holders of ANY
   listed privilege may add/edit/reorder/delete that container's CHILDREN (the landing page grants
@@ -375,12 +376,12 @@ registry never changes at runtime.
   the dialog (and
   `validateForSave` refuses it on the API too, an empty paragraph counting as blank); a rich-text prompt a
   starter once labeled "Text" or "Body" reads **Content** (`content.promptLabel`, on every installed version;
-  the starters themselves say Content now). **The template picker** is a card grid (`content.templateCards`):
-  name, description, kind badge, and for a section template a thumbnail of the template rendered with its
-  placeholders' `sample` values (`Placeholder.sample`, the label when a prompt has none, never a URL; the
-  template manager's placeholder table has a Sample column) at the band's real width scaled to a quarter; a
-  live type shows its icon (`ProgrammaticContentTemplate.getIcon`). The card is a stretched link
-  (`f:param templateId`); the thumbnail's own anchors never take the click.
+  the starters themselves say Content now). **The template picker** lists a row per template
+  (`content.templateCards`: name, description, a Group or Live badge) and draws the selected one in the page
+  from its SAMPLE render (a section template's placeholders' `sample` values: `Placeholder.sample`, the label
+  when a prompt has none, never a URL; the template manager's placeholder table has a Sample column). It has
+  been a drawer at the side of the page, with no card grid and no thumbnails, since 2026-11-16: "The content
+  drawer", below.
 - **Reordering**: the shared arrange dialog (`p:orderList`, drag or buttons) calls
   `applyOrder(section, orderedIds)` → `ContentDAO.reorderContent`, a **version-silent** in-place position
   rewrite (no version bump, no history churn; an editor dialog open across a reorder re-saves its stale
@@ -389,6 +390,137 @@ registry never changes at runtime.
   contract in `contentSections.xhtml`): the include iterates viewScope-frozen lists, so in-place ajax
   cannot reflect adds/deletes/reorders.
 
+
+### Adding a section (2026-11-16)
+
+The foundations of the Add flow's redesign. The layout built on them is the content drawer, the section after
+this one.
+
+- **What a template says about itself** (`ContentTemplate`, set on the template editor, never on an email
+  template): `tags`, lower-case search words beyond the name and description (`TemplateCommands.normalizeTags`:
+  trimmed, deduplicated, at most 12 of 30 characters; the editor's chips offer the typed word first, so one
+  Enter takes a new tag, then the tags already in use, `completeTag`); `childOnly` ("Only inside a group": a
+  leaf made for one group's row, such as a feature card); `fullWidth` ("Made for full-width pages": a band). All
+  three are written to the row only when set, so a row from before them reads and re-saves unchanged, and
+  `ContentTemplate.ser` was regenerated under the same `serialVersionUID`.
+- **What is offered** (`getTemplateChoicesFor`): at page level everything the site may use EXCEPT `childOnly`
+  templates; inside a group nothing changed (its allow-list, and a single choice still skips the picker). A
+  `fullWidth` template is **never hidden** on a classic page: it renders there by design (`.ui-card .band`), and
+  hiding it would take a capability away. `templateCards(section, pageFullWidth)` sorts those last on a classic
+  page so a picker can list them as one trailing group; the HOST passes its own `fullWidth` ui:param to
+  `contentSections.xhtml`, because the page is the authority (an organization's Site Pages stay classic
+  whatever `site.layout` says, so `BrandCommands.isFullWidth()` would be wrong there).
+- **The card** (`ContentCommands.TemplateCard`, never stored in a scope): `kindLabel` is "" for a section
+  template, **Group** for a container, **Live** for a programmatic type ("Section" used to name both the thing
+  added and one kind of it); `tags`; `searchText` (lower-cased name, description and tags); `fullWidth`;
+  `fields` (the prompts an author will fill in, a required one ending in " *", without the shared-site-only ones
+  on an organization's site); `holds` (a group's allowed item templates by name and its limit).
+- **A sample render for every kind** (`sampleRender`, the card's `html`): a STANDARD body with its prompts'
+  sample values, and where a picture prompt has none the bundled neutral picture
+  (`StarterTemplates.SAMPLE_PICTURE`, `medjugorje/webapp/resources/images/samplePicture.svg`). That path is
+  site-relative, which a picture value may never be, so the SAMPLE render alone retypes such a prompt as a link
+  (`requireLinkUrl`) on a copy of the template; a stored value still goes through `requireHttpUrl`. A CONTAINER
+  renders its wrapper and row exactly as the page emits them (`ContentRenderer.containerBody` /
+  `renderChildRow` / `fillContainerTokens`) around three sample items (fewer when `maxChildren` is lower) built
+  on the first STANDARD template it admits, else its first live one, else plain text; the items' titles come
+  from `StarterTemplates.sampleChildTitles`, not the template's name. A PROGRAMMATIC type answers
+  `ProgrammaticContentTemplate.getSampleHtml()`: static markup in its fragment's own classes with made-up data
+  (no token, no literal color; `ProgrammaticTypesTest` holds all six to that). A card never runs a live fragment.
+- **A live preview with the site's real data** (`previewInstance(section, templateId)`): a transient instance of
+  a live template, never stored and never put in a view, filled by the type's `previewValues(PreviewContext)`:
+  the trip whose page the section is on, else the site's next public trip (for the schedule, one with public
+  sessions); the first document the site's picker offers; the signed-in person; the first language the site
+  lists a trip in; the recent albums when one qualifies. It answers null when there is nothing real to show (the
+  preview is then the card's static sample, to be labeled "Sample data"), for a template that is not live or not
+  this site's, and for a caller who may not edit the section. The preview renders it through
+  `WEB-INF/contentLeaf.xhtml` (param `instance`), the ONE place a STANDARD or PROGRAMMATIC item's branches live;
+  `contentSections.xhtml` includes it for a page section and for a group's child. **The leaf's contract** (the
+  owner chose the in-place layout, 2026-11-16: the editor previews the UNSAVED working copy in the page through
+  this include, for adding and for editing): render only, no edit affordance; nothing in it or in a fragment may
+  assume the item is stored or sits inside the sections `ui:repeat`; a bean memo behind a fragment is keyed on
+  what it shows (`personCard` keys on the values too, since a working copy's id and version stand still while
+  its values change); and because the fragments carry fixed ids it is included once per naming container
+  outside a repeat. A CONTAINER renders nothing through it: its title, wrapper and row are still
+  `contentSections.xhtml`'s. Only the template being
+  previewed should render live (one ajax update): many live previews at once are slow and heavy.
+- **Insert where the author chooses**: "Add section here" above each section (edit mode, the page-level gate)
+  sets `viewScope.insertBeforeId`, a scalar id that rides an `f:param`; the page toolbar's Add section still means
+  "at the end" and clears it. Apply calls `saveNewContentAt(instance, beforeId)`: a NEW item takes that place's
+  position before it is saved, and the rest of the section is renumbered through the existing version-silent
+  `applyOrder`, with the new id spliced into the order by hand (a read right after a write may not list it). An
+  existing item, a blank id and an id that is not in the section all save exactly as `saveContent` does.
+- **Landing on what was added**: Apply reads `landingAnchor(instance, pageKey)` before the save (the new
+  section's id, or the group's for an item added inside one; "" for an edit) into `viewScope.landOnId`, which
+  the `reloadFlag` region carries to the browser. `tripApplyDone` puts it in the address as the fragment and
+  reloads; each page section already has `<a id="{id}">`. A reload restores the scroll position, which would win
+  over the fragment, so `tripLandOn` sets `history.scrollRestoration` to manual for that one load and
+  `tripLanded` scrolls to the section and takes the fragment out of the address. Restoration goes back to auto
+  only as the page is LEFT (`pagehide`): set back during the load, the browser at once returns the page to where
+  it was before the reload (found in the container; `AddSectionPwIT` holds it in a short window). The edit-mode
+  stylesheet marks the section (`a:target + .contentItem`: a ring in `--primary-color` that fades; with reduced
+  motion nothing animates and the ring stays).
+- **From the picker to the template manager**: `/admin/templates.jsf?new=1` opens the New Template dialog on
+  arrival and `?edit=ID` a template the caller may author (`TemplateCommands.deepLinkTemplate`; anything else
+  opens nothing). The way back is the page the link was on, from the Referer header
+  (`TripUtilCommands.refererPath`, the profile page's pattern), so no return URL travels in a parameter; it is
+  kept only for a deep link and shown as "Back to the page you were editing".
+- **Usage counts** (`TemplateCommands.usageCounts(orgId)`): how many CURRENT items are built on each template,
+  only an organization's pages in its scope (the item's organization is derived from its section exactly as
+  the edit gate derives it). It is one uncached scan of the content table, the read the referenced-delete check
+  makes, so it loads on the manager's **Show usage** click (a Used column) and is meant for a designer's "Used N
+  times" click in the picker, never on open. No aggregate is cached: `caching.md` makes the DAO caches the
+  shared layer, this table has no per-template index to invalidate, and the view keeps only the scalar map.
+
+### The content drawer (2026-11-16)
+
+The owner tried three working layouts in a throwaway prototype and chose "In place": adding and editing happen
+in a panel at the side of the page, and the item is drawn IN the page, where it goes and at its real size. He
+then asked for the preview to follow the form, field by field. It is `WEB-INF/contentDialog.xhtml` plus
+`resources/trip-js/contentDrawer.js`; the look is `trip.css`, `.contentDrawer`.
+
+- **Still one `p:dialog`** (`contentDlg`, not modal, pinned to the window's edge by CSS; `fitViewport` stays on, as for every dialog with fields), so
+  every opener, `update=":form:contentDlg"` and `PF('contentDlg')` are unchanged. Its heading says what is
+  happening (`content.drawerTitle`: Add a section / Add an item / Edit section / Edit item). `#form:dlgState`
+  carries scalars for the script: the step, the working item's id, kind and newness, the target section, the
+  page, the insertion point. `onShow` fires after every re-render; a command that hides an already re-rendered
+  dialog (Cancel) gets no `onHide` and calls `tripDrawer.hidden()` itself.
+- **Step 1, the list** (`dlgPick`). Search (every word must be in the name, description or tags:
+  `TemplateCard.searchText`), tag chips (the tags two or more offered templates share), a recently-used group
+  (the last few template ids in `localStorage`, per browser; rows are moved, never copied) and, on a classic
+  page, a trailing "Made for full-width pages" group: all in the browser, over the rows' data. Selecting a row
+  only PREVIEWS it: its sample (an inert `template` element in the row) is drawn at the insertion point, and a
+  live type then asks `pickPreview` for the site's real data (`content.previewInstance`; with none, the sample
+  stays and its label says "sample data"). "Add this section" (`pickTemplate`) is what creates the working
+  copy. On a page the insertion point moves a section at a time (`content.moveInsertPoint`; named by
+  `content.insertLabel`); inside a group a new item goes at the group's end. A designer
+  (`priv.checkHere('contentAdmin')`) also gets "Edit this template" and "New template" (the manager's deep
+  links) and "How often is it used?" (`TemplateCommands.usedBy`, the content scan, on that click only).
+- **Step 2, the form** (`dlgFill`), for a new item and for an edit alike. Every field change redraws the
+  preview: `liveContent` processes the form with `contentPreview=1` (so a half-filled form still applies; nothing
+  is saved) and re-renders ONLY the preview host, on each change and after a typing pause, since each redraw is
+  a round trip. PrimeFaces copies a rich-text editor into its field only on blur, so the script does that for
+  the editors the author has changed before each redraw (an untouched editor keeps its stored markup).
+- **Examples while adding** (owner-confirmed): a prompt the author has not touched shows its example in the
+  preview, so a new section does not collapse on the first keystroke; a touched prompt shows exactly what was
+  typed, blank included; only typed values are ever saved. `content.liveHtml(working, touched, plain)` renders
+  a NEW section template that way (the sample picture's lenient typing applies only to untouched picture
+  prompts), and `content.liveInstance` lends a NEW live section the site's real preview values for the choices
+  not made yet. "Hide example text" (`plain`) and every edit of an existing item show the working copy as it
+  is. A group has no examples: its sample (adding) or its own block (editing) stays, and the script follows
+  the Title field in the one heading that holds the title as plain text.
+- **The preview host.** `#form:livePreview` is the ONE server-rendered preview, built with the page, parked in
+  `#tripLivePark`, and rendering through `contentLeaf.xhtml` (or `requestScope.liveHtml`). The script MOVES
+  that element into the ghost block in the page and PrimeFaces then updates it in place by id; it is outside
+  `dlgFill` so its fragments are evaluated after the typed values are applied. Nothing but a request holds the
+  item it shows. The script finds a stored item's block through its edit buttons' wrapper (`data-item-id`,
+  rendered only for someone who may edit) and a group's Add row through `childAddBar`; an item being edited is
+  hidden while its preview stands in its place, and closing the drawer puts the page back.
+- **A Title the page does not show.** A plain section placed straight on a page has no slot for its title
+  (`content.isTitleUnseen`), which the live preview makes obvious, so the field says "Used in Arrange sections
+  and History; not shown on the page."
+- Tests: `AddSectionPwIT` (search, tags, preview before create, the form followed by the page, edit and
+  Cancel, recently used), `HomeContentPwIT`, `ContentStayOnLatestPwIT`; `PlaywrightApp.pickTemplate` is the one
+  "pick a template" step.
 
 ### Colors in the rich-text editors (2026-11-16)
 
@@ -466,7 +598,10 @@ Rules worth knowing before changing this:
 A **band** is a section that spans the whole window with its content capped at a readable 1200px column
 -- the shape of a marketing page. The band family is eleven starter templates (`StarterTemplates`, ids
 never renamed), all rendered by the same engine as everything else, and all usable inside the classic
-card too (there a band simply fills the card, with rounded corners):
+card too (there a band simply fills the card, with rounded corners). Since 2026-11-16 the nine `band-*`
+starters carry plain names (Opening banner, Text beside a picture, Call to action, Quote, Heading and text,
+Feature cards, Key numbers, Questions and answers, Logo strip) and `fullWidth`, the two leaves are `childOnly`,
+and the old words (hero, testimonial, stats, faq) are tags:
 
 | Template | Kind | Placeholders / children |
 |----------|------|-------------------------|
@@ -556,9 +691,11 @@ datastore).
 
 1. Privilege rows (hand-created in `/admin/editPrivs.jsf`): `contentAdmin` (raw-HTML power — grant like
    script access), `eventAdmin`, `mediaAdmin`.
-2. `install-starter-templates.sh` — the TWENTY-NINE starters (JSON generated from `StarterTemplates` by
-   the test-scope `BootstrapScriptJson` tool: the originals, the seven MAIL bodies, the eleven bands and the two
-   conference types).
+2. `install-starter-templates.sh` — the THIRTY-THREE starters (JSON generated from `StarterTemplates` by
+   the test-scope `BootstrapScriptJson` tool: the originals, the seven MAIL bodies, the four reminder texts, the
+   eleven bands and the two conference types). It never overwrites a row; `refresh-starter-templates.py` brings
+   rows installed earlier up to date in place, and since 2026-11-16 that includes the plain band names (only
+   where the stored name is still the shipped one), the tags and the two flags (only where the row has none).
 3. `bootstrap-home-v2.sh` — the `page:trip-index` skeleton (JSON generated from `V2PageBootstrap`);
    `--purge-v1` deletes the retired `home.*` rows. New rows appear on their own within ~5 minutes (the
    cache refresh merges); only DELETES need the Settings page's "Clear caches" button (the refresh never

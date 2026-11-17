@@ -3,6 +3,7 @@ package org.paulsens.trip.content;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import org.paulsens.trip.action.ChatPhotos;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.MediaItem;
@@ -50,6 +51,22 @@ final class FileType implements ProgrammaticContentTemplate {
     @Override
     public String getFragmentPath() {
         return "/WEB-INF/ptypes/file.xhtml";
+    }
+
+    @Override
+    public String getSampleHtml() {
+        return """
+                <ul class="qopBullets" style="font-size:1.15em;margin:2px 0;">
+                    <li><a>Parish newsletter</a><span style="font-size:0.85em;opacity:0.8"> - 240 KB</span></li>
+                </ul>
+                """;
+    }
+
+    /** The first document this site's picker offers; a site with no document shows the sample. */
+    @Override
+    public Map<String, String> previewValues(final PreviewContext context) {
+        final List<Choice> documents = choicesFor(PROP_MEDIA_ID);
+        return documents.isEmpty() ? null : Map.of(PROP_MEDIA_ID, documents.getFirst().value());
     }
 
     /**
