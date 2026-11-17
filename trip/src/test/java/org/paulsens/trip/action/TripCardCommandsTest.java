@@ -68,7 +68,9 @@ public class TripCardCommandsTest {
                 .thenAnswer(call -> "/trip/tripDetails.jsf?trip=" + call.<Trip>getArgument(0).getId());
         Mockito.when(pictures.url(ArgumentMatchers.any(TripPicture.class), ArgumentMatchers.anyInt()))
                 .thenAnswer(call -> "/pics/" + call.<TripPicture>getArgument(0).keyAt(call.getArgument(1)));
-        Mockito.when(pictures.srcset(ArgumentMatchers.any())).thenReturn("a 480w, b 960w");
+        // A card asks for the renditions up to 960 only; any other cap answers null and fails the srcset check.
+        Mockito.when(pictures.srcsetUpTo(ArgumentMatchers.any(), ArgumentMatchers.eq(960)))
+                .thenReturn("a 480w, b 960w");
         cards = new TripCardCommands(() -> trips, () -> registrations, () -> pages, () -> pictures,
                 org -> orgImage, () -> site, () -> NOW, () -> requestMap);
     }
@@ -209,7 +211,8 @@ public class TripCardCommandsTest {
         bare.setOrgId("no-such-org");
         requestMap.clear();
         Assert.assertNull(cards.cards(instance, null).get(2).getFallbackUrl());
-        Mockito.verify(pictures, Mockito.atLeastOnce()).srcset(ArgumentMatchers.any());
+        Mockito.verify(pictures, Mockito.atLeastOnce())
+                .srcsetUpTo(ArgumentMatchers.any(), ArgumentMatchers.eq(TripCardCommands.CARD_MAX_WIDTH));
     }
 
     /** The branding store as local mode runs it: no media host, so an upload is served by this app. */

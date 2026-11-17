@@ -98,7 +98,11 @@ which keeps a picture's fade-in (opacity is not movement) and swaps a gallery pi
 - `TripCardCommands` (`#{tripCards}`) wraps `TripCommands.getPublicTripsFor(instance)`, so a section's language, max
   count, `includeOrgs` and the org-site isolation rule are untouched. Each `Card` carries the trip, where the whole
   card links (`publicTripUrl`), ONE state, the cover's `src` and `srcset`, the fallback image and whether it is
-  featured. The list is memoized per request (`RequestMemo`), and a signed-in viewer's registration is looked up
+  featured. **A card's `srcset` stops at the 960 rendition** (`CARD_MAX_WIDTH`, `srcsetUpTo`; owner, 2026-11-17):
+  a dense phone screen otherwise picks the 1920 copy, several times the bytes, for a picture a few inches wide.
+  Performance before sharpness on a listing; the trip page's hero and gallery still offer all three widths. The
+  cards below the first row are `loading="lazy"` in the markup, and `tripCards.js` fetches them at low priority
+  once the page has loaded, so a phone's first scroll does not meet empty cards. The list is memoized per request (`RequestMemo`), and a signed-in viewer's registration is looked up
   once per card.
 - **Links are screened.** An external trip's stored URL reaches a link only through `TripCommands.externalUrlOf`
   (a web address starting with http:// or https://, else the card links to the trip's own page), and the flyer only

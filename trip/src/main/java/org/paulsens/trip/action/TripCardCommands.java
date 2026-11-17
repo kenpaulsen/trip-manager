@@ -44,6 +44,12 @@ import org.paulsens.trip.site.SiteContext;
 @ApplicationScoped
 public class TripCardCommands {
 
+    /**
+     * The widest rendition a card ever offers (the middle one), whatever the screen's density: performance before
+     * sharpness on a listing (owner, 2026-11-17). The trip's own page still offers the full-size picture.
+     */
+    public static final int CARD_MAX_WIDTH = TripPicture.WIDTHS.get(1);
+
     /** The one registration state a card shows. */
     public enum State {
         /** Open, and the viewer is not on it. */
@@ -83,7 +89,7 @@ public class TripCardCommands {
         TripPicture cover;
         /** The cover's default {@code src} (the middle rendition); null without a cover. */
         String coverUrl;
-        /** The cover's {@code srcset}; null without a cover. */
+        /** The cover's {@code srcset}, up to {@link #CARD_MAX_WIDTH}; null without a cover. */
         String coverSrcset;
         /** The organization's own image standing in for a missing cover; null when it has none either. */
         String fallbackUrl;
@@ -176,8 +182,8 @@ public class TripCardCommands {
         // ONE registration lookup per card (an uncached read): the link and the state both turn on it.
         final boolean registered = viewer != null && registrations.get().isChipRegistered(trip.getId(), viewer);
         return new Card(trip, trips.get().publicTripUrlFor(trip, registered), stateOf(trip, registered), cover,
-                cover == null ? null : pics.url(cover, TripPicture.WIDTHS.get(1)),
-                cover == null ? null : pics.srcset(cover),
+                cover == null ? null : pics.url(cover, CARD_MAX_WIDTH),
+                cover == null ? null : pics.srcsetUpTo(cover, CARD_MAX_WIDTH),
                 cover == null ? fallbackOf(trip) : null, orgName, featured);
     }
 

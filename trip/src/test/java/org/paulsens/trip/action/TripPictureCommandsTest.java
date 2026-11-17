@@ -671,6 +671,19 @@ public class TripPictureCommandsTest {
         Assert.assertEquals(bean.srcset(null), "");
     }
 
+    /** A listing card's cap: nothing wider than it is offered, and a smaller picture is listed as srcset lists it. */
+    @Test
+    public void srcsetUpToLeavesOutEveryWiderRendition() {
+        final String base = "/trip-pictures/tripPictures/trip-1/7";
+        Assert.assertEquals(bean.srcsetUpTo(new TripPicture("tripPictures/trip-1/7", null, 1920, 1280, "#000000"),
+                960), base + "-480.jpg 480w, " + base + "-960.jpg 960w", "No 1920, however dense the screen");
+        Assert.assertEquals(bean.srcsetUpTo(new TripPicture("tripPictures/trip-1/7", null, 809, 539, "#000000"),
+                960), base + "-480.jpg 480w, " + base + "-960.jpg 809w");
+        Assert.assertEquals(bean.srcsetUpTo(new TripPicture("tripPictures/trip-1/7", null, 1920, 1280, "#000000"),
+                480), base + "-480.jpg 480w");
+        Assert.assertEquals(bean.srcsetUpTo(null, 960), "");
+    }
+
     /** ONE rule for what a screen reader says for a picture, shared by the listing card and the trip page. */
     @Test
     public void aPictureIsDescribedByItsOwnTextElseByTheTripsShortTitle() {

@@ -815,12 +815,24 @@ public class TripPictureCommands extends PhotoUploadBean {
      * (stored at its own width, never enlarged) is not offered as wider than it is, and equal widths appear once.
      */
     public String srcset(final TripPicture picture) {
+        return srcsetUpTo(picture, TripPicture.WIDTHS.getLast());
+    }
+
+    /**
+     * {@link #srcset} without the renditions wider than {@code maxWidth}, so a browser can never pick one, however
+     * dense its screen: a listing card is capped at the middle rendition (owner, 2026-11-17), because on a phone the
+     * 1920 copy cost several times the bytes for a picture a few inches wide, and slow connections paid for it.
+     */
+    public String srcsetUpTo(final TripPicture picture, final int maxWidth) {
         if (picture == null) {
             return "";
         }
         final StringBuilder set = new StringBuilder();
         int last = 0;
         for (final int width : TripPicture.WIDTHS) {
+            if (width > maxWidth) {
+                break;
+            }
             final int real = Math.min(width, picture.getWidth());
             if (real > last) {
                 set.append(set.isEmpty() ? "" : ", ").append(url(picture, width)).append(' ').append(real).append('w');
