@@ -13,13 +13,14 @@ import org.primefaces.event.FileUploadEvent;
 import org.primefaces.model.CroppedImage;
 
 /**
- * The bean side of the shared upload+crop dialog ({@code WEB-INF/photoUploadDialog.xhtml}), which five
- * features mount: profile pictures, chat photos, badge images, an organization's branding and a hotel's
- * photos. The dialog asks the same five things of whichever bean it is given -- {@link #handleUpload},
+ * The bean side of the shared upload+crop dialog ({@code WEB-INF/photoUploadDialog.xhtml}), which six
+ * features mount: profile pictures, chat photos, badge images, an organization's branding, a hotel's photos and
+ * a trip's pictures. The dialog asks the same five things of whichever bean it is given -- {@link #handleUpload},
  * {@link #isUploadPending()}, {@link #confirmCrop()}, {@link #confirmFullPhoto()}, {@link #cancelUpload()}
  * -- and this class answers them once. A subclass says what an upload is FOR ({@link #purpose()},
- * {@link #targetId()}), who may make one and how large ({@link #uploadGate()}), and what a confirmed crop
- * becomes ({@link #confirm}); everything between those was the same in all five and lives here.
+ * {@link #targetId()}), who may make one and how large ({@link #authorization()}), any count or cap on top of
+ * that ({@link #limit()}), and what a confirmed crop becomes ({@link #confirm}); everything between those was
+ * the same in every host and lives here, the upload gate that composes the two included.
  *
  * <p><b>Why the dialog spans requests the way it does.</b> The bytes arrive in one request (the upload
  * listener) and the crop decision in a later one, bridged by a {@link PendingUploads} token. The token rides
@@ -30,8 +31,9 @@ import org.primefaces.model.CroppedImage;
  * reachable through ONE fixed EL name -- PrimeFaces stores the dynamic-content expression as a string and
  * re-evaluates it on the streaming request, where a Facelets {@code ui:param} alias no longer exists.
  *
- * <p><b>Authorization is per call, never inherited from the dialog being open.</b> {@link #uploadGate()} is
- * asked at upload time and each feature asks again at confirm time, because the right can be lost between
+ * <p><b>Authorization is per call, never inherited from the dialog being open.</b> {@link #uploadGate()} (this
+ * class's composition of {@link #authorization()} and {@link #limit()}, never a feature's own) is asked at
+ * upload time and each feature asks again at confirm time, because the right can be lost between
  * the two -- and a parked upload records what it was for, so a token minted in one dialog cannot be
  * finalized by another ({@link #claim}).
  *

@@ -532,8 +532,17 @@ public class TripPictureCommandsTest {
         bean.moveFromUi(second, null);
         Assert.assertEquals(params.get("picChanged"), false);
 
+        viewMap.put(TripPictureCommands.EDIT_KEY_VIEW_KEY, "tripPictures/trip-1/gone");
+        viewMap.put(TripPictureCommands.EDIT_ALT_VIEW_KEY, "Typed with care");
+        bean.describeFromUi("tripPictures/trip-1/gone", "Typed with care");
+        Assert.assertEquals(params.get("picChanged"), false, "An unknown picture is refused");
+        Assert.assertEquals(viewMap.get(TripPictureCommands.EDIT_ALT_VIEW_KEY), "Typed with care",
+                "A refused save keeps the editor open with what was typed");
+        viewMap.put(TripPictureCommands.EDIT_KEY_VIEW_KEY, first);
         bean.describeFromUi(first, "Described");
         Assert.assertEquals(trip().getPicture(first).getAlt(), "Described");
+        Assert.assertNull(viewMap.get(TripPictureCommands.EDIT_KEY_VIEW_KEY), "A saved description closes the editor");
+        Assert.assertNull(viewMap.get(TripPictureCommands.EDIT_ALT_VIEW_KEY));
         bean.removeFromUi(first);
         Assert.assertEquals(params.get("picChanged"), true);
         Assert.assertEquals(keys(), List.of(second));

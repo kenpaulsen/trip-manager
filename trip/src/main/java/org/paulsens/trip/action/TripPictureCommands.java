@@ -95,6 +95,10 @@ public class TripPictureCommands extends PhotoUploadBean {
     /** ViewScope key the Pictures dialog's "Description" field writes for the NEXT upload. */
     static final String ALT_VIEW_KEY = "picAlt";
 
+    /** The Pictures dialog's description editor: which picture it is open on, and the text typed there. */
+    static final String EDIT_KEY_VIEW_KEY = "picEditKey";
+    static final String EDIT_ALT_VIEW_KEY = "picEditAlt";
+
     /** Same day-long cache as badge and profile pictures: safe because a replacement is always a NEW key. */
     static final long CACHE_SECONDS = 86_400L;
 
@@ -637,7 +641,14 @@ public class TripPictureCommands extends PhotoUploadBean {
 
     /** The description editor's Save: {@code key} and {@code alt} come from the page's scalar view state. */
     public void describeFromUi(final String key, final String alt) {
-        growlAndPublish(describe(caller(), targetId(), key, alt));
+        final PictureResult result = describe(caller(), targetId(), key, alt);
+        growlAndPublish(result);
+        // The editor closes only on success: a refused save keeps it open with what was typed (the dialog says
+        // why inside it), so nothing has to be typed again.
+        if (result.isOk()) {
+            viewRemove(EDIT_KEY_VIEW_KEY);
+            viewRemove(EDIT_ALT_VIEW_KEY);
+        }
     }
 
     private void growlAndPublish(final PictureResult result) {
