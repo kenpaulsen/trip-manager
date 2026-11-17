@@ -95,7 +95,7 @@ public class BrandingUploadCommands extends PhotoUploadBean {
     }
 
     @Override
-    protected UploadGate uploadGate() {
+    protected UploadGate authorization() {
         return (role() != null && orgs.canManageOrg(orgId())) ? UploadGate.allow()
                 : UploadGate.deny("Not allowed: only this organization's administrators can change its "
                         + "appearance.");

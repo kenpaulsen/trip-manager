@@ -229,8 +229,33 @@ public abstract class PhotoUploadBean {
      */
     protected abstract String targetId();
 
-    /** Whether the caller may upload right now, and how large. Asked before any bytes are read. */
-    protected abstract UploadGate uploadGate();
+    /**
+     * WHO may upload here right now, and how large: the one rule each feature writes. The album listing asks it too
+     * ({@link #getAlbumScope}), so the upload and the albums can never disagree about who.
+     */
+    protected abstract UploadGate authorization();
+
+    /**
+     * Hook: a count or cap that refuses someone {@link #authorization} admits (a rate limit, a full gallery), as the
+     * refusal's message; null, the default, for none. Never asked by the album listing, so merely listing albums
+     * neither spends nor hides anything.
+     */
+    protected String limit() {
+        return null;
+    }
+
+    /**
+     * Whether the caller may upload right now, and how large. Asked before any bytes are read:
+     * {@link #authorization}, then {@link #limit}. Written once here, so no feature composes the two itself.
+     */
+    protected UploadGate uploadGate() {
+        final UploadGate who = authorization();
+        if (who.denial() != null) {
+            return who;
+        }
+        final String limited = limit();
+        return limited == null ? who : UploadGate.deny(limited);
+    }
 
     /**
      * What a confirmed crop becomes -- process, store, link -- ending in {@link #publishOutcome}. Reached
@@ -257,28 +282,13 @@ public abstract class PhotoUploadBean {
     }
 
     /**
-     * {@link #albumScope()} for the page, which lists the albums the dialog offers; null for a caller this host
-     * would refuse. The scope's target comes from a shared view key that read-only pages also set (a trip's
-     * public page pins its trip for any signed-in visitor), so the listing asks the host's own authorization
-     * first: without it, anyone could list a trip's album from the dialog the template mounts on every page.
+     * {@link #albumScope()} for the page, which lists the albums the dialog offers; null for a caller this host's
+     * {@link #authorization} refuses. The scope's target comes from a shared view key that read-only pages also
+     * set (a trip's public page pins its trip for any signed-in visitor), so the listing asks the host's own
+     * authorization first: without it, anyone could list a trip's album from the dialog every page mounts.
      */
     public String getAlbumScope() {
-        return mayChooseFromAlbums() ? albumScope() : null;
-    }
-
-    /** Whether the caller may pick album photos for this host: its {@link #authorization} lets them in. */
-    protected boolean mayChooseFromAlbums() {
-        return authorization().denial() == null;
-    }
-
-    /**
-     * WHO may upload here, without the counts and caps (a rate limit, a full gallery): the half of
-     * {@link #uploadGate} that the album listing asks too, so the two can never disagree about who. By default the
-     * whole upload gate, for a host whose gate is nothing but that; a host with caps overrides this, and its
-     * {@code uploadGate} starts from it.
-     */
-    protected UploadGate authorization() {
-        return uploadGate();
+        return authorization().denial() == null ? albumScope() : null;
     }
 
     /** Hook: an album photo has just been parked (the twin of {@link #parked} for a pick). */

@@ -128,7 +128,7 @@ public class LodgingUploadCommands extends PhotoUploadBean {
     }
 
     @Override
-    protected UploadGate uploadGate() {
+    protected UploadGate authorization() {
         return (kind() != null && lodging.canEditAccommodation(accId())) ? UploadGate.allow()
                 : UploadGate.deny("Not allowed: you do not manage this accommodation.");
     }

@@ -70,7 +70,7 @@ public class ProfilePhotoCommands extends PhotoUploadBean {
     }
 
     @Override
-    protected UploadGate uploadGate() {
+    protected UploadGate authorization() {
         return mayEdit(caller(), subject()) ? UploadGate.allow()
                 : UploadGate.deny("Not allowed: you may not change this profile picture.");
     }

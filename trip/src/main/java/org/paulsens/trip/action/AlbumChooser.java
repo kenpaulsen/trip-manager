@@ -6,6 +6,7 @@ import jakarta.inject.Inject;
 import jakarta.inject.Named;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.primefaces.PrimeFaces;
 
@@ -65,6 +66,8 @@ public class AlbumChooser {
         }
     }
 
+    private static final String MEMO_PREFIX = "albumChooser.scope:";
+
     @Inject
     private AlbumPhotoSource albums;
     @Inject
@@ -98,9 +101,13 @@ public class AlbumChooser {
 
     // ------------------------------------------------------------------ what the dialog renders
 
-    /** The scope a use lists and checks its albums in, from the host's own target; null when it has none. */
+    /**
+     * The scope a use lists and checks its albums in, from the host's own target; null when it has none. Worked out
+     * once per request: answering it asks the host's authorization (a trip or chat-membership read), and the dialog
+     * asks it many times per render (its {@code albumShown} alias is re-evaluated at every use).
+     */
     public String scopeOf(final String use) {
-        return Use.of(use).map(this::scope).orElse(null);
+        return RequestMemo.get(requestMap(), MEMO_PREFIX + use, () -> Use.of(use).map(this::scope).orElse(null));
     }
 
     private String scope(final Use use) {
@@ -188,6 +195,11 @@ public class AlbumChooser {
     }
 
     // ------------------------------------------------------------------ seams
+
+    /** Seam: the map that lives for this request (none off a page, where nothing is remembered). */
+    protected Map<String, Object> requestMap() {
+        return RequestMemo.facesRequestMap();
+    }
 
     /** Seam: re-renders the shared crop dialog's two steps, which every crop host's page mounts. */
     protected void refreshCropSteps() {

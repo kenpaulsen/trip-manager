@@ -69,12 +69,12 @@ Each host derives its scope from the SAME seam its authorization uses (`PhotoUpl
 dialog is open on, the role being uploaded), never from the page, so a use the page did not really open finds no
 target and is refused there. A target alone does not LIST albums: the trip a view remembers (`viewScope.theTripId`)
 is also set by read-only pages any signed-in person can open (a trip's public page, its join page), so a host names
-its scope only to a caller its own authorization admits (`PhotoUploadBean.getAlbumScope`, through
-`mayChooseFromAlbums`: by default the upload gate; chat asks only `checkAttach`, so listing spends no upload of the
-rate limit; trip pictures and badges ask only whether the caller may edit the trip, so a full gallery still lists and
-then says there is no room; the library and URL uses ask `AlbumLibrary.mayAdd` in `AlbumLibrary.getAlbumScope`). Every
-album listing reads the media table ONCE (`albumRows`), however many trips it
-looks through.
+its scope only to a caller its own authorization admits (`PhotoUploadBean.getAlbumScope` asks `authorization()`,
+the "who may" rule each host writes; the base's `uploadGate()` is that rule followed by the host's `limit()`, its
+counts and caps, which the listing never asks: chat's rate limit is not spent on a listing, and a full gallery
+still lists and then says there is no room; the library and URL uses ask `AlbumLibrary.mayAdd` in
+`AlbumLibrary.getAlbumScope`). The chooser works a use's scope out once per request (`AlbumChooser.scopeOf`), and
+every album listing reads the media table ONCE (`albumRows`), however many trips it looks through.
 
 ## The copy paths
 
@@ -99,7 +99,7 @@ looks through.
 
 ## A chat reference
 
-The chat's "Choose from albums" button attaches album photos to a message WITHOUT copying them. The page's tray
+The chat's "Choose from Albums" button attaches album photos to a message WITHOUT copying them. The page's tray
 holds `album:{mediaId}` where a staged upload holds its key (`ChatPhotos.ALBUM_REF_PREFIX`), drafts included. At send
 `ChatPhotos.resolveStaged` asks `AlbumPhotoSource.offered` in the trip's scope and builds a `ChatAttachment` with
 the ORIGINAL's keys and `ref = true`. Nothing is staged: the staging registry's sweep deletes the objects of

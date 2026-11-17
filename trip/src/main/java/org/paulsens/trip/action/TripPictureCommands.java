@@ -538,12 +538,8 @@ public class TripPictureCommands extends PhotoUploadBean {
     }
 
     @Override
-    protected UploadGate uploadGate() {
-        final UploadGate who = authorization();
-        if (who.denial() != null) {
-            return who;
-        }
-        return picturesOf(targetId()).size() >= Trip.MAX_PICTURES ? UploadGate.deny(limitReached().message()) : who;
+    protected String limit() {
+        return picturesOf(targetId()).size() >= Trip.MAX_PICTURES ? limitReached().message() : null;
     }
 
     /**

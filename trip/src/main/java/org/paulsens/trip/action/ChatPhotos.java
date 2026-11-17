@@ -202,7 +202,7 @@ public class ChatPhotos {
      * or foreign-uploader keys throw — the composer can only get into that state by being tampered with, so
      * the send should fail loudly rather than quietly drop a photo.
      *
-     * <p>An {@code album:{mediaId}} reference ("Choose from albums") never touches staging: it is checked against
+     * <p>An {@code album:{mediaId}} reference ("Choose from Albums") never touches staging: it is checked against
      * the album rules ({@link AlbumPhotoSource#offered} in this trip's scope) and becomes a reference to the
      * original. It CAN fail without tampering (the photo was hidden or removed after it was chosen, or a restored
      * draft outlived it), and fails the send the same way, so the composer says so and keeps the message.

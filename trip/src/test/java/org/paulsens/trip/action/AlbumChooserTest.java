@@ -155,4 +155,25 @@ public class AlbumChooserTest {
         Mockito.verify(badges).pickFromAlbum("m1");
         real.add("nonsense", "x");
     }
+
+    @Test
+    public void aRequestAsksEachHostForItsScopeOnce() {
+        final Map<String, Object> request = new HashMap<>();
+        final AlbumChooser memoized = new AlbumChooser() {
+            @Override
+            protected Map<String, Object> requestMap() {
+                return request;
+            }
+        };
+        memoized.wireForTest(albums, library, tripPictures, badges, profiles, branding, lodging, chat);
+        for (int i = 0; i < 5; i++) {
+            Assert.assertEquals(memoized.scopeOf("chat"), "trip:t3");
+            Assert.assertNull(memoized.scopeOf("everything"));
+        }
+        Mockito.verify(chat, Mockito.times(1)).getAlbumScope();
+        request.clear();
+        Assert.assertEquals(memoized.scopeOf("chat"), "trip:t3", "The next request asks again");
+        Mockito.verify(chat, Mockito.times(2)).getAlbumScope();
+        Assert.assertNull(new AlbumChooser().requestMap(), "Off a page there is no request to remember in");
+    }
 }

@@ -122,17 +122,10 @@ public class BadgePhotoCommands extends PhotoUploadBean {
     }
 
     @Override
-    protected UploadGate uploadGate() {
-        final UploadGate who = authorization();
-        if (who.denial() != null) {
-            return who;
-        }
-        final Trip trip = subjectTrip();
-        if (trip.getBadgeImages().size() >= MAX_IMAGES) {
-            return UploadGate.deny("Image limit reached: this trip already has " + MAX_IMAGES
-                    + " custom badge images. Delete one first.");
-        }
-        return UploadGate.allow();
+    protected String limit() {
+        return subjectTrip().getBadgeImages().size() >= MAX_IMAGES
+                ? "Image limit reached: this trip already has " + MAX_IMAGES + " custom badge images. Delete one first."
+                : null;
     }
 
     /** The uploaded filename becomes the label default, until the manager types one over it. */

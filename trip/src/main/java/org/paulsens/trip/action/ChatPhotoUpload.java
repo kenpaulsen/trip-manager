@@ -77,15 +77,11 @@ public class ChatPhotoUpload extends PhotoUploadBean {
         return UploadGate.allow(gate.channel().getSettings().getMaxAttachmentBytes());
     }
 
-    /** {@link #authorization}, then the per-person upload rate limit, spent only by someone who may upload. */
+    /** The per-person upload rate limit, spent only by someone {@link #authorization} admits. */
     @Override
-    protected UploadGate uploadGate() {
-        final UploadGate who = authorization();
-        if (who.denial() != null) {
-            return who;
-        }
+    protected String limit() {
         return limiter().allow(caller().personId().getValue())
-                ? who : UploadGate.deny("Too many uploads: wait a minute and try again.");
+                ? null : "Too many uploads: wait a minute and try again.";
     }
 
     /** Stage the (possibly cropped) photo and hand its details to the tray JS; a failure reports itself. */
