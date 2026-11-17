@@ -534,6 +534,10 @@ public class TripsResource extends BaseResource {
         if (pageProblem != null) {
             return error(400, ApiErrors.VALIDATION_FAILED, pageProblem);
         }
+        final String linkProblem = linkProblem(trip, null, null);
+        if (linkProblem != null) {
+            return error(400, ApiErrors.VALIDATION_FAILED, linkProblem);
+        }
         if (!trips.saveTrip(trip, orgs)) {
             return error(500, ApiErrors.STORE_FAILED, "Could not save the trip.");
         }
@@ -603,11 +607,17 @@ public class TripsResource extends BaseResource {
             return error(403, ApiErrors.FORBIDDEN,
                     "Only a holder of Create Conferences for the organization may make or unmake a conference.");
         }
+        final String storedExternal = trip.getNonHostedTripUrl();
+        final String storedFlyer = trip.getFlyerUrl();
         apply(body, trip);
         final String pageProblem = pageProblem(trip);
         if (pageProblem != null) {
             // The trip is this request's own copy (DAO reads are copies), so a refusal here changes nothing stored.
             return error(400, ApiErrors.VALIDATION_FAILED, pageProblem);
+        }
+        final String linkProblem = linkProblem(trip, storedExternal, storedFlyer);
+        if (linkProblem != null) {
+            return error(400, ApiErrors.VALIDATION_FAILED, linkProblem);
         }
         if (!Beans.get(TripCommands.class).saveTrip(trip, orgs)) {
             return error(500, ApiErrors.STORE_FAILED, "Could not save the trip.");
@@ -912,6 +922,16 @@ public class TripsResource extends BaseResource {
         }
     }
 
+    /**
+     * Why the trip's External Trip URL or Flyer URL cannot be saved, or null. {@code saveTrip} refuses the same
+     * values, but answers only false: asked here first, a client's mistake is a 400 with the reason, not a 500.
+     * Only a link the body CHANGED is judged ({@code TripCommands.linkProblems}).
+     */
+    private static String linkProblem(final Trip trip, final String storedExternal, final String storedFlyer) {
+        final List<String> problems = TripCommands.linkProblems(trip, storedExternal, storedFlyer);
+        return problems.isEmpty() ? null : String.join(" ", problems);
+    }
+
     /** Why the trip's page options cannot be saved ({@code TripPageCommands.pageProblems}), or null. */
     private static String pageProblem(final Trip trip) {
         final List<String> problems = new TripPageCommands().pageProblems(trip);
@@ -1204,6 +1224,16 @@ public class TripsResource extends BaseResource {
         if (csrfMissing(csrf)) {
             return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
         }
+        // Refuse before buffering up to 16 MB: otherwise anyone signed in could hold that much memory per request
+        // for a trip that does not exist or is not theirs. add() asks again on the row it saves.
+        final Trip trip = findTrip(tripId);
+        if (trip == null) {
+            return error(404, ApiErrors.NOT_FOUND, "No such trip.");
+        }
+        final TripPictureCommands pictures = Beans.get(TripPictureCommands.class);
+        if (!pictures.mayEdit(caller(), trip)) {
+            return error(403, ApiErrors.FORBIDDEN, "Not permitted to change this trip's pictures.");
+        }
         final PhotoProcessor.CropRect rect;
         try {
             rect = cropRect(cropX, cropY, cropW, cropH);
@@ -1223,7 +1253,6 @@ public class TripsResource extends BaseResource {
         if (bytes.get().length == 0) {
             return error(400, ApiErrors.VALIDATION_FAILED, "The upload was empty.");
         }
-        final TripPictureCommands pictures = Beans.get(TripPictureCommands.class);
         return pictureResponse(pictures, pictures.add(caller(), tripId, bytes.get(), rect, alt));
     }
 

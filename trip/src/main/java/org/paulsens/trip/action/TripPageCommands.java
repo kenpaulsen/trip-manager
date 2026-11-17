@@ -244,7 +244,12 @@ public class TripPageCommands {
         if (trip == null) {
             return "";
         }
-        return trip.isExternal() ? trip.getNonHostedTripUrl() : "/trip/joinTrip.jsf?trip=" + trip.getId();
+        if (!trip.isExternal()) {
+            return "/trip/joinTrip.jsf?trip=" + trip.getId();
+        }
+        // Screened for a link: a stored value that is no web address links nowhere new.
+        final String external = TripCommands.externalUrl(trip);
+        return external.isEmpty() ? TripCommands.DETAIL_URL + trip.getId() : external;
     }
 
     // ------------------------------------------------------------------ the page's look

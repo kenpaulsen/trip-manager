@@ -20,6 +20,7 @@ import lombok.Getter;
 import org.paulsens.trip.action.ChatCommands;
 import org.paulsens.trip.action.ChatPhotos;
 import org.paulsens.trip.action.ConfigCommands;
+import org.paulsens.trip.action.DemoTripPictures;
 import org.paulsens.trip.action.TripEventComposer;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.config.KnownSettings;
@@ -46,6 +47,7 @@ import org.paulsens.trip.model.RegistrationOption;
 import org.paulsens.trip.model.Family;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripEvent;
+import org.paulsens.trip.model.TripPicture;
 import org.paulsens.trip.model.TripKind;
 import org.paulsens.trip.model.WaiverDocument;
 import org.paulsens.trip.model.WaiverVersion;
@@ -136,6 +138,7 @@ public final class FakeData {
             addFakeFamily();
             seatLucyOnSpringDemo();
             addFakeConferenceRegistrations();
+            addPicturedTripRegistrations();
             seedConferencePage();
             addFakeLodging();
             relaxChatLimitsForFakeTrips();
@@ -1362,8 +1365,123 @@ public final class FakeData {
         summer.getPaymentConfig().setProcessorConfigId(CFPW_INLINE_PROCESSOR_ID);
         trips.add(summer);
         addLandingPageSeeds(trips, allPeople, tripStaff);
+        addPicturedTrips(trips);
         trips.add(conferenceSeed(tripStaff));
         return trips;
+    }
+
+    // The pictured trips (issue 154; owner 2026-11-16: local test trips use the card prototype's pictures and names).
+    public static final String PIC_MEDJUGORJE_TRIP_ID = "45eccf71-19e4-447b-a559-7631df5c8c67";
+    public static final String PIC_DAYTRIPS_TRIP_ID = "137417e5-3b50-408b-bccd-a0cfc30e9e39";
+    public static final String PIC_FATIMA_TRIP_ID = "ad26d996-2b87-4fbe-94bf-0b37aba8e8ac";
+    public static final String PIC_SURFCUP_TRIP_ID = "a137e62c-a4b2-43e1-80f8-e3142e3bef6f";
+    public static final String PIC_VEGAS_TRIP_ID = "09f94d8e-847e-476a-be29-a875a41e8619";
+    public static final String PIC_PERU_TRIP_ID = "9a04e6da-3d3d-4f93-a35f-54fd99925503";
+    public static final String PIC_TREK_TRIP_ID = "747ce2dd-7593-4964-8142-2c480f733ba1";
+
+    /**
+     * Seven public trips with real pictures, places and tags, so the listing cards, the trip page's gallery and the
+     * apps have something to show locally: a nine-picture trip, a long title, a trip with NO picture (the fallback
+     * cover), one that has started (Closed) and one whose two places are taken (Full, with the registrations
+     * {@link #addPicturedTripRegistrations} files). Three are CFPW's: org-less with the CFPW provider, like the
+     * landing seeds beside them, so the shared site lists them the same way. Four are Acme's, so an org site lists
+     * its own. Beta deliberately gets none: the browser tests rely on Beta's site having no trip at all. Every
+     * CFPW one starts well after the seeds above: the countdown cards and the tests that count the next CFPW trip
+     * are theirs. The existing Holy Angels Demo gains a cover too, so the next departure the shared site features
+     * is a pictured trip.
+     */
+    private static void addPicturedTrips(final List<Trip> trips) {
+        trips.stream().filter(trip -> PUB_EN_1_TRIP_ID.equals(trip.getId())).findFirst()
+                .ifPresent(FakeData::pictureHolyAngelsDemo);
+        trips.add(pictured(PIC_MEDJUGORJE_TRIP_ID, "Medjugorje Pilgrimage 2026", null, "CFPW", 150, 159,
+                "Medjugorje, Bosnia and Herzegovina", "BA", "$3,290 from Portland", 40, List.of("pilgrimage"),
+                "apparition-hill-sunset", "st-james", "valley", "outdoor-altar", "candles", "stone-church",
+                "monastery", "sheep", "evening-hill"));
+        trips.add(pictured(PIC_DAYTRIPS_TRIP_ID,
+                "Tihaljina, Siroki Brijeg and Mostar: Day Trips from Medjugorje for Returning Pilgrims", null,
+                "CFPW", 200, 208, "Medjugorje, Bosnia and Herzegovina", "BA", "$2,650 from Seattle", 30,
+                List.of("pilgrimage", "tour"), "monastery", "stone-church"));
+        trips.add(pictured(PIC_FATIMA_TRIP_ID, "Fatima and Lourdes Retreat", null, "CFPW", 230, 240,
+                "Fatima, Portugal", "PT", null, 40, List.of("retreat")));
+        trips.add(pictured(PIC_SURFCUP_TRIP_ID, "Surf Cup Showcase - San Diego", ACME_ORG_ID, "Acme Inc", -1, 2,
+                "Del Mar, California", "US", "$690 per player", null, List.of("youth"), "surf-cup",
+                "soccer-warmup"));
+        trips.add(pictured(PIC_VEGAS_TRIP_ID, "Las Vegas Players Showcase", ACME_ORG_ID, "Acme Inc", 95, 98,
+                "Las Vegas, Nevada", "US", "$640 per player", null, List.of("youth"), "soccer-match"));
+        trips.add(pictured(PIC_PERU_TRIP_ID, "Peru Family Adventure", ACME_ORG_ID, "Acme Inc", 45, 56,
+                "Paracas, Cusco and the Amazon, Peru", "PE", "$2,140 per person", null, List.of("family", "tour"),
+                "cusco-plaza", "ballestas-arch", "huacachina-dunes"));
+        trips.add(pictured(PIC_TREK_TRIP_ID, "Machu Picchu Trek 2027", ACME_ORG_ID, "Acme Inc", 110, 121,
+                "Cusco and the Inca Trail, Peru", "PE", "$3,410 from Portland", 2, List.of("tour"), "andes-train"));
+    }
+
+    private static void pictureHolyAngelsDemo(final Trip trip) {
+        trip.setDestination("Medjugorje, Bosnia and Herzegovina");
+        trip.setCountry("BA");
+        trip.setTags(List.of("pilgrimage"));
+        trip.setPictures(demoPictures(trip.getId(), "st-james", "valley", "candles"));
+    }
+
+    private static Trip pictured(final String id, final String title, final String orgId, final String provider,
+            final int startInDays, final int endInDays, final String destination, final String country,
+            final String price, final Integer regLimit, final List<String> tags, final String... pictures) {
+        final Trip trip = Trip.builder()
+                .id(id)
+                .title(title)
+                .openToPublic(true)
+                .provider(provider)
+                .language(Language.English)
+                .estimatedPrice(price)
+                .startDate(LocalDateTime.now().plusDays(startInDays))
+                .endDate(LocalDateTime.now().plusDays(endInDays))
+                .regLimit(regLimit)
+                .regOptions(getDefaultOptions())
+                .tripEvents(seedEvents(id, startInDays))
+                .tags(tags)
+                .pictures(demoPictures(id, pictures))
+                .build();
+        if (orgId != null) {
+            trip.setOrgId(orgId);
+        }
+        trip.setDestination(destination);
+        trip.setCountry(country);
+        return trip;
+    }
+
+    private static List<TripPicture> demoPictures(final String tripId,
+            final String... names) {
+        final List<TripPicture> pictures = new ArrayList<>();
+        for (final String name : names) {
+            pictures.add(DemoTripPictures.pictureFor(tripId, name));
+        }
+        return pictures;
+    }
+
+    /**
+     * The Machu Picchu trek is FULL: its two places are taken by Trinity and Dave, so the listing's Full state and
+     * the trip page's "full" block render locally. Guarded on the trip like the conference's registrations.
+     *
+     * <p>They hold CONFIRMED registrations WITHOUT a roster seat, which no real flow leaves behind, and on purpose:
+     * a traveler on an organization's trip is listed among its people, and every seeded persona carries another
+     * fixture's invariant (Dave and Trinity stay outside Acme; Matt is on no Acme trip; Kevin's current Acme trip
+     * is the Acme Retreat). Seating any of them here fails the browser tests that rely on those (tried 2026-11-16).
+     */
+    private static void addPicturedTripRegistrations() {
+        final Person trinity = DAO.getInstance().getPersonByEmail(localEmail("user4"), Cached.NO);
+        final Person dave = DAO.getInstance().getPersonByEmail(localEmail("user5"), Cached.NO);
+        if (trinity == null || dave == null) {
+            return;
+        }
+        try {
+            if (DAO.getInstance().getRegistrations(PIC_TREK_TRIP_ID, Cached.NO).isEmpty()) {
+                for (final Person.Id who : List.of(trinity.getId(), dave.getId())) {
+                    DAO.getInstance().saveRegistration(new Registration(PIC_TREK_TRIP_ID, who,
+                            LocalDateTime.now().minusDays(5), Registration.Status.CONFIRMED, new HashMap<>()));
+                }
+            }
+        } catch (final IOException ex) {
+            throw new IllegalStateException("Fake pictured-trip seed: could not save its registrations", ex);
+        }
     }
 
     /** "2027 Mar: Peace Conference Demo": the CONFERENCE-kind seed (docs/conference.md, docs/checkout.md). */

@@ -9,6 +9,7 @@ import java.util.Map;
 import java.util.UUID;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
+import org.paulsens.trip.action.Caller;
 import org.paulsens.trip.action.PersonCommands;
 import org.paulsens.trip.action.PrivilegeCommands;
 import org.paulsens.trip.action.TripCommands;
@@ -849,6 +850,37 @@ public class TripsResourceTest extends ResourceTestSupport {
         Assert.assertNull(member.withoutEvents().page());
     }
 
+    private static TripDto linksBody(final String flyerUrl, final String externalUrl) {
+        return new TripDto(null, null, null, null, false, null, null, null, null, null, null, null, null, null,
+                null, flyerUrl, externalUrl, null, null, null, null, null, null, null);
+    }
+
+    /**
+     * A link that is no web address is a client's mistake, answered 400 with the reason before any save; and only
+     * a CHANGED link is judged, so a trip stored under the older free-text rule still accepts other writes.
+     */
+    @Test
+    public void updateRefusesAChangedLinkThatIsNoWebAddressWith400() throws java.io.IOException {
+        signedInAsSiteAdmin(ME);
+        final Trip existing = trip(TRIP_ID, ME);
+        existing.setFlyerUrl("www.example.org/legacy-flyer.pdf");
+        tripExists(existing);
+        Mockito.when(trips.saveTrip(ArgumentMatchers.eq(existing), ArgumentMatchers.any())).thenReturn(true);
+
+        assertError(resource.update(TRIP_ID, CSRF_OK, linksBody(null, "javascript:alert(1)")), 400,
+                ApiErrors.VALIDATION_FAILED);
+        tripExists(existing);
+        existing.setNonHostedTripUrl(null);
+        assertError(resource.update(TRIP_ID, CSRF_OK, linksBody("javascript:alert(2)", null)), 400,
+                ApiErrors.VALIDATION_FAILED);
+        Mockito.verify(trips, Mockito.never()).saveTrip(ArgumentMatchers.any(), ArgumentMatchers.any());
+
+        existing.setFlyerUrl("www.example.org/legacy-flyer.pdf");
+        assertOk(resource.update(TRIP_ID, CSRF_OK, linksBody("www.example.org/legacy-flyer.pdf", null)));
+        assertOk(resource.update(TRIP_ID, CSRF_OK, linksBody(null, "https://example.org/register")));
+        Assert.assertEquals(existing.getNonHostedTripUrl(), "https://example.org/register");
+    }
+
     private static TripDto pageBody(final org.paulsens.trip.api.dto.TripPageOptionsDto page) {
         return new TripDto(null, null, null, null, false, null, null, null, null, null, null, null, null, null,
                 null, null, null, null, null, null, null, null, null, page);
@@ -1569,6 +1601,16 @@ public class TripsResourceTest extends ResourceTestSupport {
         return new java.io.ByteArrayInputStream(bytes);
     }
 
+    /** A request body that fails the test if anything reads it. */
+    private static java.io.InputStream unreadBody() {
+        return new java.io.InputStream() {
+            @Override
+            public int read() {
+                throw new AssertionError("The upload body was read before the caller was authorized");
+            }
+        };
+    }
+
     private static TripPictureCommands.PictureResult result(final TripPictureCommands.PictureResult.Status status) {
         return new TripPictureCommands.PictureResult(status, status.name(), null, null);
     }
@@ -1578,8 +1620,21 @@ public class TripsResourceTest extends ResourceTestSupport {
         signedInAs(ME);
         final TripPictureCommands pictures = picturesAtLocalhost();
         final byte[] bytes = org.paulsens.trip.media.PhotoFixtures.jpeg(60, 40);
-        assertError(resource.addPicture(TRIP_ID, null, null, null, null, null, null, null, bodyOf(bytes)), 403,
+        assertError(resource.addPicture(TRIP_ID, null, null, null, null, null, null, null, unreadBody()), 403,
                 ApiErrors.CSRF);
+
+        // An unknown trip and a caller who may not edit it are answered before a byte of the body is read.
+        assertError(resource.addPicture("no-such-trip", CSRF_OK, null, null, null, null, null, null, unreadBody()),
+                404, ApiErrors.NOT_FOUND);
+        final Trip trip = trip(TRIP_ID, ME);
+        tripExists(trip);
+        assertError(resource.addPicture(TRIP_ID, CSRF_OK, null, null, null, null, null, null, unreadBody()), 403,
+                ApiErrors.FORBIDDEN);
+        Mockito.verify(pictures, Mockito.never()).add(ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any());
+        Mockito.when(pictures.mayEdit(ArgumentMatchers.any(Caller.class), ArgumentMatchers.eq(trip)))
+                .thenReturn(true);
+
         assertError(resource.addPicture(TRIP_ID, CSRF_OK, null, null, 1, 2, null, null, bodyOf(bytes)), 400,
                 ApiErrors.BAD_REQUEST);
         assertError(resource.addPicture(TRIP_ID, CSRF_OK, 17L * 1024 * 1024, null, null, null, null, null,

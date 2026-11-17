@@ -24,6 +24,7 @@ import java.util.Set;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.content.ContentRenderer;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.BindingType;
 import org.paulsens.trip.model.ContentInstance;
@@ -205,6 +206,13 @@ public class TripCommands {
             PageFeedback.warn("Not saved", String.join(" ", pricing));
             return false;
         }
+        // ONE advisory pre-read of the stored row, for the two checks below that compare against it.
+        final Trip stored = (trip.getId() == null) ? null : advisoryGetTrip(trip.getId());
+        final List<String> links = linkProblems(trip, stored);
+        if (!links.isEmpty()) {
+            PageFeedback.warn("Not saved: " + String.join(" ", links));
+            return false;
+        }
         final List<String> page = new TripPageCommands().pageProblems(trip);
         if (!page.isEmpty()) {
             // Same for the Trip Page dialog (docs/conference.md, "Look and feel").
@@ -216,7 +224,7 @@ public class TripCommands {
         // Read the roster BEFORE the write, so anyone dropped in this edit can be taken off the chat too. Done
         // here rather than at each Remove button because there are several ways off a trip and they must all
         // agree: a chat still listing people who are no longer on the trip is the wrong answer everywhere.
-        final List<Person.Id> removed = peopleRemovedBy(trip);
+        final List<Person.Id> removed = peopleRemovedBy(trip, stored);
         syncProviderFromOrg(trip);
         keepStoredPictures(trip);
         normalizePlace(trip, TripTags.current());
@@ -319,12 +327,8 @@ public class TripCommands {
      * <p>Best effort by design: if the previous version cannot be read, nobody is reported and the chat roster is
      * left alone. Failing to tidy the chat must never fail the trip save that prompted it.
      */
-    private List<Person.Id> peopleRemovedBy(final Trip updated) {
-        if (updated == null || updated.getId() == null) {
-            return List.of();
-        }
-        // Advisory pre-read: the save it precedes must survive a failure here.
-        final Trip stored = advisoryGetTrip(updated.getId());
+    private static List<Person.Id> peopleRemovedBy(final Trip updated, final Trip stored) {
+        // The stored row is an advisory pre-read: the save it precedes must survive not having it.
         if (stored == null) {
             return List.of();
         }
@@ -937,16 +941,89 @@ public class TripCommands {
         }
         final boolean registered = viewer != null && org.paulsens.trip.api.Beans.get(RegistrationCommands.class)
                 .isChipRegistered(trip.getId(), viewer);
+        return publicTripUrlFor(trip, registered);
+    }
+
+    /**
+     * {@link #publicTripUrl(Trip, Person.Id)} for a caller that already knows whether the viewer is registered.
+     * Deliberately NOT a second public two-argument {@code publicTripUrl}: the pages call that name with a null
+     * viewer for an anonymous visitor, and EL cannot choose between two overloads for a null argument, so every
+     * page with the Trips menu failed ({@code PublicTripUrlTest} keeps the name single).
+     */
+    public String publicTripUrlFor(final Trip trip, final boolean registered) {
+        if (trip == null || trip.getId() == null) {
+            return "/";
+        }
         final SiteCommands site = new SiteCommands();
         return publicTripUrl(trip, registered, SiteContext.current(), TripCommands::ownerOf, site::orgSiteUrl);
+    }
+
+    /**
+     * An external trip's own website, screened for a link: the stored URL when it is absolute http(s), else "".
+     * EVERY page reads it here, and every bean through {@link #externalUrl}. The stored value is typed by a trip
+     * manager, and a {@code javascript:} URL in an href would run as whoever clicks it, on a listing other
+     * organizations share.
+     */
+    public String externalUrlOf(final Trip trip) {
+        return externalUrl(trip);
+    }
+
+    /** {@link #externalUrlOf} for Java callers: the ONE screen of an external trip's stored URL. */
+    public static String externalUrl(final Trip trip) {
+        return trip == null || !trip.isExternal() ? "" : ContentRenderer.requireHttpUrl(trip.getNonHostedTripUrl());
+    }
+
+    /** A trip's flyer link, screened the same way: absolute http(s) or a path on this site, else "". */
+    public String flyerUrlOf(final Trip trip) {
+        return trip == null ? "" : ContentRenderer.requireLinkUrl(trip.getFlyerUrl());
+    }
+
+    /** {@link #linkProblems(Trip, String, String)} against the stored row; a null row is a trip not yet stored. */
+    static List<String> linkProblems(final Trip trip, final Trip stored) {
+        return linkProblems(trip, stored == null ? null : stored.getNonHostedTripUrl(),
+                stored == null ? null : stored.getFlyerUrl());
+    }
+
+    /**
+     * What a save refuses about a trip's two typed links; empty when both are fine, blank, or UNCHANGED from what
+     * is stored. Only a changed link is judged: both fields were free text before this rule, every save of a trip
+     * passes here (a paid checkout's roster write, an approval, an itinerary note), and a value saved under the
+     * older rule must not make those fail. Reading is already safe for such a value ({@link #externalUrl},
+     * {@link #flyerUrlOf}). The same shape as the payment From check in {@code TripsResource}.
+     */
+    public static List<String> linkProblems(final Trip trip, final String storedExternal,
+            final String storedFlyer) {
+        final List<String> problems = new ArrayList<>();
+        final boolean externalChanged = trip.isExternal() && !trip.getNonHostedTripUrl().equals(storedExternal);
+        if (externalChanged && externalUrl(trip).isEmpty()) {
+            problems.add("The External Trip URL must be a web address starting with https:// or http://.");
+        }
+        final String flyer = trip.getFlyerUrl();
+        if (flyer != null && !flyer.isBlank() && !flyer.equals(storedFlyer)
+                && ContentRenderer.requireLinkUrl(flyer).isEmpty()) {
+            problems.add("The Flyer URL must be a web address starting with https:// or http://.");
+        }
+        return problems;
+    }
+
+    /**
+     * Whether a trip has not started by a calendar day: the ONE "still to come" rule of the sidebar countdown and
+     * the listing's featured card. Calendar days, never {@code isAfter(now)}: start dates are zone-naive and the
+     * server's clock is UTC, so an instant cut ends a trip's "upcoming" the afternoon before for the Americas
+     * (2026-09-19). The browser decides the viewer's own day (countdown.js).
+     */
+    static boolean notStartedBy(final Trip trip, final LocalDate today) {
+        return trip.getStartDate() != null && !trip.getStartDate().toLocalDate().isBefore(today);
     }
 
     /** {@link #publicTripUrl(Trip, Person.Id)} on explicit facts: the testable half. */
     static String publicTripUrl(final Trip trip, final boolean registered, final SiteContext site,
             final java.util.function.Function<String, Optional<Organization>> ownerLookup,
             final java.util.function.UnaryOperator<String> orgSiteUrl) {
-        if (trip.isExternal() && !registered) {
-            return trip.getNonHostedTripUrl().trim();
+        // Screened: a stored value that is no web address falls through to the detail page.
+        final String external = externalUrl(trip);
+        if (!registered && !external.isEmpty()) {
+            return external;
         }
         final String detail = DETAIL_URL + trip.getId();
         if (registered || !site.isShared()) {
@@ -964,7 +1041,8 @@ public class TripCommands {
         };
     }
 
-    private static Optional<Organization> ownerOf(final String orgId) {
+    /** The organization that owns a trip, by its stored org id; empty for none (a legacy trip) or an unknown one. */
+    static Optional<Organization> ownerOf(final String orgId) {
         if (orgId == null || orgId.isBlank()) {
             return Optional.empty();
         }
@@ -1097,7 +1175,7 @@ public class TripCommands {
         for (final Trip trip : upcoming) {
             // "Next" of a language is one that has not started by the server's calendar; the start-day
             // trip is carried by the soon-window below, so it never hides the language's real next card.
-            if (!trip.getStartDate().toLocalDate().isBefore(today)) {
+            if (notStartedBy(trip, today)) {
                 nextPerLanguage.putIfAbsent(languageOf(trip), trip);
             }
         }

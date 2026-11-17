@@ -245,7 +245,7 @@ media table; hidden or deleted media renders nothing), `person`, and the confere
 dialog: `pilgrimages` lists other trips and answers false; `photo-albums` fits, since on a conference's page it shows
 that event's own album (`conference.md`).
 
-Fragments are **pure render-time** (accordions/galleria/rows only — no build-time tags) and read the
+Fragments are **pure render-time** (cards/galleria/rows only -- no build-time tags) and read the
 hosting instance as `#{instance}`. A template of kind PROGRAMMATIC copies its type's properties into
 `placeholders` on every save, so version pinning and the manager's placeholder table work exactly as for
 STANDARD — **but the stored list is advisory at most: every reader takes the registry's LIVE property list**

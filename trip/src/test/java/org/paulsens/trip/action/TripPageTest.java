@@ -255,6 +255,9 @@ public class TripPageTest {
         assertEquals(info.registerLabel(), "Join Pilgrimage");
         final Trip external = Trip.builder().nonHostedTripUrl("https://example.com/reg").build();
         assertEquals(new TripPageCommands().registerUrl(external), "https://example.com/reg");
+        final Trip unsafe = Trip.builder().nonHostedTripUrl("javascript:alert(1)").build();
+        assertEquals(new TripPageCommands().registerUrl(unsafe), "/trip/tripDetails.jsf?trip=" + unsafe.getId(),
+                "a stored value that is no web address never becomes the Register link");
         assertEquals(new TripPageCommands().registerUrl(null), "");
     }
 

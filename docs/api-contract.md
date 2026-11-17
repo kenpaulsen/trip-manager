@@ -72,7 +72,9 @@ date. Chat posts while acting carry `onBehalfOf` (Chat section).
 
 `TripDto`: id, title, description, detailsUrl, pictures, destination, country, tags, openToPublic, chatEnabled,
 startDate, endDate, regLimit, provider,
-orgId, language, estimatedPrice, director, localGuide, facilitators, flyerUrl, nonHostedTripUrl,
+orgId, language, estimatedPrice, director, localGuide, facilitators, flyerUrl, nonHostedTripUrl (a write that
+CHANGES either is answered 400 `VALIDATION_FAILED` unless `nonHostedTripUrl` is an absolute http(s) URL and `flyerUrl`
+is one or a path on the site; an unchanged stored value is never judged),
 nonHostedRegNumber, regOptions[{id, shortDesc, longDesc, show, type, required?, choices?[{id, label, priceCents?,
 capacity?, attestationText?, days?, enabled?}]}] (see "Registration questions" below), people[ids], tripEvents[],
 paymentConfig{processorConfigId, feesPaidBy (ORGANIZATION|PAYER), donationEnabled, donationLabel,

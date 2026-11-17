@@ -1,7 +1,7 @@
 # Trip pictures, destination, country and tags
 
-Issue 154, Phase 1 (2026-11-16). Phase 2, the card redesign of the Trip Listings section, builds on this; the apps
-follow in issue 155.
+Issue 154 (2026-11-16): Phase 1 is the data, upload and API; Phase 2 is the Trip Listings section as picture cards
+and the trip page's hero and gallery (both below). The apps follow in issue 155.
 
 ## Owner decisions (locked 2026-11-16)
 
@@ -24,7 +24,8 @@ follow in issue 155.
 ## Storage
 
 - Key `tripPictures/{tripId}/{millis}-{width}.jpg` in the managed-media bucket, CDN-served, public by URL, cached
-  for a day. NOT under `org/{orgId}/...` as the issue first said: that prefix is the org media library's own
+  for a day. `{millis}` is the clock's, pushed forward by one when two uploads would share a millisecond
+  (`TripPictureCommands.nextStamp`), so parallel uploads to one trip never share a key. NOT under `org/{orgId}/...` as the issue first said: that prefix is the org media library's own
   namespace (its media admins can write any key there), and a trip can move to another organization, so a key there
   could be overwritten by the wrong tenant. `tripPictures/` is reserved (`MediaCommands.isReservedKey`).
 - `PhotoProcessor.processPicture`: decode inside `DecodeBudget`, apply EXIF orientation, cut to 3:2 (the crop is
@@ -47,6 +48,17 @@ reads the stored trip FRESH and saves it straight through the DAO (the Required 
 cannot plant one. Objects are stored before the row names them and removed after it stops; a failure leaves at most
 an unreferenced object, which the trip delete sweeps.
 
+An add decodes, cuts and stores its three renditions FIRST, and only then reads the row it saves, checking the
+limit and the caller again against that fresh row (on a refusal the stored renditions are removed). Its first read
+only refuses early; saving that read would put back any trip write that landed during the second or two of
+processing (a registration approval, another upload). Each write's read-modify-write (add's re-read and save, move,
+describe, remove) holds a per-trip `ReentrantLock` (striped by trip id, so a made-up id cannot grow a map), which
+serializes concurrent uploads to one trip: a JVM lock is enough because the app runs as ONE task, and it is not
+`synchronized` because requests run on virtual threads. The image work and the S3 deletes stay outside the lock.
+
+The REST `POST` checks that the trip exists and that the caller may edit it BEFORE it reads the body (up to 16 MB),
+like `PeopleResource.uploadPhoto`; `add` asks again.
+
 - **Editor:** Trip Info's "Pictures:" row (not while creating) opens `picsDlg` (in `uploadDialogs`, beside the shared
   upload+crop dialog at `cropAspect` 1.5): Add Picture with an optional description, Make Cover, move earlier or
   later, edit description, remove. Every button carries the picture key in an `f:param`. "Destination:", "Country:"
@@ -55,8 +67,65 @@ an unreferenced object, which the trip delete sweeps.
 - **REST:** `POST/PUT/DELETE /api/trips/{id}/pictures`, wrapping the same methods (`docs/api-contract.md`, "Trips").
 - **Delete:** `docs/trip-delete.md`, step 6.
 
+## The listing cards (Phase 2)
+
+The owner picked the design from a prototype of four directions (2026-11-16): **Immersive** (the photo is the card,
+text on a scrim over it) with the **Hero** from the Showcase direction (the section's next departure as one large
+card above the grid). Nothing moves by itself; hover and press feedback only, off under `prefers-reduced-motion`,
+which keeps a picture's fade-in (opacity is not movement) and swaps a gallery picture in place.
+
+- `TripCardCommands` (`#{tripCards}`) wraps `TripCommands.getPublicTripsFor(instance)`, so a section's language, max
+  count, `includeOrgs` and the org-site isolation rule are untouched. Each `Card` carries the trip, where the whole
+  card links (`publicTripUrl`), ONE state, the cover's `src` and `srcset`, the fallback image and whether it is
+  featured. The list is memoized per request (`RequestMemo`), and a signed-in viewer's registration is looked up
+  once per card.
+- **Links are screened.** An external trip's stored URL reaches a link only through `TripCommands.externalUrlOf`
+  (absolute http(s), else the card links to the trip's own page), and the flyer only through `flyerUrlOf` (http(s)
+  or a path on this site). A save refuses anything else when the link is being CHANGED (`linkProblems`; REST answers
+  400): the value is typed by a trip manager and a `javascript:` URL in an href would run as whoever clicks it, on
+  a listing organizations share. An unchanged stored value is never judged, since every save of a trip (a paid
+  checkout's roster write, an approval) passes the same gate and reading is already screened.
+- **State:** Registered when the viewer has a registration of their own (any status); otherwise the trip page's own
+  phase (`TripPageCommands.registrationInfo`): Closed once it has started, Full when every place is taken, else
+  Register. An external trip is Full by its typed count against its limit. A card and the page it opens cannot
+  disagree.
+- **Featured:** the first listed trip that has not started by the server's CALENDAR day
+  (`TripCommands.notStartedBy`, the sidebar countdown's rule; never an instant cut, which on a UTC server ends a
+  trip's "upcoming" the afternoon before for the Americas). Its "in N days" is filled in by the browser
+  (`countdown.js`, class `tripCountdownText`), like the sidebar's countdown: the server does not know the viewer's
+  calendar day. The Closed chip is still the trip page's instant (`TripPageCommands.phaseOf`), so on the eve of a
+  midnight departure a featured card can read Closed, as its page does.
+- **No picture:** the TRIP's organization's link-preview image, else its background image, else a generated cover in
+  the site's accent. A featured trip with no picture is a short banner, not a hero.
+- **Scrim:** white text on black over the photo is the one pair of literal colors (`tripCards.css`,
+  `ColorLiteralPolicyIT`): the photo, not the palette, is the background. The scrim belongs to the text block, so it
+  grows with the text and every line sits on at least two-thirds black (7:1 or better on any photo).
+- **Pages:** `medjugorje/webapp/WEB-INF/ptypes/pilgrimages.xhtml` (the section; its stored id is not renamed),
+  `WEB-INF/tripCard.xhtml` (one card, one link, named by its title), `resources/css/tripCards.css`,
+  `resources/trip-js/tripCards.js` (fades a picture in over its placeholder color). Staff names and the flyer link
+  moved to the trip's own page.
+
+## The trip page
+
+`WEB-INF/tripPictureHero.xhtml`, included by `tripPageBody.xhtml` on the SITE page only (the app embed draws its own
+from the API): one picture is a hero image, two or more are a `p:galleria` with autoplay off, and a facts line under
+it shows the destination, spiritual director, guide, coordinators and flyer, each only when set.
+
+## Local fixtures
+
+`FakeData` seeds seven pictured public trips (three CFPW, four Acme; Beta keeps none, since the browser tests rely
+on its site having no trip; owner request 2026-11-16) plus a cover
+on the existing Holy Angels Demo: a nine-picture trip, a long title, one with no picture, one already started
+(Closed) and one whose two places are taken (Full). Their pictures are bundled in
+`src/main/resources/demo/trip-pictures` (sources only, cut to 3:2, no metadata) and listed in `DemoTripPictures`;
+`TripPictureCommands.localGet` makes a demo picture's three renditions through the real pipeline on first request,
+in local mode only and only for a key that is exactly one of that picture's three renditions (the servlet is
+anonymous, so any other miss costs a store read and nothing else). The repo is public and the owner chose to keep
+the files here; they are the owner's own photographs (`demo/trip-pictures/README.md`).
+
 ## Tests
 
 `TripPictureCommandsTest`, `TripPictureServletTest`, `PhotoProcessorPictureTest`, `TripTagsTest`,
 `IsoCountriesTest`, `TripCommandsTest.aSaveKeepsTheStoredPicturesAndNormalizesThePlace`, the picture tests in
-`TripsResourceTest`; browser: `TripPicturesPwIT` (medjugorje webtest).
+`TripsResourceTest`, `TripCardCommandsTest`, `DemoTripPicturesTest`; browser (medjugorje webtest):
+`TripPicturesPwIT` (the editor dialog) and `TripCardsPwIT` (the cards, org isolation, the phone layout, the gallery).

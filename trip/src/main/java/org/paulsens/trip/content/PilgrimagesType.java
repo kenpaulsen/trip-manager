@@ -12,9 +12,9 @@ import org.paulsens.trip.model.Placeholder;
 
 /**
  * The public trip listing for one language, as a programmatic content type: what v1 hardcoded as a
- * per-language accordion block on the landing page. The instance's title is the section heading
- * ("English Medjugorje Pilgrimages"); the fragment drives the same cached {@code TripCommands} listing the
- * v1 page used, filtered by these properties.
+ * per-language block on the landing page, drawn since issue 154 as picture cards. The instance's title is the
+ * section heading ("English Medjugorje Pilgrimages"); the fragment drives the same cached {@code TripCommands}
+ * listing the v1 page used, filtered by these properties.
  */
 final class PilgrimagesType implements ProgrammaticContentTemplate {
 
@@ -40,7 +40,7 @@ final class PilgrimagesType implements ProgrammaticContentTemplate {
 
     @Override
     public String getDescription() {
-        return "The public trip accordions for one language, straight from the trip data.";
+        return "The public trips of one language as picture cards, straight from the trip data.";
     }
 
     @Override

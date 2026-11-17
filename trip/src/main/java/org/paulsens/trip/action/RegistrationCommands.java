@@ -1086,22 +1086,6 @@ public class RegistrationCommands {
         return result;
     }
 
-    /**
-     * The landing-page registration chip's label: "Register" for the anonymous or unregistered, otherwise
-     * the viewer's own status. A bean method (not page EL) so the accordion row stays free of nested
-     * ternaries and repeated lookups.
-     */
-    public String getChipLabel(final String tripId, final Person.Id userId) {
-        if (userId == null || tripId == null) {
-            return "Register";
-        }
-        final Registration registration = getRegistration(tripId, userId);
-        if (registration == null || registration.getStatus() == Registration.Status.NOT_REGISTERED) {
-            return "Register";
-        }
-        return registration.getStatus().getDescription();
-    }
-
     /** Whether the viewer has any registration on this trip -- drives the chip's registered styling. */
     public boolean isChipRegistered(final String tripId, final Person.Id userId) {
         if (userId == null || tripId == null) {

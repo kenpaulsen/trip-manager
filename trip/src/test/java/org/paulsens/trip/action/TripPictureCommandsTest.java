@@ -9,6 +9,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 import javax.imageio.ImageIO;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
@@ -37,7 +38,11 @@ public class TripPictureCommandsTest {
 
     private static final String TRIP_ID = "trip-1";
 
-    private final Map<String, Trip> stored = new HashMap<>();
+    /** An organization only {@link TestBean}'s org-admin seam knows, administered by {@link #SEAM_ORG_ADMIN}. */
+    private static final String SEAM_ORG_ID = "seam-org";
+    private static final Person.Id SEAM_ORG_ADMIN = Person.Id.newInstance();
+
+    private final Map<String, Trip> stored = new ConcurrentHashMap<>();
     private final Map<String, String> session = new HashMap<>();
     private final Map<String, Object> viewMap = new HashMap<>();
     private final Map<String, Object> params = new HashMap<>();
@@ -45,6 +50,8 @@ public class TripPictureCommandsTest {
     private final List<Boolean> outcomes = new ArrayList<>();
     private final List<Trip> saves = new ArrayList<>();
     private boolean saveResult;
+    /** Runs once, right after the next stored read: a trip write landing while a write is in progress. */
+    private Runnable afterNextRead;
     private Caller caller;
     private PrivilegeCommands priv;
     private MediaCommands media;
@@ -60,6 +67,7 @@ public class TripPictureCommandsTest {
         outcomes.clear();
         saves.clear();
         saveResult = true;
+        afterNextRead = null;
         stored.put(TRIP_ID, Trip.builder().id(TRIP_ID).title("Holy Angels").build());
         viewMap.put("theTripId", TRIP_ID);
         priv = Mockito.mock(PrivilegeCommands.class);
@@ -85,7 +93,13 @@ public class TripPictureCommandsTest {
         protected Optional<Trip> readStored(final String tripId) {
             // A copy, like a real DAO read: a write must go through saveStored to stick.
             final Trip trip = stored.get(tripId);
-            return trip == null ? Optional.empty() : Optional.of(copyOf(trip));
+            final Optional<Trip> read = trip == null ? Optional.empty() : Optional.of(copyOf(trip));
+            final Runnable hook = afterNextRead;
+            afterNextRead = null;
+            if (hook != null) {
+                hook.run();
+            }
+            return read;
         }
 
         @Override
@@ -95,6 +109,11 @@ public class TripPictureCommandsTest {
                 stored.put(trip.getId(), copyOf(trip));
             }
             return saveResult;
+        }
+
+        @Override
+        protected boolean isOrgAdmin(final Caller who, final String orgId) {
+            return SEAM_ORG_ID.equals(orgId) ? SEAM_ORG_ADMIN.equals(who.personId()) : super.isOrgAdmin(who, orgId);
         }
 
         @Override
@@ -270,6 +289,95 @@ public class TripPictureCommandsTest {
         Assert.assertTrue(trip().getPictures().isEmpty(), "The row is unchanged");
         Assert.assertTrue(bean.localGet(saves.getLast().getPictures().getFirst().keyAt(480)).isEmpty(),
                 "and the stored objects of the unsaved picture were removed");
+    }
+
+    @Test
+    public void aTripWriteThatLandsWhileAnAddIsProcessingSurvivesTheAdd() {
+        final TripPicture other = new TripPicture("tripPictures/trip-1/1", "Theirs", 1920, 1280, "#000000");
+        // After add's first read, before its save: another upload and an unrelated trip write commit.
+        afterNextRead = () -> landConcurrentWrite(other);
+        final TripPictureCommands.PictureResult result = addOne("Mine");
+        Assert.assertTrue(result.isOk(), result.message());
+        Assert.assertEquals(trip().getTitle(), "Holy Angels (renamed)", "The other write was not overwritten");
+        Assert.assertEquals(keys(), List.of(other.getKey(), result.picture().getKey()),
+                "The other upload is kept, and this one is appended after it");
+        Assert.assertEquals(result.message(), "Picture added.", "Counted on the fresh row: not the cover");
+    }
+
+    private void landConcurrentWrite(final TripPicture picture) {
+        trip().setTitle("Holy Angels (renamed)");
+        trip().getPictures().add(picture);
+    }
+
+    @Test
+    public void anotherWriteToTheSameTripWaitsForAnAddsReadModifyWrite() throws Exception {
+        final TripPicture first = new TripPicture("tripPictures/trip-1/1", null, 1920, 1280, "#000000");
+        trip().getPictures().add(first);
+        final List<Thread> describer = new ArrayList<>();
+        // The second read is add's re-read, inside the trip's lock: a describe started there must wait for it.
+        afterNextRead = () -> afterNextRead = () -> describer.add(describeMeanwhile(first.getKey()));
+        final TripPictureCommands.PictureResult result = addOne(null);
+        Assert.assertTrue(result.isOk(), result.message());
+        describer.getFirst().join(5_000);
+        Assert.assertFalse(describer.getFirst().isAlive());
+        Assert.assertEquals(keys(), List.of(first.getKey(), result.picture().getKey()),
+                "The describe, run after the add, kept the added picture");
+        Assert.assertEquals(trip().getPicture(first.getKey()).getAlt(), "Described meanwhile");
+    }
+
+    /**
+     * Starts a describe on another thread and gives it time to finish: without the lock it would save the row
+     * between add's re-read and add's save, and add would then erase the description.
+     */
+    private Thread describeMeanwhile(final String key) {
+        final Thread thread = Thread.ofVirtual().start(() -> bean.describe(caller, TRIP_ID, key,
+                "Described meanwhile"));
+        try {
+            Assert.assertFalse(thread.join(java.time.Duration.ofMillis(300)), "The describe waited for the add");
+        } catch (final InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(ex);
+        }
+        return thread;
+    }
+
+    @Test
+    public void theLimitIsCheckedAgainOnTheRowReadAfterProcessing() {
+        Mockito.when(media.isUploadEnabled()).thenReturn(true);
+        Mockito.when(media.putObject(ArgumentMatchers.anyString(), ArgumentMatchers.any(), ArgumentMatchers.eq(
+                "image/jpeg"), ArgumentMatchers.eq(TripPictureCommands.CACHE_SECONDS), ArgumentMatchers.eq(false)))
+                .thenReturn(true);
+        for (int i = 0; i < Trip.MAX_PICTURES - 1; i++) {
+            trip().getPictures().add(new TripPicture("tripPictures/trip-1/" + i, null, 1920, 1280, "#000000"));
+        }
+        // The first read sees room for one more; a concurrent upload takes it before this one saves.
+        afterNextRead = () -> trip().getPictures().add(
+                new TripPicture("tripPictures/trip-1/last", null, 1920, 1280, "#000000"));
+        final TripPictureCommands.PictureResult result = addOne(null);
+        Assert.assertEquals(result.status(), TripPictureCommands.PictureResult.Status.LIMIT, result.message());
+        Assert.assertTrue(saves.isEmpty(), "Nothing is saved over the limit");
+        Assert.assertEquals(trip().getPictures().size(), Trip.MAX_PICTURES);
+        Mockito.verify(media, Mockito.times(3)).putObject(ArgumentMatchers.anyString(), ArgumentMatchers.any(),
+                ArgumentMatchers.anyString(), ArgumentMatchers.anyLong(), ArgumentMatchers.anyBoolean());
+        Mockito.verify(media, Mockito.times(3)).deleteObject(ArgumentMatchers.startsWith("tripPictures/trip-1/"));
+    }
+
+    @Test
+    public void aTripDeletedOrARightLostDuringProcessingIsRefusedAndCleanedUp() {
+        afterNextRead = () -> stored.remove(TRIP_ID);
+        final TripPictureCommands.PictureResult gone = addOne(null);
+        Assert.assertEquals(gone.status(), TripPictureCommands.PictureResult.Status.NOT_FOUND);
+
+        // An org admin whose trip moves to another organization while the picture is processed.
+        stored.put(TRIP_ID, Trip.builder().id(TRIP_ID).title("Holy Angels").build());
+        trip().setOrgId(SEAM_ORG_ID);
+        final Caller orgAdmin = new Caller(SEAM_ORG_ADMIN, false, AuditActor.from(null), priv);
+        afterNextRead = () -> trip().setOrgId("some-other-org");
+        final TripPictureCommands.PictureResult refused =
+                bean.add(orgAdmin, TRIP_ID, PhotoFixtures.jpeg(300, 200), null, null);
+        Assert.assertEquals(refused.status(), TripPictureCommands.PictureResult.Status.FORBIDDEN);
+        Assert.assertTrue(saves.isEmpty(), "Neither saved anything");
+        Assert.assertTrue(trip().getPictures().isEmpty());
     }
 
     @Test
@@ -468,5 +576,54 @@ public class TripPictureCommandsTest {
         Assert.assertTrue(real.saveStored(trip), "Writes the row straight through the DAO");
         Assert.assertTrue(DAO.getInstance().getTrip("picture-seam-test", Cached.NO).isPresent());
         DAO.getInstance().deleteTrip(trip);
+    }
+
+    /** Two uploads in one millisecond must not share a key stem: the stamp only ever moves forward. */
+    @Test
+    public void keyStampsNeverRepeat() {
+        long last = TripPictureCommands.nextStamp();
+        Assert.assertTrue(last >= System.currentTimeMillis() - 1000, "Still the clock's milliseconds");
+        for (int i = 0; i < 2000; i++) {
+            final long next = TripPictureCommands.nextStamp();
+            Assert.assertTrue(next > last, "Stamp " + next + " follows " + last);
+            last = next;
+        }
+    }
+
+    /**
+     * The trip-picture servlet is anonymous: only a key that is EXACTLY a bundled picture's rendition is worth
+     * the pipeline, and a miss of any other shape costs a store read and stores nothing.
+     */
+    @Test
+    public void aDemoPictureIsMadeOnlyForAnExactRenditionKey() throws Exception {
+        final String stem = "tripPictures/demo-gate/demo-valley";
+        Assert.assertTrue(bean.localGet(stem + "-1.jpg").isEmpty(), "No such width");
+        Assert.assertTrue(bean.localGet(stem + "-960.jpg.bak").isEmpty());
+        Assert.assertEquals(bean.deleteAllForTrip(Trip.builder().id("demo-gate").build()), 0,
+                "Neither miss stored a rendition");
+
+        Assert.assertEquals(decode(bean.localGet(stem + "-480.jpg").orElseThrow()).getWidth(), 480);
+        Assert.assertTrue(bean.localGet(stem + "-960.jpg").isPresent(), "One pass made all three");
+
+        Mockito.when(media.isUploadEnabled()).thenReturn(true);
+        Assert.assertTrue(bean.localGet("tripPictures/demo-gate-2/demo-valley-480.jpg").isEmpty(),
+                "With a media bucket there are no demo pictures");
+    }
+
+    /**
+     * A picture is stored at its own width when that is under a rendition's, never enlarged, so its srcset names
+     * each rendition by its REAL width and lists a width once: a browser told 960w for an 809-pixel file would
+     * pick it for a slot it cannot fill.
+     */
+    @Test
+    public void srcsetNamesEachRenditionByItsRealWidthOnce() {
+        final String base = "/trip-pictures/tripPictures/trip-1/7";
+        Assert.assertEquals(bean.srcset(new TripPicture("tripPictures/trip-1/7", null, 1920, 1280, "#000000")),
+                base + "-480.jpg 480w, " + base + "-960.jpg 960w, " + base + "-1920.jpg 1920w");
+        Assert.assertEquals(bean.srcset(new TripPicture("tripPictures/trip-1/7", null, 809, 539, "#000000")),
+                base + "-480.jpg 480w, " + base + "-960.jpg 809w", "The 1920 rendition is the 809 one again");
+        Assert.assertEquals(bean.srcset(new TripPicture("tripPictures/trip-1/7", null, 300, 200, "#000000")),
+                base + "-480.jpg 300w", "One entry for a picture smaller than every rendition");
+        Assert.assertEquals(bean.srcset(null), "");
     }
 }

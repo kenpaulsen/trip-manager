@@ -201,9 +201,6 @@ public class RegistrationDraftTest {
         regs.put("new", new Registration(trip.getId(), me.getId()));
         assertTrue(reg.anyUnregistered(regs));
 
-        assertEquals(reg.getChipLabel(null, me.getId()), "Register");
-        assertEquals(reg.getChipLabel(trip.getId(), null), "Register");
-        assertEquals(reg.getChipLabel(trip.getId(), me.getId()), "Register", "Unregistered reads Register");
         assertFalse(reg.isChipRegistered(null, me.getId()));
         assertFalse(reg.isChipRegistered(trip.getId(), null));
         assertFalse(reg.isChipRegistered(trip.getId(), me.getId()));

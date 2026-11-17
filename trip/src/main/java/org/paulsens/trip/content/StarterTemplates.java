@@ -600,7 +600,7 @@ public final class StarterTemplates {
 
     private static ContentTemplate pilgrimages() {
         return programmatic(PILGRIMAGES_ID, "Trip Listings",
-                "The public trip accordions for one language, straight from the trip data.");
+                "The public trips of one language as picture cards, straight from the trip data.");
     }
 
     private static ContentTemplate photoAlbums() {

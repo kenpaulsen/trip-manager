@@ -337,4 +337,44 @@ public class TripCommandsTest {
         trip.setOrganization(null);
         assertNull(trip.getOrgId(), "Clearing the picker clears the id");
     }
+
+    /** A typed link that is no web address is refused at the save, so the editor and REST agree (review F1). */
+    @Test
+    public void aSaveRefusesAnExternalOrFlyerUrlThatIsNoWebAddress() {
+        final Trip trip = Trip.builder().title("Links " + java.util.UUID.randomUUID()).build();
+        trip.setNonHostedTripUrl("javascript:alert(1)");
+        assertFalse(asSiteAdmin().saveTrip(trip), "A javascript: external URL is never stored");
+        trip.setNonHostedTripUrl("https://example.org/register");
+        trip.setFlyerUrl("javascript:alert(2)");
+        assertFalse(asSiteAdmin().saveTrip(trip), "Nor a javascript: flyer");
+        assertTrue(org.paulsens.trip.dynamo.DAO.getInstance()
+                .getTrip(trip.getId(), org.paulsens.trip.cache.Cached.NO).isEmpty(), "Nothing was written");
+        trip.setFlyerUrl("https://example.org/flyer.pdf");
+        assertTrue(asSiteAdmin().saveTrip(trip));
+    }
+
+    /**
+     * Only a CHANGED link is refused. Both fields were free text before the rule, and every save of a trip passes
+     * the gate (a paid checkout's roster write, an approval, an itinerary note): one stored under the older rule
+     * must keep accepting those, or a payer ends up CONFIRMED and off the roster.
+     */
+    @Test
+    public void aTripStoredWithALegacyLinkStillSavesEverythingElse() throws java.io.IOException {
+        final Trip legacy = Trip.builder().title("Legacy links " + java.util.UUID.randomUUID()).build();
+        legacy.setFlyerUrl("www.example.org/2026 Holy Angels.pdf");
+        legacy.setNonHostedTripUrl("example.org/register");
+        assertTrue(org.paulsens.trip.dynamo.DAO.getInstance().saveTrip(legacy), "Stored as the old editor allowed");
+
+        final Trip copy = org.paulsens.trip.dynamo.DAO.getInstance()
+                .getTrip(legacy.getId(), org.paulsens.trip.cache.Cached.NO).orElseThrow();
+        copy.getPeople().add(people.get(0).getId());
+        assertTrue(asSiteAdmin().saveTrip(copy), "A roster change does not touch the links");
+        assertEquals(org.paulsens.trip.dynamo.DAO.getInstance()
+                .getTrip(legacy.getId(), org.paulsens.trip.cache.Cached.NO).orElseThrow().getPeople().size(), 1);
+
+        copy.setFlyerUrl("www.example.org/another.pdf");
+        assertFalse(asSiteAdmin().saveTrip(copy), "A changed link is judged by the rule");
+        copy.setFlyerUrl("https://example.org/another.pdf");
+        assertTrue(asSiteAdmin().saveTrip(copy), "And a good one replaces the legacy value");
+    }
 }

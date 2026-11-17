@@ -84,4 +84,73 @@ public class PublicTripUrlTest {
         assertEquals(trips.publicTripUrl(Trip.builder().build(), null).startsWith("/trip/tripDetails.jsf?trip="),
                 true, "no viewer: no registration lookup, and no request bound: not a shared-site redirect");
     }
+
+    /**
+     * The stored external URL is typed by a trip manager and lands in an href on a listing other organizations
+     * share: anything that is not an absolute http(s) address links to the detail page instead of running.
+     */
+    @Test
+    public void anExternalUrlThatIsNoWebAddressNeverReachesALink() {
+        final Function<String, Optional<Organization>> home = owner("qop", null);
+        for (final String bad : new String[] {"javascript:alert(1)", " JavaScript:alert(1)", "data:text/html,x",
+                "//evil.example/x", "example.org/go", "not a url"}) {
+            assertEquals(url(trip(bad), false, SHARED, home), DETAIL, bad);
+            assertEquals(new TripCommands(() -> null).externalUrlOf(trip(bad)), "", bad);
+            assertEquals(TripCommands.externalUrl(trip(bad)), "", bad);
+            assertEquals(TripCommands.linkProblems(trip(bad), null).size(), 1, bad);
+            assertEquals(TripCommands.linkProblems(trip(bad), trip(bad)), java.util.List.of(), "unchanged: " + bad);
+        }
+        final TripCommands trips = new TripCommands(() -> null);
+        assertEquals(trips.externalUrlOf(trip(" https://example.org/go ")), "https://example.org/go");
+        assertEquals(trips.externalUrlOf(trip(null)), "", "not an external trip");
+        assertEquals(trips.externalUrlOf(null), "");
+        assertEquals(TripCommands.linkProblems(trip("https://example.org/go"), null), java.util.List.of());
+        assertEquals(TripCommands.linkProblems(trip(null), null), java.util.List.of());
+    }
+
+    @Test
+    public void aFlyerLinkIsAWebAddressOrAPathOnThisSite() {
+        final TripCommands trips = new TripCommands(() -> null);
+        final Trip trip = trip(null);
+        assertEquals(trips.flyerUrlOf(trip), "", "none");
+        assertEquals(trips.flyerUrlOf(null), "");
+        trip.setFlyerUrl(" https://example.org/flyer.pdf ");
+        assertEquals(trips.flyerUrlOf(trip), "https://example.org/flyer.pdf");
+        assertEquals(TripCommands.linkProblems(trip, null), java.util.List.of());
+        trip.setFlyerUrl("/media/flyer.pdf");
+        assertEquals(trips.flyerUrlOf(trip), "/media/flyer.pdf");
+        assertEquals(TripCommands.linkProblems(trip, null), java.util.List.of());
+        trip.setFlyerUrl("javascript:alert(1)");
+        assertEquals(trips.flyerUrlOf(trip), "");
+        assertEquals(TripCommands.linkProblems(trip, null),
+                java.util.List.of("The Flyer URL must be a web address starting with https:// or http://."));
+        trip.setFlyerUrl("   ");
+        assertEquals(TripCommands.linkProblems(trip, null), java.util.List.of(), "blank is no flyer, not a bad one");
+    }
+
+    @Test
+    public void notStartedIsACalendarDayNotAnInstant() {
+        final java.time.LocalDate today = java.time.LocalDate.of(2026, 12, 1);
+        final Trip trip = Trip.builder().id(TRIP_ID).startDate(today.atStartOfDay()).build();
+        assertEquals(TripCommands.notStartedBy(trip, today), true, "its own day");
+        assertEquals(TripCommands.notStartedBy(trip, today.plusDays(1)), false);
+        trip.setStartDate(null);
+        assertEquals(TripCommands.notStartedBy(trip, today), false, "no start date");
+    }
+
+    /**
+     * The pages call {@code trip.publicTripUrl(aTrip, userId)} with a null {@code userId} for an anonymous
+     * visitor, and EL cannot pick between overloads for a null argument: a second public two-argument method of
+     * that name broke every page with the Trips menu (2026-11-16, caught by the browser suite, not by a unit test).
+     */
+    @Test
+    public void thePagesMethodHasNoPublicTwoArgumentOverload() {
+        final long twoArgument = java.util.Arrays.stream(TripCommands.class.getMethods())
+                .filter(method -> "publicTripUrl".equals(method.getName()) && method.getParameterCount() == 2)
+                .count();
+        assertEquals(twoArgument, 1, "EL resolves trip.publicTripUrl(aTrip, null) only while it is the only one");
+        final TripCommands trips = new TripCommands(() -> null);
+        assertEquals(trips.publicTripUrlFor(null, false), "/");
+        assertEquals(trips.publicTripUrlFor(Trip.builder().id(TRIP_ID).build(), true), DETAIL);
+    }
 }

@@ -49,7 +49,10 @@ denied the prefix by `MediaStack`), `lodgingAccess` (LodgingAccessCommands -- th
 `requestScope.access`; also `mayNameTrip`, the one naming rule for cross-trip reads), `hotel` (HotelCommands -- the same
 hotel seen from its own side: the nights its rooms are blocked and how full it is across EVERY trip staying there,
 counts and dates but never a guest's name in the calendar; plus `tripRows`, the Trips tab's rows for the hotel's
-OPERATORS alone, which DO name the guests at their hotel across orgs -- the documented tenancy extension; same doc) and
+OPERATORS alone, which DO name the guests at their hotel across orgs -- the documented tenancy extension; same doc),
+`tripPictures` (TripPictureCommands -- a trip's cover and gallery: the editor's Pictures dialog and the REST picture
+endpoints; `docs/trip-pictures.md`), `tripCards` (TripCardCommands -- the Trip Listings section's picture cards: link,
+one registration state, cover or fallback, the featured next departure; same doc) and
 `lodgingUpload` (LodgingUploadCommands -- hotel photos, room-type photos and floor plans through the shared crop dialog
 into slot `lodging-{accId}`), `ratePlans` (RatePlanCommands -- hotel rate plans and their write-through link to offers:
 a plan is the hotel's COST side only (`canEditCost` is its one gate), `savePlan` fans the cost out to every linked

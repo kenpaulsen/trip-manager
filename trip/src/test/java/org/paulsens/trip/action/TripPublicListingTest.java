@@ -152,18 +152,15 @@ public class TripPublicListingTest {
     public void registrationChipHelpers() {
         final RegistrationCommands reg = new RegistrationCommands();
         // Anonymous and unregistered viewers see the call to action; nulls never throw on a public page.
-        Assert.assertEquals(reg.getChipLabel(PUB_EN_1_TRIP_ID, null), "Register");
-        Assert.assertEquals(reg.getChipLabel(null, Person.Id.from("u1")), "Register");
         Assert.assertFalse(reg.isChipRegistered(PUB_EN_1_TRIP_ID, null));
+        Assert.assertFalse(reg.isChipRegistered(null, Person.Id.from("u1")));
         final Person.Id visitor = Person.Id.from("chip-test");
-        Assert.assertEquals(reg.getChipLabel(PUB_EN_1_TRIP_ID, visitor), "Register");
         Assert.assertFalse(reg.isChipRegistered(PUB_EN_1_TRIP_ID, visitor));
 
         // A confirmed registration shows its own status and flips the styling flag.
         final Registration confirmed =
                 reg.createRegistration(PUB_EN_1_TRIP_ID, visitor).withStatus(Registration.Status.CONFIRMED);
         Assert.assertTrue(reg.saveRegistration(confirmed));
-        Assert.assertEquals(reg.getChipLabel(PUB_EN_1_TRIP_ID, visitor), "Confirmed");
         Assert.assertTrue(reg.isChipRegistered(PUB_EN_1_TRIP_ID, visitor));
     }
 

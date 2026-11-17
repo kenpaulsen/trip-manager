@@ -9,12 +9,18 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.Supplier;
+import java.util.stream.Stream;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.Audit;
 import org.paulsens.trip.audit.AuditEventBuilder;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.dynamo.LocalMode;
 import org.paulsens.trip.media.LocalObjectStore;
 import org.paulsens.trip.media.PendingUploads;
 import org.paulsens.trip.media.PhotoProcessor;
@@ -43,9 +49,11 @@ import org.primefaces.model.CroppedImage;
  *
  * <p><b>Writes go straight to the stored row</b> (the Required Documents pattern, {@code WaiverCommands}), read fresh
  * every time, and {@link TripCommands#saveTrip} keeps the stored list on every other save, so the trip editor's
- * working copy can never put back a picture list that predates an upload. Objects are stored BEFORE the row that
- * names them and removed AFTER it stops naming them, so a failure can leave an unreferenced object (swept with the
- * trip) but never a picture whose bytes are missing.
+ * working copy can never put back a picture list that predates an upload. Each write's read-modify-write runs under
+ * a per-trip {@link ReentrantLock}, and an add re-reads the row only AFTER its slow processing and storing, so the
+ * row it saves is never seconds old. Objects are stored BEFORE the row that names them and removed AFTER it stops
+ * naming them, so a failure can leave an unreferenced object (swept with the trip) but never a picture whose bytes
+ * are missing.
  *
  * <p><b>Who.</b> A site admin, a holder of {@code tripMgr} for THE trip, or an admin of the trip's organization:
  * the three the trip editor itself admits. Asked on every call, never inherited from the dialog being open.
@@ -91,6 +99,16 @@ public class TripPictureCommands extends PhotoUploadBean {
 
     /** Local-store budget: a picture's three renditions are about 600 KB, so this is about a hundred pictures. */
     static final long LOCAL_STORE_MAX_BYTES = 64L * 1024 * 1024;
+
+    /**
+     * The per-trip write locks, striped by trip id ({@link #locked}): a lock per id would grow with every id a REST
+     * caller makes up, and two trips sharing a stripe only wait for each other's few-millisecond save.
+     */
+    private static final ReentrantLock[] TRIP_LOCKS =
+            Stream.generate(ReentrantLock::new).limit(64).toArray(ReentrantLock[]::new);
+
+    /** The last key-stem number handed out ({@link #nextStamp}). */
+    private static final AtomicLong STAMP = new AtomicLong();
 
     private final LocalObjectStore localStore = new LocalObjectStore(LOCAL_STORE_MAX_BYTES);
 
@@ -151,19 +169,22 @@ public class TripPictureCommands extends PhotoUploadBean {
      * the ORIGINAL bytes (null rect = the largest centered region), stored at every width, then appended to the
      * stored row. A cut region smaller than {@value #MIN_GOOD_WIDTH} x {@value #MIN_GOOD_HEIGHT} is stored with a
      * warning saying so.
+     *
+     * <p>The first read only refuses early, before seconds of decoding and storing; the row that is saved is read
+     * AGAIN afterwards, under the trip's lock, and the limit and the caller are re-checked against it. Saving the
+     * first read instead would put back whatever trip write landed during the processing (a registration approval,
+     * another upload) and let concurrent uploads pass {@link Trip#MAX_PICTURES}.
      */
     public PictureResult add(final Caller caller, final String tripId, final byte[] original,
             final PhotoProcessor.CropRect rect, final String alt) {
         final Optional<Trip> found = readStored(tripId);
         if (found.isEmpty()) {
-            return PictureResult.fail(PictureResult.Status.NOT_FOUND, "Not found: that trip does not exist.");
+            return notFound();
         }
-        final Trip trip = found.get();
-        if (!mayEdit(caller, trip)) {
-            return PictureResult.fail(PictureResult.Status.FORBIDDEN,
-                    "Not allowed: only this trip's managers can change its pictures.");
+        if (!mayEdit(caller, found.get())) {
+            return forbidden();
         }
-        if (trip.getPictures().size() >= Trip.MAX_PICTURES) {
+        if (found.get().getPictures().size() >= Trip.MAX_PICTURES) {
             return limitReached();
         }
         final PhotoProcessor.PictureRenditions renditions;
@@ -172,7 +193,7 @@ public class TripPictureCommands extends PhotoUploadBean {
         } catch (final PhotoRejectedException ex) {
             return PictureResult.fail(PictureResult.Status.INVALID, "Picture rejected: " + ex.getMessage());
         }
-        final String stem = PREFIX + tripId + "/" + System.currentTimeMillis();
+        final String stem = PREFIX + tripId + "/" + nextStamp();
         final TripPicture picture = new TripPicture(stem, cleanAlt(alt), renditions.width(), renditions.height(),
                 String.format("#%06x", renditions.averageRgb()));
         if (!storeAll(picture, renditions.jpegs())) {
@@ -180,19 +201,57 @@ public class TripPictureCommands extends PhotoUploadBean {
             return PictureResult.fail(PictureResult.Status.FAILED, "Not stored: the picture could not be stored. "
                     + "Try again.");
         }
+        final PictureResult appended = locked(tripId, () -> appendToStored(caller, tripId, picture));
+        if (!appended.isOk()) {
+            // Outside the lock: deleting three objects and invalidating the CDN is network work.
+            removeAll(picture);
+            return appended;
+        }
+        return PictureResult.ok(picture, appended.message(), smallWarning(renditions));
+    }
+
+    /**
+     * The number a new picture's key stem ends in: the clock's milliseconds, pushed forward by one whenever two
+     * uploads would otherwise share a millisecond. Uploads to one trip run in parallel, and two pictures with one
+     * stem would overwrite each other's objects and be listed twice.
+     */
+    static long nextStamp() {
+        return STAMP.updateAndGet(prev -> Math.max(prev + 1, System.currentTimeMillis()));
+    }
+
+    /** {@link #add}'s read-modify-write, under the trip's lock: the FRESH row, re-checked, plus the new picture. */
+    private PictureResult appendToStored(final Caller caller, final String tripId, final TripPicture picture) {
+        final Optional<Trip> found = readStored(tripId);
+        if (found.isEmpty()) {
+            return notFound();
+        }
+        final Trip trip = found.get();
+        if (!mayEdit(caller, trip)) {
+            return forbidden();
+        }
+        if (trip.getPictures().size() >= Trip.MAX_PICTURES) {
+            return limitReached();
+        }
         trip.getPictures().add(picture);
         if (!save(trip)) {
-            removeAll(picture);
             return PictureResult.fail(PictureResult.Status.FAILED,
                     "Not saved: the trip could not be updated with the new picture. Try again.");
         }
-        audit("Trip picture added", caller, trip, stem);
+        audit("Trip picture added", caller, trip, picture.getKey());
         final String what = trip.getPictures().size() == 1 ? "Cover picture added." : "Picture added.";
-        return PictureResult.ok(picture, what, smallWarning(renditions));
+        return PictureResult.ok(picture, what, null);
     }
 
     /** Permanently removes one picture: off the stored row first (the publish), then out of the store and the CDN. */
     public PictureResult remove(final Caller caller, final String tripId, final String key) {
+        final PictureResult result = locked(tripId, () -> removeFromStored(caller, tripId, key));
+        if (result.isOk()) {
+            removeAll(result.picture());
+        }
+        return result;
+    }
+
+    private PictureResult removeFromStored(final Caller caller, final String tripId, final String key) {
         final Target target = target(caller, tripId, key);
         if (target.refusal() != null) {
             return target.refusal();
@@ -204,7 +263,6 @@ public class TripPictureCommands extends PhotoUploadBean {
             return PictureResult.fail(PictureResult.Status.FAILED,
                     "Not saved: the trip could not be updated. The picture was not removed.");
         }
-        removeAll(picture);
         audit("Trip picture removed", caller, trip, key);
         return PictureResult.ok(picture, "Picture removed.", null);
     }
@@ -214,6 +272,10 @@ public class TripPictureCommands extends PhotoUploadBean {
      * The objects do not move, only the row's order.
      */
     public PictureResult move(final Caller caller, final String tripId, final String key, final int index) {
+        return locked(tripId, () -> moveInStored(caller, tripId, key, index));
+    }
+
+    private PictureResult moveInStored(final Caller caller, final String tripId, final String key, final int index) {
         final Target target = target(caller, tripId, key);
         if (target.refusal() != null) {
             return target.refusal();
@@ -235,6 +297,11 @@ public class TripPictureCommands extends PhotoUploadBean {
 
     /** Sets one picture's description (its alt text); blank clears it, so the trip's title is read instead. */
     public PictureResult describe(final Caller caller, final String tripId, final String key, final String alt) {
+        return locked(tripId, () -> describeInStored(caller, tripId, key, alt));
+    }
+
+    private PictureResult describeInStored(final Caller caller, final String tripId, final String key,
+            final String alt) {
         final Target target = target(caller, tripId, key);
         if (target.refusal() != null) {
             return target.refusal();
@@ -257,21 +324,46 @@ public class TripPictureCommands extends PhotoUploadBean {
     private Target target(final Caller caller, final String tripId, final String key) {
         final Optional<Trip> found = readStored(tripId);
         if (found.isEmpty()) {
-            return refused(PictureResult.Status.NOT_FOUND, "Not found: that trip does not exist.");
+            return refused(notFound());
         }
         if (!mayEdit(caller, found.get())) {
-            return refused(PictureResult.Status.FORBIDDEN,
-                    "Not allowed: only this trip's managers can change its pictures.");
+            return refused(forbidden());
         }
         final TripPicture picture = found.get().getPicture(key);
         if (picture == null) {
-            return refused(PictureResult.Status.NOT_FOUND, "Not found: that picture is no longer on this trip.");
+            return refused(PictureResult.fail(PictureResult.Status.NOT_FOUND,
+                    "Not found: that picture is no longer on this trip."));
         }
         return new Target(found.get(), picture, null);
     }
 
-    private static Target refused(final PictureResult.Status status, final String message) {
-        return new Target(null, null, PictureResult.fail(status, message));
+    private static Target refused(final PictureResult refusal) {
+        return new Target(null, null, refusal);
+    }
+
+    private static PictureResult notFound() {
+        return PictureResult.fail(PictureResult.Status.NOT_FOUND, "Not found: that trip does not exist.");
+    }
+
+    private static PictureResult forbidden() {
+        return PictureResult.fail(PictureResult.Status.FORBIDDEN,
+                "Not allowed: only this trip's managers can change its pictures.");
+    }
+
+    /**
+     * Runs one read-modify-write of a trip's row while holding that trip's lock, so two writes to the same trip
+     * (two uploads, a move during an upload) cannot both start from the same row and the later save erase the
+     * earlier. A JVM lock is enough because the app runs as ONE task, deliberately. A {@link ReentrantLock}, not
+     * {@code synchronized}: requests run on virtual threads.
+     */
+    private PictureResult locked(final String tripId, final Supplier<PictureResult> write) {
+        final ReentrantLock lock = TRIP_LOCKS[Math.floorMod(Objects.hashCode(tripId), TRIP_LOCKS.length)];
+        lock.lock();
+        try {
+            return write.get();
+        } finally {
+            lock.unlock();
+        }
     }
 
     private static PictureResult limitReached() {
@@ -443,9 +535,57 @@ public class TripPictureCommands extends PhotoUploadBean {
         return url(picture, TripPicture.WIDTHS.getLast());
     }
 
-    /** Local-mode read-back, for the trip-picture servlet's GET. Empty when remote or unknown. */
+    /**
+     * Local-mode read-back, for the trip-picture servlet's GET. Empty when remote or unknown. A bundled demo
+     * picture ({@link DemoTripPictures}, the local fixtures' covers) has its renditions made on first request,
+     * and ONLY in local mode, for a key that is exactly one of a demo picture's three renditions: the servlet is
+     * anonymous, so any other miss must cost a store read and nothing more.
+     */
     public Optional<byte[]> localGet(final String key) {
+        final Optional<byte[]> stored = localStore.get(key);
+        final boolean demo = stored.isEmpty() && !media.isUploadEnabled() && LocalMode.isLocal()
+                && DemoTripPictures.isRendition(key);
+        return demo ? demoRendition(key) : stored;
+    }
+
+    /** One rendition of a bundled demo picture, after running its source through the real pipeline once. */
+    private Optional<byte[]> demoRendition(final String key) {
+        final Optional<byte[]> source = DemoTripPictures.demoOf(key).flatMap(DemoTripPictures::source);
+        if (source.isEmpty()) {
+            return Optional.empty();
+        }
+        final PhotoProcessor.PictureRenditions renditions;
+        try {
+            renditions = processor.processPicture(source.get(), null, ASPECT, TripPicture.WIDTHS);
+        } catch (final PhotoRejectedException ex) {
+            log.warn("Bundled demo picture {} could not be processed: {}", key, ex.getMessage());
+            return Optional.empty();
+        }
+        final String stem = DemoTripPictures.stemOf(key);
+        for (int i = 0; i < TripPicture.WIDTHS.size(); i++) {
+            localStore.put(TripPicture.variantKey(stem, TripPicture.WIDTHS.get(i)), renditions.jpegs().get(i));
+        }
         return localStore.get(key);
+    }
+
+    /**
+     * The {@code srcset} of a picture: each stored rendition with its REAL width, so a picture smaller than 1920
+     * (stored at its own width, never enlarged) is not offered as wider than it is, and equal widths appear once.
+     */
+    public String srcset(final TripPicture picture) {
+        if (picture == null) {
+            return "";
+        }
+        final StringBuilder set = new StringBuilder();
+        int last = 0;
+        for (final int width : TripPicture.WIDTHS) {
+            final int real = Math.min(width, picture.getWidth());
+            if (real > last) {
+                set.append(set.isEmpty() ? "" : ", ").append(url(picture, width)).append(' ').append(real).append('w');
+                last = real;
+            }
+        }
+        return set.toString();
     }
 
     // ------------------------------------------------------------------ the trip-delete cascade
