@@ -126,7 +126,9 @@ which keeps a picture's fade-in (opacity is not movement) and swaps a gallery pi
 - **No picture:** the TRIP's organization's link-preview image, else its background image, each only when it is an
   image the organization UPLOADED here (`BrandingPhotos.isUploadOf`; both settings also take a typed URL, and a card
   is drawn on listings other organizations' visitors see, so a typed one is never loaded), else a generated cover in
-  the site's accent. A featured trip with no picture is a short banner, not a hero.
+  the site's accent. A featured trip with no picture is a short banner, not a hero. The apps get the same image as
+  `TripDto.fallbackPicture` (`TripCardCommands.orgPictureOf`, asked once per organization per request by
+  `TripsResource`), sent only for a trip with no picture.
 - **One home per picture rule** (`TripPictureCommands`, so no page restates one): `altOf(picture, trip)` is the
   alternative text (the picture's description, else the trip's short title; `Card.getAlt` answers the same static),
   `wideSizes(fullWidth)` is the `sizes` of a picture drawn at the page's full content width and

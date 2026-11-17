@@ -227,6 +227,15 @@ public class TripCardCommands {
         return brandImageOf(org, Beans.get(BrandCommands.class), Beans.get(BrandingPhotos.class));
     }
 
+    /**
+     * The picture an organization's trip with none of its own falls back to, by the cards' rule
+     * ({@link #brandImageOf(Organization)}), for a client that draws the cover itself (the apps, through
+     * {@code TripDto.fallbackPicture}); null for none, no organization or an unknown one.
+     */
+    public static String orgPictureOf(final String orgId) {
+        return TripCommands.ownerOf(orgId).map(TripCardCommands::brandImageOf).orElse(null);
+    }
+
     /** {@link #brandImageOf(Organization)} with its two beans explicit: the half a unit test can run. */
     static String brandImageOf(final Organization org, final BrandCommands brand, final BrandingPhotos photos) {
         final BrandCommands.OrgLook look = brand.lookOf(org);

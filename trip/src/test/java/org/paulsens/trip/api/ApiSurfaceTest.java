@@ -123,6 +123,21 @@ public class ApiSurfaceTest {
     }
 
     @Test
+    public void theChatsAlbumSourcesAreReadsOnTheChannelPath() {
+        // They live on ChatResource, not in a resource of their own: a root at chat/channels/{channelId}/... would
+        // overlap ChatResource's own template. And they only read: a pick is attached by the send, which checks it
+        // again (AlbumPhotoSource.offered), so nothing here may ever write.
+        final List<String> albumRoutes = Arrays.stream(ChatResource.class.getDeclaredMethods())
+                .filter(method -> method.getAnnotation(Path.class) != null)
+                .filter(method -> method.getAnnotation(Path.class).value().startsWith("album-sources"))
+                .filter(method -> method.getAnnotation(jakarta.ws.rs.GET.class) != null && !isWrite(method))
+                .map(method -> method.getAnnotation(Path.class).value())
+                .sorted()
+                .toList();
+        Assert.assertEquals(albumRoutes, List.of("album-sources", "album-sources/{albumTripId}/photos"));
+    }
+
+    @Test
     public void noTwoResourcesClaimTheSamePath() {
         // ChatAdminResource sits at the literal chat/my-channels precisely so it cannot overlap ChatResource's
         // chat/channels/{channelId}. An exact duplicate would make which one answers a matter of precedence.

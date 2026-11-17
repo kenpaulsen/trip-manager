@@ -34,6 +34,7 @@ public interface TripMapper {
     @Mapping(target = "detailsUrl", ignore = true)
     @Mapping(target = "pictures", ignore = true)
     @Mapping(target = "tagLabels", ignore = true)
+    @Mapping(target = "fallbackPicture", ignore = true)
     TripDto toDto(Trip trip);
 
     @Mapping(target = "participating", ignore = true)

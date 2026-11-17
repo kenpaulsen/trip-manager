@@ -25,11 +25,14 @@ import java.util.concurrent.TimeUnit;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import org.paulsens.trip.action.AlbumPhotoSource;
 import org.paulsens.trip.action.ChatCommands;
 import org.paulsens.trip.action.ChatPhotoRotation;
 import org.paulsens.trip.action.ChatPhotos;
+import org.paulsens.trip.action.MediaCommands;
 import org.paulsens.trip.action.ModerationCommands;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.api.dto.AlbumSourceDto;
 import org.paulsens.trip.api.dto.ChatPhotoDto;
 import org.paulsens.trip.chat.ChatNudgeRegistry;
 import org.paulsens.trip.media.PhotoProcessor;
@@ -381,9 +384,7 @@ public class ChatResource extends BaseResource {
         }
         final ChatCommands.AttachGate gate = ChatCommands.getChatCommands().checkAttach(tripId, me);
         if (gate.denial() != null) {
-            final String code = ChatErrors.forSendResult(gate.code());
-            final int status = ChatErrors.BAD_ATTACHMENT.equals(code) ? 400 : 403;
-            return error(status, code, gate.denial());
+            return attachRefusal(gate);
         }
         final long maxBytes = gate.channel().getSettings().getMaxAttachmentBytes();
         final Optional<byte[]> bytes;
@@ -414,9 +415,81 @@ public class ChatResource extends BaseResource {
         }
     }
 
+    /**
+     * {@code checkAttach}'s refusal as a response: the send's own codes (muted, not a member, archived), and
+     * photos-off as the send's {@code BAD_ATTACHMENT}, a 400.
+     */
+    private Response attachRefusal(final ChatCommands.AttachGate gate) {
+        final String code = ChatErrors.forSendResult(gate.code());
+        final int status = ChatErrors.BAD_ATTACHMENT.equals(code) ? 400 : 403;
+        return error(status, code, gate.denial());
+    }
+
+    // --- Choose from Albums (docs/album-picker.md) ---
+
+    /**
+     * The trip albums this chat's "Choose from Albums" offers the caller: the website dialog's own list
+     * ({@link AlbumPhotoSource#albumsFor} in the chat trip's scope: that organization's albums the caller may
+     * open, the chat's own trip first, then newest trip first), behind the dialog's own gate ({@code checkAttach},
+     * as an upload: nobody who may not attach a photo here lists albums for it). Nothing is spent: listing is
+     * not uploading, so the rate limit is not asked.
+     */
+    @GET
+    @Path("album-sources")
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response albumSources(@PathParam("channelId") final String channelId) {
+        final String tripId = tripIdOf(channelId);
+        if (tripId == null) {
+            return error(400, ChatErrors.BAD_CHANNEL, "Invalid channel id.");
+        }
+        final ChatCommands.AttachGate gate = ChatCommands.getChatCommands().checkAttach(tripId, personId());
+        if (gate.denial() != null) {
+            return attachRefusal(gate);
+        }
+        return ok(albumSource().albumsFor(caller(), AlbumPhotoSource.tripScope(tripId)).stream()
+                .map(AlbumSourceDto::of)
+                .toList());
+    }
+
+    /**
+     * One listed album's offered photos, in album order and in the media API's shape
+     * ({@code GET media/slots/{slot}}): images only, none kept out of public view, each one a send in this chat
+     * would accept ({@link AlbumPhotoSource#offeredRowsFor}). This is how an album reaches a caller the album's own
+     * slot read does not let in (an organization admin who is not on that trip). An album the caller may not
+     * pick from answers an empty list, never saying why: a trip id is guessable.
+     */
+    @GET
+    @Path("album-sources/{albumTripId}/photos")
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response albumPhotos(@PathParam("channelId") final String channelId,
+            @PathParam("albumTripId") final String albumTripId) {
+        final String tripId = tripIdOf(channelId);
+        if (tripId == null) {
+            return error(400, ChatErrors.BAD_CHANNEL, "Invalid channel id.");
+        }
+        final ChatCommands.AttachGate gate = ChatCommands.getChatCommands().checkAttach(tripId, personId());
+        if (gate.denial() != null) {
+            return attachRefusal(gate);
+        }
+        final MediaCommands media = mediaCommands();
+        return ok(albumSource().offeredRowsFor(caller(), AlbumPhotoSource.tripScope(tripId), albumTripId).stream()
+                .map(item -> MediaResource.toDto(media, item))
+                .toList());
+    }
+
     /** Seams: the photo store is the one static instance; the limiter the one shared with the page. */
     protected ChatPhotos chatPhotos() {
         return ChatPhotos.getChatPhotos();
+    }
+
+    /** Seam: the album rules, the website dialog's own bean. */
+    protected AlbumPhotoSource albumSource() {
+        return Beans.get(AlbumPhotoSource.class);
+    }
+
+    /** Seam: the media bean that resolves a row's URLs. */
+    protected MediaCommands mediaCommands() {
+        return Beans.get(MediaCommands.class);
     }
 
     protected UploadRateLimiter uploadLimiter() {

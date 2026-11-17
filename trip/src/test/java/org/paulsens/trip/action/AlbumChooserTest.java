@@ -80,7 +80,7 @@ public class AlbumChooserTest {
         Assert.assertNull(chooser.scopeOf("url"));
 
         final List<AlbumPhotoSource.Album> listed = List.of(
-                new AlbumPhotoSource.Album("t9", "Nine", "", false, List.of(), 0));
+                new AlbumPhotoSource.Album("t9", "Nine", "", false, List.of(), 0, null));
         Mockito.when(albums.albumsOf("trip:t2")).thenReturn(listed);
         Mockito.when(albums.albumOf("trip:t2", "t9")).thenReturn(listed.getFirst());
         Assert.assertEquals(chooser.albumsOf("badge"), listed);

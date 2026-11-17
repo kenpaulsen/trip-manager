@@ -27,7 +27,11 @@ import java.util.List;
  *
  * <p>{@code tagLabels} (issue 155) is read-only and runs beside {@code tags}: on a read both hold only the tags the
  * platform list still offers, in its order, so a client shows each label as the setting spells it (an id is a lossy
- * slug of its label) and a tag taken off the list disappears, as it does on the website ({@link #withTags}).
+ * slug of its label) and a tag taken off the list disappears, as it does on the website ({@link #withTags}). *
+ * <p>{@code fallbackPicture} (2026-11) is read-only: for a trip with no picture, the absolute URL of the picture its
+ * organization uploaded for its link preview, else for its background, which the website's trip cards fall back to
+ * (a typed URL there is never offered); absent when the trip has a picture or there is none
+ * ({@link #withFallbackPicture}).
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record TripDto(
@@ -60,7 +64,24 @@ public record TripDto(
         String destination,
         String country,
         List<String> tags,
-        List<String> tagLabels) {
+        List<String> tagLabels,
+        String fallbackPicture) {
+
+    /** The shape before {@code fallbackPicture} (2026-11), for the same reason as the others. */
+    public TripDto(final String id, final String title, final String description, final Boolean openToPublic,
+            final boolean chatEnabled, final LocalDateTime startDate, final LocalDateTime endDate,
+            final Integer regLimit, final String provider, final String orgId, final String language,
+            final String estimatedPrice, final String director, final String localGuide, final String facilitators,
+            final String flyerUrl, final String nonHostedTripUrl, final Integer nonHostedRegNumber,
+            final List<RegOptionDto> regOptions, final List<String> people, final List<TripEventDto> tripEvents,
+            final String kind, final TripPaymentConfigDto paymentConfig, final TripPageOptionsDto page,
+            final String detailsUrl, final List<TripPictureDto> pictures, final String destination,
+            final String country, final List<String> tags, final List<String> tagLabels) {
+        this(id, title, description, openToPublic, chatEnabled, startDate, endDate, regLimit, provider, orgId,
+                language, estimatedPrice, director, localGuide, facilitators, flyerUrl, nonHostedTripUrl,
+                nonHostedRegNumber, regOptions, people, tripEvents, kind, paymentConfig, page, detailsUrl, pictures,
+                destination, country, tags, tagLabels, null);
+    }
 
     /** The shape before pictures, destination, country and tags (issue 154), for the same reason as the others. */
     public TripDto(final String id, final String title, final String description, final Boolean openToPublic,
@@ -136,7 +157,7 @@ public record TripDto(
         return new TripDto(id, title, description, openToPublic, chatEnabled, startDate, endDate, regLimit,
                 provider, orgId, language, estimatedPrice, director, localGuide, facilitators, flyerUrl,
                 nonHostedTripUrl, nonHostedRegNumber, regOptions, people, null, kind, null, null, detailsUrl, pictures,
-                destination, country, tags, tagLabels);
+                destination, country, tags, tagLabels, fallbackPicture);
     }
 
     /**
@@ -149,7 +170,7 @@ public record TripDto(
                 provider, orgId, language, estimatedPrice, director, localGuide, facilitators, flyerUrl,
                 nonHostedTripUrl, nonHostedRegNumber, regOptions, people, tripEvents, kind,
                 paymentsAdmin ? paymentConfig : null, manager ? page : null, detailsUrl, pictures, destination,
-                country, tags, tagLabels);
+                country, tags, tagLabels, fallbackPicture);
     }
 
     /** The same trip with this roster in place of its own (an {@code open} listing narrows it to the caller's). */
@@ -157,7 +178,7 @@ public record TripDto(
         return new TripDto(id, title, description, openToPublic, chatEnabled, startDate, endDate, regLimit,
                 provider, orgId, language, estimatedPrice, director, localGuide, facilitators, flyerUrl,
                 nonHostedTripUrl, nonHostedRegNumber, regOptions, narrowed, tripEvents, kind, paymentConfig, page,
-                detailsUrl, pictures, destination, country, tags, tagLabels);
+                detailsUrl, pictures, destination, country, tags, tagLabels, fallbackPicture);
     }
 
     /**
@@ -169,7 +190,7 @@ public record TripDto(
         return new TripDto(id, title, description, openToPublic, chatEnabled, startDate, endDate, regLimit,
                 provider, orgId, language, estimatedPrice, director, localGuide, facilitators, flyerUrl,
                 nonHostedTripUrl, nonHostedRegNumber, regOptions, people, tripEvents, kind, paymentConfig, page, url,
-                pictures, destination, country, tags, tagLabels);
+                pictures, destination, country, tags, tagLabels, fallbackPicture);
     }
 
     /**
@@ -180,7 +201,7 @@ public record TripDto(
         return new TripDto(id, title, description, openToPublic, chatEnabled, startDate, endDate, regLimit,
                 provider, orgId, language, estimatedPrice, director, localGuide, facilitators, flyerUrl,
                 nonHostedTripUrl, nonHostedRegNumber, regOptions, people, tripEvents, kind, paymentConfig, page,
-                detailsUrl, resolved, destination, country, tags, tagLabels);
+                detailsUrl, resolved, destination, country, tags, tagLabels, fallbackPicture);
     }
 
     /**
@@ -191,6 +212,17 @@ public record TripDto(
         return new TripDto(id, title, description, openToPublic, chatEnabled, startDate, endDate, regLimit,
                 provider, orgId, language, estimatedPrice, director, localGuide, facilitators, flyerUrl,
                 nonHostedTripUrl, nonHostedRegNumber, regOptions, people, tripEvents, kind, paymentConfig, page,
-                detailsUrl, pictures, destination, country, offeredIds, labels);
+                detailsUrl, pictures, destination, country, offeredIds, labels, fallbackPicture);
+    }
+
+    /**
+     * The same trip with the picture a client shows when it has none (the website cards' fallback, resolved by the
+     * resource: {@code TripCardCommands.orgPictureOf}); null leaves it absent. docs/api-contract.md "Trips".
+     */
+    public TripDto withFallbackPicture(final String url) {
+        return new TripDto(id, title, description, openToPublic, chatEnabled, startDate, endDate, regLimit,
+                provider, orgId, language, estimatedPrice, director, localGuide, facilitators, flyerUrl,
+                nonHostedTripUrl, nonHostedRegNumber, regOptions, people, tripEvents, kind, paymentConfig, page,
+                detailsUrl, pictures, destination, country, tags, tagLabels, url);
     }
 }

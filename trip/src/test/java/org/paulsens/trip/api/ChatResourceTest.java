@@ -1102,4 +1102,94 @@ public class ChatResourceTest extends ResourceTestSupport {
                 .thenReturn(ChatCommands.ReactResult.fail("blocked_content", ChatCommands.BLOCKED_CONTENT_MESSAGE));
         assertError(resource.edit(CHANNEL, "m1", CSRF_OK, Map.of("body", "darn")), 400, ChatErrors.BLOCKED_CONTENT);
     }
+
+    // --- Choose from Albums: the website dialog's list and rows, behind the dialog's gate ---
+
+    /** A resource whose album rules and media bean are this test's mocks. */
+    private ChatResource albumsResource(final org.paulsens.trip.action.AlbumPhotoSource albums,
+            final org.paulsens.trip.action.MediaCommands media) {
+        return resource(new ChatResource() {
+            @Override
+            protected org.paulsens.trip.action.AlbumPhotoSource albumSource() {
+                return albums;
+            }
+
+            @Override
+            protected org.paulsens.trip.action.MediaCommands mediaCommands() {
+                return media;
+            }
+        });
+    }
+
+    @Test
+    public void albumSourcesListTheDialogsAlbumsInTheChatTripsScope() {
+        final org.paulsens.trip.action.AlbumPhotoSource albums =
+                Mockito.mock(org.paulsens.trip.action.AlbumPhotoSource.class);
+        final java.time.LocalDateTime start = java.time.LocalDateTime.of(2026, 9, 24, 8, 0);
+        final org.paulsens.trip.action.AlbumPhotoSource.Photo photo =
+                new org.paulsens.trip.action.AlbumPhotoSource.Photo("m1", "/chat-photos/a-small.jpg", "Photo");
+        Mockito.when(albums.albumsFor(ArgumentMatchers.any(), ArgumentMatchers.eq("trip:" + TRIP_ID)))
+                .thenReturn(List.of(
+                        new org.paulsens.trip.action.AlbumPhotoSource.Album(TRIP_ID, "Ours", "", true, List.of(), 0,
+                                null),
+                        new org.paulsens.trip.action.AlbumPhotoSource.Album("older", "Older", "Sep 24", false,
+                                List.of(photo), 2, start)));
+        final ChatCommands.AttachGate open = gateAllowing(1);
+        Mockito.when(chat.checkAttach(TRIP_ID, ME)).thenReturn(open);
+
+        final Response response = albumsResource(albums, null).albumSources(CHANNEL);
+
+        assertOk(response);
+        Assert.assertEquals(response.getEntity(), List.of(
+                new org.paulsens.trip.api.dto.AlbumSourceDto(TRIP_ID, "Ours", null, true, 0, 0),
+                new org.paulsens.trip.api.dto.AlbumSourceDto("older", "Older", start, false, 1, 2)));
+        Mockito.verify(albums).albumsFor(ArgumentMatchers.argThat(caller -> ME.equals(caller.personId())),
+                ArgumentMatchers.eq("trip:" + TRIP_ID));
+    }
+
+    @Test
+    public void albumPhotosAreTheOfferedRowsInTheMediaShape() {
+        final org.paulsens.trip.action.AlbumPhotoSource albums =
+                Mockito.mock(org.paulsens.trip.action.AlbumPhotoSource.class);
+        final org.paulsens.trip.action.MediaCommands media =
+                Mockito.mock(org.paulsens.trip.action.MediaCommands.class);
+        final org.paulsens.trip.model.MediaItem row = new org.paulsens.trip.model.MediaItem("m1",
+                "chat/older/m1.jpg", "IMG_1", "Shared by Trinity", "image/jpeg", 10L,
+                org.paulsens.trip.action.ChatPhotos.slotFor("older"), 0, null, "someone", "chat/older/m1-small.jpg",
+                null);
+        Mockito.when(albums.offeredRowsFor(ArgumentMatchers.any(), ArgumentMatchers.eq("trip:" + TRIP_ID),
+                ArgumentMatchers.eq("older"))).thenReturn(List.of(row));
+        Mockito.when(media.getUrl(row)).thenReturn("https://cdn.example/chat/older/m1.jpg");
+        Mockito.when(media.publicUrl("chat/older/m1-small.jpg"))
+                .thenReturn("https://cdn.example/chat/older/m1-small.jpg");
+        final ChatCommands.AttachGate open = gateAllowing(1);
+        Mockito.when(chat.checkAttach(TRIP_ID, ME)).thenReturn(open);
+
+        final Response response = albumsResource(albums, media).albumPhotos(CHANNEL, "older");
+
+        assertOk(response);
+        final List<?> rows = (List<?>) response.getEntity();
+        Assert.assertEquals(rows.size(), 1);
+        final org.paulsens.trip.api.dto.MediaItemDto dto = (org.paulsens.trip.api.dto.MediaItemDto) rows.getFirst();
+        Assert.assertEquals(dto.id(), "m1");
+        Assert.assertEquals(dto.key(), "chat/older/m1.jpg");
+        Assert.assertEquals(dto.url(), "https://cdn.example/chat/older/m1.jpg");
+        Assert.assertEquals(dto.thumbUrl(), "https://cdn.example/chat/older/m1-small.jpg");
+    }
+
+    @Test
+    public void albumSourcesAreRefusedLikeAnUploadAndNeverAskTheAlbums() {
+        final org.paulsens.trip.action.AlbumPhotoSource albums =
+                Mockito.mock(org.paulsens.trip.action.AlbumPhotoSource.class);
+        final ChatResource listing = albumsResource(albums, null);
+
+        assertError(listing.albumSources("dm:x"), 400, ChatErrors.BAD_CHANNEL);
+        assertError(listing.albumPhotos("trip:", "older"), 400, ChatErrors.BAD_CHANNEL);
+        Mockito.when(chat.checkAttach(TRIP_ID, ME))
+                .thenReturn(new ChatCommands.AttachGate(null, "muted", "You are muted."))
+                .thenReturn(new ChatCommands.AttachGate(null, "attachment", "Photos are turned off for this chat."));
+        assertError(listing.albumSources(CHANNEL), 403, ChatErrors.MUTED);
+        assertError(listing.albumPhotos(CHANNEL, "older"), 400, ChatErrors.BAD_ATTACHMENT);
+        Mockito.verifyNoInteractions(albums);
+    }
 }

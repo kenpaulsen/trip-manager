@@ -450,8 +450,11 @@ public class MediaResource extends BaseResource {
         return email == null ? "api" : email;
     }
 
-    /** Both URLs carry the item's cache buster: a rotated picture keeps its key, so only the query moves. */
-    private static MediaItemDto toDto(final MediaCommands media, final MediaItem item) {
+    /**
+     * Both URLs carry the item's cache buster: a rotated picture keeps its key, so only the query moves. Also the
+     * shape of an album photo the chat's album sources answer ({@code ChatResource.albumPhotos}).
+     */
+    static MediaItemDto toDto(final MediaCommands media, final MediaItem item) {
         if (item == null) {
             return null;
         }

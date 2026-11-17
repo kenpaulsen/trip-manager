@@ -251,6 +251,42 @@ public class AlbumPhotoSourceTest {
         Assert.assertEquals(listed.get(1).dates(), "");
     }
 
+    // --- one album's rows, for the apps ---
+
+    @Test
+    public void anAlbumsRowsAreTheOnesASendWouldAccept() {
+        final List<MediaItem> rows = source.offeredRowsFor(member, scope("target"), "newer");
+        Assert.assertEquals(rows.stream().map(MediaItem::getId).toList(), List.of("n1", "n2"),
+                "Neither the hidden photo nor the video");
+        for (final MediaItem row : rows) {
+            Assert.assertTrue(source.offered(member, scope("target"), row.getId()).isPresent(),
+                    "A listed photo is one the send accepts: " + row.getId());
+        }
+        Assert.assertEquals(source.albumsFor(member, scope("target")).getFirst().startDate(),
+                trips.get("target").getStartDate(), "An album carries its trip's start for a client to spell");
+        Assert.assertTrue(source.offeredRowsFor(member, scope("target"), "target").isEmpty(), "The own one is empty");
+    }
+
+    @Test
+    public void anAlbumsRowsFollowTheListingsRules() {
+        Assert.assertTrue(source.offeredRowsFor(member, scope("target"), "stranger").isEmpty(),
+                "Not on that trip, and no role over it");
+        Assert.assertTrue(source.offeredRowsFor(member, scope("target"), "elsewhere").isEmpty(),
+                "Another organization's album, though the member traveled on it");
+        Assert.assertTrue(source.offeredRowsFor(member, scope("target"), "no-such-trip").isEmpty());
+        Assert.assertTrue(source.offeredRowsFor(member, scope("no-such-trip"), "newer").isEmpty());
+        Assert.assertTrue(source.offeredRowsFor(null, scope("target"), "newer").isEmpty());
+        Assert.assertTrue(source.offeredRowsFor(new Caller(null, false, AuditActor.from(null), priv),
+                scope("target"), "newer").isEmpty());
+
+        // An admin of the organization opens every one of its albums, roster or not: the case the apps lacked.
+        orgAdmins.add(ORG);
+        Assert.assertEquals(source.offeredRowsFor(member, scope("target"), "stranger").stream()
+                .map(MediaItem::getId).toList(), List.of("s1"));
+        Assert.assertTrue(source.offeredRowsFor(member, scope("target"), "elsewhere").isEmpty(),
+                "Still never another organization's");
+    }
+
     // --- which album the dialog shows ---
 
     @Test

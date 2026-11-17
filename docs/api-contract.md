@@ -70,7 +70,8 @@ and no token change, the bearer stays the manager. A manager of someone on the r
 roster, events, lodging) without a seat of their own -- the website's `canSeeTrip` rule, on the API since this
 date. Chat posts while acting carry `onBehalfOf` (Chat section).
 
-`TripDto`: id, title, description, detailsUrl, pictures, destination, country, tags, tagLabels, openToPublic, chatEnabled,
+`TripDto`: id, title, description, detailsUrl, pictures, fallbackPicture, destination, country, tags, tagLabels, openToPublic,
+chatEnabled,
 startDate, endDate, regLimit, provider,
 orgId, language, estimatedPrice, director, localGuide, facilitators, flyerUrl, nonHostedTripUrl (a write that
 CHANGES either is answered 400 `VALIDATION_FAILED` unless `nonHostedTripUrl` is an absolute http(s) URL and `flyerUrl`
@@ -128,7 +129,12 @@ server sends no field). Every picture is cut to 3:2; `url` is the full 1920-pixe
 smaller ones, all absolute and public by URL (CDN in production). `width`/`height` are the full rendition's (smaller
 when the upload was), `placeholder` the picture's average color (`#rrggbb`) to paint while it loads, `alt` the
 manager's description (absent: use the title). A trip with no picture shows the organization's picture, then a
-generated cover; never an empty box. Also `destination` (free text, "Medjugorje, Bosnia and Herzegovina"),
+generated cover; never an empty box. The organization's picture is `fallbackPicture` (2026-11-17, read-only, on lists
+and single reads): an absolute URL, sent only for a trip with NO pictures, and only when its organization uploaded a
+link-preview image (else a background image) on its Appearance page, the website trip cards' own rule
+(`TripCardCommands.orgPictureOf`). Either setting may instead hold a typed address on any host, which is never
+sent, so a client loads nothing an organization merely typed. Absent: the generated cover (an older server never
+sends it). Also `destination` (free text, "Medjugorje, Bosnia and Herzegovina"),
 `country` (ISO 3166-1 alpha-2, `BA`) and `tags` (ids from the platform's one list, the "Trip tags" setting; default
 `pilgrimage, retreat, conference, mission, youth, family, study, service, tour`). On a read, `tags` holds only the ids the list
 still offers, in its order, and `tagLabels` (2026-11-16, issue 155; read-only) their labels beside them, as the
@@ -464,8 +470,8 @@ none) → `{key, smallKey, contentType, size, width, height, url, smallUrl}`; th
 `attachments`. The apps' trip Photos page adds photos the same way (2026-10-12): stage each, then ONE send
 carrying every key (the channel's per-message cap, default 10), since the album (`/api/media/slots/tripChat-{tripId}`)
 is filled only from chat; there is no separate album upload. **A photo may be attached by REFERENCE** (2026-11-17,
-`docs/album-picker.md`): a send's attachment whose `key` is `album:{mediaId}` (the id of a row of
-`/api/media/slots/tripChat-{otherTripId}`) attaches that album photo without copying it, when the sender may use it
+`docs/album-picker.md`): a send's attachment whose `key` is `album:{mediaId}` (the id of an album row, from the album
+sources below) attaches that album photo without copying it, when the sender may use it
 in this chat (same organization, an album they may open, not hidden; otherwise 400 `BAD_ATTACHMENT`). The message
 then carries an attachment with the ORIGINAL's `s3Key`/`thumbKey` and **`ref: true`** (absent on every ordinary
 photo). A client shows it like any photo and should offer neither rotate nor the public-site toggle for it (both are
@@ -475,8 +481,19 @@ answering, so a `ref` photo that fails to load reads as "no longer available". A
 was shared), with NO `mutationsVersion` bump in the referencing channel: a client replaces a held message with the
 copy a later history read returns. When the original is removed, a `ref` attachment comes back as a tombstone that
 keeps `ref: true` (keys, caption and dimensions cleared, `deletedAt` set to the epoch, no `deletedBy`): drop any
-cached copy and show "no longer available" rather than "deleted by". The web chat creates references;
-the apps so far only display them. A posted photo's public-site flag may be revisited
+cached copy and show "no longer available" rather than "deleted by". **Album sources** (2026-11-17): what a
+chat's "Choose from Albums" offers comes from the website dialog's own rule, not from the trips a client holds:
+`GET /api/chat/channels/trip:{tripId}/album-sources` → `[{tripId, title, startDate?, current, photoCount,
+withheld}]`, the albums of the chat trip's organization the caller may open (on that trip's roster, holding
+`tripView` or `tripMgr` for it, managing its album, or an admin of the organization), the chat's own trip FIRST
+with `current: true` (listed even while empty, but only to someone who may open its album), then newest trip
+first, each with at least one photo or one withheld; `withheld` counts the hidden photos never offered. Then
+`GET .../album-sources/{albumTripId}/photos` → that album's offered rows as `MediaItemDto` (images only, none
+hidden, album order; `[]` for an album the caller may not pick from, never saying why), each one a send here
+accepts. Use these rather than `/api/media/slots/`, which an organization admin who is not on that trip cannot
+open. Both refuse exactly as a photo upload does (`checkAttach`: 403 with the send's code, 400 `BAD_ATTACHMENT`
+when photos are off, 400 `BAD_CHANNEL`), and spend no upload allowance. A client of an older server (404 on
+`album-sources`) may fall back to the same-organization trips it holds. A posted photo's public-site flag may be revisited
 at any time by the uploader or a chat admin (2026-10-12): `PATCH /api/chat/channels/trip:{tripId}/photos?key=`
 `{hidden, messageId?}` (`messageId` is only a hint; the server finds the message by key) moves BOTH copies, the
 attachment in the message (the `mutationsVersion` bump makes polling clients refetch it) and the album row; 403

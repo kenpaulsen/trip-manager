@@ -1,6 +1,7 @@
 package org.paulsens.trip.action;
 
 import jakarta.enterprise.context.ApplicationScoped;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -61,10 +62,11 @@ public class AlbumPhotoSource {
 
     /**
      * One trip's album as the dialog lists it. {@code current} marks the trip being edited, which is listed even
-     * while it has no photos. {@code withheld} counts the photos kept out of public view.
+     * while it has no photos. {@code withheld} counts the photos kept out of public view. {@code startDate} is the
+     * trip's, for a client that spells the dates itself (the apps, through {@code ChatResource.albumSources}).
      */
     public record Album(String tripId, String title, String dates, boolean current, List<Photo> photos,
-            int withheld) {
+            int withheld, LocalDateTime startDate) {
 
         /** The first offered photo's URL, the album's thumbnail in the list; null when it offers none. */
         public String getCoverUrl() {
@@ -240,6 +242,25 @@ public class AlbumPhotoSource {
     }
 
     /**
+     * One album's offered photos as their media rows, in album order, for a client that draws them itself (the apps'
+     * chat picker, which may list an album its own roster read cannot open: an organization admin's). The album must
+     * pass the rules {@link #albumsFor} lists by (the scope admits it, the caller may open it), and each row is one
+     * {@link #offered} would accept, so a listing never shows a photo the send then refuses. Empty for an album the
+     * caller may not pick from.
+     */
+    public List<MediaItem> offeredRowsFor(final Caller caller, final String scopeText, final String albumTripId) {
+        final Optional<Scope> scope = scopeOf(scopeText);
+        final Optional<Trip> albumTrip = tripOf(albumTripId);
+        if (caller == null || !caller.isAuthenticated() || scope.isEmpty() || albumTrip.isEmpty()
+                || !admits(scope.get(), albumTrip.get()) || !mayOpen(caller, albumTrip.get())) {
+            return List.of();
+        }
+        return albumRows().getOrDefault(albumTrip.get().getId(), List.of()).stream()
+                .filter(AlbumPhotoSource::isOfferable)
+                .toList();
+    }
+
+    /**
      * Whether {@code caller} may open this trip's album. Someone on the roster, or a holder of {@code tripView}
      * or {@code tripMgr} for the trip (the rule of the album's own page; a site admin holds both); or someone who
      * already manages the whole album ({@link MediaCommands#managesAlbum}: a media admin, globally or of the
@@ -290,7 +311,8 @@ public class AlbumPhotoSource {
                 photos.add(new Photo(item.getId(), url, labelOf(item)));
             }
         }
-        return new Album(trip.getId(), trip.getTitle(), datesOf(trip), current, List.copyOf(photos), withheld);
+        return new Album(trip.getId(), trip.getTitle(), datesOf(trip), current, List.copyOf(photos), withheld,
+                trip.getStartDate());
     }
 
     /** The trip's date range as its pages spell it; blank for a trip still missing a date. */

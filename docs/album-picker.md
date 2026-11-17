@@ -141,9 +141,19 @@ the owning message's cached summary is refreshed when someone reacts, so a refer
 
 Wire contract: `docs/api-contract.md`, chat photos (`ref` on an attachment; `album:{mediaId}` as a send key).
 
+**The apps** (2026-11-17) list the same albums and photos the dialog does, through `ChatResource`:
+`GET chat/channels/trip:{id}/album-sources` is `AlbumPhotoSource.albumsFor` in the chat trip's scope, and
+`.../album-sources/{albumTripId}/photos` is `AlbumPhotoSource.offeredRowsFor` (the listing's rules, each row one
+`offered` accepts), both behind `checkAttach`, the gate `ChatPhotoUpload.authorization` asks for the dialog. The
+second exists because the album's own slot read (`GET media/slots/tripChat-{id}`) admits the roster and the album's
+managers only, so an organization admin who is not on a trip could list its album but not open it. Before these,
+the apps offered only the same-organization trips they held (the roster's), which is still their fallback against
+an older server.
+
 ## Tests
 
-Unit: `AlbumPhotoSourceTest` (the three rules in every scope), `AlbumChooserTest` (the dispatch),
+Unit: `AlbumPhotoSourceTest` (the three rules in every scope, and `offeredRowsFor`), `AlbumChooserTest` (the
+dispatch), `ChatResourceTest.albumSources...`/`albumPhotos...` (the REST reads and their gate),
 `AlbumLibraryTest`, `AlbumLibraryServletTest`, `ChatPhotoReferenceTest` and
 `ChatPhotoRotationTest.aMessageThatOnlyReferencesAPhoto...` (the table above, the second on the real send path),
 `BadgePhotoCommandsTest` (a pick parked into the crop step and every refusal), one scope test in each of

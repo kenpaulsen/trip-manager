@@ -9,6 +9,8 @@ import java.util.Map;
 import java.util.UUID;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
+import org.paulsens.trip.action.BrandCommands;
+import org.paulsens.trip.action.BrandingPhotos;
 import org.paulsens.trip.action.Caller;
 import org.paulsens.trip.action.PersonCommands;
 import org.paulsens.trip.action.PrivilegeCommands;
@@ -52,7 +54,19 @@ public class TripsResourceTest extends ResourceTestSupport {
     public void bindBeans() {
         trips = bindMock(TripCommands.class);
         people = bindMock(PersonCommands.class);
+        // A trip with no picture asks its organization's look for a fallback (TripDto.fallbackPicture): none here.
+        brand = bindMock(BrandCommands.class);
+        Mockito.when(brand.lookOf(ArgumentMatchers.any())).thenReturn(lookWith(null, null));
+        brandPhotos = bindMock(BrandingPhotos.class);
         resource = resource(new TripsResource());
+    }
+
+    private BrandCommands brand;
+    private BrandingPhotos brandPhotos;
+
+    private static BrandCommands.OrgLook lookWith(final String ogImage, final String background) {
+        return new BrandCommands.OrgLook(null, false, null, null, null, ogImage, background, null, null, null, null,
+                null, null, null);
     }
 
     /** ME manages OTHER: the family switcher's reach, as {@code ApiPrivileges.canActFor} resolves it. */
@@ -1660,6 +1674,47 @@ public class TripsResourceTest extends ResourceTestSupport {
         trip.getPictures().clear();
         final TripDto none = (TripDto) resource(new TripsResource()).get(TRIP_ID, null).getEntity();
         Assert.assertEquals(none.pictures(), List.of(), "None is an empty list, not an absent field");
+    }
+
+    /**
+     * A trip with no picture carries its organization's uploaded image, the website cards' rule
+     * ({@code TripCardCommands.orgPictureOf}: link preview, else background, only an upload of THAT organization);
+     * a trip with a picture of its own carries none, and the rule is asked once per organization per request.
+     */
+    @Test
+    public void aTripWithNoPictureCarriesItsOrganizationsUploadedPicture() throws IOException {
+        signedInAs(ME);
+        picturesAtLocalhost();
+        final String orgId = orgAdministeredBy(OTHER);
+        final String upload = "https://cdn.example/org/" + orgId + "/branding/ogImage-7.jpg";
+        Mockito.when(brand.lookOf(ArgumentMatchers.argThat(org -> org != null
+                && orgId.equals(org.getId().getValue())))).thenReturn(lookWith(upload, "https://typed.example/b.jpg"));
+        Mockito.when(brandPhotos.firstUploadOf(orgId, upload, "https://typed.example/b.jpg")).thenReturn(upload);
+        final Trip bare = trip(TRIP_ID, ME);
+        bare.setOrgId(orgId);
+        final Trip other = trip("trip-2", ME);
+        other.setOrgId(orgId);
+        final Trip pictured = trip("trip-3", ME);
+        pictured.setOrgId(orgId);
+        pictured.getPictures().add(new TripPicture("tripPictures/trip-3/5", null, 1920, 1280, "#112233"));
+        tripExists(bare);
+        Mockito.when(trips.getTripsForUser(ME)).thenReturn(List.of(bare, other, pictured));
+
+        final List<?> rows = (List<?>) resource.list("mine", 50, null).getEntity();
+        Assert.assertEquals(rows.stream().map(row -> ((TripDto) row).fallbackPicture()).toList(),
+                java.util.Arrays.asList(upload, upload, null), "Only the trips with no picture of their own");
+        Mockito.verify(brandPhotos, Mockito.times(1)).firstUploadOf(orgId, upload, "https://typed.example/b.jpg");
+
+        final TripDto one = (TripDto) resource(new TripsResource()).get(TRIP_ID, null).getEntity();
+        Assert.assertEquals(one.fallbackPicture(), upload, "A single read carries it too");
+        Assert.assertEquals(one.withoutEvents().redactedFor(false, false).withPeople(List.of()).fallbackPicture(),
+                upload, "Public by URL, like the pictures: every copy keeps it");
+
+        // A typed address only, or a trip with no organization: nothing to show but the generated cover.
+        Mockito.when(brandPhotos.firstUploadOf(orgId, upload, "https://typed.example/b.jpg")).thenReturn(null);
+        Assert.assertNull(((TripDto) resource(new TripsResource()).get(TRIP_ID, null).getEntity()).fallbackPicture());
+        bare.setOrgId(null);
+        Assert.assertNull(((TripDto) resource(new TripsResource()).get(TRIP_ID, null).getEntity()).fallbackPicture());
     }
 
     private static java.io.InputStream bodyOf(final byte[] bytes) {

@@ -17,10 +17,12 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.UnaryOperator;
 import lombok.extern.slf4j.Slf4j;
@@ -33,6 +35,7 @@ import org.paulsens.trip.action.ReminderHtml;
 import org.paulsens.trip.action.LodgingCommands;
 import org.paulsens.trip.action.LodgingViews;
 import org.paulsens.trip.action.TripPageCommands;
+import org.paulsens.trip.action.TripCardCommands;
 import org.paulsens.trip.action.TripCommands;
 import org.paulsens.trip.action.TripPictureCommands;
 import org.paulsens.trip.action.TripTags;
@@ -86,6 +89,9 @@ public class TripsResource extends BaseResource {
     private static final int MAX_LIST_LIMIT = 200;
     private static final String PAYMENTS_ADMIN_REQUIRED =
             "Payment settings need the organization's Payments Admin privilege.";
+
+    /** {@link #fallbackPictureOf}'s answers by organization id, for this request (one instance serves one). */
+    private final Map<String, Optional<String>> fallbackByOrg = new HashMap<>();
 
     @Override
     protected String versionedType() {
@@ -147,7 +153,21 @@ public class TripsResource extends BaseResource {
 
     private TripDto listingDto(final Trip trip) {
         return withShownTags(TripMapper.INSTANCE.toDto(trip).withoutEvents().withDetailsUrl(detailsUrl(trip))
-                .withPictures(pictureDtos(trip)), trip);
+                .withPictures(pictureDtos(trip)).withFallbackPicture(fallbackPictureOf(trip)), trip);
+    }
+
+    /**
+     * What a trip with no picture shows instead: the website cards' rule ({@link TripCardCommands#orgPictureOf}),
+     * asked once per organization per request (a resource instance serves one), since a listing repeats the same
+     * few organizations; null for a trip with a picture of its own.
+     */
+    private String fallbackPictureOf(final Trip trip) {
+        if (!trip.getPictures().isEmpty()) {
+            return null;
+        }
+        final String orgId = trip.getOrgId() == null ? "" : trip.getOrgId();
+        return fallbackByOrg.computeIfAbsent(orgId, id -> Optional.ofNullable(TripCardCommands.orgPictureOf(id)))
+                .orElse(null);
     }
 
     /**
@@ -860,7 +880,8 @@ public class TripsResource extends BaseResource {
                 dto.estimatedPrice(), dto.director(), dto.localGuide(), dto.facilitators(), dto.flyerUrl(),
                 dto.nonHostedTripUrl(), dto.nonHostedRegNumber(), dto.regOptions(), dto.people(),
                 eventDtos(trip, me), dto.kind(), dto.paymentConfig(), dto.page(), detailsUrl(trip),
-                pictureDtos(trip), dto.destination(), dto.country(), dto.tags(), null), trip);
+                pictureDtos(trip), dto.destination(), dto.country(), dto.tags(), null)
+                .withFallbackPicture(fallbackPictureOf(trip)), trip);
     }
 
     private static List<TripEventDto> eventDtos(final Trip trip, final Person.Id viewer) {
