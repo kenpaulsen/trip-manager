@@ -28,6 +28,11 @@ expenses (`getClasses()` is the authoritative list) +
   has no `multipart-config` and must not get one (Tomcat's `maxPartCount` counts ordinary fields).
 - Every URL that leaves the API is absolute (`BaseResource.absoluteUrl`): a mobile client cannot resolve a
   context-relative `/profile-photos/...` the way a page can. `GET /api/media/bases` names the photo bases.
+- A PAGE URL in a response (`TripDto.detailsUrl`, any new one) is built on the trip's OWNING org's site,
+  `SiteUrls.baseUrlForTrip(trip, REG_MAIL_BASE_URL, config)` (the base tickets and mail use), never from the
+  request host: the apps call the API on the marketing host, where `/api/` reaches every org but a page reaches
+  only marketing-listed trips ("This page is not available."). Do not widen page reach in `SessionRecoveryFilter`
+  instead (owner rejected it). Plain `localhost` resolves as a shared site, `www.localhost` as the marketing one.
 
 - `PhotoChatResource` is deliberately NOT `@TripApi`: the auth filter is name-bound, so its GETs serve
   anonymous readers (comments follow the photo -- `docs/photo-comments.md`); mutations enforce the session
@@ -47,3 +52,15 @@ expenses (`getClasses()` is the authoritative list) +
   route. `AccessLevel` is unranked -- do not compare its constants with ordinal logic.
 - `Beans.get` must select with the `Any` qualifier: `@FacesConfig` (on `PassCommands`) suppresses `@Default`,
   so a bare `CDI.current().select(type)` 500s at runtime and no unit test catches it.
+- PUT: an ABSENT field means unchanged (responses are redacted, so echoing one back must never erase what the
+  caller could not see); `""` clears. Writes are gated field by field by the same capabilities as reads. Enums
+  go out as `name()` and parse by name with a description fallback (`parseStatus`), never
+  `withStatusString`/`fromDescription`, or a GET-then-PUT wipes the status.
+- `TripsResource.applyPeople` silently DROPS roster ids that are not members of the trip's org. A family-created
+  member joins the anchor's orgs at creation (`OrgCommands.addCreatedFamilyMember`); a LATER org join never
+  propagates to family members (owner design).
+- The caller names the actor; beans never guess: `MailCommands.send` and `DeployCommands.start` have no
+  actor-less form, `AuditActor.system()` is timer work. A `Caller` (request-scoped privilege cache) never
+  crosses an async boundary; an `AuditActor` may. Do not make one implement the other.
+- Redirect allow-lists: a prefix must end at a URL boundary (`/`, `?`, `#`, end), else
+  `https://good.example.evil.example` passes. Test the real function, never a copy of its rule.

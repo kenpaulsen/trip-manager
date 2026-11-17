@@ -17,16 +17,22 @@ lands -- the DynamoDB connection pool (100), the two Lettuce request queues (500
 - Fan-out uses `StructuredTaskScope` (a preview API -- `--enable-preview` is set in the compiler args, the
   surefire argLine, the container's `CATALINA_OPTS` AND `ci/buildspec-integtest.yml`): trip-event resolve,
   mail-merge sends, trip-reminder sends (`ReminderSender`, the mail merge's bound), password migration
-  (semaphore-bounded). Forks inherit ScopedValues.
+  (semaphore-bounded). Forks inherit ScopedValues. A fan-out that hits a pooled client (SES, the SDK's connection
+  pool) needs a Semaphore (`MailCommands.MERGE_PARALLELISM`): unbounded forks fail as nulls = silently skipped
+  recipients.
 - Fire-and-forget background work spawns via `TripThreads.start`/`startAs` (named virtual threads, bound to
   the background cache lane). Plain spawns do NOT inherit ScopedValues -- work that outlives its request
   re-binds identity via `startAs` (`RequestContext`/`AuditActor`); schedulers bind `RequestContext.system()`.
 - Never run caller code on a Lettuce/Netty event loop (pub/sub listeners hand off to a fresh virtual thread)
   and never block a request on delivery backends: the audit sinks queue to dedicated daemon writer threads.
 - The few remaining platform threads are ones we cannot make virtual: Lettuce's Netty event loops, the AWS
-  SDK's Apache client internals, the dedicated `bg-remover-inference` thread (ONNX inference pins its carrier,
-  so it runs on one platform thread), and the shutdown hook. The audit-sink writers and the
-  `ChatDigestScheduler` and `ReminderScheduler` (`trip-reminders`) timer threads are virtual.
+  SDK's Apache client internals, the dedicated `bg-remover-inference` thread, and the shutdown hook. Native (JNI)
+  or long CPU-bound work never runs on a request virtual thread: JNI pins its carrier, the scheduler does not
+  compensate, and a 1-vCPU container may have ONE carrier, so one inference froze every request. The audit-sink
+  writers and the `ChatDigestScheduler` and `ReminderScheduler` (`trip-reminders`) timer threads are virtual.
 - `AuditActor.current()` reads the `RequestContext` ScopedValue, bound per request by `SessionRecoveryFilter`
   and inherited by `StructuredTaskScope` forks. A plain `TripThreads.start` spawn does NOT inherit it -- use
   `startAs(actor, ...)` for work that outlives its request (`CompletableFuture` is banned by `ArchitectureTest`).
+- A `java.net.http.HttpClient` is built ONCE and shared, with
+  `.executor(Executors.newVirtualThreadPerTaskExecutor())`: the default executor is a platform cached pool, and
+  each client owns a SelectorManager platform thread (a per-call client leaked one per click).

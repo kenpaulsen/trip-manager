@@ -19,3 +19,8 @@ The conference import from an older deployment (people, past conferences, regist
 the room EL stored in trip events' private notes with text (`docs/migrations/note-el-flatten.md`); notes are never
 evaluated now. The family-accounts migration scripts (report/migrate/consistency) live in the private
 repo's `scripts/` -- see `docs/family-accounts.md`.
+
+- `rotate-password-pepper.sh` is DRY-RUN unless `--apply`. Rotation adds version N+1 and RETAINS old keys (a
+  supplied `--value` must be strict base64; `openssl base64 -d` is too lenient). `--migrate` runs
+  `PasswordMigration` (`--parallel N`; idempotent, re-run until `plaintext=0`) from `trip/target/ROOT`, so
+  `mvn install` first: a stale ROOT once ran an old argument parser and silently stayed in dry-run.

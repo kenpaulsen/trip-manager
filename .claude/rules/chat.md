@@ -30,3 +30,27 @@ paths:
   FacesContext/application-map lookup: the upload servlet has no FacesContext and the JSF send does, so a
   context-sensitive lookup splits the staging registry across two instances and every photo "is no longer
   available" at send.
+- `ChatPage.reactionsVersion == 0` means NOT REPORTED (cold cache, long-poll timeout), never "no reactions"; an
+  EMPTY page still carries the version (the only path a reaction reaches a client that already holds the message).
+  Reaction emoji are an allowlist (`ChatEmoji`); `#` is refused (it would shift the SK fields).
+- `ChatPage.avatars` is resolved in the API layer (`BaseResource.avatarUrls`: an absolute URL needs the request
+  host) for the SAME key set as `displayNames`; someone with no picture is ABSENT (never null or ""), and a
+  named-but-absent id is how a client clears a cached picture. `PhotoChatResource` sends the same map.
+- `ChatSettings` reads the EXACT legacy `false/0/0` triple (allowMedia, maxAttachments, maxBytes) as "never
+  chosen" and upgrades it to the defaults; `maxAttachmentsPerMessage = 0` beside modern fields is an admin's
+  "text only". Removing one photo is a PER-ATTACHMENT tombstone (never a list removal, no `editedAt`, no mail):
+  capture the attachment before the write clears its keys. "Share publicly" lives TWICE (`ChatAttachment.hidden`
+  + `MediaItem.hidden`), flipped together only by `ChatPhotoEdits.setVisibility`.
+- Drafts (`CacheKeys` `...draft:{channelId}:{personId}`, 24 h TTL, no near-cache so the indicator clears on the
+  next render) store the `@{id}` mention form, never display labels (a restored label mentions nobody);
+  `saveDraft` is lenient (clamps, drops unclaimable refs, empty = delete); `send()` deletes the draft after the
+  durable save. A record's extra boolean accessor (`isEmpty()`) needs `@JsonIgnore`, or Jackson writes a phantom
+  field and then rejects it on read.
+- Off-request mail renders through `ELUtil.renderWithoutJsf` (`ELUtil.eval` returns null without a FacesContext,
+  and once mailed the literal "null"); `MailTemplates` escapes every String, needs `Raw` to opt out, and REJECTS
+  domain objects. `PrivilegeCommands.createPrivilege` REPLACES the member list.
+- `ChatNotifications`' default notifier lives in a class-init holder and a test override is a SEPARATE field:
+  a lazily built shared notifier was clobbered by a late background dispatch from a previous test (the class
+  failed as a class, passed alone). Never go back to read-null-then-build-and-store.
+- `ChatNudgeRegistry.park` opens the channel AND adds the waiter inside ONE `channels.compute`; split them and a
+  concurrent last leave orphans the new waiter for the full long-poll timeout.

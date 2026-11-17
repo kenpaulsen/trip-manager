@@ -26,3 +26,10 @@ paths:
   semantics: retention expiry does NOT). Rotation (`PhotoProcessor.rotate`, `QuarterTurn`, `RotationGuard`):
   chat photos and receipts turn IN PLACE and bump `rev` (clients append `?r=N`; never fire REMOVED for a
   rotated chat key), while profile, badge, lodging and branding images get a NEW key.
+- A rotation's CDN invalidation is one wildcard path per photo: the CDN cache policy ignores query strings, so
+  `?r=N` alone does not refresh an edge copy. `RotationGuard` is JVM-local (409 on a concurrent turn), which holds
+  only while ONE server serves the photo.
+- Staged chat-photo uploads are swept (objects DELETED) ~24 h after upload (`ChatPhotoStaging.TTL`) even when a
+  message now references them, so a manual restore copies the objects to fresh keys first. A direct write to the
+  media table needs a cache clear: `MediaDAO.getAllMedia` reads the whole-table hash even on `Cached.NO` paths
+  (`PhotoChatCommands.mediaFor` answers "Photo not found."). Uploads log nothing on success.

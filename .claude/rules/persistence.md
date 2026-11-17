@@ -11,7 +11,19 @@ paths:
 - `Persistence` interface -- abstracts the store. `DynamoPersistence` is the real one (async client);
   `InMemoryPersistence` is a real in-memory table store used in local mode and tests (`FakeData` seeds it).
 - `LocalMode` is the single authority on local vs production: the rule itself is in `CLAUDE.md`, "Rules that apply
-  everywhere".
+  everywhere". Never reintroduce environment sniffing for it in any form ("no FacesContext", an env var): the first
+  thread to reach `DAO.getInstance()` decides the datastore for the whole JVM, and since every test runs local, a
+  bug that makes local EASIER to enter turns every suite greener. Same family: any ThreadLocal read whose absence
+  is treated as information; fix one, grep for the others.
+- Every scan-cached table must be registered in `InMemoryPersistence.TABLES`: in local mode on a real Valkey the
+  scan caches rebuild against the fake, and a missing table wipes its seeded rows (`ScanCachedDAOTest` fails on a
+  gap). For tables the fake does NOT back (trips, registrations, todo_items, person_data...) the CACHE is the local
+  store: a delete sweep must enumerate through the cached read path AS WELL AS the raw query/scan, or it deletes
+  nothing locally. `trip_events` carry no tripId: delete them via `Trip.getTripEventIds()` BEFORE the trip row.
+- Every `DAO` read takes a mandatory `Cached` flag. Anything SAVED wholesale (edit pages, read-modify-write) is
+  seeded `Cached.NO` through the ForEdit variants (`getTripForEdit`, `getPersonForEdit`, `getSubjectForEdit`);
+  display getters stay YES (`ForEditReadsTest`). Near-cache settings are never read on the cache read path
+  (ConfigDAO sits on it): sysprops `trip.cache.near.*` pin them, and a TTL of 0 disables the near cache.
 - `DAO` -- singleton composing the domain DAOs: Person, Family, Trip, TripEvent, Registration, Transaction, Credentials,
   Todo, PersonDataValue, Privileges, Binding, Config, Media, Template, Content, Audit, Chat. Payments add:
   Organization/OrgMember (org_members is the membership source of truth, Person.orgIds the derived edge),
@@ -49,5 +61,6 @@ paths:
   writes are made visible by `DAO.invalidate(CacheScope)` (clears + broadcasts on `sys:v1:cache_inval`;
   REST: `POST /api/cache/invalidate`; scripts: `scripts/lib/cache-invalidate.sh`). `AuditDAO` and
   `CredentialsDAO` are deliberately uncached. `DAO.clearAllCaches()` clears the data namespace only --
-  never a Valkey FLUSH, never sessions. NB: `NoopCacheClient.tryAcquireLock` grants every lock -- never
-  use a cache lock for exclusion without probing the cache mode first.
+  never a Valkey FLUSH, never sessions. NB: `NoopCacheClient.tryAcquireLock` grants EVERY lock and remembers
+  nothing: before using a cache lock for exclusion (not just stampede damping), write a token and read it back,
+  and refuse when it does not round-trip (`ChatDigestScheduler`), or mail duplicates across servers.

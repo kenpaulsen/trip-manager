@@ -110,6 +110,7 @@ caveat, is `.claude/rules/dependencies.md` (it loads with any `pom.xml`).
 | `api.md` | `api/` | resource registration, subjects, uploads, URLs, auth, redaction |
 | `chat.md` | `chat/`, `model/chat/`, `moderation/`, chat beans | chat runtime, invites, photo channels, markup |
 | `push.md` | `push/`, `PushResource` | APNs + Web Push, devices, gates |
+| `payments.md` | `pay/`, main and test | processor error shapes, pointers to the payments and lodging docs |
 | `media.md` | `media/`, `ChatUploadServlet`, chat-photo beans | the chat-photo pipeline and rotation |
 | `security-headers.md` | the three header classes in `web/` | the security headers and CSP reports |
 | `audit-config-security.md` | `audit/`, `config/`, `security/` | audit sinks, `KnownSettings`, hashing and the pepper |

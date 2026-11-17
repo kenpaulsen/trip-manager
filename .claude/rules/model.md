@@ -33,6 +33,24 @@ exactly two documented extensions -- the hotel's Availability calendar (counts, 
 that can land in viewScope must be `Serializable`** -- a non-serializable one breaks the session save and 500s every
 later request (looks like a site-wide outage). `ModelSerializationTest` is the guard.
 
+- Every `Serializable` type pins `serialVersionUID = 1L` (`ModelSerializationTest` sweeps NESTED classes too, so a
+  private helper in `model.chat` needs `Serializable` and the pinned-UID comment: `ChatMarkup.Blocks`) and has a
+  golden `.ser` read back by `SerializationCompatibilityTest`; when it fails, apply THE RULE in `docs/caching.md`,
+  "Sessions" (compatible: keep the UID, regenerate; unsafe for old objects: bump AND regenerate). Verify such a
+  deploy with a pre-deploy session cookie. `-Dserialization.regenerate=true` rewrites EVERY `.ser` fixture:
+  `git checkout` the unrelated ones so the diff holds only the class you changed.
+- **A class that can reach the session must not depend on a constructor having run.** Kryo rebuilds it via
+  Objenesis (no constructor; a Map/Collection subclass keeps ENTRIES only), so a constructor-set or `final`
+  limit/flag comes back 0/false/null, silently. Seen as PrimeFaces' `LimitedSizeHashMap` with `maxSize == 0`
+  (every dynamic image an empty 200), repaired per request by `web/DynamicResourceMap`; it shows only after a
+  SAME-image restart (a class-shape change drops the session instead). Test with
+  `ReflectionFactory.newConstructorForSerialization` (`DynamicResourceMapTest`).
+- `Trip.openToPublic` decides whether a trip is LISTED, not who may open it (owner-confirmed): `canJoin` and
+  `TripCommands.getTripForUser`'s joinable fallback deliberately ignore it, and the admin Approve button asks
+  `canJoin` whether someone may be ADDED to an invite-only trip. Do not "fix" it
+  (`TripResolutionTest.aClosedTripIsStillOfferedBecausePrivateMeansUnlistedNotInaccessible`).
+- A chat URL token leaves trailing punctuation AND marker chars outside itself (`ChatMarkup.URL_TRAILING`).
+
 `Person.privacy` (`PrivacySettings`) holds the owner's field-visibility choices; `PersonDto.redactedFor`
 (REST) and `PrivacyView` (pages) are the two enforcement points -- read `docs/privacy-settings.md` before
 touching Person field visibility, redaction, or the profile/contacts pages.
