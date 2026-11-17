@@ -4,6 +4,7 @@ import java.net.URI;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.UnaryOperator;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.paulsens.trip.model.ContentInstance;
@@ -69,6 +70,16 @@ public final class ContentRenderer {
 
     /** @return the template body with every token replaced by its typed, escaped value. */
     public static String render(final ContentTemplate template, final ContentInstance instance) {
+        return render(template, instance, UnaryOperator.identity());
+    }
+
+    /**
+     * {@link #render(ContentTemplate, ContentInstance)}, with every LINK value ({@link Placeholder.Type#URL}) first
+     * passed through {@code linkTarget}: the page's chance to point a stored link at where it leads NOW (a trip's
+     * Register link, {@code TripPageCommands.contentLink}). What it answers is screened like any stored link.
+     */
+    public static String render(final ContentTemplate template, final ContentInstance instance,
+            final UnaryOperator<String> linkTarget) {
         if (template == null || template.getBody() == null || instance == null) {
             return "";
         }
@@ -82,13 +93,14 @@ public final class ContentRenderer {
                     .findFirst()
                     .orElse(null);
             matcher.appendReplacement(out,
-                    Matcher.quoteReplacement(renderValue(declared, values.get(name))));
+                    Matcher.quoteReplacement(renderValue(declared, values.get(name), linkTarget)));
         }
         matcher.appendTail(out);
         return out.toString();
     }
 
-    private static String renderValue(final Placeholder declared, final String raw) {
+    private static String renderValue(final Placeholder declared, final String raw,
+            final UnaryOperator<String> linkTarget) {
         if (declared == null || raw == null || raw.isBlank()) {
             return "";
         }
@@ -96,7 +108,7 @@ public final class ContentRenderer {
             case TEXT, CHOICE, MULTI_CHOICE, PERSON -> escapeHtml(raw);
             case RICH_TEXT -> raw;
             case IMAGE_URL -> escapeHtml(requireHttpUrl(raw));
-            case URL -> escapeHtml(requireLinkUrl(raw));
+            case URL -> escapeHtml(requireLinkUrl(linkTarget.apply(raw)));
             case VIDEO_URL -> escapeHtml(normalizeVideoUrl(raw));
         };
     }

@@ -191,6 +191,20 @@ public class ContentRendererTest {
     }
 
     @Test
+    public void onlyLinksPassTheLinkTargetAndWhatItAnswersIsStillScreened() {
+        final ContentTemplate tpl = template("<a href=\"{{u}}\">{{t}}</a><img src=\"{{i}}\">",
+                ph("u", Placeholder.Type.URL), ph("t", Placeholder.Type.TEXT), ph("i", Placeholder.Type.IMAGE_URL));
+        final Map<String, String> values = Map.of("u", "/go", "t", "/go", "i", "https://example.com/a.png");
+        Assert.assertEquals(ContentRenderer.render(tpl, instance(values),
+                        link -> "/go".equals(link) ? "https://example.com/?a=1&b=2" : link),
+                "<a href=\"https://example.com/?a=1&amp;b=2\">/go</a><img src=\"https://example.com/a.png\">",
+                "the link alone is retargeted, then escaped like any stored link");
+        Assert.assertEquals(ContentRenderer.render(tpl, instance(values), link -> "javascript:alert(1)"),
+                "<a href=\"\">/go</a><img src=\"https://example.com/a.png\">",
+                "a target that is no link renders nothing, as a stored one would");
+    }
+
+    @Test
     public void urlIsAttributeEscaped() {
         final ContentTemplate tpl = template("<a href=\"{{u}}\">x</a>", ph("u", Placeholder.Type.URL));
         final String out = ContentRenderer.render(tpl,

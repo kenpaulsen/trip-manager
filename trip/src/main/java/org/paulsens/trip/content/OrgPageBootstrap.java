@@ -334,6 +334,8 @@ public final class OrgPageBootstrap {
     public static List<ContentInstance> pilgrimageRows(final Trip trip, final String orgName,
             final ToIntFunction<String> templateVersion, final LocalDateTime seededAt) {
         final String key = tripPageKey(trip.getId());
+        // Stored as OUR registration page even for an external trip: the render resolves it to where the trip
+        // registers now (TripPageCommands.contentLink), so a URL added or changed after seeding still applies.
         final String register = "/trip/joinTrip.jsf?trip=" + trip.getId();
         final Map<String, String> hero = new HashMap<>();
         hero.put("eyebrow", orgName == null ? "" : orgName);
@@ -387,6 +389,8 @@ public final class OrgPageBootstrap {
     public static List<ContentInstance> conferenceRows(final Trip trip, final String orgName,
             final ToIntFunction<String> templateVersion, final LocalDateTime seededAt) {
         final String key = tripPageKey(trip.getId());
+        // Stored as OUR registration page even for an external trip: the render resolves it to where the trip
+        // registers now (TripPageCommands.contentLink), so a URL added or changed after seeding still applies.
         final String register = "/trip/joinTrip.jsf?trip=" + trip.getId();
         final String registerLabel = trip.getKind().getRegisterLabel();
         final String speakers = tripRowId(trip, "speakers");

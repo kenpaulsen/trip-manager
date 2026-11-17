@@ -631,7 +631,11 @@ nor `--primary-color-text` can be trusted at 4.5:1 against a band on every palet
 **Link URLs.** A `Placeholder.Type.URL` value (a link target, as opposed to an image or video source) may be
 an absolute http(s) URL, a site-relative path (`/account/createAccount.jsf`) or a page fragment
 (`#<section id>`); `ContentRenderer.requireLinkUrl` renders anything else -- another scheme, a
-protocol-relative `//host` or `/\host` -- as "". `IMAGE_URL` and `VIDEO_URL` keep `requireHttpUrl`.
+protocol-relative `//host` or `/\host` -- as "". `IMAGE_URL` and `VIDEO_URL` keep `requireHttpUrl`. A link that is
+exactly a trip's own registration page (`/trip/joinTrip.jsf?trip=<uuid>`, what the trip-page starters store) renders
+as that trip's `tripPage.registerUrl` (`TripPageCommands.contentLink`, the hook `ContentCommands.render` hands
+the renderer), so an EXTERNAL trip's Register buttons leave for its External Trip URL whenever it is set. Decided
+at render, never at seeding: the URL may be added or changed after the page exists.
 
 **The full-width layout.** `BrandCommands.isFullWidth()` is true on the product's marketing host and on an
 org site whose `site.layout` setting is `full-width` (`org-admin.md`, "Branding"); `homePage.xhtml` passes

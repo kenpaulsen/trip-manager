@@ -16,9 +16,13 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.config.KnownSettings;
@@ -245,15 +249,52 @@ public class TripPageCommands {
 
     /** The registration page for a trip: an external trip registers on its provider's site. */
     public String registerUrl(final Trip trip) {
+        return registerTarget(trip);
+    }
+
+    /** {@link #registerUrl} for Java callers. */
+    static String registerTarget(final Trip trip) {
         if (trip == null) {
             return "";
         }
         if (!trip.isExternal()) {
-            return "/trip/joinTrip.jsf?trip=" + trip.getId();
+            return JOIN_URL + trip.getId();
         }
         // Screened for a link: a stored value that is no web address links nowhere new.
         final String external = TripCommands.externalUrl(trip);
         return external.isEmpty() ? TripCommands.DETAIL_URL + trip.getId() : external;
+    }
+
+    /** Our own registration page for a trip, as the starter sections store it (OrgPageBootstrap). */
+    private static final String JOIN_URL = "/trip/joinTrip.jsf?trip=";
+
+    /** Exactly a {@link #JOIN_URL} for one trip id, nothing more: a staff link with {@code &id=} is not one. */
+    private static final Pattern JOIN_LINK = Pattern.compile(
+            "/trip/joinTrip\\.jsf\\?trip=((?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})");
+
+    /**
+     * A content section's link target as it renders: a stored link to a trip's own registration page becomes
+     * {@link #registerUrl} of that trip, so an EXTERNAL trip's Register button leaves for its provider. The starter
+     * sections store that link (the hero's and the closing banner's buttons, frozen when the page is seeded), and
+     * an editor may type it too; resolving it at render rather than at seeding is what keeps it right when the
+     * External Trip URL is added, changed or removed later. Every other link, and one naming no known trip, is
+     * returned unchanged. A cached read only: this runs on the public render path (RenderPathCacheTest).
+     */
+    public static String contentLink(final String url) {
+        return contentLink(url, TripPageCommands::cachedTrip);
+    }
+
+    /** {@link #contentLink(String)} with the trip lookup supplied: the testable half. */
+    static String contentLink(final String url, final Function<String, Optional<Trip>> trips) {
+        final Matcher join = url == null ? null : JOIN_LINK.matcher(url.trim());
+        if (join == null || !join.matches()) {
+            return url;
+        }
+        return trips.apply(join.group(1)).map(TripPageCommands::registerTarget).orElse(url);
+    }
+
+    private static Optional<Trip> cachedTrip(final String tripId) {
+        return DAO.getInstance().getTrip(tripId, Cached.YES);
     }
 
     // ------------------------------------------------------------------ the page's look

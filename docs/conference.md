@@ -250,7 +250,10 @@ Speakers with one placeholder card, Schedule, Registration, Venue, Questions wit
 action); any other trip gets `pilgrimageRows` (a hero with the kind's Join button and an About anchor, About from the
 description, and a YouTube video section seeded blank and hidden until an editor sets its URL). Deterministic ids per
 trip, pinned to each starter's current version, saved only into an EMPTY page (`OrgCommands.seedIfEmpty`, shared
-with the org home page). The trip records `pageSeededAt`, on the caller's own object so a draft re-save keeps it; an
+with the org home page). The hero's and the closing call to action's buttons store OUR registration page
+(`/trip/joinTrip.jsf?trip=<id>`) for every trip, external or not; the render turns that link into the trip's
+`registerUrl` (`TripPageCommands.contentLink`, docs/content-templates.md "Link URLs"), so an external trip's buttons
+follow its External Trip URL even when it is set after seeding. The trip records `pageSeededAt`, on the caller's own object so a draft re-save keeps it; an
 emptied page is never refilled. The one exception is the legacy rule above: a trip that already EXISTED, unstamped,
 and still carries a description is left alone by `saveTrip` (a brand-new trip created with a description seeds at
 once, the description becoming its About). While any starter is missing (production before

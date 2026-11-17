@@ -1417,7 +1417,7 @@ public class ContentCommands {
             if (template == null || template.getKind() != TemplateKind.STANDARD) {
                 return "";
             }
-            return ContentRenderer.render(template, carriedTo(instance, template));
+            return ContentRenderer.render(template, carriedTo(instance, template), TripPageCommands::contentLink);
         } catch (final RuntimeException ex) {
             // A public page must render without this block rather than fail with it.
             log.error("Unable to render content: " + instance.getId(), ex);

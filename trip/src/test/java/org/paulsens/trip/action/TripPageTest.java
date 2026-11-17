@@ -272,6 +272,57 @@ public class TripPageTest {
         assertEquals(new TripPageCommands().registerUrl(null), "");
     }
 
+    @Test
+    public void aStoredRegisterLinkRendersAsWhereItsTripRegistersNow() {
+        final Trip hosted = Trip.builder().title("Hosted").build();
+        final Trip external = Trip.builder().nonHostedTripUrl(" https://example.com/reg ").build();
+        final Trip unsafe = Trip.builder().nonHostedTripUrl("javascript:alert(1)").build();
+        final Map<String, Trip> known = Map.of(hosted.getId(), hosted, external.getId(), external,
+                unsafe.getId(), unsafe);
+        final java.util.function.Function<String, java.util.Optional<Trip>> trips =
+                id -> java.util.Optional.ofNullable(known.get(id));
+
+        assertEquals(TripPageCommands.contentLink("/trip/joinTrip.jsf?trip=" + external.getId(), trips),
+                "https://example.com/reg", "an external trip's Register link leaves for its provider");
+        assertEquals(TripPageCommands.contentLink(" /trip/joinTrip.jsf?trip=" + external.getId() + " ", trips),
+                "https://example.com/reg", "as typed, with the spaces a field keeps");
+        assertEquals(TripPageCommands.contentLink("/trip/joinTrip.jsf?trip=" + unsafe.getId(), trips),
+                "/trip/tripDetails.jsf?trip=" + unsafe.getId(), "screened: never the raw stored value");
+        final String own = "/trip/joinTrip.jsf?trip=" + hosted.getId();
+        assertEquals(TripPageCommands.contentLink(own, trips), own, "a hosted trip registers with us");
+
+        // Everything that is not exactly one trip's registration page is the editor's own link, kept as stored.
+        final String unknown = "/trip/joinTrip.jsf?trip=" + UUID.randomUUID();
+        final String staff = "/trip/joinTrip.jsf?trip=" + external.getId() + "&id=someone";
+        for (final String link : new String[] {unknown, staff, "/trip/tripDetails.jsf?trip=" + external.getId(),
+                "#schedule", "https://example.org/elsewhere", "", null}) {
+            assertEquals(TripPageCommands.contentLink(link, trips), link, String.valueOf(link));
+        }
+    }
+
+    @Test
+    public void aSeededExternalTripsButtonsFollowItsUrlAfterSeeding() throws IOException {
+        // Seeded while still hosted: the URL arrives later, as an editor flipping "Registrations managed" does.
+        final Trip trip = pilgrimageTrip("Seeded External Trip", null);
+        assertTrue(new TripPageCommands(() -> null, () -> NOW).ensurePage(trip));
+        final ContentInstance hero = dao.getContentForSection(OrgPageBootstrap.tripPageKey(trip.getId()), Cached.NO)
+                .stream().filter(s -> StarterTemplates.BAND_HERO_ID.equals(s.getTemplateId())).findFirst()
+                .orElseThrow();
+        final ContentCommands content = new ContentCommands();
+        final String join = "href=\"/trip/joinTrip.jsf?trip=" + trip.getId() + "\"";
+        assertTrue(content.render(hero).contains(join), "hosted: the hero registers with us");
+
+        trip.setNonHostedTripUrl("https://example.com/later");
+        assertTrue(dao.saveTrip(trip));
+        assertTrue(content.render(hero).contains("href=\"https://example.com/later\""),
+                "the URL set after seeding is where the hero's button goes");
+        assertFalse(content.render(hero).contains(join));
+
+        trip.setNonHostedTripUrl(null);
+        assertTrue(dao.saveTrip(trip));
+        assertTrue(content.render(hero).contains(join), "the URL removed: back to our own registration");
+    }
+
     // ------------------------------------------------------------------ seeding
 
     @Test
