@@ -237,7 +237,9 @@ public class PhotoChatCommands {
         }
         for (final ChatAttachment a : stored.getAttachments()) {
             try {
-                if (a.getS3Key() != null && photoChannelForRead(a.getS3Key()) == null) {
+                // A reference's photo has its thread already, parented to the message that owns the photo; a
+                // thread made here would hang another trip's photo off this message.
+                if (a.getS3Key() != null && !a.isRef() && photoChannelForRead(a.getS3Key()) == null) {
                     createPhotoChannel(a.getS3Key(),
                             new Parent(stored.getChannelId(), stored.getId()), actor);
                 }

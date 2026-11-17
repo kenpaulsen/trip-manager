@@ -133,6 +133,18 @@ public class LodgingUploadCommands extends PhotoUploadBean {
                 : UploadGate.deny("Not allowed: you do not manage this accommodation.");
     }
 
+    /**
+     * A hotel's or a room type's photo may be picked from any album the person choosing may open: an
+     * accommodation belongs to no organization, and a traveler's photo of the place is exactly what its gallery
+     * wants (owner, 2026-11-17: becoming public is the point of adding one here). A floor plan is a drawing, never
+     * an album photo.
+     */
+    @Override
+    protected String albumScope() {
+        final String kind = kind();
+        return KIND_PHOTO.equals(kind) || KIND_ROOM_TYPE.equals(kind) ? AlbumPhotoSource.SCOPE_MINE : null;
+    }
+
     @Override
     protected void confirm(final CroppedImage crop) {
         publishOutcome(applyCrop(crop));

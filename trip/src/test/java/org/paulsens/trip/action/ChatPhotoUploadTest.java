@@ -310,4 +310,11 @@ public class ChatPhotoUploadTest {
         // The real gate answers a denial for a trip that does not exist rather than throwing.
         Assert.assertNotNull(bare.checkAttach("no-such-trip", Person.Id.from("nobody")).denial());
     }
+
+    @Test
+    public void aChatListsTheAlbumsOfItsTripsOrganization() {
+        Assert.assertEquals(bean.getAlbumScope(), AlbumPhotoSource.tripScope(tripId));
+        tripId = null;
+        Assert.assertNull(bean.getAlbumScope(), "No chat open, no albums");
+    }
 }

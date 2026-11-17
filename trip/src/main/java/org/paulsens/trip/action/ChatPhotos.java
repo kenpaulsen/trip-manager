@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.Audit;
 import org.paulsens.trip.audit.AuditActor;
@@ -33,6 +34,7 @@ import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.MediaItem;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.chat.ChatAttachment;
+import org.paulsens.trip.model.chat.ChatChannel;
 import org.paulsens.trip.cache.Cached;
 
 /**
@@ -72,6 +74,10 @@ public class ChatPhotos {
     private final MediaCommands media;
     private final PhotoProcessor processor = new PhotoProcessor();
     private final ChatPhotoStaging staging;
+    /** Trip albums as a source of references; resolved lazily, or set by a test. */
+    private AlbumPhotoSource albums;
+    /** Who is sending, for the album rules: the request's own caller. */
+    private Supplier<Caller> callerSource = Caller::bound;
     private final SecureRandom random = new SecureRandom();
     /** Local-mode object store, the media bucket's stand-in when none is configured. */
     private final LocalObjectStore localStore = new LocalObjectStore(LOCAL_STORE_MAX_BYTES);
@@ -199,6 +205,12 @@ public class ChatPhotos {
             final List<AttachmentRef> refs) {
         final List<ChatAttachment> attachments = new ArrayList<>();
         for (final AttachmentRef ref : refs) {
+            if (isAlbumRef(ref.key())) {
+                attachments.add(albumPhoto(tripId, ref).map(photo -> referenceTo(photo, ref))
+                        .orElseThrow(() -> new PhotoRejectedException("A photo chosen from an album is no longer"
+                                + " available. Remove it and choose it again.")));
+                continue;
+            }
             final ChatPhotoStaging.Staged staged = staging.peek(ref.key(), tripId, uploader.getValue())
                     .orElseThrow(() -> new PhotoRejectedException(
                             "An attached photo is no longer available. Remove it and attach it again."));
@@ -219,10 +231,86 @@ public class ChatPhotos {
             final List<AttachmentRef> refs) {
         final List<StagedRef> out = new ArrayList<>();
         for (final AttachmentRef ref : refs) {
-            staging.peek(ref.key(), tripId, uploader.getValue())
-                    .ifPresent(staged -> out.add(new StagedRef(ref, staged.smallKey())));
+            if (isAlbumRef(ref.key())) {
+                albumPhoto(tripId, ref).ifPresent(photo -> out.add(new StagedRef(ref, photo.getDisplayKey())));
+            } else {
+                staging.peek(ref.key(), tripId, uploader.getValue())
+                        .ifPresent(staged -> out.add(new StagedRef(ref, staged.smallKey())));
+            }
         }
         return out;
+    }
+
+    // ------------------------------------------------------------------ references to album photos
+
+    /**
+     * What an attachment reference's key starts with when it names a photo ALREADY in a trip album, by its media
+     * id, instead of a staged upload ("Choose from Albums" in the chat). Such a photo is attached as a REFERENCE
+     * to the original ({@link ChatAttachment#isRef()}), never copied (owner, 2026-11-17).
+     */
+    public static final String ALBUM_REF_PREFIX = "album:";
+
+    /** Whether a reference's key names an album photo rather than a staged upload. */
+    public static boolean isAlbumRef(final String key) {
+        return key != null && key.startsWith(ALBUM_REF_PREFIX);
+    }
+
+    /**
+     * The album row an album reference names, when the person sending may use it in THIS trip's chat: the same
+     * question, in the same scope, every other "Choose from Albums" asks ({@link AlbumPhotoSource#offered}: the
+     * trip's own organization, an album they may open, nothing kept out of public view). Never staged: the
+     * staging registry's sweep deletes the objects of whatever it holds, and these are somebody else's.
+     */
+    private Optional<MediaItem> albumPhoto(final String tripId, final AttachmentRef ref) {
+        return albumSource().offered(callerSource.get(), AlbumPhotoSource.tripScope(tripId),
+                ref.key().substring(ALBUM_REF_PREFIX.length()));
+    }
+
+    /**
+     * The attachment a reference becomes: the ORIGINAL's keys and facts, marked as a reference, with the caption
+     * typed for this message. It carries no public-site flag of its own: that choice belongs to the original.
+     */
+    private ChatAttachment referenceTo(final MediaItem photo, final AttachmentRef ref) {
+        final Optional<ChatAttachment> original = originalOf(photo);
+        return new ChatAttachment("image", photo.getS3Key(), photo.getContentType(), photo.getSize(),
+                original.map(ChatAttachment::getWidth).orElse(null),
+                // The DISPLAY key, never a bare getSmallKey(): a photo small enough to need no reduced copy has
+                // none in its album row, and an attachment with no thumbnail key is one the chat page cannot draw.
+                original.map(ChatAttachment::getHeight).orElse(null), photo.getDisplayKey(),
+                blankToNull(ref.title()), null, null, null, photo.getRev(), Boolean.TRUE);
+    }
+
+    /**
+     * Seam: the attachment that first carried an album photo, in its own trip's chat, for the dimensions the
+     * album row does not hold (a client lays a photo out from them before it arrives). Empty when that message is
+     * gone, which leaves the reference without dimensions, as an old photo is.
+     */
+    protected Optional<ChatAttachment> originalOf(final MediaItem photo) {
+        final String key = photo.getS3Key();
+        final ChatChannel channel = ChatCommands.getChatCommands().getChannel(tripOfSlot(photo.getSlot()));
+        return ChatPhotoEdits.findMessageWithPhoto(DAO.getInstance(), channel, key, null)
+                .flatMap(message -> message.getAttachments().stream()
+                        .filter(a -> !a.isDeleted() && !a.isRef() && key.equals(a.getS3Key())).findFirst());
+    }
+
+    private AlbumPhotoSource albumSource() {
+        AlbumPhotoSource source = albums;
+        if (source == null) {
+            // Resolved lazily: this class is one static instance, not a bean (see getChatPhotos).
+            source = org.paulsens.trip.api.Beans.get(AlbumPhotoSource.class);
+            albums = source;
+        }
+        return source;
+    }
+
+    void albumsForTest(final AlbumPhotoSource source, final Supplier<Caller> caller) {
+        this.albums = source;
+        this.callerSource = caller;
+    }
+
+    /** The attachments that OWN their photo: everything a delete or an album row may act on. */
+    private static List<ChatAttachment> owned(final List<ChatAttachment> attachments) {
+        return attachments.stream().filter(attachment -> !attachment.isRef()).toList();
     }
 
     /** A draft-time view of one still-claimable staged reference: the ref plus its thumbnail key. */
@@ -310,8 +398,14 @@ public class ChatPhotos {
      * send — the message is already delivered, and the photo still renders in the chat from its keys.
      */
     public void recordAlbumRows(final String tripId, final String tripTitle, final Person.Id author,
-            final String authorName, final List<ChatAttachment> attachments,
+            final String authorName, final List<ChatAttachment> sent,
             final AuditActor actor) {
+        // A reference adds nothing to this album: the photo already has its row, in the album it was shared in,
+        // and a second row for one key is what every by-key lookup and delete would then trip over.
+        final List<ChatAttachment> attachments = owned(sent);
+        if (attachments.isEmpty()) {
+            return;
+        }
         // A chat photo belongs to the trip's organization, whatever host the pilgrim sent it from.
         final String orgId = orgOfTrip(tripId);
         for (final ChatAttachment attachment : attachments) {
@@ -472,8 +566,11 @@ public class ChatPhotos {
      * Row deletion works off the cached media inventory by key — chat rows are always written with the full
      * rendition as {@code s3Key}, so that is the join.
      */
-    public void deleteEverywhere(final List<ChatAttachment> attachments) {
-        if (attachments == null || attachments.isEmpty()) {
+    public void deleteEverywhere(final List<ChatAttachment> removed) {
+        // A reference owns nothing: removing it (its message, or the one photo) must leave the original's
+        // objects, album row and comment thread exactly as they are.
+        final List<ChatAttachment> attachments = removed == null ? List.of() : owned(removed);
+        if (attachments.isEmpty()) {
             return;
         }
         deleteRenditions(attachments);
@@ -559,9 +656,9 @@ public class ChatPhotos {
      * Removes both renditions of each attachment from the store and invalidates their CDN paths. Used by the
      * admin remove-message cascade; media rows are the caller's problem (they live in MediaCommands).
      */
-    public void deleteRenditions(final List<ChatAttachment> attachments) {
+    public void deleteRenditions(final List<ChatAttachment> removed) {
         final List<String> paths = new ArrayList<>();
-        for (final ChatAttachment attachment : attachments) {
+        for (final ChatAttachment attachment : owned(removed)) {
             deleteStored(attachment.getS3Key());
             paths.add("/" + attachment.getS3Key());
             if (attachment.getThumbKey() != null && !attachment.getThumbKey().equals(attachment.getS3Key())) {

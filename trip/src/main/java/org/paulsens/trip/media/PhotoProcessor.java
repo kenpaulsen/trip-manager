@@ -247,6 +247,40 @@ public final class PhotoProcessor {
         return budgeted(original, () -> pictureRenditions(cutOut(original, rect, aspect), widths));
     }
 
+    /**
+     * {@link #processPicture} cut at a POSITION instead of a rectangle: the largest region of {@code aspect}, slid
+     * to {@code fx}, {@code fy} of the room it has to move in (0 = left or top, 0.5 = centered, 1 = right or
+     * bottom). For a caller that chose the cut on a reduced copy and never learned the full image's size in pixels
+     * (a photo picked from a trip album), where a rectangle would have to be scaled from numbers it does not hold.
+     */
+    public PictureRenditions processPictureAt(final byte[] original, final double fx, final double fy,
+            final double aspect, final List<Integer> widths) {
+        return budgeted(original, () -> pictureRenditions(cutOutAt(original, fx, fy, aspect), widths));
+    }
+
+    private static BufferedImage cutOutAt(final byte[] original, final double fx, final double fy,
+            final double aspect) {
+        final ImageFormat format = ImageFormat.detect(original).orElseThrow(PhotoProcessor::notAnImage);
+        final BufferedImage oriented = decodeOriented(original, format);
+        return crop(oriented, positionedRect(oriented.getWidth(), oriented.getHeight(), aspect, fx, fy));
+    }
+
+    /**
+     * The largest region of {@code aspect} inside the image, placed at a fraction of its free travel on each axis.
+     * A fraction is untrusted input: outside 0..1 it is pulled to the nearer end, and not-a-number centers.
+     */
+    static CropRect positionedRect(final int imgWidth, final int imgHeight, final double aspect, final double fx,
+            final double fy) {
+        final CropRect largest = aspectRect(null, imgWidth, imgHeight, aspect);
+        final int x = (int) Math.round((imgWidth - largest.width()) * unitFraction(fx));
+        final int y = (int) Math.round((imgHeight - largest.height()) * unitFraction(fy));
+        return new CropRect(x, y, largest.width(), largest.height());
+    }
+
+    private static double unitFraction(final double value) {
+        return Double.isNaN(value) ? 0.5d : Math.clamp(value, 0d, 1d);
+    }
+
     private static PictureRenditions pictureRenditions(final BufferedImage cut, final List<Integer> widths) {
         final List<byte[]> jpegs = new ArrayList<>();
         BufferedImage largest = cut;

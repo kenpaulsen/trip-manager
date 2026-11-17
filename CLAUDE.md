@@ -148,3 +148,4 @@ caveat, is `.claude/rules/dependencies.md` (it loads with any `pom.xml`).
 | `code-map.md` | finding a bean by EL name; the conference / trip page / checkout / check-in overview |
 | `moderation.md`, `shared-itineraries.md`, `trip-delete.md` | those features |
 | `trip-pictures.md` | a trip's pictures, destination, country and tags; `TripPictureCommands` |
+| `album-picker.md` | "Choose from Albums" anywhere; `AlbumPhotoSource`, `AlbumChooser`, `AlbumLibrary`; a chat attachment that only REFERENCES a photo (`ChatAttachment.ref`) |

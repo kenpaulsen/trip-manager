@@ -352,4 +352,15 @@ public class LodgingUploadCommandsTest {
         Mockito.verify(s3).deleteObject(photo.getS3Key());
         Mockito.verify(s3).invalidateCdn(List.of("/" + photo.getS3Key()));
     }
+
+    @Test
+    public void aPropertyOrRoomTypePhotoMayComeFromAnAlbumAndAFloorPlanMayNot() {
+        Assert.assertNull(bean.getAlbumScope(), "Nothing being uploaded");
+        session.put(LodgingUploadCommands.KIND_KEY, LodgingUploadCommands.KIND_PHOTO);
+        Assert.assertEquals(bean.getAlbumScope(), AlbumPhotoSource.SCOPE_MINE);
+        session.put(LodgingUploadCommands.KIND_KEY, LodgingUploadCommands.KIND_ROOM_TYPE);
+        Assert.assertEquals(bean.getAlbumScope(), AlbumPhotoSource.SCOPE_MINE);
+        session.put(LodgingUploadCommands.KIND_KEY, LodgingUploadCommands.KIND_FLOOR);
+        Assert.assertNull(bean.getAlbumScope(), "A floor plan is a drawing");
+    }
 }

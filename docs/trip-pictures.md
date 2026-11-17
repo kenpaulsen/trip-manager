@@ -67,6 +67,27 @@ like `PeopleResource.uploadPhoto`; `add` asks again.
 - **REST:** `POST/PUT/DELETE /api/trips/{id}/pictures`, wrapping the same methods (`docs/api-contract.md`, "Trips").
 - **Delete:** `docs/trip-delete.md`, step 6.
 
+## From a trip album ("Choose from Albums", 2026-11-16)
+
+The Pictures dialog has two sources: **Upload** (above) and **Choose from Albums**, which copies photos out of trip
+albums instead. The dialog, the rules for which albums and photos are offered, and the seven other places that use
+it are `docs/album-picker.md`; this is the trip-picture side.
+
+- **The use** is `tripPictures`: several photos, each drawn at 3:2 the way it will be cut, "Adjust crop" on any that
+  is not already that shape. Albums are those of the trip's own organization (`TripPictureCommands.albumScope`).
+- **The copy.** `TripPictureCommands.addFromAlbum(caller, tripId, picks, alt)`: each pick is the album photo's
+  FULL-size bytes (`ChatPhotos.currentBytes`) cut at a POSITION (`PhotoProcessor.processPictureAt`: the largest 3:2
+  region, slid to two fractions of the room it has, 0.5 = centered), stored as an upload is. The dialog never
+  learns the full image's pixel size, which is why this is a position and not a rectangle. The trip keeps its own
+  copies: removing the photo from the album later, or deleting the album's trip, changes nothing here.
+- **One save for the batch.** All the cutting and storing happens first, then every picture is appended in ONE
+  read-modify-write under the trip's lock (`appendToStored` takes a list; a single upload is a list of one). One
+  append per picture would re-read the row moments after this request's own save of it. What the row has no room
+  for (another upload landed meanwhile) is deleted again.
+- The description typed above the buttons goes to a SINGLE pick only; with several there is no telling which one
+  it describes. A trip picture does not remember which album photo it came from, so nothing stops the same photo
+  being added twice.
+
 ## The listing cards (Phase 2)
 
 The owner picked the design from a prototype of four directions (2026-11-16): **Immersive** (the photo is the card,
@@ -137,7 +158,8 @@ the files here; they are the owner's own photographs (`demo/trip-pictures/README
 
 ## Tests
 
-`TripPictureCommandsTest`, `TripPictureServletTest`, `PhotoProcessorPictureTest`, `TripTagsTest`,
+`TripPictureCommandsTest`, `AlbumPhotoSourceTest`, `TripPictureServletTest`, `PhotoProcessorPictureTest`, `TripTagsTest`,
 `IsoCountriesTest`, `TripCommandsTest.aSaveKeepsTheStoredPicturesAndNormalizesThePlace`, the picture tests in
 `TripsResourceTest`, `TripCardCommandsTest`, `DemoTripPicturesTest`; browser (medjugorje webtest):
-`TripPicturesPwIT` (the editor dialog) and `TripCardsPwIT` (the cards, org isolation, the phone layout, the gallery).
+`TripPicturesPwIT` (the editor dialog), `AlbumPickerPwIT` (Choose from Albums: own-organization albums only, the
+held-back photo, several picks, a moved cut) and `TripCardsPwIT` (the cards, org isolation, the phone layout, the gallery).

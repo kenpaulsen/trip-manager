@@ -528,4 +528,17 @@ public class BrandingUploadCommandsTest {
         set(BrandingUploadCommands.class, bean, "brandingPhotos", garbage);
         Assert.assertFalse(bean.rotateVersion(ORG, key, "left"), "undecodable bytes");
     }
+
+    @Test
+    public void onlyTheLinkPreviewImageMayComeFromTheOrganizationsAlbums() {
+        Assert.assertNull(bean.getAlbumScope(), "No role being uploaded");
+        session.put(BrandingUploadCommands.ORG_KEY, "org-1");
+        session.put(BrandingUploadCommands.ROLE_KEY, "ogImage");
+        Assert.assertEquals(bean.getAlbumScope(), AlbumPhotoSource.orgScope("org-1"));
+        session.put(BrandingUploadCommands.ROLE_KEY, "favicon");
+        Assert.assertNull(bean.getAlbumScope(), "A favicon is not a photograph");
+        session.put(BrandingUploadCommands.ROLE_KEY, "ogImage");
+        session.remove(BrandingUploadCommands.ORG_KEY);
+        Assert.assertNull(bean.getAlbumScope(), "No organization, no albums");
+    }
 }

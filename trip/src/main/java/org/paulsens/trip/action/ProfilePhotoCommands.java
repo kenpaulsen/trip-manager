@@ -76,6 +76,15 @@ public class ProfilePhotoCommands extends PhotoUploadBean {
     }
 
     /**
+     * A profile picture may be picked from any album the person choosing may open: a person belongs to no one
+     * organization, and the photo of them is as likely in one trip's album as another's.
+     */
+    @Override
+    protected String albumScope() {
+        return targetId() == null ? null : AlbumPhotoSource.SCOPE_MINE;
+    }
+
+    /**
      * The shared dialog's Crop action: reads the dialog-local state -- the page's
      * {@code viewScope.photoTargetSlot} beside the cropper's rectangle -- and reports the outcome to the
      * dialog's {@code oncomplete} JS via the {@code cropStored} callback param, which is what closes the

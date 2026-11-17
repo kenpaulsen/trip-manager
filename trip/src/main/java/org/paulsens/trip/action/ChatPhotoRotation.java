@@ -73,6 +73,12 @@ public final class ChatPhotoRotation {
         if (carrier.isEmpty()) {
             return Outcome.refused(Outcome.NOT_FOUND, "Photo not found.");
         }
+        // A rotation rewrites the stored bytes in place: a message that only references the photo would turn
+        // it for the album and the chat that own it, which would keep showing the old size.
+        if (ChatPhotoEdits.isReference(carrier.get(), s3Key)) {
+            return Outcome.refused(Outcome.FORBIDDEN,
+                    "This photo was chosen from a trip album. It can only be rotated where it was first shared.");
+        }
         final AuditActor who = ChatCommands.actorOf(caller);
         final ChatMessage.Id msgId = carrier.get().getId();
         if (!chat.isOwnMessage(carrier, who)

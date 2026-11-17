@@ -21,6 +21,8 @@ import org.paulsens.trip.model.Trip;
 import org.primefaces.event.FileUploadEvent;
 import org.primefaces.model.CroppedImage;
 import org.primefaces.model.file.UploadedFile;
+import java.util.Optional;
+import org.paulsens.trip.model.MediaItem;
 import org.testng.Assert;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
@@ -654,5 +656,54 @@ public class BadgePhotoCommandsTest {
         Assert.assertTrue(BadgePhotoCommands.nextVersion("badgeImages/t/abc.jpg") >= now);
         Assert.assertEquals(BadgePhotoCommands.nextVersion("badgeImages/t/99999999999999.jpg"), 100_000_000_000_000L);
         Assert.assertTrue(BadgePhotoCommands.nextVersion("badgeImages/t/12") >= now, "no extension parses too");
+    }
+
+    // --- from a trip album ---
+
+    private void offerFromAlbum(final String mediaId, final byte[] bytes) {
+        final AlbumPhotoSource albums = Mockito.mock(AlbumPhotoSource.class);
+        final MediaItem photo = new MediaItem(mediaId, "chat/t/" + mediaId, "t", "d", "image/jpeg", 1L,
+                "tripChat-t", 0, null, "someone");
+        Mockito.when(albums.offered(caller, "trip:trip-1", mediaId)).thenReturn(Optional.of(photo));
+        Mockito.when(albums.bytesOf(photo)).thenReturn(Optional.ofNullable(bytes));
+        bean.setAlbumsForTest(albums);
+    }
+
+    @Test
+    public void anAlbumPhotoIsParkedLikeAnUploadAndCroppedIntoABadgeImage() {
+        Assert.assertEquals(bean.getAlbumScope(), "trip:trip-1", "The albums of the trip's own organization");
+        offerFromAlbum("m1", PhotoFixtures.jpeg(1600, 1200));
+
+        bean.pickFromAlbum("m1");
+        Assert.assertEquals(params.get("albumPicked"), true);
+        Assert.assertTrue(bean.isUploadPending(), "The crop step opens on the album photo");
+        Assert.assertEquals(session.get(BadgePhotoCommands.LABEL_DEFAULT_KEY), "Album photo");
+
+        bean.confirmFullPhoto();
+        Assert.assertEquals(outcomes, List.of(true));
+        Assert.assertEquals(trip.getBadgeImages().size(), 1);
+        Assert.assertEquals(trip.getBadgeImages().getFirst().getLabel(), "Album photo");
+    }
+
+    @Test
+    public void anAlbumPickIsRefusedWhenNotOfferedUnreadableNotAPictureOrNotAllowed() {
+        offerFromAlbum("unreadable", null);
+        bean.pickFromAlbum("someone-elses");
+        Assert.assertEquals(params.get("albumPicked"), false, "A photo the album source does not offer here");
+        bean.pickFromAlbum("unreadable");
+        Assert.assertEquals(params.get("albumPicked"), false);
+        offerFromAlbum("garbage", new byte[] {1, 2, 3});
+        bean.pickFromAlbum("garbage");
+        Assert.assertEquals(params.get("albumPicked"), false);
+        Assert.assertFalse(bean.isUploadPending(), "Nothing was parked by any of them");
+
+        offerFromAlbum("m1", PhotoFixtures.jpeg(1600, 1200));
+        caller = callerFor(Person.Id.newInstance(), false);
+        bean.pickFromAlbum("m1");
+        Assert.assertEquals(params.get("albumPicked"), false, "Not this trip's manager: the upload gate's own answer");
+        Assert.assertFalse(bean.isUploadPending());
+
+        trip = null;
+        Assert.assertNull(bean.getAlbumScope(), "No trip, no albums");
     }
 }

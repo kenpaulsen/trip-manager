@@ -47,6 +47,17 @@ public class ChatPhotoUpload extends PhotoUploadBean {
         return "photo";
     }
 
+    /**
+     * A chat's "Choose from Albums" lists the albums of the trip's own organization, its own album first. Chat
+     * does not copy a chosen photo the way the other hosts do: its page attaches a REFERENCE to the original
+     * ({@code ChatPhotos.albumRef}), and the send checks each one again in this same scope.
+     */
+    @Override
+    protected String albumScope() {
+        final String tripId = tripId();
+        return tripId == null ? null : AlbumPhotoSource.tripScope(tripId);
+    }
+
     /** Chat's gates, in the order they were always asked; the cap is the channel's, not a constant. */
     @Override
     protected UploadGate uploadGate() {

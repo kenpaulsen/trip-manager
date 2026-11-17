@@ -101,6 +101,17 @@ public class BrandingUploadCommands extends PhotoUploadBean {
                         + "appearance.");
     }
 
+    /**
+     * The link preview image may be picked from the organization's own trip albums. Only that role: a logo and a
+     * favicon are not photographs, and the page background already picks from the media library, which album
+     * photos can be copied into.
+     */
+    @Override
+    protected String albumScope() {
+        final String orgId = orgId();
+        return role() == BrandingRole.OG_IMAGE && orgId != null ? AlbumPhotoSource.orgScope(orgId) : null;
+    }
+
     @Override
     protected void confirm(final CroppedImage crop) {
         publishOutcome(applyCrop(crop));

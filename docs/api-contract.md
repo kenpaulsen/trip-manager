@@ -458,7 +458,15 @@ thread (`GET /api/photo-chat/thread`) carries the same two maps. Chat photos: `P
 none) → `{key, smallKey, contentType, size, width, height, url, smallUrl}`; the keys go into a send's
 `attachments`. The apps' trip Photos page adds photos the same way (2026-10-12): stage each, then ONE send
 carrying every key (the channel's per-message cap, default 10), since the album (`/api/media/slots/tripChat-{tripId}`)
-is filled only from chat; there is no separate album upload. A posted photo's public-site flag may be revisited
+is filled only from chat; there is no separate album upload. **A photo may be attached by REFERENCE** (2026-11-17,
+`docs/album-picker.md`): a send's attachment whose `key` is `album:{mediaId}` (the id of a row of
+`/api/media/slots/tripChat-{otherTripId}`) attaches that album photo without copying it, when the sender may use it
+in this chat (same organization, an album they may open, not hidden; otherwise 400 `BAD_ATTACHMENT`). The message
+then carries an attachment with the ORIGINAL's `s3Key`/`thumbKey` and **`ref: true`** (absent on every ordinary
+photo). A client shows it like any photo and should offer neither rotate nor the public-site toggle for it (both are
+refused: 403 `FORBIDDEN` and 404); removing it removes only the reference. If the original is removed its URLs stop
+answering, so a `ref` photo that fails to load reads as "no longer available". The web chat creates references;
+the apps so far only display them. A posted photo's public-site flag may be revisited
 at any time by the uploader or a chat admin (2026-10-12): `PATCH /api/chat/channels/trip:{tripId}/photos?key=`
 `{hidden, messageId?}` (`messageId` is only a hint; the server finds the message by key) moves BOTH copies, the
 attachment in the message (the `mutationsVersion` bump makes polling clients refetch it) and the album row; 403

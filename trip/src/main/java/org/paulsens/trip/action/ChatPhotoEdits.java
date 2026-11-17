@@ -100,6 +100,10 @@ public final class ChatPhotoEdits {
             return false;
         }
         final ChatMessage.Id msgId = carrier.get().getId();
+        // A reference has no public-site flag of its own: that choice was made where the photo was shared.
+        if (isReference(carrier.get(), s3Key)) {
+            return false;
+        }
         if (!chat.isOwnMessage(carrier, who)
                 && chat.denyUnlessAdmin(tripId, "change visibility of photo in message " + msgId.getValue(), caller)) {
             return false;
@@ -153,6 +157,15 @@ public final class ChatPhotoEdits {
         }
         return dao.findChatMessageWithAttachment(channel.getId(), s3Key,
                 Math.max(0L, ChatPhotos.stagedAtMillis(s3Key) - 1), LOOKUP_PAGES);
+    }
+
+    /**
+     * Whether this message carries the photo only as a REFERENCE to an album photo another message owns
+     * ({@link ChatAttachment#isRef()}): such a photo is not this message's to rotate or re-flag.
+     */
+    static boolean isReference(final ChatMessage carrier, final String s3Key) {
+        return carrier.getAttachments().stream()
+                .anyMatch(a -> !a.isDeleted() && a.isRef() && s3Key.equals(a.getS3Key()));
     }
 
     private static boolean carries(final ChatMessage message, final String s3Key) {

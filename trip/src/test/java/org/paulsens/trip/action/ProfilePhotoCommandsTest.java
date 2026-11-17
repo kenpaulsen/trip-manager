@@ -643,4 +643,11 @@ public class ProfilePhotoCommandsTest {
         Mockito.verify(profilePhotos, Mockito.never()).store(ArgumentMatchers.anyString(), ArgumentMatchers.anyInt(),
                 ArgumentMatchers.any());
     }
+
+    @Test
+    public void aProfilePictureMayComeFromAnyAlbumThePersonChoosingMayOpen() {
+        Assert.assertEquals(bean.getAlbumScope(), AlbumPhotoSource.SCOPE_MINE);
+        subject = null;
+        Assert.assertNull(bean.getAlbumScope(), "Nobody's profile, no albums");
+    }
 }

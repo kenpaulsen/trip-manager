@@ -1164,6 +1164,9 @@ public class MediaCommands {
 
     /** The local-mode serving path of a key the webapp serves itself when no media host exists, else null. */
     static String localServedPath(final String key) {
+        if (AlbumLibrary.isAlbumCopyKey(key)) {
+            return AlbumLibrary.LOCAL_PATH + key;
+        }
         return TripStylesheets.isStylesheetKey(key) ? LOCAL_STYLESHEET_PATH + key : null;
     }
 

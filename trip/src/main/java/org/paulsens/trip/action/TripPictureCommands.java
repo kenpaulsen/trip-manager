@@ -27,6 +27,7 @@ import org.paulsens.trip.media.PhotoProcessor;
 import org.paulsens.trip.media.PhotoRejectedException;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
+import org.paulsens.trip.model.MediaItem;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripPicture;
@@ -189,37 +190,139 @@ public class TripPictureCommands extends PhotoUploadBean {
      */
     public PictureResult add(final Caller caller, final String tripId, final byte[] original,
             final PhotoProcessor.CropRect rect, final String alt) {
+        final PictureResult refusal = earlyRefusal(caller, readStored(tripId));
+        if (refusal != null) {
+            return refusal;
+        }
+        final Prepared prepared = cutAndStore(tripId, alt,
+                () -> processor.processPicture(original, rect, ASPECT, TripPicture.WIDTHS));
+        if (prepared.failure() != null) {
+            return prepared.failure();
+        }
+        final TripPicture picture = prepared.picture();
+        final Appended appended = locked(tripId, () -> appendToStored(caller, tripId, List.of(picture)));
+        if (appended.kept().isEmpty()) {
+            // Outside the lock: deleting three objects and invalidating the CDN is network work.
+            removeAll(picture);
+            return appended.refusal();
+        }
+        return PictureResult.ok(picture, appended.cover() ? "Cover picture added." : "Picture added.",
+                prepared.warning());
+    }
+
+    /** One pick of the album dialog: an album photo's media id and where to cut it (0 to 1 on each axis). */
+    public record AlbumPick(String mediaId, double fx, double fy) {
+    }
+
+    /**
+     * How a batch from the albums went: how many pictures were added, how many of those are small enough to look
+     * soft, and the first reason any pick was NOT added (null when every one was).
+     */
+    public record AlbumResult(int added, int lowResolution, String refusal) {
+    }
+
+    /**
+     * Adds pictures COPIED from trip albums (the editor's "Choose from Albums"), in the order picked: each album
+     * photo's full-size bytes are cut to {@link #ASPECT} at the pick's position ({@code fx}, {@code fy}: 0 to 1
+     * across the room the largest such region has to move, 0.5 = centered) and stored like an upload. The trip
+     * keeps its own copies, so removing a photo from its album later, or the album's trip itself, changes nothing
+     * here. {@code alt} describes every picture of the batch; the page passes one only for a single pick.
+     *
+     * <p>A pick is a bare media id from a browser, so whether THIS caller may use THAT photo for THIS trip is
+     * asked here, of {@link AlbumPhotoSource#offered}: same organization, an album the caller may open, a photo
+     * not kept out of public view. One answer covers every one of those refusals, which tells a prober nothing.
+     *
+     * <p>All the cutting and storing happens first; then the whole batch is appended in ONE read-modify-write
+     * under the trip's lock. One append per picture would re-read the row moments after this request's own save
+     * of it, and a read that close behind a write is not promised to see it.
+     */
+    public AlbumResult addFromAlbum(final Caller caller, final String tripId, final List<AlbumPick> picks,
+            final String alt) {
         final Optional<Trip> found = readStored(tripId);
+        final PictureResult early = earlyRefusal(caller, found);
+        if (early != null) {
+            return new AlbumResult(0, 0, early.message());
+        }
+        final int room = Trip.MAX_PICTURES - found.get().getPictures().size();
+        String refusal = picks.size() > room ? limitReached().message() : null;
+        final List<Prepared> prepared = new ArrayList<>();
+        for (final AlbumPick pick : picks.subList(0, Math.min(room, picks.size()))) {
+            final Prepared one = prepareFromAlbum(caller, found.get(), pick, alt);
+            if (one.failure() == null) {
+                prepared.add(one);
+            } else if (refusal == null) {
+                refusal = one.failure().message();
+            }
+        }
+        if (prepared.isEmpty()) {
+            return new AlbumResult(0, 0, refusal);
+        }
+        final List<TripPicture> pictures = prepared.stream().map(Prepared::picture).toList();
+        final Appended appended = locked(tripId, () -> appendToStored(caller, tripId, pictures));
+        // Outside the lock, like a single add: whatever the row did not take is deleted again.
+        pictures.stream().filter(picture -> !appended.kept().contains(picture)).forEach(this::removeAll);
+        final long soft = prepared.stream()
+                .filter(one -> one.warning() != null && appended.kept().contains(one.picture()))
+                .count();
+        final String why = appended.refusal() != null ? appended.refusal().message() : refusal;
+        return new AlbumResult(appended.kept().size(), (int) soft, why);
+    }
+
+    /** One album pick, checked, read, cut and stored; a failure names why this pick adds nothing. */
+    private Prepared prepareFromAlbum(final Caller caller, final Trip trip, final AlbumPick pick, final String alt) {
+        final Optional<MediaItem> photo =
+                albums().offered(caller, AlbumPhotoSource.tripScope(trip.getId()), pick.mediaId());
+        if (photo.isEmpty()) {
+            return Prepared.failed(PictureResult.fail(PictureResult.Status.FORBIDDEN,
+                    "Not available: that album photo cannot be used for this trip."));
+        }
+        final Optional<byte[]> original = albums().bytesOf(photo.get());
+        if (original.isEmpty()) {
+            return Prepared.failed(PictureResult.fail(PictureResult.Status.FAILED,
+                    "Not read: an album photo could not be read. Try again."));
+        }
+        return cutAndStore(trip.getId(), alt,
+                () -> processor.processPictureAt(original.get(), pick.fx(), pick.fy(), ASPECT, TripPicture.WIDTHS));
+    }
+
+    /** Why an add is refused before any image work (no trip, not this caller's, already full), or null. */
+    private PictureResult earlyRefusal(final Caller caller, final Optional<Trip> found) {
         if (found.isEmpty()) {
             return notFound();
         }
         if (!mayEdit(caller, found.get())) {
             return forbidden();
         }
-        if (found.get().getPictures().size() >= Trip.MAX_PICTURES) {
-            return limitReached();
+        return found.get().getPictures().size() >= Trip.MAX_PICTURES ? limitReached() : null;
+    }
+
+    /** A picture whose renditions are stored and waiting for the row to name it, or why there is none. */
+    private record Prepared(TripPicture picture, String warning, PictureResult failure) {
+
+        static Prepared failed(final PictureResult failure) {
+            return new Prepared(null, null, failure);
         }
+    }
+
+    /** The first half of every add: cut (the slow part) and store the renditions. Nothing names them yet. */
+    private Prepared cutAndStore(final String tripId, final String alt,
+            final Supplier<PhotoProcessor.PictureRenditions> cut) {
         final PhotoProcessor.PictureRenditions renditions;
         try {
-            renditions = processor.processPicture(original, rect, ASPECT, TripPicture.WIDTHS);
+            renditions = cut.get();
         } catch (final PhotoRejectedException ex) {
-            return PictureResult.fail(PictureResult.Status.INVALID, "Picture rejected: " + ex.getMessage());
+            return Prepared.failed(
+                    PictureResult.fail(PictureResult.Status.INVALID, "Picture rejected: " + ex.getMessage()));
         }
         final String stem = PREFIX + tripId + "/" + nextStamp();
         final TripPicture picture = new TripPicture(stem, cleanAlt(alt), renditions.width(), renditions.height(),
                 String.format("#%06x", renditions.averageRgb()));
         if (!storeAll(picture, renditions.jpegs())) {
             removeAll(picture);
-            return PictureResult.fail(PictureResult.Status.FAILED, "Not stored: the picture could not be stored. "
-                    + "Try again.");
+            return Prepared.failed(PictureResult.fail(PictureResult.Status.FAILED,
+                    "Not stored: the picture could not be stored. Try again."));
         }
-        final PictureResult appended = locked(tripId, () -> appendToStored(caller, tripId, picture));
-        if (!appended.isOk()) {
-            // Outside the lock: deleting three objects and invalidating the CDN is network work.
-            removeAll(picture);
-            return appended;
-        }
-        return PictureResult.ok(picture, appended.message(), smallWarning(renditions));
+        return new Prepared(picture, smallWarning(renditions), null);
     }
 
     /**
@@ -231,27 +334,34 @@ public class TripPictureCommands extends PhotoUploadBean {
         return STAMP.updateAndGet(prev -> Math.max(prev + 1, System.currentTimeMillis()));
     }
 
-    /** {@link #add}'s read-modify-write, under the trip's lock: the FRESH row, re-checked, plus the new picture. */
-    private PictureResult appendToStored(final Caller caller, final String tripId, final TripPicture picture) {
+    /**
+     * How an append went: the pictures the row now names (in order), whether the first of them became the cover,
+     * and why any others were left out (null when none were).
+     */
+    private record Appended(List<TripPicture> kept, boolean cover, PictureResult refusal) {
+    }
+
+    /**
+     * Every add's read-modify-write, under the trip's lock: the FRESH row, re-checked, plus as many of the new
+     * pictures as it still has room for, saved once.
+     */
+    private Appended appendToStored(final Caller caller, final String tripId, final List<TripPicture> pictures) {
         final Optional<Trip> found = readStored(tripId);
-        if (found.isEmpty()) {
-            return notFound();
+        final PictureResult refusal = earlyRefusal(caller, found);
+        if (refusal != null) {
+            return new Appended(List.of(), false, refusal);
         }
         final Trip trip = found.get();
-        if (!mayEdit(caller, trip)) {
-            return forbidden();
-        }
-        if (trip.getPictures().size() >= Trip.MAX_PICTURES) {
-            return limitReached();
-        }
-        trip.getPictures().add(picture);
+        final boolean cover = trip.getPictures().isEmpty();
+        final int room = Trip.MAX_PICTURES - trip.getPictures().size();
+        final List<TripPicture> kept = List.copyOf(pictures.subList(0, Math.min(room, pictures.size())));
+        trip.getPictures().addAll(kept);
         if (!save(trip)) {
-            return PictureResult.fail(PictureResult.Status.FAILED,
-                    "Not saved: the trip could not be updated with the new picture. Try again.");
+            return new Appended(List.of(), false, PictureResult.fail(PictureResult.Status.FAILED,
+                    "Not saved: the trip could not be updated with the new picture. Try again."));
         }
-        audit("Trip picture added", caller, trip, picture.getKey());
-        final String what = trip.getPictures().size() == 1 ? "Cover picture added." : "Picture added.";
-        return PictureResult.ok(picture, what, null);
+        kept.forEach(picture -> audit("Trip picture added", caller, trip, picture.getKey()));
+        return new Appended(kept, cover, kept.size() < pictures.size() ? limitReached() : null);
     }
 
     /** Permanently removes one picture: off the stored row first (the publish), then out of the store and the CDN. */
@@ -368,7 +478,7 @@ public class TripPictureCommands extends PhotoUploadBean {
      * earlier. A JVM lock is enough because the app runs as ONE task, deliberately. A {@link ReentrantLock}, not
      * {@code synchronized}: requests run on virtual threads.
      */
-    private PictureResult locked(final String tripId, final Supplier<PictureResult> write) {
+    private <T> T locked(final String tripId, final Supplier<T> write) {
         final ReentrantLock lock = TRIP_LOCKS[Math.floorMod(Objects.hashCode(tripId), TRIP_LOCKS.length)];
         lock.lock();
         try {
@@ -419,6 +529,13 @@ public class TripPictureCommands extends PhotoUploadBean {
         return id == null ? null : id.toString();
     }
 
+    /** A trip's pictures come from the albums of its own organization, its own album first. */
+    @Override
+    protected String albumScope() {
+        final String tripId = targetId();
+        return tripId == null ? null : AlbumPhotoSource.tripScope(tripId);
+    }
+
     @Override
     protected UploadGate uploadGate() {
         final Optional<Trip> trip = readStored(targetId());
@@ -458,6 +575,70 @@ public class TripPictureCommands extends PhotoUploadBean {
             error(result.message());
         }
         publishOutcome(result.isOk());
+    }
+
+    /**
+     * The album dialog's picks as the page sends them: {@code id@fx,fy} joined by {@code ;}, in the order chosen
+     * (which becomes the pictures' order). Untrusted text: an entry with no id is dropped, a position that is
+     * missing or malformed centers, and nothing past {@link Trip#MAX_PICTURES} entries is read.
+     */
+    static List<AlbumPick> parsePicks(final String picks) {
+        final List<AlbumPick> parsed = new ArrayList<>();
+        if (picks == null || picks.isBlank()) {
+            return parsed;
+        }
+        for (final String entry : picks.split(";")) {
+            final String[] parts = entry.trim().split("@", 2);
+            if (!parts[0].isBlank() && parsed.size() < Trip.MAX_PICTURES) {
+                final String[] at = (parts.length == 2 ? parts[1] : "").split(",", 2);
+                final double fy = fraction(at.length == 2 ? at[1] : "");
+                parsed.add(new AlbumPick(parts[0].trim(), fraction(at[0]), fy));
+            }
+        }
+        return parsed;
+    }
+
+    private static double fraction(final String text) {
+        try {
+            return Double.parseDouble(text.trim());
+        } catch (final NumberFormatException ex) {
+            return 0.5d;
+        }
+    }
+
+    /**
+     * The album dialog's Add button: every pick is copied in, in order, and ONE message says how it went (with
+     * the first reason, when some were not added). The description typed above the buttons goes to a single pick
+     * only: with several there is no telling which one it describes. Reports {@code albumAdded} (whether at least
+     * one was added) so the page knows to close the dialog.
+     */
+    public void addFromAlbumUi(final String picks) {
+        final List<AlbumPick> chosen = parsePicks(picks);
+        if (chosen.isEmpty()) {
+            error("Nothing chosen: choose at least one photo first.");
+            publishParam("albumAdded", false);
+            return;
+        }
+        final AlbumResult result = addFromAlbum(caller(), targetId(), chosen,
+                chosen.size() == 1 ? viewMap(ALT_VIEW_KEY) : null);
+        if (result.refusal() == null) {
+            info(result.added() == 1 ? "Picture added." : result.added() + " pictures added.");
+        } else {
+            error(result.added() == 0 ? result.refusal()
+                    : result.added() + " of " + chosen.size() + " added. " + result.refusal());
+        }
+        if (result.lowResolution() > 0) {
+            warn(result.lowResolution() == 1
+                    ? "Low resolution: one of the added pictures may look soft on large screens."
+                    : "Low resolution: " + result.lowResolution() + " of the added pictures may look soft on large"
+                            + " screens.");
+        }
+        publishParam("albumAdded", result.added() > 0);
+    }
+
+    /** How many more pictures the trip has room for: what the album dialog lets a manager choose. */
+    public int roomFor(final String tripId) {
+        return Math.max(0, Trip.MAX_PICTURES - picturesOf(tripId).size());
     }
 
     /** A picture's Remove button; reports through the {@code picChanged} ajax param. */

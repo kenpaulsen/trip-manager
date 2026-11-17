@@ -17,6 +17,7 @@ import org.paulsens.trip.media.QuarterTurn;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.BadgeImage;
+import org.paulsens.trip.model.MediaItem;
 import org.paulsens.trip.model.Trip;
 import org.primefaces.event.FileUploadEvent;
 import org.primefaces.model.CroppedImage;
@@ -130,6 +131,19 @@ public class BadgePhotoCommands extends PhotoUploadBean {
     @Override
     protected void parked(final FileUploadEvent event) {
         sessionPut(LABEL_DEFAULT_KEY, baseName(event.getFile().getFileName()));
+    }
+
+    /** A badge image may be picked from the albums of the trip's own organization, its own album first. */
+    @Override
+    protected String albumScope() {
+        final Trip trip = subjectTrip();
+        return trip == null ? null : AlbumPhotoSource.tripScope(trip.getId());
+    }
+
+    /** An album photo has no filename worth showing: its label default says where it came from instead. */
+    @Override
+    protected void parkedFromAlbum(final MediaItem photo) {
+        sessionPut(LABEL_DEFAULT_KEY, "Album photo");
     }
 
     @Override

@@ -1,0 +1,201 @@
+package org.paulsens.trip.action;
+
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.faces.context.FacesContext;
+import jakarta.inject.Inject;
+import jakarta.inject.Named;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Optional;
+import org.primefaces.PrimeFaces;
+
+/**
+ * The server side of the ONE "Choose from Albums" dialog ({@code WEB-INF/albumPickerDialog.xhtml}, mounted by the
+ * template for every signed-in page), exposed as {@code #{albumChooser}}. A page opens the dialog for a
+ * {@link Use}: a name for what the chosen photos are for. Everything that matters is then decided HERE from that
+ * name, never from the page: which bean takes the picks, and in which scope the albums are listed and every pick
+ * is checked again. The browser chooses only how the dialog looks (one photo or several, the tile shape), which
+ * can do no harm.
+ *
+ * <p>Why a dispatcher instead of a bean per mount: the dialog has fixed component ids, so a view can hold it once,
+ * and several pages take album photos for more than one purpose (the trip editor's pictures and its rich-text
+ * editors, an organization's link preview and its content). One mount with a named use serves them all.
+ *
+ * <p>Each host re-derives its own target from its own seam (the trip a dialog is open on, the role being
+ * uploaded), exactly as it does for a file upload, so a {@code use} the page did not really open simply finds no
+ * target and is refused there.
+ */
+@Named("albumChooser")
+@ApplicationScoped
+public class AlbumChooser {
+
+    /** What chosen album photos are for; {@link #key} is what a page passes to {@code TripAlbumPicker.open}. */
+    public enum Use {
+        /** A trip's cover and gallery: several photos, each cut to 3:2 ({@link TripPictureCommands}). */
+        TRIP_PICTURES("tripPictures"),
+        /** A custom itinerary-badge image: one photo, then the square crop ({@link BadgePhotoCommands}). */
+        BADGE("badge"),
+        /** A profile picture: one photo, then the square crop ({@link ProfilePhotoCommands}). */
+        PROFILE("profile"),
+        /** An organization's link preview image: one photo, then the 1.91:1 crop. */
+        LINK_PREVIEW("linkPreview"),
+        /** A hotel's or a room type's photo: one photo, then the free crop ({@link LodgingUploadCommands}). */
+        LODGING("lodging"),
+        /** The media library: several photos, each copied whole ({@link AlbumLibrary}). */
+        LIBRARY("library"),
+        /** A field that takes an image by URL: one photo, copied into the library, its URL handed back. */
+        URL("url"),
+        /** A chat message's attachments: several photos, REFERENCED where they are; the page sends them. */
+        CHAT("chat");
+
+        private final String key;
+
+        Use(final String key) {
+            this.key = key;
+        }
+
+        public String getKey() {
+            return key;
+        }
+
+        static Optional<Use> of(final String key) {
+            return Arrays.stream(values()).filter(use -> use.key.equals(key)).findFirst();
+        }
+    }
+
+    @Inject
+    private AlbumPhotoSource albums;
+    @Inject
+    private AlbumLibrary library;
+    @Inject
+    private TripPictureCommands tripPictures;
+    @Inject
+    private BadgePhotoCommands badgePhotos;
+    @Inject
+    private ProfilePhotoCommands profilePhotos;
+    @Inject
+    private BrandingUploadCommands branding;
+    @Inject
+    private LodgingUploadCommands lodgingUpload;
+    @Inject
+    private ChatPhotoUpload chatUpload;
+
+    void wireForTest(final AlbumPhotoSource source, final AlbumLibrary albumLibrary,
+            final TripPictureCommands pictures, final BadgePhotoCommands badges, final ProfilePhotoCommands profiles,
+            final BrandingUploadCommands brandingUpload, final LodgingUploadCommands lodging,
+            final ChatPhotoUpload chat) {
+        this.albums = source;
+        this.library = albumLibrary;
+        this.tripPictures = pictures;
+        this.badgePhotos = badges;
+        this.profilePhotos = profiles;
+        this.branding = brandingUpload;
+        this.lodgingUpload = lodging;
+        this.chatUpload = chat;
+    }
+
+    // ------------------------------------------------------------------ what the dialog renders
+
+    /** The scope a use lists and checks its albums in, from the host's own target; null when it has none. */
+    public String scopeOf(final String use) {
+        return Use.of(use).map(this::scope).orElse(null);
+    }
+
+    private String scope(final Use use) {
+        return switch (use) {
+            case TRIP_PICTURES -> tripPictures.getAlbumScope();
+            case BADGE -> badgePhotos.getAlbumScope();
+            case PROFILE -> profilePhotos.getAlbumScope();
+            case LINK_PREVIEW -> branding.getAlbumScope();
+            case LODGING -> lodgingUpload.getAlbumScope();
+            case LIBRARY, URL -> library.mayAdd() ? library.getAlbumScope() : null;
+            case CHAT -> chatUpload.getAlbumScope();
+        };
+    }
+
+    /** The albums the dialog lists for a use; empty for an unknown one or a host with no target. */
+    public List<AlbumPhotoSource.Album> albumsOf(final String use) {
+        return albums.albumsOf(scopeOf(use));
+    }
+
+    /** The album the dialog shows for a use: {@link AlbumPhotoSource#albumOf}. */
+    public AlbumPhotoSource.Album albumOf(final String use, final String albumTripId) {
+        return albums.albumOf(scopeOf(use), albumTripId);
+    }
+
+    /**
+     * How many photos a use lets a person choose: what a trip still has room for, the library's batch size, one
+     * for a use that takes one. Chat's own count (its cap less what is already attached) is the page's to say; the
+     * server holds the cap at send.
+     */
+    public int roomOf(final String use) {
+        final Optional<Use> found = Use.of(use);
+        if (found.isEmpty()) {
+            return 0;
+        }
+        return switch (found.get()) {
+            case TRIP_PICTURES -> tripPictures.roomFor(tripPictures.targetId());
+            case LIBRARY, CHAT -> AlbumLibrary.MAX_PER_ADD;
+            default -> 1;
+        };
+    }
+
+    // ------------------------------------------------------------------ what the dialog sends
+
+    /** The dialog's Add, for a use that takes several: the host re-checks every pick and reports albumAdded. */
+    public void add(final String use, final String picks) {
+        final Optional<Use> found = Use.of(use);
+        if (found.isPresent() && found.get() == Use.TRIP_PICTURES) {
+            tripPictures.addFromAlbumUi(picks);
+        } else if (found.isPresent() && found.get() == Use.LIBRARY) {
+            library.addFromAlbumUi(picks);
+        } else {
+            refuse("albumAdded");
+        }
+    }
+
+    /**
+     * A one-photo pick: the host takes it and reports albumPicked. A host on the shared crop dialog has then parked
+     * the photo, so that dialog's two step panels are re-rendered here for it to open on its cropper.
+     */
+    public void pick(final String use, final String mediaId) {
+        final Optional<PhotoUploadBean> cropHost = Use.of(use).flatMap(this::cropHostOf);
+        if (cropHost.isPresent()) {
+            cropHost.get().pickFromAlbum(mediaId);
+            refreshCropSteps();
+        } else if (Use.of(use).filter(found -> found == Use.URL).isPresent()) {
+            library.pickFromAlbum(mediaId);
+        } else {
+            refuse("albumPicked");
+        }
+    }
+
+    private Optional<PhotoUploadBean> cropHostOf(final Use use) {
+        return Optional.ofNullable(switch (use) {
+            case BADGE -> badgePhotos;
+            case PROFILE -> profilePhotos;
+            case LINK_PREVIEW -> branding;
+            case LODGING -> lodgingUpload;
+            default -> null;
+        });
+    }
+
+    private void refuse(final String outcomeParam) {
+        PageFeedback.error("Not available: album photos cannot be used here.");
+        publish(outcomeParam, false);
+    }
+
+    // ------------------------------------------------------------------ seams
+
+    /** Seam: re-renders the shared crop dialog's two steps, which every crop host's page mounts. */
+    protected void refreshCropSteps() {
+        if (FacesContext.getCurrentInstance() != null) {
+            PrimeFaces.current().ajax().update("photoUploadForm:photoUploadStep", "photoCropForm:photoCropStep");
+        }
+    }
+
+    /** Seam: one ajax callback param for the page. */
+    protected void publish(final String name, final Object value) {
+        PageFeedback.callbackParam(name, value);
+    }
+}

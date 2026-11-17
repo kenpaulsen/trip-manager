@@ -19,6 +19,7 @@ import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.media.PendingUploads;
 import org.paulsens.trip.media.PhotoFixtures;
+import org.paulsens.trip.model.MediaItem;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
@@ -50,6 +51,8 @@ public class TripPictureCommandsTest {
     private final Map<Object, Object> memo = new HashMap<>();
     private final List<Boolean> outcomes = new ArrayList<>();
     private final List<Trip> saves = new ArrayList<>();
+    /** The album photos the fake source offers, by media id; a null value is a photo that cannot be read. */
+    private final Map<String, byte[]> albumPhotos = new HashMap<>();
     private boolean saveResult;
     /** Runs once, right after the next stored read: a trip write landing while a write is in progress. */
     private Runnable afterNextRead;
@@ -67,6 +70,7 @@ public class TripPictureCommandsTest {
         memo.clear();
         outcomes.clear();
         saves.clear();
+        albumPhotos.clear();
         saveResult = true;
         afterNextRead = null;
         stored.put(TRIP_ID, Trip.builder().id(TRIP_ID).title("Holy Angels").build());
@@ -79,6 +83,7 @@ public class TripPictureCommandsTest {
         final Field field = TripPictureCommands.class.getDeclaredField("media");
         field.setAccessible(true);
         field.set(bean, media);
+        bean.setAlbumsForTest(new FakeAlbums());
         bean.setPendingUploadsForTest(new PendingUploads());
     }
 
@@ -151,6 +156,27 @@ public class TripPictureCommandsTest {
         protected void publishParam(final String name, final Object value) {
             params.put(name, value);
         }
+    }
+
+    /** An album source that offers exactly {@link #albumPhotos}; its own rules are {@code AlbumPhotoSourceTest}'s. */
+    private final class FakeAlbums extends AlbumPhotoSource {
+
+        @Override
+        public Optional<MediaItem> offered(final Caller who, final String scope, final String mediaId) {
+            return albumPhotos.containsKey(mediaId)
+                    ? Optional.of(new MediaItem(mediaId, "chat/x/" + mediaId, "t", "d", "image/jpeg", 1L, "tripChat-x",
+                            0, null, "someone"))
+                    : Optional.empty();
+        }
+
+        @Override
+        public Optional<byte[]> bytesOf(final MediaItem item) {
+            return Optional.ofNullable(albumPhotos.get(item.getId()));
+        }
+    }
+
+    private static TripPictureCommands.AlbumPick pick(final String mediaId) {
+        return new TripPictureCommands.AlbumPick(mediaId, 0.5d, 0.5d);
     }
 
     private static Trip copyOf(final Trip trip) {
@@ -680,5 +706,175 @@ public class TripPictureCommandsTest {
         Assert.assertEquals(options.size(), 1);
         Assert.assertEquals(options.getFirst().getBreakpoint(), "480px");
         Assert.assertEquals(options.getFirst().getNumVisible(), 3);
+    }
+
+    // --- from a trip album ---
+
+    @Test
+    public void aBatchFromTheAlbumsIsCutAndAppendedInOrderWithOneSave() throws Exception {
+        albumPhotos.put("wide", PhotoFixtures.jpeg(2400, 1600));
+        albumPhotos.put("tall", PhotoFixtures.jpeg(1800, 2700));
+        albumPhotos.put("pano", PhotoFixtures.jpeg(4000, 1700));
+        final TripPictureCommands.AlbumResult result = bean.addFromAlbum(caller, TRIP_ID,
+                List.of(pick("tall"), new TripPictureCommands.AlbumPick("wide", 0d, 1d), pick("pano")), null);
+        Assert.assertEquals(result.added(), 3);
+        Assert.assertNull(result.refusal());
+        Assert.assertEquals(result.lowResolution(), 0);
+        Assert.assertEquals(saves.size(), 1, "The whole batch is one read-modify-write");
+
+        final List<TripPicture> pictures = trip().getPictures();
+        Assert.assertEquals(pictures.size(), 3);
+        Assert.assertEquals(pictures.get(0).getWidth(), 1800, "The tall photo's 3:2 cut is its full width");
+        Assert.assertEquals(pictures.get(0).getHeight(), 1200);
+        Assert.assertEquals(pictures.get(1).getWidth(), 1920, "In the order picked");
+        Assert.assertEquals(pictures.get(2).getHeight(), 1280);
+        for (final TripPicture picture : pictures) {
+            Assert.assertNull(picture.getAlt());
+            final BufferedImage small = decode(bean.localGet(picture.keyAt(480)).orElseThrow());
+            Assert.assertEquals(small.getWidth(), 480);
+            Assert.assertEquals(small.getHeight(), 320);
+        }
+    }
+
+    @Test
+    public void aPickThatIsNotOfferedCannotBeReadOrIsNotAPictureAddsNothingAndSaysWhy() {
+        albumPhotos.put("good", PhotoFixtures.jpeg(2400, 1600));
+        albumPhotos.put("unreadable", null);
+        albumPhotos.put("garbage", new byte[] {1, 2, 3});
+
+        TripPictureCommands.AlbumResult result =
+                bean.addFromAlbum(caller, TRIP_ID, List.of(pick("someone-elses"), pick("good")), "The hill");
+        Assert.assertEquals(result.added(), 1, "The others still go in");
+        Assert.assertEquals(result.refusal(), "Not available: that album photo cannot be used for this trip.");
+        Assert.assertEquals(trip().getCover().getAlt(), "The hill");
+
+        result = bean.addFromAlbum(caller, TRIP_ID, List.of(pick("unreadable")), null);
+        Assert.assertEquals(result.added(), 0);
+        Assert.assertEquals(result.refusal(), "Not read: an album photo could not be read. Try again.");
+
+        result = bean.addFromAlbum(caller, TRIP_ID, List.of(pick("garbage"), pick("unreadable")), null);
+        Assert.assertEquals(result.added(), 0);
+        Assert.assertTrue(result.refusal().startsWith("Picture rejected: "), "The FIRST reason: " + result.refusal());
+        Assert.assertEquals(saves.size(), 1, "Only the batch that added something saved");
+    }
+
+    @Test
+    public void aBatchFromTheAlbumsIsRefusedLikeAnUpload() {
+        albumPhotos.put("good", PhotoFixtures.jpeg(2400, 1600));
+        Assert.assertEquals(bean.addFromAlbum(caller, "no-such-trip", List.of(pick("good")), null).refusal(),
+                "Not found: that trip does not exist.");
+        final Caller plain = new Caller(Person.Id.newInstance(), false, AuditActor.from(null), priv);
+        final TripPictureCommands.AlbumResult refused = bean.addFromAlbum(plain, TRIP_ID, List.of(pick("good")), null);
+        Assert.assertEquals(refused.added(), 0);
+        Assert.assertEquals(refused.refusal(), "Not allowed: only this trip's managers can change its pictures.");
+        Assert.assertTrue(saves.isEmpty());
+    }
+
+    @Test
+    public void aBatchStopsAtTheLimitAndSmallPicturesAreCounted() {
+        for (int i = 0; i < Trip.MAX_PICTURES - 2; i++) {
+            Assert.assertTrue(addOne(null).isOk());
+        }
+        saves.clear();
+        albumPhotos.put("small", PhotoFixtures.jpeg(900, 600));
+        albumPhotos.put("also-small", PhotoFixtures.jpeg(600, 900));
+        albumPhotos.put("never-cut", new byte[] {1, 2, 3});
+        final TripPictureCommands.AlbumResult result = bean.addFromAlbum(caller, TRIP_ID,
+                List.of(pick("small"), pick("also-small"), pick("never-cut")), null);
+        Assert.assertEquals(result.added(), 2, "Room for two");
+        Assert.assertEquals(result.lowResolution(), 2);
+        Assert.assertTrue(result.refusal().startsWith("Picture limit reached"),
+                "The pick past the room is the limit's, not a rejected picture: it was never cut. " + result.refusal());
+        Assert.assertEquals(trip().getPictures().size(), Trip.MAX_PICTURES);
+        Assert.assertEquals(bean.roomFor(TRIP_ID), 0);
+
+        final TripPictureCommands.AlbumResult full = bean.addFromAlbum(caller, TRIP_ID, List.of(pick("small")), null);
+        Assert.assertEquals(full.added(), 0);
+        Assert.assertTrue(full.refusal().startsWith("Picture limit reached"), full.refusal());
+        Assert.assertEquals(saves.size(), 1);
+    }
+
+    @Test
+    public void aBatchThatLosesRoomWhileCuttingKeepsWhatFitsAndDeletesTheRest() {
+        for (int i = 0; i < Trip.MAX_PICTURES - 2; i++) {
+            Assert.assertTrue(addOne(null).isOk());
+        }
+        albumPhotos.put("one", PhotoFixtures.jpeg(2400, 1600));
+        albumPhotos.put("two", PhotoFixtures.jpeg(2400, 1600));
+        // Another upload lands after this batch's first read: there is room for one of the two when it appends.
+        final TripPicture other = new TripPicture("tripPictures/trip-1/other", null, 1, 1, "#000000");
+        afterNextRead = () -> trip().getPictures().add(other);
+        final TripPictureCommands.AlbumResult result =
+                bean.addFromAlbum(caller, TRIP_ID, List.of(pick("one"), pick("two")), null);
+        Assert.assertEquals(result.added(), 1);
+        Assert.assertTrue(result.refusal().startsWith("Picture limit reached"), result.refusal());
+        Assert.assertEquals(trip().getPictures().size(), Trip.MAX_PICTURES);
+        // The delete counts three objects per row it names and then sweeps the trip's prefix for anything unnamed:
+        // the picture that did not fit must have left nothing there.
+        Assert.assertEquals(bean.deleteAllForTrip(trip()), (Trip.MAX_PICTURES) * 3,
+                "Nine rows counted at three each, and no orphan on top");
+    }
+
+    @Test
+    public void aBatchWhoseSaveFailsAddsNothingAndStoresNothing() {
+        albumPhotos.put("one", PhotoFixtures.jpeg(2400, 1600));
+        saveResult = false;
+        final TripPictureCommands.AlbumResult result = bean.addFromAlbum(caller, TRIP_ID, List.of(pick("one")), null);
+        Assert.assertEquals(result.added(), 0);
+        Assert.assertEquals(result.refusal(),
+                "Not saved: the trip could not be updated with the new picture. Try again.");
+        Assert.assertTrue(trip().getPictures().isEmpty());
+        Assert.assertEquals(bean.deleteAllForTrip(trip()), 0, "Its renditions were deleted again");
+    }
+
+    @Test
+    public void thePagesPicksAreParsedLeniently() {
+        Assert.assertTrue(TripPictureCommands.parsePicks(null).isEmpty());
+        Assert.assertTrue(TripPictureCommands.parsePicks("  ").isEmpty());
+        Assert.assertEquals(TripPictureCommands.parsePicks("a@0.25,1; b ;@0.5,0.5;c@nonsense;d@0.1"),
+                List.of(new TripPictureCommands.AlbumPick("a", 0.25d, 1d), pick("b"), pick("c"),
+                        new TripPictureCommands.AlbumPick("d", 0.1d, 0.5d)),
+                "No position, or one that is not a number, centers; an entry with no id is dropped");
+        final StringBuilder many = new StringBuilder();
+        for (int i = 0; i < 40; i++) {
+            many.append("id").append(i).append("@0.5,0.5;");
+        }
+        Assert.assertEquals(TripPictureCommands.parsePicks(many.toString()).size(), Trip.MAX_PICTURES,
+                "Nothing past the most a trip can hold is read");
+    }
+
+    @Test
+    public void theAlbumDialogsAddReportsOnceAndDescribesOnlyASinglePick() {
+        albumPhotos.put("one", PhotoFixtures.jpeg(2400, 1600));
+        albumPhotos.put("two", PhotoFixtures.jpeg(900, 600));
+        viewMap.put(TripPictureCommands.ALT_VIEW_KEY, "Evening Mass");
+
+        bean.addFromAlbumUi("");
+        Assert.assertEquals(params.get("albumAdded"), false, "Nothing chosen");
+
+        bean.addFromAlbumUi("one@0.5,0.5");
+        Assert.assertEquals(params.get("albumAdded"), true);
+        Assert.assertEquals(trip().getCover().getAlt(), "Evening Mass", "One pick takes the typed description");
+
+        bean.addFromAlbumUi("one@0.5,0.5;two@0.5,0.5");
+        Assert.assertEquals(params.get("albumAdded"), true);
+        Assert.assertEquals(trip().getPictures().size(), 3);
+        Assert.assertNull(trip().getPictures().get(1).getAlt(), "Several picks: no telling which one it describes");
+        Assert.assertNull(trip().getPictures().get(2).getAlt());
+
+        bean.addFromAlbumUi("not-offered@0.5,0.5;one@0.5,0.5");
+        Assert.assertEquals(params.get("albumAdded"), true, "One of two went in");
+        bean.addFromAlbumUi("not-offered@0.5,0.5");
+        Assert.assertEquals(params.get("albumAdded"), false);
+        Assert.assertEquals(trip().getPictures().size(), 4);
+        Assert.assertEquals(bean.roomFor(TRIP_ID), Trip.MAX_PICTURES - 4);
+        Assert.assertEquals(bean.roomFor(null), Trip.MAX_PICTURES);
+    }
+
+    @Test
+    public void theAlbumScopeIsTheTripBeingEdited() {
+        Assert.assertEquals(bean.getAlbumScope(), AlbumPhotoSource.tripScope(TRIP_ID));
+        viewMap.remove("theTripId");
+        Assert.assertNull(bean.getAlbumScope(), "No trip open, no albums");
     }
 }

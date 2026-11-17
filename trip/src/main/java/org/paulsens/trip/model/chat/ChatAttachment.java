@@ -48,6 +48,16 @@ public class ChatAttachment implements Serializable {
      */
     @Getter(AccessLevel.NONE)
     Integer rev;
+    /**
+     * Whether this attachment is a REFERENCE to a photo that lives in a trip album ("Choose from Albums" in the
+     * chat, 2026-11-17): the keys are the ORIGINAL's, which another message (often in another trip's chat) owns.
+     * A reference shows the photo and owns nothing: removing it never deletes the photo, its album row or its
+     * comment thread, it gets no album row of its own, and it cannot be rotated or re-flagged from here. When the
+     * original is removed the reference simply has nothing left to show. Null unless true, like {@link #hidden},
+     * so old rows and the wire stay compact. Read via {@link #isRef()}.
+     */
+    @Getter(AccessLevel.NONE)
+    Boolean ref;
 
     @JsonCreator
     public ChatAttachment(
@@ -62,7 +72,8 @@ public class ChatAttachment implements Serializable {
             @JsonProperty("hidden") final Boolean hidden,
             @JsonProperty("deletedAt") final Instant deletedAt,
             @JsonProperty("deletedBy") final String deletedBy,
-            @JsonProperty("rev") final Integer rev) {
+            @JsonProperty("rev") final Integer rev,
+            @JsonProperty("ref") final Boolean ref) {
         this.kind = kind;
         this.s3Key = s3Key;
         this.contentType = contentType;
@@ -75,6 +86,15 @@ public class ChatAttachment implements Serializable {
         this.deletedAt = deletedAt;
         this.deletedBy = deletedBy;
         this.rev = (rev == null || rev <= 0) ? null : rev;
+        this.ref = Boolean.TRUE.equals(ref) ? Boolean.TRUE : null;
+    }
+
+    /** Compatibility constructor predating {@link #ref}: an attachment that owns its photo. */
+    public ChatAttachment(final String kind, final String s3Key, final String contentType, final Long size,
+            final Integer width, final Integer height, final String thumbKey, final String caption,
+            final Boolean hidden, final Instant deletedAt, final String deletedBy, final Integer rev) {
+        this(kind, s3Key, contentType, size, width, height, thumbKey, caption, hidden, deletedAt, deletedBy, rev,
+                null);
     }
 
     /** Compatibility constructor predating {@link #rev}. */
@@ -114,7 +134,7 @@ public class ChatAttachment implements Serializable {
      */
     public ChatAttachment withHidden(final boolean newHidden) {
         return new ChatAttachment(kind, s3Key, contentType, size, width, height, thumbKey, caption,
-                newHidden, deletedAt, deletedBy, rev);
+                newHidden, deletedAt, deletedBy, rev, ref);
     }
 
     /**
@@ -126,7 +146,7 @@ public class ChatAttachment implements Serializable {
     public ChatAttachment rotated(final int newWidth, final int newHeight, final long newSize,
             final String newThumbKey) {
         return new ChatAttachment(kind, s3Key, contentType, newSize, newWidth, newHeight, newThumbKey, caption,
-                hidden, deletedAt, deletedBy, getRev() + 1);
+                hidden, deletedAt, deletedBy, getRev() + 1, ref);
     }
 
     /** {@link #rotated(int, int, long, String)} keeping the small rendition where it was. */
@@ -141,6 +161,15 @@ public class ChatAttachment implements Serializable {
     @JsonInclude(JsonInclude.Include.NON_DEFAULT)
     public int getRev() {
         return rev == null ? 0 : rev;
+    }
+
+    /**
+     * Whether this attachment only references a photo another message owns; false for every ordinary upload.
+     * Absent from JSON when false. Deliberately NOT {@code @JsonIgnore}: this is the property Jackson serializes.
+     */
+    @JsonInclude(JsonInclude.Include.NON_DEFAULT)
+    public boolean isRef() {
+        return Boolean.TRUE.equals(ref);
     }
 
     /** Whether this attachment was individually removed; null-safe (old messages read as live). */

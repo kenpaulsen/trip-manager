@@ -26,6 +26,11 @@ paths:
   mail, `ChatMarkup.plain` for push and reply snippets, `chatFormat.js` on the site, `ChatMarkup.swift` in
   the app) -- read `docs/chat-formatting.md` before touching any body renderer; the three parsers share one
   conformance table.
+- **A `ChatAttachment` with `ref` true only REFERENCES a photo another message owns** ("Choose from Albums" in the
+  chat; a send key `album:{mediaId}`, never staged). The key is the photo's identity, so anything that deletes,
+  rotates, re-flags, album-records or thread-parents BY KEY must pass a reference by: `deleteEverywhere`,
+  `deleteRenditions` and `recordAlbumRows` act on owned attachments only, `ensureChannelsForMessage` skips them,
+  rotation and visibility refuse. A new by-key path needs the same guard. `docs/album-picker.md`, "A chat reference".
 - `ChatPhotos.getChatPhotos()` is ONE static instance on purpose -- never give it ChatCommands'
   FacesContext/application-map lookup: the upload servlet has no FacesContext and the JSF send does, so a
   context-sensitive lookup splits the staging registry across two instances and every photo "is no longer

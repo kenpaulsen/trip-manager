@@ -289,4 +289,58 @@ public class ChatPhotoRotationTest {
 
         Assert.assertEquals(outcome.code(), ChatPhotoRotation.Outcome.STORE_FAILED);
     }
+
+    // --- a photo a message only REFERENCES ("Choose from Albums" in the chat) ---
+
+    /**
+     * End to end on the real send path: a photo shared in this chat is attached again, from the album, to a second
+     * message. The second message only references it, so nothing it does (a rotation, a public-site flag, its own
+     * removal) may reach the photo, its album row or the message that owns it.
+     */
+    @Test
+    public void aMessageThatOnlyReferencesAPhotoCanNeitherTurnItReFlagItNorTakeItDownWithItself() throws IOException {
+        final ChatMessage owner = post(PhotoFixtures.jpeg(900, 600));
+        final String key = owner.getAttachments().get(0).getS3Key();
+        final MediaItem row = albumRow(key);
+        final AlbumPhotoSource albums = Mockito.mock(AlbumPhotoSource.class);
+        Mockito.when(albums.offered(ArgumentMatchers.any(), ArgumentMatchers.eq(AlbumPhotoSource.tripScope(tripId)),
+                ArgumentMatchers.eq(row.getId()))).thenReturn(Optional.of(row));
+        photos.albumsForTest(albums, () -> author);
+        try {
+            final ChatCommands.SendResult sent = chat.send(tripId, member, "Remember this?", null, null, actor,
+                    List.of(new ChatPhotos.AttachmentRef(ChatPhotos.ALBUM_REF_PREFIX + row.getId(), null)));
+            Assert.assertTrue(sent.isOk(), String.valueOf(sent.getMessage()));
+            final ChatMessage borrower = sent.getMessageObj();
+            final ChatAttachment ref = reread(borrower.getId()).getAttachments().get(0);
+            Assert.assertTrue(ref.isRef());
+            Assert.assertEquals(ref.getS3Key(), key, "The original's own key");
+            Assert.assertEquals(ref.getWidth(), Integer.valueOf(900), "Dimensions read from the message that owns it");
+            Assert.assertEquals(DAO.getInstance().getMediaInSlot(ChatPhotos.slotFor(tripId), Cached.NO).size(), 1,
+                    "The album still lists the photo once");
+
+            final ChatPhotoRotation.Outcome turned =
+                    ChatPhotoRotation.rotate(chat, photos, tripId, key, QuarterTurn.LEFT, borrower.getId(), author);
+            Assert.assertEquals(turned.code(), ChatPhotoRotation.Outcome.FORBIDDEN);
+            Assert.assertEquals(turned.message(),
+                    "This photo was chosen from a trip album. It can only be rotated where it was first shared.");
+            Assert.assertEquals(served(key).getWidth(), 900, "The stored photo did not turn");
+
+            Assert.assertFalse(chat.setPhotoVisibility(tripId, key, true, borrower.getId(), author),
+                    "A reference has no public-site flag of its own");
+            Assert.assertFalse(albumRow(key).getHidden());
+
+            Assert.assertTrue(chat.deleteMessage(tripId, borrower.getId(), author));
+            Assert.assertTrue(photos.localGet(key).isPresent(), "Removing the reference leaves the photo stored");
+            Assert.assertEquals(albumRow(key).getId(), row.getId(), "And in its album");
+            Assert.assertFalse(removed.contains(key), "No removal was announced, so its comment thread stands");
+            Assert.assertEquals(reread(owner.getId()).getAttachments().get(0).getS3Key(), key,
+                    "The message that shared it still shows it");
+
+            // The message that OWNS the photo still turns it, as ever.
+            Assert.assertNotNull(ChatPhotoRotation.rotate(chat, photos, tripId, key, QuarterTurn.LEFT, owner.getId(),
+                    author).attachment(), "A rotation that happened answers the turned attachment");
+        } finally {
+            photos.albumsForTest(null, Caller::bound);
+        }
+    }
 }

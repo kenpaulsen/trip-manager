@@ -1,10 +1,12 @@
 package org.paulsens.trip.action;
 
 import jakarta.faces.context.FacesContext;
+import jakarta.inject.Inject;
 import java.util.Optional;
 import org.paulsens.trip.media.PendingUploads;
 import org.paulsens.trip.media.PhotoProcessor;
 import org.paulsens.trip.media.PhotoRejectedException;
+import org.paulsens.trip.model.MediaItem;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.util.ScopeUtil;
 import org.primefaces.event.FileUploadEvent;
@@ -77,6 +79,19 @@ public abstract class PhotoUploadBean {
     protected final PhotoProcessor processor = new PhotoProcessor();
     private PendingUploads pendingUploads = PendingUploads.getPendingUploads();
 
+    /** Trip albums as a second source beside the file upload ({@link #pickFromAlbum}). */
+    @Inject
+    private AlbumPhotoSource albumSource;
+
+    void setAlbumsForTest(final AlbumPhotoSource albums) {
+        this.albumSource = albums;
+    }
+
+    /** The album source, for a feature that reads it beyond {@link #pickFromAlbum} (trip pictures add in bulk). */
+    protected AlbumPhotoSource albums() {
+        return albumSource;
+    }
+
     void setPendingUploadsForTest(final PendingUploads pendingUploads) {
         this.pendingUploads = pendingUploads;
     }
@@ -115,6 +130,56 @@ public abstract class PhotoUploadBean {
             parked(event);
         } catch (final PhotoRejectedException ex) {
             error(capitalized(noun()) + " rejected: " + ex.getMessage());
+        }
+    }
+
+    /**
+     * The other way into the crop step: instead of a file from the person's device, a photo already shared in a
+     * trip album ("Choose from Albums", {@code WEB-INF/albumPickerDialog.xhtml} in its one-photo mode). The album
+     * photo's full-size bytes are parked exactly as an upload's are, so everything after this point -- the
+     * cropper at this feature's shape, {@link #confirm}, the authorization asked again there -- is the upload
+     * flow's own, unchanged. Reports {@code albumPicked}, on which the page swaps the album dialog for the crop
+     * dialog.
+     *
+     * <p>{@code mediaId} is a bare id from a browser: whether THIS caller may use THAT photo HERE is asked of
+     * {@link AlbumPhotoSource#offered} in {@link #albumScope()}, and one answer covers every refusal.
+     */
+    public void pickFromAlbum(final String mediaId) {
+        publishParam("albumPicked", parkAlbumPhoto(mediaId));
+    }
+
+    private boolean parkAlbumPhoto(final String mediaId) {
+        final UploadGate gate = uploadGate();
+        if (gate.denial() != null) {
+            error(gate.denial());
+            return false;
+        }
+        final String scope = albumScope();
+        final Optional<MediaItem> photo =
+                scope == null ? Optional.empty() : albums().offered(caller(), scope, mediaId);
+        if (photo.isEmpty()) {
+            error("Not available: that album photo cannot be used here.");
+            return false;
+        }
+        final Optional<byte[]> bytes = albums().bytesOf(photo.get());
+        if (bytes.isEmpty()) {
+            error("Not read: the album photo could not be read. Try again.");
+            return false;
+        }
+        if (bytes.get().length > gate.maxBytes()) {
+            error("Too large: " + noun() + "s can be at most " + (gate.maxBytes() / (1024 * 1024)) + " MB.");
+            return false;
+        }
+        try {
+            final PhotoProcessor.PreviewImage preview = processor.preview(bytes.get());
+            final PendingUploads.Pending pending =
+                    pendingUploads.put(bytes.get(), preview, callerId(), purpose(), targetId());
+            sessionPut(TOKEN_KEY, pending.token());
+            parkedFromAlbum(photo.get());
+            return true;
+        } catch (final PhotoRejectedException ex) {
+            error(capitalized(noun()) + " rejected: " + ex.getMessage());
+            return false;
         }
     }
 
@@ -171,6 +236,24 @@ public abstract class PhotoUploadBean {
 
     /** Hook: an upload has just been parked (badge images remember the filename as the label default). */
     protected void parked(final FileUploadEvent event) {
+    }
+
+    /**
+     * Which trip albums this feature's open dialog may pick from ({@link AlbumPhotoSource#tripScope},
+     * {@link AlbumPhotoSource#orgScope} or {@link AlbumPhotoSource#SCOPE_MINE}), derived from the SAME seam its
+     * authorization uses, never from the page. Null, the default, offers none: {@link #pickFromAlbum} refuses.
+     */
+    protected String albumScope() {
+        return null;
+    }
+
+    /** {@link #albumScope()} for the page, which lists the albums the dialog offers. */
+    public String getAlbumScope() {
+        return albumScope();
+    }
+
+    /** Hook: an album photo has just been parked (the twin of {@link #parked} for a pick). */
+    protected void parkedFromAlbum(final MediaItem photo) {
     }
 
     /** Hook: the dialog was cancelled, for a feature with dialog state of its own to clear. */
