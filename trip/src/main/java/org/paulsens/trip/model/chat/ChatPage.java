@@ -120,6 +120,12 @@ public class ChatPage implements Serializable {
                 names, avatars, serverTime);
     }
 
+    /** A copy carrying these messages instead (the same ones, brought up to date by the action layer). */
+    public ChatPage withMessages(final List<ChatMessage> newMessages) {
+        return new ChatPage(newMessages, reactions, cursor, reactionsVersion, mutationsVersion, hasMore, newestFirst,
+                displayNames, avatars, serverTime);
+    }
+
     /** A copy carrying profile-picture URLs for the people this page names; see {@link #avatars}. */
     public ChatPage withAvatars(final Map<String, String> urls) {
         return new ChatPage(messages, reactions, cursor, reactionsVersion, mutationsVersion, hasMore, newestFirst,

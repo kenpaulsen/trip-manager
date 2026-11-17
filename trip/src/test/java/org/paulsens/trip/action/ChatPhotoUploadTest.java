@@ -314,6 +314,12 @@ public class ChatPhotoUploadTest {
     @Test
     public void aChatListsTheAlbumsOfItsTripsOrganization() {
         Assert.assertEquals(bean.getAlbumScope(), AlbumPhotoSource.tripScope(tripId));
+        for (int i = 0; i <= ChatPhotoUpload.UPLOADS_PER_WINDOW; i++) {
+            Assert.assertNotNull(bean.getAlbumScope(), "Listing the albums spends no upload");
+        }
+        denial = "You are not in this chat.";
+        Assert.assertNull(bean.getAlbumScope(), "Someone who may not attach photos here lists nothing");
+        denial = null;
         tripId = null;
         Assert.assertNull(bean.getAlbumScope(), "No chat open, no albums");
     }

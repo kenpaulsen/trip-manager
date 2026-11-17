@@ -114,12 +114,20 @@ public class BadgePhotoCommands extends PhotoUploadBean {
         return trip == null ? null : trip.getId();
     }
 
+    /** Only the trip's managers; the album listing asks this too, so the image limit still lists (and says so). */
+    @Override
+    protected UploadGate authorization() {
+        return mayEdit(subjectTrip()) ? UploadGate.allow()
+                : UploadGate.deny("Not allowed: only this trip's managers can add badge images.");
+    }
+
     @Override
     protected UploadGate uploadGate() {
-        final Trip trip = subjectTrip();
-        if (!mayEdit(trip)) {
-            return UploadGate.deny("Not allowed: only this trip's managers can add badge images.");
+        final UploadGate who = authorization();
+        if (who.denial() != null) {
+            return who;
         }
+        final Trip trip = subjectTrip();
         if (trip.getBadgeImages().size() >= MAX_IMAGES) {
             return UploadGate.deny("Image limit reached: this trip already has " + MAX_IMAGES
                     + " custom badge images. Delete one first.");

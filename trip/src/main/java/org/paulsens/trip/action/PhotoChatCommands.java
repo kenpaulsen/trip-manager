@@ -295,10 +295,15 @@ public class PhotoChatCommands {
         return new Parent(null, null);
     }
 
-    private static ChatMessage.Id messageCarrying(final List<ChatMessage> batch, final String s3Key) {
+    /**
+     * The newest message in {@code batch} that OWNS the photo. A message that only references it ("Choose from
+     * albums" in a chat) carries the same key but is never its thread's parent: the thread would follow a borrower,
+     * and lose its parent when that borrower is removed.
+     */
+    static ChatMessage.Id messageCarrying(final List<ChatMessage> batch, final String s3Key) {
         for (final ChatMessage m : batch) {
             for (final ChatAttachment a : m.getAttachments()) {
-                if (s3Key.equals(a.getS3Key())) {
+                if (!a.isRef() && s3Key.equals(a.getS3Key())) {
                     return m.getId();
                 }
             }

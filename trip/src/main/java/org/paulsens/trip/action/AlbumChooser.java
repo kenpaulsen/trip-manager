@@ -22,8 +22,10 @@ import org.primefaces.PrimeFaces;
  * editors, an organization's link preview and its content). One mount with a named use serves them all.
  *
  * <p>Each host re-derives its own target from its own seam (the trip a dialog is open on, the role being
- * uploaded), exactly as it does for a file upload, so a {@code use} the page did not really open simply finds no
- * target and is refused there.
+ * uploaded), exactly as it does for a file upload, so a {@code use} the page did not really open finds no target
+ * and is refused there. A target is not enough to LIST albums, though: the trip a view remembers is also set by
+ * read-only pages (a trip's public page, its join page) for anyone signed in, so every host answers its scope
+ * only to a caller its own authorization admits ({@link PhotoUploadBean#getAlbumScope}).
  */
 @Named("albumChooser")
 @ApplicationScoped
@@ -108,7 +110,7 @@ public class AlbumChooser {
             case PROFILE -> profilePhotos.getAlbumScope();
             case LINK_PREVIEW -> branding.getAlbumScope();
             case LODGING -> lodgingUpload.getAlbumScope();
-            case LIBRARY, URL -> library.mayAdd() ? library.getAlbumScope() : null;
+            case LIBRARY, URL -> library.getAlbumScope();
             case CHAT -> chatUpload.getAlbumScope();
         };
     }

@@ -465,7 +465,10 @@ in this chat (same organization, an album they may open, not hidden; otherwise 4
 then carries an attachment with the ORIGINAL's `s3Key`/`thumbKey` and **`ref: true`** (absent on every ordinary
 photo). A client shows it like any photo and should offer neither rotate nor the public-site toggle for it (both are
 refused: 403 `FORBIDDEN` and 404); removing it removes only the reference. If the original is removed its URLs stop
-answering, so a `ref` photo that fails to load reads as "no longer available". The web chat creates references;
+answering, so a `ref` photo that fails to load reads as "no longer available". A `ref` attachment's `width`,
+`height`, `rev` and `thumbKey` follow the original on every history or poll read (it may have been rotated where it
+was shared), with NO `mutationsVersion` bump in the referencing channel: a client replaces a held message with the
+copy a later history read returns. The web chat creates references;
 the apps so far only display them. A posted photo's public-site flag may be revisited
 at any time by the uploader or a chat admin (2026-10-12): `PATCH /api/chat/channels/trip:{tripId}/photos?key=`
 `{hidden, messageId?}` (`messageId` is only a hint; the server finds the message by key) moves BOTH copies, the

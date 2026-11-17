@@ -14,10 +14,12 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.Audit;
 import org.paulsens.trip.audit.AuditActor;
@@ -35,6 +37,8 @@ import org.paulsens.trip.model.MediaItem;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.chat.ChatAttachment;
 import org.paulsens.trip.model.chat.ChatChannel;
+import org.paulsens.trip.model.chat.ChatPage;
+import org.paulsens.trip.model.chat.ChatMessage;
 import org.paulsens.trip.cache.Cached;
 
 /**
@@ -198,6 +202,11 @@ public class ChatPhotos {
      * or foreign-uploader keys throw — the composer can only get into that state by being tampered with, so
      * the send should fail loudly rather than quietly drop a photo.
      *
+     * <p>An {@code album:{mediaId}} reference ("Choose from albums") never touches staging: it is checked against
+     * the album rules ({@link AlbumPhotoSource#offered} in this trip's scope) and becomes a reference to the
+     * original. It CAN fail without tampering (the photo was hidden or removed after it was chosen, or a restored
+     * draft outlived it), and fails the send the same way, so the composer says so and keeps the message.
+     *
      * <p>Nothing is consumed here: validation happens before the message is saved, consumption after (see
      * {@link #consume}), so a send that fails downstream leaves the attachments attached in the composer.
      */
@@ -225,7 +234,8 @@ public class ChatPhotos {
      * The subset of {@code refs} still claimable by this person for this trip, each with its thumbnail key
      * for a composer preview. The non-throwing sibling of {@link #resolveStaged}: a draft outlives its
      * photos by design (each photo expires 24h after ITS upload), so an expired reference here is ordinary
-     * aging to prune quietly, not the tampering the send path fails loudly on.
+     * aging to prune quietly, not the tampering the send path fails loudly on. An {@code album:} reference is
+     * checked against the album rules instead of staging, and lapses the same quiet way.
      */
     public List<StagedRef> peekStaged(final String tripId, final Person.Id uploader,
             final List<AttachmentRef> refs) {
@@ -278,6 +288,52 @@ public class ChatPhotos {
                 // none in its album row, and an attachment with no thumbnail key is one the chat page cannot draw.
                 original.map(ChatAttachment::getHeight).orElse(null), photo.getDisplayKey(),
                 blankToNull(ref.title()), null, null, null, photo.getRev(), Boolean.TRUE);
+    }
+
+    /**
+     * A page whose references show their photos as they are NOW. A reference copies the photo's size, small
+     * rendition and {@code rev} once, at send, and nothing indexes references, so when the photo is turned where it
+     * was first shared no reference can be rewritten: each is brought up to date here, on the way out, from its
+     * album row ({@link ChatAttachment#followingAlbum}). A page with no reference costs nothing; one with any reads
+     * the album rows ONCE, however many albums its references come from.
+     */
+    public ChatPage withCurrentReferences(final ChatPage page) {
+        if (page.getMessages().stream().noneMatch(ChatPhotos::carriesReference)) {
+            return page;
+        }
+        final Map<String, MediaItem> rows = albumRowsByKey();
+        return page.withMessages(page.getMessages().stream()
+                .map(message -> carriesReference(message) ? current(message, rows) : message)
+                .toList());
+    }
+
+    private static boolean carriesReference(final ChatMessage message) {
+        return message.getAttachments().stream().anyMatch(a -> a.isRef() && !a.isDeleted());
+    }
+
+    private static ChatMessage current(final ChatMessage message, final Map<String, MediaItem> rows) {
+        return message.withAttachments(message.getAttachments().stream()
+                .map(a -> a.isRef() && !a.isDeleted() ? current(a, rows.get(a.getS3Key())) : a)
+                .toList());
+    }
+
+    private static ChatAttachment current(final ChatAttachment ref, final MediaItem row) {
+        return row == null ? ref : ref.followingAlbum(row.getRev(), row.getSize(), row.getDisplayKey());
+    }
+
+    /**
+     * Seam: every trip album row by its photo's key (the first, when a key has two), from one read of the media
+     * table; empty when it cannot be read, which leaves every reference as it was sent.
+     */
+    protected Map<String, MediaItem> albumRowsByKey() {
+        try {
+            return DAO.getInstance().getAllMedia(Cached.YES).stream()
+                    .filter(row -> isChatSlot(row.getSlot()) && row.getS3Key() != null)
+                    .collect(Collectors.toMap(MediaItem::getS3Key, row -> row, (first, second) -> first));
+        } catch (final RuntimeException ex) {
+            log.error("Unable to read the trip albums to refresh chat references", ex);
+            return Map.of();
+        }
     }
 
     /**

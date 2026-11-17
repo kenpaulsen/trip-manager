@@ -1122,9 +1122,9 @@ public class ChatCommands {
         }
         final Optional<ChatMembership> member =
                 dao().getChatMembership(channel.getId(), readerId, Cached.NO);
-        return withNames(dao().getChatMessagesSince(
+        return withNames(ChatPhotos.getChatPhotos().withCurrentReferences(dao().getChatMessagesSince(
                 channel.getId(), since, limit, member.orElse(null), channel, tripOf(channel), Instant.now(), Cached.NO)
-                );
+                ));
     }
 
     public ChatPage history(
@@ -1138,9 +1138,9 @@ public class ChatCommands {
         }
         final Optional<ChatMembership> member =
                 dao().getChatMembership(channel.getId(), readerId, Cached.NO);
-        return withNames(dao().getChatMessagesBefore(
+        return withNames(ChatPhotos.getChatPhotos().withCurrentReferences(dao().getChatMessagesBefore(
                 channel.getId(), before, limit, member.orElse(null), channel, tripOf(channel), Instant.now(), Cached.NO)
-                );
+                ));
     }
 
     /** The send is not acknowledged unless the durable write succeeded, so a failure must surface. */

@@ -838,7 +838,7 @@ public class BrandCommands {
      * URLs are absolute already and pass through.
      */
     static String absolute(final String url) {
-        return url.startsWith("/") && !url.startsWith("//") ? BrandingPhotos.localBaseUrl() + url : url;
+        return BrandingPhotos.absoluteAgainst(BrandingPhotos.localBaseUrl(), url);
     }
 
     /**

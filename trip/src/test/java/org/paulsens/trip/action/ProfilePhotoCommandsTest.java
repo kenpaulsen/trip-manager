@@ -647,6 +647,10 @@ public class ProfilePhotoCommandsTest {
     @Test
     public void aProfilePictureMayComeFromAnyAlbumThePersonChoosingMayOpen() {
         Assert.assertEquals(bean.getAlbumScope(), AlbumPhotoSource.SCOPE_MINE);
+        final Caller own = caller;
+        caller = callerFor(Person.Id.newInstance(), false);
+        Assert.assertNull(bean.getAlbumScope(), "Someone who may not change this picture lists nothing");
+        caller = own;
         subject = null;
         Assert.assertNull(bean.getAlbumScope(), "Nobody's profile, no albums");
     }

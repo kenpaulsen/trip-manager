@@ -274,6 +274,15 @@ public class BrandingPhotos {
                 + ext.getRequestContextPath();
     }
 
+    /**
+     * A site-relative URL made absolute against {@code base}; an absolute, protocol-relative or null one as it is.
+     * The ONE rule for storing a local library picture where only a full web address is taken (the Appearance
+     * background, a content field filled from an album), so the two can never store one picture two ways.
+     */
+    static String absoluteAgainst(final String base, final String url) {
+        return url != null && url.startsWith("/") && !url.startsWith("//") ? base + url : url;
+    }
+
     /** Local-mode read-back, for the branding-photo servlet's GET. Empty when remote or unknown. */
     public Optional<byte[]> localGet(final String key) {
         return localStore.get(key);

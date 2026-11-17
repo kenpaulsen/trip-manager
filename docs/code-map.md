@@ -51,8 +51,8 @@ hotel seen from its own side: the nights its rooms are blocked and how full it i
 counts and dates but never a guest's name in the calendar; plus `tripRows`, the Trips tab's rows for the hotel's
 OPERATORS alone, which DO name the guests at their hotel across orgs -- the documented tenancy extension; same doc),
 `tripPictures` (TripPictureCommands -- a trip's cover and gallery: the editor's Pictures dialog and the REST picture
-endpoints; `docs/trip-pictures.md`), `albumPhotos` (AlbumPhotoSource -- trip albums as a source of pictures: which
-albums and photos "Choose from Albums" offers, per scope), `albumChooser` (AlbumChooser -- the one album dialog's
+endpoints; `docs/trip-pictures.md`), `AlbumPhotoSource` (no EL name: trip albums as a source of
+pictures, which albums and photos "Choose from Albums" offers per scope, reached only through `albumChooser`), `albumChooser` (AlbumChooser -- the one album dialog's
 dispatcher: a named use decides the bean and the scope), `albumLibrary` (AlbumLibrary -- album photos copied into the
 media library; all three `docs/album-picker.md`), `tripCards` (TripCardCommands -- the Trip Listings section's picture cards: link,
 one registration state, cover or fallback, the featured next departure; same doc) and

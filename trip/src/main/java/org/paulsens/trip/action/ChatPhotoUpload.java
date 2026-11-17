@@ -58,22 +58,34 @@ public class ChatPhotoUpload extends PhotoUploadBean {
         return tripId == null ? null : AlbumPhotoSource.tripScope(tripId);
     }
 
-    /** Chat's gates, in the order they were always asked; the cap is the channel's, not a constant. */
+    /**
+     * Who may attach photos in this chat (and so list albums for it): signed in, in a trip chat, and let in by
+     * {@code checkAttach}; the cap is the channel's. The album listing asks this too, so it never spends the upload
+     * rate limit. Whose albums are then listed is still each album's own rule ({@link AlbumPhotoSource#mayOpen}).
+     */
     @Override
-    protected UploadGate uploadGate() {
+    protected UploadGate authorization() {
         final String tripId = tripId();
         final Person.Id me = caller().personId();
         if (tripId == null || me == null) {
             return UploadGate.deny("Not allowed: sign in and open a trip chat to attach photos.");
-        }
-        if (!limiter().allow(me.getValue())) {
-            return UploadGate.deny("Too many uploads: wait a minute and try again.");
         }
         final ChatCommands.AttachGate gate = checkAttach(tripId, me);
         if (gate.denial() != null) {
             return UploadGate.deny("Not allowed: " + gate.denial());
         }
         return UploadGate.allow(gate.channel().getSettings().getMaxAttachmentBytes());
+    }
+
+    /** {@link #authorization}, then the per-person upload rate limit, spent only by someone who may upload. */
+    @Override
+    protected UploadGate uploadGate() {
+        final UploadGate who = authorization();
+        if (who.denial() != null) {
+            return who;
+        }
+        return limiter().allow(caller().personId().getValue())
+                ? who : UploadGate.deny("Too many uploads: wait a minute and try again.");
     }
 
     /** Stage the (possibly cropped) photo and hand its details to the tray JS; a failure reports itself. */

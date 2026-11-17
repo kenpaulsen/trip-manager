@@ -1,7 +1,6 @@
 package org.paulsens.trip.action;
 
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.inject.Named;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -9,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
@@ -18,11 +18,12 @@ import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.site.ListingScope;
 
 /**
- * Trip albums as a SOURCE of pictures, exposed as {@code #{albumPhotos}}: which albums a person may pick from while
- * editing one trip, which of their photos are offered, and the bytes of a picked one. A trip's album is the photos
- * shared in its chat (media rows in slot {@code tripChat-{tripId}}), the same rows {@code trip/tripMedia.xhtml}
- * shows its members. The "Choose from Albums" dialog reads this class; what a picked photo becomes is the host's
- * business ({@link TripPictureCommands#addFromAlbum} cuts it into a trip picture).
+ * Trip albums as a SOURCE of pictures: which albums a person may pick from for one host, which of their photos are
+ * offered, and the bytes of a picked one. A trip's album is the photos shared in its chat (media rows in slot
+ * {@code tripChat-{tripId}}), the same rows {@code trip/tripMedia.xhtml} shows its members. No page reads this class
+ * directly: the "Choose from Albums" dialog goes through {@link AlbumChooser}, which takes the scope from the host's
+ * own seam, never from the page. What a picked photo becomes is the host's business
+ * ({@link TripPictureCommands#addFromAlbum} cuts it into a trip picture).
  *
  * <p>Three rules decide what is offered, and every one of them is asked again when a pick is turned into bytes
  * ({@link #offered}), because the pick arrives from the browser as a bare media id:
@@ -43,7 +44,6 @@ import org.paulsens.trip.site.ListingScope;
  * Only images are offered; an album row of any other type is skipped without being counted.
  */
 @Slf4j
-@Named("albumPhotos")
 @ApplicationScoped
 public class AlbumPhotoSource {
 
@@ -119,8 +119,8 @@ public class AlbumPhotoSource {
     private enum Reach { ORG, SITE, ANY }
 
     /**
-     * A scope, read: the trip being edited (listed first even when empty, and its own album always usable by
-     * whoever may edit it), and whose albums are offered ({@code orgId} only for {@link Reach#ORG}).
+     * A scope, read: the trip a host is open on (listed first, even when empty, to someone who may open it), and
+     * whose albums are offered ({@code orgId} only for {@link Reach#ORG}).
      */
     private record Scope(Trip current, String orgId, Reach reach) {
 
@@ -160,7 +160,7 @@ public class AlbumPhotoSource {
     // ------------------------------------------------------------------ what a page asks
 
     /**
-     * The albums the signed-in person may pick from in {@code scope}: the trip being edited first (a trip scope),
+     * The albums the signed-in person may pick from in {@code scope}: the host's own trip first (a trip scope),
      * then every other album the scope admits that they may open and that has at least one image, newest trip
      * first. Empty for an unknown scope or nobody signed in. Memoized for the request: the dialog asks for the
      * list and then for one album of it.
@@ -200,15 +200,19 @@ public class AlbumPhotoSource {
             return List.of();
         }
         final Scope scope = found.get();
+        // Every album's rows from ONE read of the media table: a read per trip re-read the whole table each time.
+        final Map<String, List<MediaItem>> rows = albumRows();
         final List<Album> albums = new ArrayList<>();
-        if (scope.current() != null) {
-            albums.add(albumOf(scope.current(), true));
+        // The trip a host is open on is listed first, but only to someone who may open its album like any other:
+        // a chat guest may post in the trip's chat without being let into its album (owner, 2026-11-17).
+        if (scope.current() != null && mayOpen(caller, scope.current())) {
+            albums.add(albumOf(scope.current(), true, rows));
         }
         candidateTrips(caller).stream()
                 .filter(trip -> !scope.isCurrent(trip))
                 .filter(trip -> admits(scope, trip) && mayOpen(caller, trip))
                 .sorted(Comparator.comparing(Trip::getStartDate, Comparator.nullsLast(Comparator.reverseOrder())))
-                .map(trip -> albumOf(trip, false))
+                .map(trip -> albumOf(trip, false, rows))
                 .filter(album -> !album.photos().isEmpty() || album.withheld() > 0)
                 .forEach(albums::add);
         return List.copyOf(albums);
@@ -216,8 +220,9 @@ public class AlbumPhotoSource {
 
     /**
      * The album row behind a pick, when {@code caller} may use it in {@code scope}: an image, in a trip's chat
-     * album, not kept private, of a trip the scope admits whose album the caller may open (or the very trip
-     * being edited). Empty for anything else, without saying which rule refused: the id came from a browser.
+     * album, not kept private, of a trip the scope admits whose album the caller may open (the host's own trip
+     * included: it is no exception). Empty for anything else, without saying which rule refused: the id came from
+     * a browser.
      */
     public Optional<MediaItem> offered(final Caller caller, final String scopeText, final String mediaId) {
         final Optional<Scope> scope = scopeOf(scopeText);
@@ -230,7 +235,7 @@ public class AlbumPhotoSource {
         }
         final Optional<Trip> albumTrip = tripOf(ChatPhotos.tripOfSlot(item.get().getSlot()));
         final boolean allowed = albumTrip.isPresent() && admits(scope.get(), albumTrip.get())
-                && (scope.get().isCurrent(albumTrip.get()) || mayOpen(caller, albumTrip.get()));
+                && mayOpen(caller, albumTrip.get());
         return allowed ? item : Optional.empty();
     }
 
@@ -270,11 +275,11 @@ public class AlbumPhotoSource {
         return isImage(item) && !item.getHidden();
     }
 
-    private Album albumOf(final Trip trip, final boolean current) {
+    private Album albumOf(final Trip trip, final boolean current, final Map<String, List<MediaItem>> rows) {
         final String base = photoBase();
         final List<Photo> photos = new ArrayList<>();
         int withheld = 0;
-        for (final MediaItem item : rowsOf(trip.getId())) {
+        for (final MediaItem item : rows.getOrDefault(trip.getId(), List.of())) {
             if (!isImage(item)) {
                 continue;
             }
@@ -303,9 +308,17 @@ public class AlbumPhotoSource {
 
     // ------------------------------------------------------------------ seams
 
-    /** Seam: whether the caller administers this organization; none has no admins. */
+    /** Seam: whether the caller administers this organization ({@link #adminsOrg}). */
     protected boolean isOrgAdmin(final Caller caller, final String orgId) {
-        if (orgId == null) {
+        return adminsOrg(caller, orgId);
+    }
+
+    /**
+     * Whether the caller administers this organization; none (or a blank id) has no admins. The one implementation
+     * the album rules, the media library and the trip pictures all ask, through their own seams.
+     */
+    static boolean adminsOrg(final Caller caller, final String orgId) {
+        if (orgId == null || orgId.isBlank()) {
             return false;
         }
         final Optional<Organization> org = DAO.getInstance().getOrganization(Organization.Id.from(orgId), Cached.YES);
@@ -350,13 +363,19 @@ public class AlbumPhotoSource {
         return List.copyOf(byId.values());
     }
 
-    /** Seam: one trip's album rows, in album order. */
-    protected List<MediaItem> rowsOf(final String tripId) {
+    /**
+     * Seam: every trip's album rows, by trip id, each in album order (position, then upload time: the album page's
+     * own order). One read of the media table for the whole listing.
+     */
+    protected Map<String, List<MediaItem>> albumRows() {
         try {
-            return DAO.getInstance().getMediaInSlot(ChatPhotos.slotFor(tripId), Cached.YES);
+            return DAO.getInstance().getAllMedia(Cached.YES).stream()
+                    .filter(item -> ChatPhotos.isChatSlot(item.getSlot()))
+                    .sorted(MediaItem.SLOT_ORDER)
+                    .collect(Collectors.groupingBy(item -> ChatPhotos.tripOfSlot(item.getSlot())));
         } catch (final RuntimeException ex) {
-            log.error("Unable to list the album of trip " + tripId, ex);
-            return List.of();
+            log.error("Unable to list the trip albums", ex);
+            return Map.of();
         }
     }
 

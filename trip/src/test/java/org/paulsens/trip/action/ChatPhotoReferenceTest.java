@@ -2,6 +2,7 @@ package org.paulsens.trip.action;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -15,6 +16,8 @@ import org.paulsens.trip.model.MediaItem;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.chat.ChatAttachment;
 import org.paulsens.trip.model.chat.ChatMessage;
+import org.paulsens.trip.model.chat.ChatPage;
+import org.paulsens.trip.model.chat.ChatChannel;
 import org.testng.Assert;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
@@ -205,5 +208,69 @@ public class ChatPhotoReferenceTest {
         final ChatMessage removed = Mockito.mock(ChatMessage.class);
         Mockito.when(removed.getAttachments()).thenReturn(List.of(ref.deleted("Someone")));
         Assert.assertFalse(ChatPhotoEdits.isReference(removed, original.getS3Key()));
+    }
+
+    private static ChatMessage carrying(final String id, final ChatAttachment attachment) {
+        return new ChatMessage(ChatMessage.Id.from(id), ChatChannel.Id.forTrip("x"), SHARER, Instant.now(),
+                ChatMessage.MessageKind.TEXT, "", null, List.of(attachment), null, null, null, null, null, null, 1);
+    }
+
+    @Test
+    public void aPhotosThreadHangsOffTheMessageThatOwnsItNeverAReference() {
+        final ChatAttachment ref = reference();
+        final List<ChatMessage> newestFirst = List.of(carrying("2", ref), carrying("1", original));
+        Assert.assertEquals(PhotoChatCommands.messageCarrying(newestFirst, original.getS3Key()),
+                ChatMessage.Id.from("1"), "The newer message only borrows the photo");
+        Assert.assertNull(PhotoChatCommands.messageCarrying(List.of(carrying("2", ref)), original.getS3Key()),
+                "A page holding only borrowers holds no parent");
+    }
+
+    @Test
+    public void aReferenceFollowsItsPhotoWhenItIsTurnedWhereItWasShared() {
+        final ChatAttachment ref = reference();
+        final ChatPage page = new ChatPage(List.of(carrying("2", ref), carrying("1", original)), null, null, 0L, 0L,
+                false, true, null, null);
+        Assert.assertSame(photos.withCurrentReferences(page).getMessages().getFirst().getAttachments().getFirst(),
+                ref, "Not turned since it was sent: as it was");
+
+        // Turned once where it was shared: the album row moves on, and so does what the reference shows.
+        Assert.assertTrue(photos.setAlbumRotated(tripA, original.getS3Key(), 4321L, original.getThumbKey()));
+        final ChatAttachment once = photos.withCurrentReferences(page).getMessages().getFirst()
+                .getAttachments().getFirst();
+        Assert.assertEquals(once.getWidth(), ref.getHeight(), "A quarter turn swaps the dimensions");
+        Assert.assertEquals(once.getHeight(), ref.getWidth());
+        Assert.assertEquals(once.getRev(), ref.getRev() + 1, "So its address changes and browsers refetch it");
+        Assert.assertEquals(once.getSize(), 4321L);
+        Assert.assertTrue(once.isRef());
+        Assert.assertSame(photos.withCurrentReferences(page).getMessages().get(1), page.getMessages().get(1),
+                "The owning message keeps its own facts, rotated with it");
+
+        // A row whose rev went BACK (rebuilt by old code without it) is not a turn: the reference stays put.
+        Assert.assertSame(once.followingAlbum(0, 4321L, original.getThumbKey()), once);
+
+        // Turned twice: the shape is back where it was.
+        Assert.assertTrue(photos.setAlbumRotated(tripA, original.getS3Key(), 4322L, original.getThumbKey()));
+        final ChatAttachment twice = photos.withCurrentReferences(page).getMessages().getFirst()
+                .getAttachments().getFirst();
+        Assert.assertEquals(twice.getWidth(), ref.getWidth());
+        Assert.assertEquals(twice.getRev(), ref.getRev() + 2);
+
+        // A page with no reference is handed back untouched, and a removed reference is left removed.
+        final ChatPage plain = new ChatPage(List.of(carrying("1", original)), null, null, 0L, 0L, false, true, null,
+                null);
+        Assert.assertSame(photos.withCurrentReferences(plain), plain);
+        final ChatAttachment gone = ref.deleted("Someone");
+        final ChatPage tombstone = new ChatPage(List.of(carrying("3", gone)), null, null, 0L, 0L, false, true, null,
+                null);
+        Assert.assertSame(photos.withCurrentReferences(tombstone), tombstone);
+    }
+
+    @Test
+    public void aReferenceWhoseAlbumRowIsGoneShowsWhatItWasSent() {
+        final ChatAttachment ref = reference();
+        photos.deleteEverywhere(List.of(original));
+        final ChatPage page = new ChatPage(List.of(carrying("2", ref)), null, null, 0L, 0L, false, true, null, null);
+        Assert.assertEquals(photos.withCurrentReferences(page).getMessages().getFirst().getAttachments().getFirst(),
+                ref, "Nothing to follow: the page notes the photo is gone when it fails to load");
     }
 }

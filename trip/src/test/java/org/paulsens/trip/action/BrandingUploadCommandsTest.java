@@ -535,6 +535,9 @@ public class BrandingUploadCommandsTest {
         session.put(BrandingUploadCommands.ORG_KEY, "org-1");
         session.put(BrandingUploadCommands.ROLE_KEY, "ogImage");
         Assert.assertEquals(bean.getAlbumScope(), AlbumPhotoSource.orgScope("org-1"));
+        manageable = false;
+        Assert.assertNull(bean.getAlbumScope(), "Not this organization's administrator: nothing listed");
+        manageable = true;
         session.put(BrandingUploadCommands.ROLE_KEY, "favicon");
         Assert.assertNull(bean.getAlbumScope(), "A favicon is not a photograph");
         session.put(BrandingUploadCommands.ROLE_KEY, "ogImage");

@@ -841,14 +841,13 @@ public class TripsResource extends BaseResource {
 
     private TripDto withViewerEvents(final Trip trip, final Person.Id me) {
         final TripDto dto = TripMapper.INSTANCE.toDto(trip);
-        final TripDto full = new TripDto(dto.id(), dto.title(), dto.description(), dto.openToPublic(),
+        return withShownTags(new TripDto(dto.id(), dto.title(), dto.description(), dto.openToPublic(),
                 dto.chatEnabled(), dto.startDate(), dto.endDate(), dto.regLimit(), dto.provider(), dto.orgId(),
                 dto.language(),
                 dto.estimatedPrice(), dto.director(), dto.localGuide(), dto.facilitators(), dto.flyerUrl(),
                 dto.nonHostedTripUrl(), dto.nonHostedRegNumber(), dto.regOptions(), dto.people(),
                 eventDtos(trip, me), dto.kind(), dto.paymentConfig(), dto.page(), detailsUrl(trip),
-                pictureDtos(trip), dto.destination(), dto.country(), dto.tags());
-        return withShownTags(full, trip);
+                pictureDtos(trip), dto.destination(), dto.country(), dto.tags(), null), trip);
     }
 
     private static List<TripEventDto> eventDtos(final Trip trip, final Person.Id viewer) {

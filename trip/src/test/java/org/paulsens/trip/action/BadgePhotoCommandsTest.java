@@ -702,6 +702,7 @@ public class BadgePhotoCommandsTest {
         bean.pickFromAlbum("m1");
         Assert.assertEquals(params.get("albumPicked"), false, "Not this trip's manager: the upload gate's own answer");
         Assert.assertFalse(bean.isUploadPending());
+        Assert.assertNull(bean.getAlbumScope(), "And lists nothing: the trip may be pinned by a page anyone can open");
 
         trip = null;
         Assert.assertNull(bean.getAlbumScope(), "No trip, no albums");

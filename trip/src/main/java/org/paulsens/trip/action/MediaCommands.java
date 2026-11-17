@@ -369,10 +369,7 @@ public class MediaCommands {
         }
         final String cleanSlot = slot.trim();
         final int position = getInSlot(cleanSlot).stream().mapToInt(MediaItem::getPosition).max().orElse(-1) + 1;
-        final MediaItem updated = new MediaItem(existing.getId(), existing.getS3Key(), existing.getTitle(),
-                existing.getDescription(), existing.getContentType(), existing.getSize(), cleanSlot, position,
-                LocalDateTime.now(), existing.getUploadedBy(), existing.getSmallKey(), existing.getHidden(),
-                existing.getOrgId());
+        final MediaItem updated = existing.withPlacement(cleanSlot, position, LocalDateTime.now());
         try {
             if (!DAO.getInstance().saveMedia(updated)) {
                 return false;
@@ -1080,11 +1077,8 @@ public class MediaCommands {
             }
         }
 
-        final MediaItem updated = new MediaItem(existing.getId(), cleanKey, title, description,
-                existing.getContentType(), existing.getSize(), slot,
-                (position == null) ? existing.getPosition() : position,
-                existing.getUploaded(), existing.getUploadedBy(), existing.getSmallKey(), hidden,
-                existing.getOrgId());
+        final MediaItem updated = existing.withEdits(cleanKey, title, description, slot,
+                (position == null) ? existing.getPosition() : position, hidden);
         try {
             if (!DAO.getInstance().saveMedia(updated)) {
                 PageFeedback.error("Not saved", "The save failed.");

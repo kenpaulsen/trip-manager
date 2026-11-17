@@ -62,22 +62,6 @@ public record TripDto(
         List<String> tags,
         List<String> tagLabels) {
 
-    /** The shape before tag labels (issue 155), for the same reason as the others; a read fills them in. */
-    public TripDto(final String id, final String title, final String description, final Boolean openToPublic,
-            final boolean chatEnabled, final LocalDateTime startDate, final LocalDateTime endDate,
-            final Integer regLimit, final String provider, final String orgId, final String language,
-            final String estimatedPrice, final String director, final String localGuide, final String facilitators,
-            final String flyerUrl, final String nonHostedTripUrl, final Integer nonHostedRegNumber,
-            final List<RegOptionDto> regOptions, final List<String> people, final List<TripEventDto> tripEvents,
-            final String kind, final TripPaymentConfigDto paymentConfig, final TripPageOptionsDto page,
-            final String detailsUrl, final List<TripPictureDto> pictures, final String destination,
-            final String country, final List<String> tags) {
-        this(id, title, description, openToPublic, chatEnabled, startDate, endDate, regLimit, provider, orgId,
-                language, estimatedPrice, director, localGuide, facilitators, flyerUrl, nonHostedTripUrl,
-                nonHostedRegNumber, regOptions, people, tripEvents, kind, paymentConfig, page, detailsUrl, pictures,
-                destination, country, tags, null);
-    }
-
     /** The shape before pictures, destination, country and tags (issue 154), for the same reason as the others. */
     public TripDto(final String id, final String title, final String description, final Boolean openToPublic,
             final boolean chatEnabled, final LocalDateTime startDate, final LocalDateTime endDate,

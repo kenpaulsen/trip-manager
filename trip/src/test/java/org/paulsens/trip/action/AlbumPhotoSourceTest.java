@@ -65,8 +65,9 @@ public class AlbumPhotoSourceTest {
         admin = new Caller(Person.Id.newInstance(), true, AuditActor.from(null), priv);
         source = new TestSource();
 
-        // The trip being edited: next year's, no album yet.
-        trip("target", "Medjugorje 2027", ORG, 2027, List.of());
+        // The trip a host is open on: next year's, no album yet, with the member on it (its own album follows the
+        // album rule like any other, so whoever picks from it may open it).
+        trip("target", "Medjugorje 2027", ORG, 2027, List.of(memberId));
         // Two earlier trips of the same organization the member traveled on, and one they did not.
         trip("older", "2025 Oct: Peru Mission", ORG, 2025, List.of(memberId));
         trip("newer", "2026 Sep: Holy Angels", ORG, 2026, List.of(memberId));
@@ -120,8 +121,8 @@ public class AlbumPhotoSourceTest {
         }
 
         @Override
-        protected List<MediaItem> rowsOf(final String tripId) {
-            return albums.getOrDefault(tripId, List.of());
+        protected Map<String, List<MediaItem>> albumRows() {
+            return albums;
         }
 
         @Override
@@ -308,11 +309,15 @@ public class AlbumPhotoSourceTest {
     }
 
     @Test
-    public void aTripsOwnAlbumIsOfferedToWhoeverEditsItAndALibraryFileNeverIs() {
-        // An organization admin edits the trip without being on its roster: its own album is still theirs to use.
+    public void aTripsOwnAlbumIsNoExceptionAndALibraryFileIsNeverAnAlbumPhoto() {
+        // The host's own trip follows the album rule like any other: someone who may post in its chat (an invite
+        // guest) or reach its page, but may not open its album, is neither shown it nor offered its photos.
         final Caller offRoster = new Caller(Person.Id.newInstance(), false, AuditActor.from(null), priv);
         album("target", photo("own1", "target", "image/jpeg", false));
-        Assert.assertTrue(source.offered(offRoster, scope("target"), "own1").isPresent());
+        Assert.assertTrue(source.offered(member, scope("target"), "own1").isPresent(), "Its own traveler may");
+        Assert.assertTrue(source.offered(offRoster, scope("target"), "own1").isEmpty(), "A guest may not");
+        Assert.assertFalse(ids(source.albumsFor(offRoster, scope("target"))).contains("target"),
+                "Nor is the guest shown it");
 
         // A media-library row (no chat slot) is not an album photo, whatever its type.
         final MediaItem library = new MediaItem("lib1", "org/x/flyer.jpg", "Flyer", null, "image/jpeg", 1L,

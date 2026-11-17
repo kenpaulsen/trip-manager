@@ -44,7 +44,7 @@ photo; a photo already of the shape has none); **whole** and **choose** use phot
 the press. A floor plan, a logo and a favicon are never album photos, so those have no album button. The Trip Page
 background and the Appearance background already pick from the media library, which is how album photos reach them.
 
-## What is offered (`AlbumPhotoSource`, `#{albumPhotos}`)
+## What is offered (`AlbumPhotoSource`, reached only through `#{albumChooser}`)
 
 Three rules, each asked AGAIN when a pick is used (`offered`), because a pick arrives from the browser as a bare
 media id:
@@ -67,7 +67,14 @@ the store's 400 most recent; there is no index of trips by organization.
 
 Each host derives its scope from the SAME seam its authorization uses (`PhotoUploadBean.albumScope()`: the trip a
 dialog is open on, the role being uploaded), never from the page, so a use the page did not really open finds no
-target and is refused there.
+target and is refused there. A target alone does not LIST albums: the trip a view remembers (`viewScope.theTripId`)
+is also set by read-only pages any signed-in person can open (a trip's public page, its join page), so a host names
+its scope only to a caller its own authorization admits (`PhotoUploadBean.getAlbumScope`, through
+`mayChooseFromAlbums`: by default the upload gate; chat asks only `checkAttach`, so listing spends no upload of the
+rate limit; trip pictures and badges ask only whether the caller may edit the trip, so a full gallery still lists and
+then says there is no room; the library and URL uses ask `AlbumLibrary.mayAdd` in `AlbumLibrary.getAlbumScope`). Every
+album listing reads the media table ONCE (`albumRows`), however many trips it
+looks through.
 
 ## The copy paths
 
@@ -82,7 +89,9 @@ target and is refused there.
 - **The media library** (`library`, `url`): `AlbumLibrary` (`#{albumLibrary}`) re-encodes the photo whole as a JPEG
   no wider than 2400 pixels (a fresh encode, so no camera or GPS metadata rides along), stores it under the owner's
   `album-photos/` folder (`org/{orgId}/album-photos/{number}.jpg`; no prefix on a shared site) and records an
-  ordinary library row. Who may: this site's media admins, an editor of its content (`contentAdmin` here) or an
+  ordinary library row titled "Album photo" and described "Copied from a trip album": never the album row's title
+  (the caption the sender typed for the trip's members) or description (who shared it, in which trip's chat), because
+  a library row is public. An admin may rename it; the audit line keeps the source key. Who may: this site's media admins, an editor of its content (`contentAdmin` here) or an
   admin of its organization (`mayAdd`). The `url` use hands the copy's address back (`albumUrl`), made absolute in
   local mode because a picture field takes only a full web address. Local mode has no bucket: the copies sit in a
   capped in-memory store behind `web/AlbumLibraryServlet` at `/album-library/*`
@@ -106,6 +115,17 @@ all of those with the original. What a reference must never do, and the code tha
 | re-parents the photo's comment thread to itself | `PhotoChatCommands.ensureChannelsForMessage` skips references |
 | turns the stored photo | `ChatPhotoRotation.rotate` refuses (FORBIDDEN, with its own message) |
 | changes the public-site flag | `ChatPhotoEdits.setVisibility` refuses |
+| becomes the parent of the photo's thread when the thread is made late | `PhotoChatCommands.messageCarrying` matches owners only |
+
+A reference copies the photo's size, small rendition and `rev` once, at send. When the photo is later turned where it
+was first shared, the reference is not rewritten (nothing indexes references); instead `ChatPhotos.withCurrentReferences`
+brings every reference on a page up to date from its album row as the chat feed and history go out
+(`ChatCommands.feed`/`history`): every turn is a quarter that moves `rev` on by one, so an odd number of turns since
+the send swaps the dimensions (`ChatAttachment.followingAlbum`), and only a rev that moved FORWARD counts (so every
+rebuild of an album row must carry its `rev`, as `MediaCommands.update` and `assignToSlot` do). A page with no
+reference costs nothing; one with any reads the album rows once (`ChatPhotos.albumRowsByKey`). Nothing signals the
+referencing chat when the original turns, so a chat already open keeps a reference's old shape until its messages
+are read again (a reload, or a history read), like the reaction-chip lag above.
 
 When the ORIGINAL is removed (its message, or its whole trip), a reference has nothing left to show. There is no
 index from a photo to the messages that reference it, so the reference is not rewritten: the web chat replaces the

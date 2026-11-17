@@ -1,8 +1,6 @@
 package org.paulsens.trip.action;
 
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.faces.context.ExternalContext;
-import jakarta.faces.context.FacesContext;
 import jakarta.inject.Inject;
 import jakarta.inject.Named;
 import java.time.LocalDateTime;
@@ -64,6 +62,12 @@ public class AlbumLibrary {
     /** How many photos one Add may copy: each is a decode and an encode on the request's thread. */
     static final int MAX_PER_ADD = 20;
 
+    /** A copy's library title: neutral, never the sender's caption (an admin may rename it). */
+    static final String COPY_TITLE = "Album photo";
+
+    /** What a copy's library row says about it: where it came from, and nothing about who shared it. */
+    static final String COPY_DESCRIPTION = "Copied from a trip album";
+
     static final long CACHE_SECONDS = 86_400L;
     static final long LOCAL_STORE_MAX_BYTES = 64L * 1024 * 1024;
 
@@ -121,9 +125,12 @@ public class AlbumLibrary {
                 || isOrgAdmin(caller, siteOrgId());
     }
 
-    /** The scope the dialog lists and every pick is checked in: the trips this site serves. */
+    /**
+     * The scope the dialog lists and every pick is checked in: the trips this site serves, and only for someone who
+     * may copy into this library ({@link #mayAdd}), as every host answers its scope only to a caller it admits.
+     */
     public String getAlbumScope() {
-        return AlbumPhotoSource.SCOPE_SITE;
+        return mayAdd() ? AlbumPhotoSource.SCOPE_SITE : null;
     }
 
     // ------------------------------------------------------------------ the copy
@@ -174,8 +181,11 @@ public class AlbumLibrary {
         if (!store(key, jpeg)) {
             return new Copied(null, "Not stored: the photo could not be stored. Try again.");
         }
-        final MediaItem item = new MediaItem(UUID.randomUUID().toString(), key, titleOf(photo.get()),
-                photo.get().getDescription(), "image/jpeg", jpeg.length, null, 0, LocalDateTime.now(),
+        // Neither the album row's title nor its description: the title is the caption the sender typed for the
+        // trip's members, the description names who shared it and the trip's chat, and a library row is public
+        // (the media API returns both to anyone). An admin may rename the copy; the audit line keeps its source.
+        final MediaItem item = new MediaItem(UUID.randomUUID().toString(), key, COPY_TITLE,
+                COPY_DESCRIPTION, "image/jpeg", jpeg.length, null, 0, LocalDateTime.now(),
                 caller.auditActor().email(), null, null, orgId);
         if (!record(item)) {
             return new Copied(null, "Not listed: the photo was stored but could not be added to the library.");
@@ -193,13 +203,6 @@ public class AlbumLibrary {
         return STAMP.updateAndGet(prev -> Math.max(prev + 1, System.currentTimeMillis()));
     }
 
-    /** A library item needs a title a person can find it by: the album row's when it has a real one. */
-    private static String titleOf(final MediaItem photo) {
-        final String title = photo.getTitle();
-        final boolean named = title != null && !title.isBlank() && !photo.getS3Key().endsWith(title.trim());
-        return named ? title.trim() : "Album photo";
-    }
-
     // ------------------------------------------------------------------ the dialog
 
     /**
@@ -207,8 +210,9 @@ public class AlbumLibrary {
      * whole) are copied in and ONE message says how it went. Reports {@code albumAdded}.
      */
     public void addFromAlbumUi(final String picks) {
-        final List<String> ids = TripPictureCommands.parsePicks(picks).stream()
-                .map(TripPictureCommands.AlbumPick::mediaId).toList();
+        // One more than the batch size is read, so an over-full Add reaches copy() and is named there, not cut.
+        final List<String> ids = AlbumPicks.parse(picks, MAX_PER_ADD + 1).stream()
+                .map(AlbumPicks.Pick::mediaId).toList();
         if (ids.isEmpty()) {
             PageFeedback.error("Nothing chosen: choose at least one photo first.");
             publish("albumAdded", false);
@@ -247,11 +251,11 @@ public class AlbumLibrary {
 
     /**
      * A copy's URL as a field can store it. With a media host it already is absolute. Locally it is a path this
-     * webapp serves, and a picture field takes only a full web address, so the request's own origin goes in front
-     * (the branding uploads do the same for the same reason).
+     * webapp serves, and a picture field takes only a full web address, so this request's origin goes in front by
+     * the branding uploads' own rule ({@link BrandingPhotos#absoluteAgainst}).
      */
     private String absolute(final String url) {
-        return url != null && url.startsWith("/") ? requestOrigin() + url : url;
+        return BrandingPhotos.absoluteAgainst(requestOrigin(), url);
     }
 
     /** Local-mode read-back, for the servlet's GET. Empty when remote, unknown, or not one of our keys. */
@@ -294,14 +298,9 @@ public class AlbumLibrary {
         return orgId != null && albums.isOrgAdmin(caller, orgId);
     }
 
-    /** Seam: scheme, host and port of the request in progress; empty off a page. */
+    /** Seam: the origin of the request in progress ({@link BrandingPhotos#localBaseUrl}); empty off a page. */
     protected String requestOrigin() {
-        final FacesContext ctx = FacesContext.getCurrentInstance();
-        if (ctx == null) {
-            return "";
-        }
-        final ExternalContext ext = ctx.getExternalContext();
-        return ext.getRequestScheme() + "://" + ext.getRequestServerName() + ":" + ext.getRequestServerPort();
+        return BrandingPhotos.localBaseUrl();
     }
 
     /** Seam: one ajax callback param for the page. */

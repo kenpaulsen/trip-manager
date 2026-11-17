@@ -3,6 +3,8 @@ paths:
   - "trip/src/main/java/org/paulsens/trip/media/**"
   - "trip/src/main/java/org/paulsens/trip/web/ChatUploadServlet.java"
   - "trip/src/main/java/org/paulsens/trip/action/ChatPhoto*.java"
+  - "trip/src/main/java/org/paulsens/trip/action/MediaCommands.java"
+  - "trip/src/main/java/org/paulsens/trip/model/MediaItem.java"
   - "trip/src/test/java/org/paulsens/trip/media/**"
 ---
 
@@ -26,6 +28,9 @@ paths:
   semantics: retention expiry does NOT). Rotation (`PhotoProcessor.rotate`, `QuarterTurn`, `RotationGuard`):
   chat photos and receipts turn IN PLACE and bump `rev` (clients append `?r=N`; never fire REMOVED for a
   rotated chat key), while profile, badge, lodging and branding images get a NEW key.
+- **An existing media row is rebuilt only through a `MediaItem.with...` copier** (`withPlacement`, `withEdits`,
+  `withHidden`, ...), never field by field through a constructor: the compatibility constructors default a newer
+  field, and a title edit once reset `rev` that way, flipping every chat reference to the photo.
 - A rotation's CDN invalidation is one wildcard path per photo: the CDN cache policy ignores query strings, so
   `?r=N` alone does not refresh an edge copy. `RotationGuard` is JVM-local (409 on a concurrent turn), which holds
   only while ONE server serves the photo.

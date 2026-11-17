@@ -118,19 +118,38 @@ public abstract class PhotoUploadBean {
             return;
         }
         if (event.getFile().getSize() > gate.maxBytes()) {
-            error("Too large: " + noun() + "s can be at most " + (gate.maxBytes() / (1024 * 1024)) + " MB.");
+            error(tooLarge(gate));
             return;
         }
-        final byte[] bytes = event.getFile().getContent();
+        if (park(event.getFile().getContent(), gate)) {
+            parked(event);
+        }
+    }
+
+    /**
+     * Parks bytes behind a fresh token for the crop step: the size rule, the browser-renderable preview, the
+     * registry entry and the session's token. The ONE place a parked image is made, for an upload and an album
+     * pick alike. False, with the reason shown, when the bytes are too large or not an image.
+     */
+    private boolean park(final byte[] bytes, final UploadGate gate) {
+        if (bytes.length > gate.maxBytes()) {
+            error(tooLarge(gate));
+            return false;
+        }
         try {
             final PhotoProcessor.PreviewImage preview = processor.preview(bytes);
             final PendingUploads.Pending pending =
                     pendingUploads.put(bytes, preview, callerId(), purpose(), targetId());
             sessionPut(TOKEN_KEY, pending.token());
-            parked(event);
+            return true;
         } catch (final PhotoRejectedException ex) {
             error(capitalized(noun()) + " rejected: " + ex.getMessage());
+            return false;
         }
+    }
+
+    private String tooLarge(final UploadGate gate) {
+        return "Too large: " + noun() + "s can be at most " + (gate.maxBytes() / (1024 * 1024)) + " MB.";
     }
 
     /**
@@ -166,21 +185,11 @@ public abstract class PhotoUploadBean {
             error("Not read: the album photo could not be read. Try again.");
             return false;
         }
-        if (bytes.get().length > gate.maxBytes()) {
-            error("Too large: " + noun() + "s can be at most " + (gate.maxBytes() / (1024 * 1024)) + " MB.");
+        if (!park(bytes.get(), gate)) {
             return false;
         }
-        try {
-            final PhotoProcessor.PreviewImage preview = processor.preview(bytes.get());
-            final PendingUploads.Pending pending =
-                    pendingUploads.put(bytes.get(), preview, callerId(), purpose(), targetId());
-            sessionPut(TOKEN_KEY, pending.token());
-            parkedFromAlbum(photo.get());
-            return true;
-        } catch (final PhotoRejectedException ex) {
-            error(capitalized(noun()) + " rejected: " + ex.getMessage());
-            return false;
-        }
+        parkedFromAlbum(photo.get());
+        return true;
     }
 
     /** Whether an upload is parked and claimable -- what swaps the dialog from upload to cropper. */
@@ -247,9 +256,29 @@ public abstract class PhotoUploadBean {
         return null;
     }
 
-    /** {@link #albumScope()} for the page, which lists the albums the dialog offers. */
+    /**
+     * {@link #albumScope()} for the page, which lists the albums the dialog offers; null for a caller this host
+     * would refuse. The scope's target comes from a shared view key that read-only pages also set (a trip's
+     * public page pins its trip for any signed-in visitor), so the listing asks the host's own authorization
+     * first: without it, anyone could list a trip's album from the dialog the template mounts on every page.
+     */
     public String getAlbumScope() {
-        return albumScope();
+        return mayChooseFromAlbums() ? albumScope() : null;
+    }
+
+    /** Whether the caller may pick album photos for this host: its {@link #authorization} lets them in. */
+    protected boolean mayChooseFromAlbums() {
+        return authorization().denial() == null;
+    }
+
+    /**
+     * WHO may upload here, without the counts and caps (a rate limit, a full gallery): the half of
+     * {@link #uploadGate} that the album listing asks too, so the two can never disagree about who. By default the
+     * whole upload gate, for a host whose gate is nothing but that; a host with caps overrides this, and its
+     * {@code uploadGate} starts from it.
+     */
+    protected UploadGate authorization() {
+        return uploadGate();
     }
 
     /** Hook: an album photo has just been parked (the twin of {@link #parked} for a pick). */
@@ -329,6 +358,14 @@ public abstract class PhotoUploadBean {
     /** Seam: dialog-local viewScope reads; tests override. */
     protected <T> T viewMap(final String key) {
         return ScopeUtil.getInstance().getViewMap(key);
+    }
+
+    /** Seam: forgets a dialog-local viewScope value (a description a picture has just taken); tests override. */
+    protected void viewRemove(final String key) {
+        final FacesContext ctx = FacesContext.getCurrentInstance();
+        if (ctx != null && ctx.getViewRoot() != null) {
+            ctx.getViewRoot().getViewMap().remove(key);
+        }
     }
 
     /** Seams around the session map -- the FacesContext is absent in unit tests. */

@@ -27,6 +27,7 @@ import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.chat.ChatAttachment;
 import org.paulsens.trip.model.chat.ChatChannel;
 import org.paulsens.trip.model.chat.ChatMessage;
+import org.paulsens.trip.model.chat.ChatPage;
 import org.testng.Assert;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
@@ -342,5 +343,55 @@ public class ChatPhotoRotationTest {
         } finally {
             photos.albumsForTest(null, Caller::bound);
         }
+    }
+
+    /**
+     * A reference is shown as its photo is NOW: the chat's own feed and history (every client's only way to a
+     * message) bring it up to date after the photo is turned where it was shared, and an edit of the photo's
+     * album row (its title) keeps the turn it recorded rather than flipping the reference back.
+     */
+    @Test
+    public void theFeedAndHistoryShowAReferenceAsItsPhotoIsNowEvenAfterItsTitleIsEdited() throws IOException {
+        final ChatMessage owner = post(PhotoFixtures.jpeg(900, 600));
+        final String key = owner.getAttachments().get(0).getS3Key();
+        final MediaItem row = albumRow(key);
+        final AlbumPhotoSource albums = Mockito.mock(AlbumPhotoSource.class);
+        Mockito.when(albums.offered(ArgumentMatchers.any(), ArgumentMatchers.eq(AlbumPhotoSource.tripScope(tripId)),
+                ArgumentMatchers.eq(row.getId()))).thenReturn(Optional.of(row));
+        photos.albumsForTest(albums, () -> author);
+        try {
+            final ChatCommands.SendResult sent = chat.send(tripId, member, "Look again", null, null, actor,
+                    List.of(new ChatPhotos.AttachmentRef(ChatPhotos.ALBUM_REF_PREFIX + row.getId(), null)));
+            Assert.assertTrue(sent.isOk(), String.valueOf(sent.getMessage()));
+            final ChatMessage.Id borrower = sent.getMessageObj().getId();
+            Assert.assertNotNull(ChatPhotoRotation.rotate(chat, photos, tripId, key, QuarterTurn.LEFT, owner.getId(),
+                    author).attachment(), "Turned where it was shared");
+
+            final MediaCommands media = new MediaCommands() {
+                @Override
+                boolean mayManage(final MediaItem item) {
+                    return true;
+                }
+            };
+            Assert.assertTrue(media.update(row.getId(), null, "Renamed", null, row.getSlot(), null, "admin"));
+            Assert.assertEquals(albumRow(key).getRev(), 1, "A title edit keeps the turn the row recorded");
+
+            assertTurnedReference(referenceIn(chat.feed(tripId, member, null, 50), borrower), "feed");
+            assertTurnedReference(referenceIn(chat.history(tripId, member, null, 50), borrower), "history");
+        } finally {
+            photos.albumsForTest(null, Caller::bound);
+        }
+    }
+
+    private static ChatAttachment referenceIn(final ChatPage page, final ChatMessage.Id id) {
+        return page.getMessages().stream().filter(m -> m.getId().equals(id)).findFirst().orElseThrow()
+                .getAttachments().get(0);
+    }
+
+    private static void assertTurnedReference(final ChatAttachment ref, final String where) {
+        Assert.assertTrue(ref.isRef(), where);
+        Assert.assertEquals(ref.getWidth(), Integer.valueOf(600), where + ": a quarter turn swapped the dimensions");
+        Assert.assertEquals(ref.getHeight(), Integer.valueOf(900), where);
+        Assert.assertEquals(ref.getRev(), 1, where + ": so its address changes and browsers refetch it");
     }
 }

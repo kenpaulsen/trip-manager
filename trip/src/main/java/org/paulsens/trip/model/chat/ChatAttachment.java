@@ -149,6 +149,23 @@ public class ChatAttachment implements Serializable {
                 hidden, deletedAt, deletedBy, getRev() + 1, ref);
     }
 
+    /**
+     * This REFERENCE as its photo is now. A reference copies the photo's facts once, when it is sent, and the
+     * photo can be turned afterwards where it was first shared: the album row then holds the truth. Every turn is
+     * a quarter that moves {@code rev} on by one, so an odd number of turns since the reference was made swaps
+     * its dimensions; the size, the small rendition's key and {@code rev} are the album row's. Unchanged unless
+     * the row's rev moved FORWARD: a rev that went back is not a turn (an old row rebuilt without it), and
+     * following it would flip a photo that never moved.
+     */
+    public ChatAttachment followingAlbum(final int albumRev, final long albumSize, final String albumThumbKey) {
+        if (albumRev <= getRev()) {
+            return this;
+        }
+        final boolean swapped = (albumRev - getRev()) % 2 != 0;
+        return new ChatAttachment(kind, s3Key, contentType, albumSize, swapped ? height : width,
+                swapped ? width : height, albumThumbKey, caption, hidden, deletedAt, deletedBy, albumRev, ref);
+    }
+
     /** {@link #rotated(int, int, long, String)} keeping the small rendition where it was. */
     public ChatAttachment rotated(final int newWidth, final int newHeight, final long newSize) {
         return rotated(newWidth, newHeight, newSize, thumbKey);

@@ -7,6 +7,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import java.io.Serial;
 import java.io.Serializable;
 import java.time.LocalDateTime;
+import java.util.Comparator;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.Value;
@@ -27,6 +28,13 @@ import lombok.Value;
 public class MediaItem implements Serializable {
     @Serial
     private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
+
+    /**
+     * The order of a slot's items, and so of a trip's album: position, then upload time (none last). One
+     * definition for every reader (the media DAO, the Choose from Albums dialog), so they cannot drift apart.
+     */
+    public static final Comparator<MediaItem> SLOT_ORDER = Comparator.comparingInt(MediaItem::getPosition)
+            .thenComparing(MediaItem::getUploaded, Comparator.nullsLast(Comparator.naturalOrder()));
 
     /** Row identity (a UUID). Stable across renames of the underlying object. */
     String id;
@@ -191,6 +199,27 @@ public class MediaItem implements Serializable {
     public MediaItem withRewritten(final long newSize) {
         return new MediaItem(id, s3Key, title, description, contentType, newSize, slot, position, uploaded,
                 uploadedBy, smallKey, hidden, orgId, getRev() + 1);
+    }
+
+    /**
+     * @return this item placed in {@code newSlot} at {@code newPosition}, stamped {@code newUploaded} (the library's
+     *     "place it here" move); everything else unchanged, its {@link #rev} above all (a chat reference follows it).
+     */
+    @JsonIgnore
+    public MediaItem withPlacement(final String newSlot, final int newPosition, final LocalDateTime newUploaded) {
+        return new MediaItem(id, s3Key, title, description, contentType, size, newSlot, newPosition, newUploaded,
+                uploadedBy, smallKey, hidden, orgId, rev);
+    }
+
+    /**
+     * @return this item after the admin editor's save: its key (a rename), title, description, slot, position and
+     *     public flag as given; everything else unchanged, its {@link #rev} above all.
+     */
+    @JsonIgnore
+    public MediaItem withEdits(final String newS3Key, final String newTitle, final String newDescription,
+            final String newSlot, final int newPosition, final boolean nowHidden) {
+        return new MediaItem(id, newS3Key, newTitle, newDescription, contentType, size, newSlot, newPosition,
+                uploaded, uploadedBy, smallKey, nowHidden, orgId, rev);
     }
 
     /** @return this item under another title; everything else, the key above all, unchanged. */

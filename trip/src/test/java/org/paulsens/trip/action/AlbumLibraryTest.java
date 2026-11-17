@@ -13,6 +13,7 @@ import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.media.PhotoFixtures;
 import org.paulsens.trip.model.MediaItem;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.model.Trip;
 import org.testng.Assert;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
@@ -114,6 +115,7 @@ public class AlbumLibraryTest {
 
         caller = plain();
         Assert.assertFalse(library.mayAdd(), "A plain member may not");
+        Assert.assertNull(library.getAlbumScope(), "And lists no albums: the library answers its scope only to them");
         Assert.assertFalse(library.mayAdd(null));
         Assert.assertFalse(library.mayAdd(new Caller(null, false, AuditActor.from(null), priv)), "Anonymous may not");
 
@@ -145,8 +147,10 @@ public class AlbumLibraryTest {
         Assert.assertTrue(AlbumLibrary.isAlbumCopyKey(first.getS3Key()));
         Assert.assertEquals(first.getOrgId(), ORG);
         Assert.assertEquals(first.getContentType(), "image/jpeg");
-        Assert.assertEquals(first.getTitle(), "Sunrise at the hill");
-        Assert.assertEquals(first.getDescription(), "Uploaded by Trinity");
+        Assert.assertEquals(first.getTitle(), AlbumLibrary.COPY_TITLE,
+                "Never the sender's caption (\"Sunrise at the hill\"): a library row is public");
+        Assert.assertEquals(first.getDescription(), AlbumLibrary.COPY_DESCRIPTION,
+                "Not the album row's, which names who shared it: a library row is public");
         Assert.assertNull(first.getSlot(), "A library item, in no slot");
         Assert.assertFalse(first.getHidden());
         Assert.assertEquals(first.getUploadedBy(), "admin@example.com");
@@ -156,7 +160,7 @@ public class AlbumLibraryTest {
         Assert.assertEquals(wide.getHeight(), AlbumLibrary.MAX_WIDTH * 2 / 3, "Whole: the photo's own shape");
 
         final MediaItem second = result.items().get(1);
-        Assert.assertEquals(second.getTitle(), "Album photo", "A title that is only the file's name is no title");
+        Assert.assertEquals(second.getTitle(), AlbumLibrary.COPY_TITLE);
         Assert.assertNotEquals(second.getS3Key(), first.getS3Key(), "Two copies in one millisecond never share a key");
         final BufferedImage tall = stored(second);
         Assert.assertEquals(tall.getWidth(), 600, "Never enlarged");
@@ -248,6 +252,24 @@ public class AlbumLibraryTest {
         library.addFromAlbumUi("missing@0.5,0.5");
         Assert.assertEquals(params.get("albumAdded"), false);
         Assert.assertEquals(params.get("albumNote"), "Not available: that album photo cannot be used here.");
+    }
+
+    @Test
+    public void theLibraryPagesAddTakesMorePicksThanATripHasPicturesAndNamesAnOverfullOne() {
+        final StringBuilder picks = new StringBuilder();
+        for (int i = 0; i < AlbumLibrary.MAX_PER_ADD + 1; i++) {
+            offer("p" + i, "P" + i, PhotoFixtures.jpeg(300, 200));
+            if (i == Trip.MAX_PICTURES + 3) {
+                library.addFromAlbumUi(picks.toString());
+                Assert.assertEquals(params.get("albumDone"), (Trip.MAX_PICTURES + 3) + " photos added to the library.",
+                        "Past a trip's limit: the library's batch is its own");
+                params.clear();
+            }
+            picks.append('p').append(i).append("@0.5,0.5;");
+        }
+        library.addFromAlbumUi(picks.toString());
+        Assert.assertEquals(params.get("albumNote"), AlbumLibrary.MAX_PER_ADD + " of " + (AlbumLibrary.MAX_PER_ADD + 1)
+                + " added. Too many: at most " + AlbumLibrary.MAX_PER_ADD + " photos can be added at once.");
     }
 
     @Test

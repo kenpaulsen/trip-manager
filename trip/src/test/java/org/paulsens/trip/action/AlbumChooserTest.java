@@ -74,8 +74,9 @@ public class AlbumChooserTest {
         Assert.assertNull(chooser.scopeOf("everything"), "A use nobody defined has no albums");
         Assert.assertNull(chooser.scopeOf(null));
 
-        Mockito.when(library.mayAdd()).thenReturn(false);
-        Assert.assertNull(chooser.scopeOf("library"), "Someone who may not add to the library is shown no albums");
+        // Who may list is each host's own answer (AlbumLibraryTest proves the library's): the chooser passes it on.
+        Mockito.when(library.getAlbumScope()).thenReturn(null);
+        Assert.assertNull(chooser.scopeOf("library"), "Someone the library refuses is shown no albums");
         Assert.assertNull(chooser.scopeOf("url"));
 
         final List<AlbumPhotoSource.Album> listed = List.of(

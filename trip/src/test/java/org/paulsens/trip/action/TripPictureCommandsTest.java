@@ -148,6 +148,11 @@ public class TripPictureCommandsTest {
         }
 
         @Override
+        protected void viewRemove(final String key) {
+            viewMap.remove(key);
+        }
+
+        @Override
         protected void publishOutcome(final boolean ok) {
             outcomes.add(ok);
         }
@@ -175,8 +180,8 @@ public class TripPictureCommandsTest {
         }
     }
 
-    private static TripPictureCommands.AlbumPick pick(final String mediaId) {
-        return new TripPictureCommands.AlbumPick(mediaId, 0.5d, 0.5d);
+    private static AlbumPicks.Pick pick(final String mediaId) {
+        return new AlbumPicks.Pick(mediaId, 0.5d, 0.5d);
     }
 
     private static Trip copyOf(final Trip trip) {
@@ -476,6 +481,7 @@ public class TripPictureCommandsTest {
         bean.confirmCrop();
         Assert.assertEquals(outcomes, List.of(true));
         Assert.assertEquals(trip().getCover().getAlt(), "Sunrise on the hill");
+        Assert.assertNull(viewMap.get(TripPictureCommands.ALT_VIEW_KEY), "The picture took it: cleared for the next");
         Assert.assertNotNull(params.get("picWarn"), "1200 wide is stored with a warning");
         Assert.assertFalse(bean.isUploadPending(), "The token is spent");
 
@@ -599,6 +605,8 @@ public class TripPictureCommandsTest {
         Assert.assertTrue(real.readStored("no-such-trip").isEmpty());
         Assert.assertTrue(real.requestMemo().isEmpty(), "Off a page the memo is a throwaway map");
         Assert.assertNull(real.targetId(), "No view, no target");
+        real.viewRemove(TripPictureCommands.ALT_VIEW_KEY);
+        Assert.assertNull(real.getAlbumScope(), "No open trip: no albums to list");
         final Trip trip = Trip.builder().id("picture-seam-test").title("Seam").build();
         Assert.assertTrue(real.saveStored(trip), "Writes the row straight through the DAO");
         Assert.assertTrue(DAO.getInstance().getTrip("picture-seam-test", Cached.NO).isPresent());
@@ -716,7 +724,7 @@ public class TripPictureCommandsTest {
         albumPhotos.put("tall", PhotoFixtures.jpeg(1800, 2700));
         albumPhotos.put("pano", PhotoFixtures.jpeg(4000, 1700));
         final TripPictureCommands.AlbumResult result = bean.addFromAlbum(caller, TRIP_ID,
-                List.of(pick("tall"), new TripPictureCommands.AlbumPick("wide", 0d, 1d), pick("pano")), null);
+                List.of(pick("tall"), new AlbumPicks.Pick("wide", 0d, 1d), pick("pano")), null);
         Assert.assertEquals(result.added(), 3);
         Assert.assertNull(result.refusal());
         Assert.assertEquals(result.lowResolution(), 0);
@@ -829,18 +837,18 @@ public class TripPictureCommandsTest {
 
     @Test
     public void thePagesPicksAreParsedLeniently() {
-        Assert.assertTrue(TripPictureCommands.parsePicks(null).isEmpty());
-        Assert.assertTrue(TripPictureCommands.parsePicks("  ").isEmpty());
-        Assert.assertEquals(TripPictureCommands.parsePicks("a@0.25,1; b ;@0.5,0.5;c@nonsense;d@0.1"),
-                List.of(new TripPictureCommands.AlbumPick("a", 0.25d, 1d), pick("b"), pick("c"),
-                        new TripPictureCommands.AlbumPick("d", 0.1d, 0.5d)),
+        Assert.assertTrue(AlbumPicks.parse(null, Trip.MAX_PICTURES).isEmpty());
+        Assert.assertTrue(AlbumPicks.parse("  ", Trip.MAX_PICTURES).isEmpty());
+        Assert.assertEquals(AlbumPicks.parse("a@0.25,1; b ;@0.5,0.5;c@nonsense;d@0.1", Trip.MAX_PICTURES),
+                List.of(new AlbumPicks.Pick("a", 0.25d, 1d), pick("b"), pick("c"),
+                        new AlbumPicks.Pick("d", 0.1d, 0.5d)),
                 "No position, or one that is not a number, centers; an entry with no id is dropped");
         final StringBuilder many = new StringBuilder();
         for (int i = 0; i < 40; i++) {
             many.append("id").append(i).append("@0.5,0.5;");
         }
-        Assert.assertEquals(TripPictureCommands.parsePicks(many.toString()).size(), Trip.MAX_PICTURES,
-                "Nothing past the most a trip can hold is read");
+        Assert.assertEquals(AlbumPicks.parse(many.toString(), Trip.MAX_PICTURES).size(), Trip.MAX_PICTURES,
+                "Nothing past the cap the host gives is read");
     }
 
     @Test
@@ -855,25 +863,41 @@ public class TripPictureCommandsTest {
         bean.addFromAlbumUi("one@0.5,0.5");
         Assert.assertEquals(params.get("albumAdded"), true);
         Assert.assertEquals(trip().getCover().getAlt(), "Evening Mass", "One pick takes the typed description");
+        Assert.assertNull(viewMap.get(TripPictureCommands.ALT_VIEW_KEY), "And it is cleared for the next picture");
+        viewMap.put(TripPictureCommands.ALT_VIEW_KEY, "Evening Mass");
 
         bean.addFromAlbumUi("one@0.5,0.5;two@0.5,0.5");
         Assert.assertEquals(params.get("albumAdded"), true);
         Assert.assertEquals(trip().getPictures().size(), 3);
         Assert.assertNull(trip().getPictures().get(1).getAlt(), "Several picks: no telling which one it describes");
         Assert.assertNull(trip().getPictures().get(2).getAlt());
+        Assert.assertEquals(viewMap.get(TripPictureCommands.ALT_VIEW_KEY), "Evening Mass",
+                "Several picks take none of it: it stays for the next picture");
 
         bean.addFromAlbumUi("not-offered@0.5,0.5;one@0.5,0.5");
         Assert.assertEquals(params.get("albumAdded"), true, "One of two went in");
         bean.addFromAlbumUi("not-offered@0.5,0.5");
         Assert.assertEquals(params.get("albumAdded"), false);
+        Assert.assertEquals(viewMap.get(TripPictureCommands.ALT_VIEW_KEY), "Evening Mass",
+                "Nothing went in, so nothing took it");
         Assert.assertEquals(trip().getPictures().size(), 4);
         Assert.assertEquals(bean.roomFor(TRIP_ID), Trip.MAX_PICTURES - 4);
         Assert.assertEquals(bean.roomFor(null), Trip.MAX_PICTURES);
     }
 
     @Test
-    public void theAlbumScopeIsTheTripBeingEdited() {
+    public void theAlbumScopeIsTheTripBeingEditedForWhoeverMayEditIt() {
         Assert.assertEquals(bean.getAlbumScope(), AlbumPhotoSource.tripScope(TRIP_ID));
+        final Caller manager = caller;
+        caller = new Caller(Person.Id.newInstance(), false, AuditActor.from(null), priv);
+        Assert.assertNull(bean.getAlbumScope(),
+                "Not its manager: a trip's public page remembers its trip too, and lists nothing from it");
+        caller = manager;
+        for (int i = 0; i < Trip.MAX_PICTURES; i++) {
+            trip().getPictures().add(new TripPicture("tripPictures/trip-1/" + i, null, 1920, 1280, "#000000"));
+        }
+        Assert.assertEquals(bean.getAlbumScope(), AlbumPhotoSource.tripScope(TRIP_ID),
+                "A full gallery still lists: the dialog says there is no room");
         viewMap.remove("theTripId");
         Assert.assertNull(bean.getAlbumScope(), "No trip open, no albums");
     }

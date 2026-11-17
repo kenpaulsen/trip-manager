@@ -28,7 +28,6 @@ import org.paulsens.trip.media.PhotoRejectedException;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.MediaItem;
-import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripPicture;
 import org.primefaces.model.CroppedImage;
@@ -166,13 +165,9 @@ public class TripPictureCommands extends PhotoUploadBean {
         return mayEdit(caller(), trip);
     }
 
-    /** Seam: whether the caller administers the trip's organization; a blank org has no admins. */
+    /** Seam: whether the caller administers the trip's organization ({@link AlbumPhotoSource#adminsOrg}). */
     protected boolean isOrgAdmin(final Caller caller, final String orgId) {
-        if (orgId == null || orgId.isBlank()) {
-            return false;
-        }
-        final Optional<Organization> org = DAO.getInstance().getOrganization(Organization.Id.from(orgId), Cached.YES);
-        return org.isPresent() && org.get().isAdmin(caller.personId());
+        return AlbumPhotoSource.adminsOrg(caller, orgId);
     }
 
     // ------------------------------------------------------------------ the writes, caller explicit
@@ -210,10 +205,6 @@ public class TripPictureCommands extends PhotoUploadBean {
                 prepared.warning());
     }
 
-    /** One pick of the album dialog: an album photo's media id and where to cut it (0 to 1 on each axis). */
-    public record AlbumPick(String mediaId, double fx, double fy) {
-    }
-
     /**
      * How a batch from the albums went: how many pictures were added, how many of those are small enough to look
      * soft, and the first reason any pick was NOT added (null when every one was).
@@ -236,7 +227,7 @@ public class TripPictureCommands extends PhotoUploadBean {
      * under the trip's lock. One append per picture would re-read the row moments after this request's own save
      * of it, and a read that close behind a write is not promised to see it.
      */
-    public AlbumResult addFromAlbum(final Caller caller, final String tripId, final List<AlbumPick> picks,
+    public AlbumResult addFromAlbum(final Caller caller, final String tripId, final List<AlbumPicks.Pick> picks,
             final String alt) {
         final Optional<Trip> found = readStored(tripId);
         final PictureResult early = earlyRefusal(caller, found);
@@ -246,7 +237,7 @@ public class TripPictureCommands extends PhotoUploadBean {
         final int room = Trip.MAX_PICTURES - found.get().getPictures().size();
         String refusal = picks.size() > room ? limitReached().message() : null;
         final List<Prepared> prepared = new ArrayList<>();
-        for (final AlbumPick pick : picks.subList(0, Math.min(room, picks.size()))) {
+        for (final AlbumPicks.Pick pick : picks.subList(0, Math.min(room, picks.size()))) {
             final Prepared one = prepareFromAlbum(caller, found.get(), pick, alt);
             if (one.failure() == null) {
                 prepared.add(one);
@@ -269,7 +260,8 @@ public class TripPictureCommands extends PhotoUploadBean {
     }
 
     /** One album pick, checked, read, cut and stored; a failure names why this pick adds nothing. */
-    private Prepared prepareFromAlbum(final Caller caller, final Trip trip, final AlbumPick pick, final String alt) {
+    private Prepared prepareFromAlbum(final Caller caller, final Trip trip, final AlbumPicks.Pick pick,
+            final String alt) {
         final Optional<MediaItem> photo =
                 albums().offered(caller, AlbumPhotoSource.tripScope(trip.getId()), pick.mediaId());
         if (photo.isEmpty()) {
@@ -536,22 +528,29 @@ public class TripPictureCommands extends PhotoUploadBean {
         return tripId == null ? null : AlbumPhotoSource.tripScope(tripId);
     }
 
+    /** Only the trip's managers; the album listing asks this too, so a full gallery still lists (and says so). */
+    @Override
+    protected UploadGate authorization() {
+        final String tripId = targetId();
+        final Optional<Trip> trip = tripId == null ? Optional.empty() : readStored(tripId);
+        return trip.isPresent() && mayEdit(caller(), trip.get()) ? UploadGate.allow()
+                : UploadGate.deny("Not allowed: only this trip's managers can change its pictures.");
+    }
+
     @Override
     protected UploadGate uploadGate() {
-        final Optional<Trip> trip = readStored(targetId());
-        if (trip.isEmpty() || !mayEdit(caller(), trip.get())) {
-            return UploadGate.deny("Not allowed: only this trip's managers can change its pictures.");
+        final UploadGate who = authorization();
+        if (who.denial() != null) {
+            return who;
         }
-        if (trip.get().getPictures().size() >= Trip.MAX_PICTURES) {
-            return UploadGate.deny(limitReached().message());
-        }
-        return UploadGate.allow();
+        return picturesOf(targetId()).size() >= Trip.MAX_PICTURES ? UploadGate.deny(limitReached().message()) : who;
     }
 
     /**
      * The dialog's Save (or Use Full Photo): the parked ORIGINAL is cut at the confirmed rectangle, scaled from the
-     * preview's coordinates, and added with the description typed above the upload button. A small picture's
-     * warning is published as {@code picWarn} for the page to show after the dialog closes.
+     * preview's coordinates, and added with the description typed above the upload button, which the picture
+     * then takes (it is cleared here, as an album Add clears it: one place, so the two ways in cannot differ). A
+     * small picture's warning is published as {@code picWarn} for the page to show after the dialog closes.
      */
     @Override
     protected void confirm(final CroppedImage crop) {
@@ -566,6 +565,7 @@ public class TripPictureCommands extends PhotoUploadBean {
                 viewMap(ALT_VIEW_KEY));
         if (result.isOk()) {
             finish(pending);
+            viewRemove(ALT_VIEW_KEY);
             info(result.message());
             if (result.warning() != null) {
                 warn(result.warning());
@@ -578,42 +578,14 @@ public class TripPictureCommands extends PhotoUploadBean {
     }
 
     /**
-     * The album dialog's picks as the page sends them: {@code id@fx,fy} joined by {@code ;}, in the order chosen
-     * (which becomes the pictures' order). Untrusted text: an entry with no id is dropped, a position that is
-     * missing or malformed centers, and nothing past {@link Trip#MAX_PICTURES} entries is read.
-     */
-    static List<AlbumPick> parsePicks(final String picks) {
-        final List<AlbumPick> parsed = new ArrayList<>();
-        if (picks == null || picks.isBlank()) {
-            return parsed;
-        }
-        for (final String entry : picks.split(";")) {
-            final String[] parts = entry.trim().split("@", 2);
-            if (!parts[0].isBlank() && parsed.size() < Trip.MAX_PICTURES) {
-                final String[] at = (parts.length == 2 ? parts[1] : "").split(",", 2);
-                final double fy = fraction(at.length == 2 ? at[1] : "");
-                parsed.add(new AlbumPick(parts[0].trim(), fraction(at[0]), fy));
-            }
-        }
-        return parsed;
-    }
-
-    private static double fraction(final String text) {
-        try {
-            return Double.parseDouble(text.trim());
-        } catch (final NumberFormatException ex) {
-            return 0.5d;
-        }
-    }
-
-    /**
      * The album dialog's Add button: every pick is copied in, in order, and ONE message says how it went (with
      * the first reason, when some were not added). The description typed above the buttons goes to a single pick
-     * only: with several there is no telling which one it describes. Reports {@code albumAdded} (whether at least
+     * only: with several there is no telling which one it describes, so it is left for the next picture; when one
+     * picture took it, it is cleared here, so the page only redraws. Reports {@code albumAdded} (whether at least
      * one was added) so the page knows to close the dialog.
      */
     public void addFromAlbumUi(final String picks) {
-        final List<AlbumPick> chosen = parsePicks(picks);
+        final List<AlbumPicks.Pick> chosen = AlbumPicks.parse(picks, Trip.MAX_PICTURES);
         if (chosen.isEmpty()) {
             error("Nothing chosen: choose at least one photo first.");
             publishParam("albumAdded", false);
@@ -634,6 +606,9 @@ public class TripPictureCommands extends PhotoUploadBean {
                             + " screens.");
         }
         publishParam("albumAdded", result.added() > 0);
+        if (chosen.size() == 1 && result.added() > 0) {
+            viewRemove(ALT_VIEW_KEY);
+        }
     }
 
     /** How many more pictures the trip has room for: what the album dialog lets a manager choose. */

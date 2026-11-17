@@ -2,7 +2,6 @@ package org.paulsens.trip.dynamo;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -103,9 +102,7 @@ public class MediaDAO {
         final String wanted = slot.trim();
         return getAllMedia().stream()
                 .filter(item -> wanted.equalsIgnoreCase(item.getSlot()))
-                .sorted(Comparator.comparingInt(MediaItem::getPosition)
-                        .thenComparing(MediaItem::getUploaded,
-                                Comparator.nullsLast(Comparator.naturalOrder())))
+                .sorted(MediaItem.SLOT_ORDER)
                 .toList();
     }
 
