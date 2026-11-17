@@ -40,6 +40,13 @@ editor's deliberate act of publication, so the card shows the account's cell to 
 email to signed-in viewers -- unless the person set that field PRIVATE, which withholds it on the card too
 (user decision 2026-10-07; before then the board page ignored privacy settings entirely).
 
+**A trip's staff names are public on its trip page.** The spiritual director, guide and coordinators a trip's
+manager names (picked members by their displayed name, or typed names) show on the trip's own page to everyone,
+signed in or not, whether or not the trip is listed on the homepage: naming someone as a trip's staff is the
+manager's act of publication, like a Person card (owner decision 2026-11-16, when the listing became picture cards
+and the names moved from it to the trip page, `docs/trip-pictures.md`). Only the NAME is shown; nothing else about
+the person. The roster and the REST `roster` endpoint stay member-only.
+
 ## Who sees what
 
 - **Self and family managers**: privacy never hides anything from them. Exception: staff **notes** follow

@@ -1,11 +1,16 @@
 package org.paulsens.trip.action;
 
+import java.lang.reflect.Field;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import org.mockito.ArgumentCaptor;
 import org.mockito.ArgumentMatchers;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
+import org.paulsens.trip.api.Beans;
+import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.Organization;
@@ -26,6 +31,11 @@ public class TripCardCommandsTest {
 
     private static final LocalDateTime NOW = LocalDateTime.of(2026, 9, 1, 12, 0);
     private static final Person.Id VIEWER = Person.Id.from("card-viewer");
+    /** A URL only its organization chose: typed into an Appearance field, on a host that is not this platform's. */
+    private static final String TYPED = "https://tracker.example/p.gif";
+    /** Acme's own Appearance upload (a page background), as local mode serves it. */
+    private static final String ACME_UPLOAD = "http://acme.localhost:8080/branding-photos/"
+            + BrandingPhotos.keyFor(FakeData.ACME_ORG_ID, "background", 5L, "jpg");
 
     private final Map<String, Object> requestMap = new HashMap<>();
     private TripCommands trips;
@@ -125,24 +135,32 @@ public class TripCardCommandsTest {
         phase(open, TripPageCommands.Phase.OPEN);
         phase(full, TripPageCommands.Phase.FULL);
         phase(mine, TripPageCommands.Phase.FULL);
-        phase(external, TripPageCommands.Phase.OPEN);
+        // An external trip's fullness is part of the trip page's ONE phase rule (TripPageTest), not the card's.
+        phase(external, TripPageCommands.Phase.FULL);
         Mockito.when(registrations.isChipRegistered("mine", VIEWER)).thenReturn(true);
 
         final List<TripCardCommands.Card> all = cards.cards(instance, VIEWER);
         Assert.assertEquals(all.stream().map(TripCardCommands.Card::getState).toList(), List.of(
                 TripCardCommands.State.REGISTER, TripCardCommands.State.FULL, TripCardCommands.State.REGISTERED,
-                TripCardCommands.State.FULL), "Registered outranks Full; an external trip is full by its own count");
+                TripCardCommands.State.FULL), "Registered outranks Full; every other card is the page's phase");
         Mockito.verify(registrations, Mockito.times(1)).isChipRegistered("mine", VIEWER);
         Mockito.verify(trips).publicTripUrlFor(mine, true);
         Mockito.verify(trips).publicTripUrlFor(open, false);
         Assert.assertEquals(TripCardCommands.State.REGISTERED.getLabel(), "Registered");
         Assert.assertEquals(TripCardCommands.State.FULL.getStyle(), "full");
 
-        external.setNonHostedRegNumber(12);
-        Assert.assertEquals(TripCardCommands.stateOf(external, TripPageCommands.Phase.OPEN),
-                TripCardCommands.State.REGISTER);
-        Assert.assertEquals(TripCardCommands.stateOf(open, TripPageCommands.Phase.CLOSED),
-                TripCardCommands.State.CLOSED);
+        Assert.assertEquals(TripCardCommands.stateOf(TripPageCommands.Phase.OPEN), TripCardCommands.State.REGISTER);
+        Assert.assertEquals(TripCardCommands.stateOf(TripPageCommands.Phase.CLOSED), TripCardCommands.State.CLOSED);
+    }
+
+    /** The staff-only pending chip asks twice per card (draw it? what does it say?): one uncached read answers both. */
+    @Test
+    public void thePendingCountIsReadOncePerTripAndRequest() {
+        final Trip open = trip("open", 10);
+        Mockito.when(registrations.getNumPending("open")).thenReturn(2);
+        Assert.assertEquals(cards.pending(open), 2);
+        Assert.assertEquals(cards.pending(open), 2);
+        Mockito.verify(registrations, Mockito.times(1)).getNumPending("open");
     }
 
     @Test
@@ -164,7 +182,7 @@ public class TripCardCommandsTest {
         bare.setDestination("Fatima, Portugal");
         final Trip orgless = trip("orgless", 40);
         listed(pictured, undescribed, bare, orgless);
-        orgImage = "https://cdn.example/acme-preview.jpg";
+        orgImage = ACME_UPLOAD;
 
         final List<TripCardCommands.Card> all = cards.cards(instance, null);
         final TripCardCommands.Card first = all.get(0);
@@ -179,16 +197,11 @@ public class TripCardCommandsTest {
         Assert.assertNull(third.getCover());
         Assert.assertNull(third.getCoverUrl());
         Assert.assertNull(third.getCoverSrcset());
-        Assert.assertEquals(third.getFallbackUrl(), "https://cdn.example/acme-preview.jpg",
-                "The TRIP's organization's image");
+        Assert.assertEquals(third.getFallbackUrl(), ACME_UPLOAD, "The TRIP's organization's own upload");
         Assert.assertEquals(third.getAlt(), "Trip bare");
 
         final TripCardCommands.Card fourth = all.get(3);
         Assert.assertNull(fourth.getFallbackUrl(), "No organization, nothing to borrow: the generated cover");
-        Assert.assertNull(TripCardCommands.httpsOnly("http://cdn.example/acme-preview.jpg"),
-                "An http image would be blocked on an https page: the generated cover instead");
-        Assert.assertEquals(TripCardCommands.httpsOnly("HTTPS://cdn.example/a.jpg"), "HTTPS://cdn.example/a.jpg");
-        Assert.assertNull(TripCardCommands.httpsOnly(null));
 
         requestMap.clear();
         orgImage = null;
@@ -197,6 +210,84 @@ public class TripCardCommandsTest {
         requestMap.clear();
         Assert.assertNull(cards.cards(instance, null).get(2).getFallbackUrl());
         Mockito.verify(pictures, Mockito.atLeastOnce()).srcset(ArgumentMatchers.any());
+    }
+
+    /** The branding store as local mode runs it: no media host, so an upload is served by this app. */
+    private static BrandingPhotos localPhotos() throws ReflectiveOperationException {
+        final MediaCommands media = Mockito.mock(MediaCommands.class);
+        final BrandingPhotos photos = new BrandingPhotos();
+        final Field field = BrandingPhotos.class.getDeclaredField("media");
+        field.setAccessible(true);
+        field.set(photos, media);
+        return photos;
+    }
+
+    private static Organization acmeWith(final Map<String, String> settings) {
+        final Organization org = new Organization();
+        org.setId(Organization.Id.from(FakeData.ACME_ORG_ID));
+        org.setName("Acme Inc");
+        org.getSettingsOverrides().putAll(settings);
+        return org;
+    }
+
+    /**
+     * The rule where it is applied: both Appearance settings also take a typed URL, and a card on a shared listing
+     * must never make another organization's visitors call a host only this organization chose.
+     */
+    @Test
+    public void onlyAnImageTheOrganizationUploadedStandsInForACover() throws Exception {
+        final BrandCommands brand = new BrandCommands();
+        final BrandingPhotos photos = localPhotos();
+        final String preview = "http://acme.localhost:8080/branding-photos/"
+                + BrandingPhotos.keyFor(FakeData.ACME_ORG_ID, "ogImage", 7L, "jpg");
+
+        Assert.assertEquals(TripCardCommands.brandImageOf(acmeWith(Map.of(
+                KnownSettings.SITE_OG_IMAGE_URL.getName(), TYPED,
+                KnownSettings.SITE_BACKGROUND_URL.getName(), ACME_UPLOAD)), brand, photos), ACME_UPLOAD,
+                "A typed link-preview URL is passed over for the uploaded background");
+        Assert.assertNull(TripCardCommands.brandImageOf(acmeWith(Map.of(
+                KnownSettings.SITE_OG_IMAGE_URL.getName(), TYPED)), brand, photos),
+                "Only a typed URL: nothing to borrow, so the generated cover");
+        Assert.assertNull(TripCardCommands.brandImageOf(acmeWith(Map.of(
+                KnownSettings.SITE_OG_IMAGE_URL.getName(), TYPED,
+                KnownSettings.SITE_BACKGROUND_URL.getName(), TYPED)), brand, photos));
+        Assert.assertEquals(TripCardCommands.brandImageOf(acmeWith(Map.of(
+                KnownSettings.SITE_OG_IMAGE_URL.getName(), preview,
+                KnownSettings.SITE_BACKGROUND_URL.getName(), ACME_UPLOAD)), brand, photos), preview,
+                "With both uploaded, the link preview outranks the background");
+        Assert.assertNull(TripCardCommands.brandImageOf(acmeWith(Map.of()), brand, photos), "Nothing chosen");
+
+        final String foreign = "http://acme.localhost:8080/branding-photos/"
+                + BrandingPhotos.keyFor(FakeData.BETA_ORG_ID, "background", 5L, "jpg");
+        Assert.assertNull(TripCardCommands.brandImageOf(acmeWith(Map.of(
+                KnownSettings.SITE_BACKGROUND_URL.getName(), foreign)), brand, photos),
+                "Another organization's upload, typed into this one's field, is not this one's image");
+    }
+
+    /** The bean as CDI builds it asks the real rule, with the TRIP's organization, for a trip with no picture. */
+    @Test
+    public void theDefaultWiringBorrowsTheTripsOwnOrganizationsUpload() throws Exception {
+        final Trip bare = trip("bare", 30);
+        bare.setOrgId(FakeData.ACME_ORG_ID);
+        listed(bare);
+        final BrandCommands brand = Mockito.mock(BrandCommands.class);
+        Mockito.when(brand.lookOf(ArgumentMatchers.any())).thenReturn(new BrandCommands.OrgLook(null, false, null,
+                null, null, TYPED, ACME_UPLOAD, null, null, null, null, null, null, null));
+        final BrandingPhotos photos = localPhotos();
+
+        try (MockedStatic<Beans> beans = Mockito.mockStatic(Beans.class)) {
+            beans.when(() -> Beans.get(TripCommands.class)).thenReturn(trips);
+            beans.when(() -> Beans.get(TripPageCommands.class)).thenReturn(pages);
+            beans.when(() -> Beans.get(BrandCommands.class)).thenReturn(brand);
+            beans.when(() -> Beans.get(BrandingPhotos.class)).thenReturn(photos);
+
+            final TripCardCommands.Card card = new TripCardCommands().cards(instance, null).getFirst();
+            Assert.assertEquals(card.getFallbackUrl(), ACME_UPLOAD, "The upload, never the typed link preview");
+            Assert.assertEquals(card.getState(), TripCardCommands.State.REGISTER);
+        }
+        final ArgumentCaptor<Organization> asked = ArgumentCaptor.forClass(Organization.class);
+        Mockito.verify(brand).lookOf(asked.capture());
+        Assert.assertEquals(asked.getValue().getId().getValue(), FakeData.ACME_ORG_ID);
     }
 
     @Test
@@ -215,11 +306,6 @@ public class TripCardCommandsTest {
 
     @Test
     public void helpersAndTheDefaultWiring() {
-        Assert.assertEquals(TripCardCommands.firstNonBlank("a", "b"), "a");
-        Assert.assertEquals(TripCardCommands.firstNonBlank(" ", "b"), "b");
-        Assert.assertEquals(TripCardCommands.firstNonBlank(null, "b"), "b");
-        Assert.assertNull(TripCardCommands.firstNonBlank(null, " "));
-        Assert.assertNull(TripCardCommands.firstNonBlank("", null));
         Assert.assertTrue(new TripCardCommands().cards(null, null).isEmpty(), "The CDI constructor builds");
     }
 

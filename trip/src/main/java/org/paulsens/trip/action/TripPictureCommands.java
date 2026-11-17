@@ -31,6 +31,7 @@ import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripPicture;
 import org.primefaces.model.CroppedImage;
+import org.primefaces.model.ResponsiveOption;
 
 /**
  * A trip's pictures (issue 154), exposed as {@code #{tripPictures}}: the cover every listing card shows and up to
@@ -99,6 +100,17 @@ public class TripPictureCommands extends PhotoUploadBean {
 
     /** Local-store budget: a picture's three renditions are about 600 KB, so this is about a hundred pictures. */
     static final long LOCAL_STORE_MAX_BYTES = 64L * 1024 * 1024;
+
+    /**
+     * The classic layout's column while the listing is ONE column, as {@code sizes} steps: the window less 404px
+     * from 992px, less 360px from 715px, less 110px below. Stated once: the wide picture and a grid card are
+     * the same width there.
+     */
+    private static final String CLASSIC_ONE_COLUMN = "(min-width: 992px) calc(100vw - 404px),"
+            + " (min-width: 715px) calc(100vw - 360px), calc(100vw - 110px)";
+
+    /** The full-width layout's block under a 992px window, where a grid card is the whole block below 688px. */
+    private static final String FULL_WIDTH_NARROW = "calc(100vw - 28px)";
 
     /**
      * The per-trip write locks, striped by trip id ({@link #locked}): a lock per id would grow with every id a REST
@@ -533,6 +545,73 @@ public class TripPictureCommands extends PhotoUploadBean {
     /** The full-width rendition's URL. */
     public String url(final TripPicture picture) {
         return url(picture, TripPicture.WIDTHS.getLast());
+    }
+
+    /**
+     * A picture's alternative text, the ONE rule for it: the picture's own description when it has one, else the
+     * trip's short title (blank for no trip). A listing card and the trip page show the same picture, so they must
+     * not each decide what a screen reader says for it.
+     */
+    public String altOf(final TripPicture picture, final Trip trip) {
+        return altText(picture, trip);
+    }
+
+    /** {@link #altOf} for code that holds no bean: a listing card is a plain value and must not look one up. */
+    static String altText(final TripPicture picture, final Trip trip) {
+        if (picture != null && picture.getAlt() != null && !picture.getAlt().isBlank()) {
+            return picture.getAlt();
+        }
+        return trip == null ? "" : trip.getShortTitle();
+    }
+
+    /**
+     * The {@code sizes} attribute of a picture drawn at the page's full content width: the listing's featured
+     * card, the trip page's hero and its gallery. The widths are medjugorje's layout, measured in a browser and
+     * stated ONLY in this class (here, {@link #gridSizes} and the two constants they share), so a page never
+     * restates them:
+     * <ul>
+     * <li>Classic layout (a page with its sidebar): the column is the window less 110px; less 360px from a 715px
+     *     window, where the 250px sidebar appears ({@code site.css}); less 404px from 992px, where the theme's
+     *     content padding grows; and 1068px from a 1472px window, where the page's 1400px grid stops
+     *     ({@code mainTemplate.xhtml}).</li>
+     * <li>Full-width layout: the block is the window less its side insets, 28px up to 991px and 72px from 992px,
+     *     capped at 1200px ({@code tripCards.css}), which a 1272px window reaches.</li>
+     * </ul>
+     * Change the layout and these change with it; medjugorje's {@code TripCardsPwIT} and {@code OrgSubdomainPwIT}
+     * hold every card's drawn width against its {@code sizes}, in both layouts.
+     */
+    public String wideSizes(final boolean fullWidth) {
+        return fullWidth
+                ? "(min-width: 1272px) 1200px, (min-width: 992px) calc(100vw - 72px), " + FULL_WIDTH_NARROW
+                : "(min-width: 1472px) 1068px, " + CLASSIC_ONE_COLUMN;
+    }
+
+    /**
+     * The {@code sizes} attribute of a card in the listing's grid: {@link #wideSizes}' column split into the
+     * grid's columns. The grid is one column until its container is 660px wide, two until 980px, then three, with
+     * a 16px gap ({@code tripCards.css}, which names this method): restated here as the window widths at which the
+     * column reaches those, per layout. The classic column reaches 660px at a 1064px window and 980px at 1384px;
+     * the full-width block at 688px and 1052px. Each inset below is the column's own inset plus the gaps between
+     * the cards, so they move together: classic 436 = 404 + 2 x 16 and 420 = 404 + 16; full width 104 = 72 + 2 x
+     * 16, 88 = 72 + 16 and 44 = 28 + 16. The capped card is (1068 - 32) / 3 = 346px, or (1200 - 32) / 3 = 390px.
+     */
+    public String gridSizes(final boolean fullWidth) {
+        return fullWidth
+                ? "(min-width: 1272px) 390px, (min-width: 1052px) calc((100vw - 104px) / 3),"
+                        + " (min-width: 992px) calc((100vw - 88px) / 2), (min-width: 688px) calc((100vw - 44px) / 2), "
+                        + FULL_WIDTH_NARROW
+                : "(min-width: 1472px) 346px, (min-width: 1384px) calc((100vw - 436px) / 3),"
+                        + " (min-width: 1064px) calc((100vw - 420px) / 2), " + CLASSIC_ONE_COLUMN;
+    }
+
+    /**
+     * The trip page gallery's one responsive rule: three thumbnails from a 480px window down, not the strip's
+     * five. Five slots on a phone leave each thumbnail about 35px wide, too small to tell apart or to tap; and
+     * the strip cannot simply be hidden there, because PrimeFaces binds the gallery's swipe on the thumbnail
+     * strip, not on the picture.
+     */
+    public List<ResponsiveOption> getGalleryResponsive() {
+        return List.of(new ResponsiveOption("480px", 3));
     }
 
     /**

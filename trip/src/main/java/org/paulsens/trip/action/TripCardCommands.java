@@ -32,8 +32,9 @@ import org.paulsens.trip.site.SiteContext;
  * opens can never disagree about Full or Closed. A viewer with a registration of their own reads Registered instead,
  * whatever its status; the detail page says which.
  *
- * <p><b>No picture</b> falls back to the owning organization's link-preview image, then its background image, then
- * nothing, which the page draws as a generated cover in the site's own colors. Never a stock photo the organization
+ * <p><b>No picture</b> falls back to the owning organization's link-preview image, then its background image, each
+ * only when it is one the organization uploaded here (never a typed URL on another host), then nothing, which the
+ * page draws as a generated cover in the site's own colors. Never a stock photo the organization
  * did not choose, and never another organization's picture: the fallback is read from the TRIP's organization.
  *
  * <p>Anonymous-safe and render-only: a null viewer looks up no registration, nothing here touches a session or a
@@ -93,8 +94,7 @@ public class TripCardCommands {
 
         /** What a screen reader says for the picture: its description, else the trip's title. */
         public String getAlt() {
-            return cover == null || cover.getAlt() == null || cover.getAlt().isBlank()
-                    ? trip.getShortTitle() : cover.getAlt();
+            return TripPictureCommands.altText(cover, trip);
         }
     }
 
@@ -186,46 +186,44 @@ public class TripCardCommands {
             return State.REGISTERED;
         }
         final TripPageCommands.RegistrationInfo info = pages.get().registrationInfo(trip);
-        return stateOf(trip, info == null ? TripPageCommands.Phase.OPEN : info.phase());
+        return stateOf(info == null ? TripPageCommands.Phase.OPEN : info.phase());
     }
 
-    /**
-     * The card's state from the trip page's phase. An EXTERNAL trip's registrations live on another site, so this
-     * site counts none of them: its fullness is the count its editor typed against its limit.
-     */
-    static State stateOf(final Trip trip, final TripPageCommands.Phase phase) {
+    /** The card's state IS the trip page's phase (an external trip's typed count is part of that rule). */
+    static State stateOf(final TripPageCommands.Phase phase) {
         if (phase == TripPageCommands.Phase.CLOSED) {
             return State.CLOSED;
         }
-        final boolean externallyFull = trip.isExternal() && trip.getRegLimit() != null
-                && trip.getShownRegCount() >= trip.getRegLimit();
-        return phase == TripPageCommands.Phase.FULL || externallyFull ? State.FULL : State.REGISTER;
+        return phase == TripPageCommands.Phase.FULL ? State.FULL : State.REGISTER;
+    }
+
+    /**
+     * How many registrations on a trip wait for approval: the staff-only chip. Memoized for the request, because
+     * the page asks twice per card (whether to draw the chip, then what it says) and each ask is an uncached read.
+     */
+    public int pending(final Trip trip) {
+        return RequestMemo.get(requestMap.get(), "tripCards.pending:" + trip.getId(),
+                () -> registrations.get().getNumPending(trip.getId()));
     }
 
     /** The owning organization's own image for a trip with no picture, or null. */
     private String fallbackOf(final Trip trip) {
-        return TripCommands.ownerOf(trip.getOrgId()).map(orgImage).map(TripCardCommands::httpsOnly).orElse(null);
-    }
-
-    /** An organization's link-preview image, else its background image, else null. */
-    private static String brandImageOf(final Organization org) {
-        final BrandCommands.OrgLook look = Beans.get(BrandCommands.class).lookOf(org);
-        return firstNonBlank(look.ogImageUrl(), look.backgroundUrl());
+        return TripCommands.ownerOf(trip.getOrgId()).map(orgImage).orElse(null);
     }
 
     /**
-     * The fallback image only when it is served over https. The settings behind it admit http too, and this is
-     * the one tenant-typed image a card loads on a listing other organizations' visitors see: an http one would be
-     * blocked or broken on an https page, where the generated cover is the better card.
+     * An organization's link-preview image, else its background image, each only when it is an image the
+     * organization UPLOADED here ({@link BrandingPhotos#isUploadOf}); else null. Both settings also take a typed
+     * URL, and a card is drawn on listings other organizations' visitors see: a typed one would make every such
+     * visitor's browser call a host only that organization chose.
      */
-    static String httpsOnly(final String url) {
-        return url != null && url.regionMatches(true, 0, "https://", 0, 8) ? url : null;
+    private static String brandImageOf(final Organization org) {
+        return brandImageOf(org, Beans.get(BrandCommands.class), Beans.get(BrandingPhotos.class));
     }
 
-    static String firstNonBlank(final String first, final String second) {
-        if (first != null && !first.isBlank()) {
-            return first;
-        }
-        return second == null || second.isBlank() ? null : second;
+    /** {@link #brandImageOf(Organization)} with its two beans explicit: the half a unit test can run. */
+    static String brandImageOf(final Organization org, final BrandCommands brand, final BrandingPhotos photos) {
+        final BrandCommands.OrgLook look = brand.lookOf(org);
+        return photos.firstUploadOf(org.getId().getValue(), look.ogImageUrl(), look.backgroundUrl());
     }
 }

@@ -80,14 +80,17 @@ which keeps a picture's fade-in (opacity is not movement) and swaps a gallery pi
   featured. The list is memoized per request (`RequestMemo`), and a signed-in viewer's registration is looked up
   once per card.
 - **Links are screened.** An external trip's stored URL reaches a link only through `TripCommands.externalUrlOf`
-  (absolute http(s), else the card links to the trip's own page), and the flyer only through `flyerUrlOf` (http(s)
-  or a path on this site). A save refuses anything else when the link is being CHANGED (`linkProblems`; REST answers
+  (a web address starting with http:// or https://, else the card links to the trip's own page), and the flyer only
+  through `flyerUrlOf` (the same, or a path on this site). The screen is by SCHEME (`TripCommands.webAddress`), not
+  by `java.net.URI`'s grammar: a browser opens an address with a space or a `|` in it, and such values are stored. A save refuses anything else when the link is being CHANGED (`linkProblems`; REST answers
   400): the value is typed by a trip manager and a `javascript:` URL in an href would run as whoever clicks it, on
   a listing organizations share. An unchanged stored value is never judged, since every save of a trip (a paid
-  checkout's roster write, an approval) passes the same gate and reading is already screened.
+  checkout's roster write, an approval) passes the same gate and reading is already screened; nor is any link when
+  the pre-read of the stored row failed (`TripCommands.preRead`).
 - **State:** Registered when the viewer has a registration of their own (any status); otherwise the trip page's own
   phase (`TripPageCommands.registrationInfo`): Closed once it has started, Full when every place is taken, else
-  Register. An external trip is Full by its typed count against its limit. A card and the page it opens cannot
+  Register. An external trip is Full by its typed count against its limit, inside that same rule
+  (`TripPageCommands.buildInfo`). A card and the page it opens cannot
   disagree.
 - **Featured:** the first listed trip that has not started by the server's CALENDAR day
   (`TripCommands.notStartedBy`, the sidebar countdown's rule; never an instant cut, which on a UTC server ends a
@@ -95,8 +98,16 @@ which keeps a picture's fade-in (opacity is not movement) and swaps a gallery pi
   (`countdown.js`, class `tripCountdownText`), like the sidebar's countdown: the server does not know the viewer's
   calendar day. The Closed chip is still the trip page's instant (`TripPageCommands.phaseOf`), so on the eve of a
   midnight departure a featured card can read Closed, as its page does.
-- **No picture:** the TRIP's organization's link-preview image, else its background image, else a generated cover in
+- **No picture:** the TRIP's organization's link-preview image, else its background image, each only when it is an
+  image the organization UPLOADED here (`BrandingPhotos.isUploadOf`; both settings also take a typed URL, and a card
+  is drawn on listings other organizations' visitors see, so a typed one is never loaded), else a generated cover in
   the site's accent. A featured trip with no picture is a short banner, not a hero.
+- **One home per picture rule** (`TripPictureCommands`, so no page restates one): `altOf(picture, trip)` is the
+  alternative text (the picture's description, else the trip's short title; `Card.getAlt` answers the same static),
+  `wideSizes(fullWidth)` is the `sizes` of a picture drawn at the page's full content width and
+  `gridSizes(fullWidth)` that of a card in the listing's grid (the layout's measured widths live in those two
+  methods' javadoc and nowhere in a page), and
+  `getGalleryResponsive()` is the trip page gallery's one breakpoint (three thumbnails from 480px down).
 - **Scrim:** white text on black over the photo is the one pair of literal colors (`tripCards.css`,
   `ColorLiteralPolicyIT`): the photo, not the palette, is the background. The scrim belongs to the text block, so it
   grows with the text and every line sits on at least two-thirds black (7:1 or better on any photo).
@@ -108,7 +119,8 @@ which keeps a picture's fade-in (opacity is not movement) and swaps a gallery pi
 ## The trip page
 
 `WEB-INF/tripPictureHero.xhtml`, included by `tripPageBody.xhtml` on the SITE page only (the app embed draws its own
-from the API): one picture is a hero image, two or more are a `p:galleria` with autoplay off, and a facts line under
+from the API): one picture is a hero image, two or more are a `p:galleria` with autoplay off (its thumbnail strip is
+the swipe surface on a phone; medjugorje's `pfPatches.js` makes a tap open the tapped thumbnail), and a facts line under
 it shows the destination, spiritual director, guide, coordinators and flyer, each only when set.
 
 ## Local fixtures

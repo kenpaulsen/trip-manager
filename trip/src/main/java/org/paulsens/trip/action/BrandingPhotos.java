@@ -55,6 +55,9 @@ public class BrandingPhotos {
     /** The folder under an org's namespace that only this bean writes. */
     static final String FOLDER = "branding/";
 
+    /** Where {@code web/BrandingPhotoServlet} serves a branding key when there is no media host. */
+    static final String LOCAL_PATH = "/branding-photos/";
+
     /** How many versions per role survive. Enough to undo a mistake, small enough to stay a listing. */
     static final int KEEP_VERSIONS = 5;
 
@@ -105,7 +108,7 @@ public class BrandingPhotos {
 
     /** The prefix every version of one org's one role shares — the listing that IS its history. */
     static String prefixFor(final String orgId, final String role) {
-        return ORG_PREFIX + orgId + "/" + FOLDER + role + "-";
+        return folderOf(orgId) + role + "-";
     }
 
     /** @return the decomposed key, or null when it is not a branding key at all. */
@@ -202,9 +205,52 @@ public class BrandingPhotos {
         };
     }
 
+    /**
+     * Whether a URL is one this platform minted for one of THIS organization's Appearance uploads: the object key it
+     * names (with a media host, that host's URL for the key; locally, the path the branding servlet serves) is a
+     * well-formed branding key of that organization. Locally the origin is whichever host the upload was made on, so
+     * only the path is held to it.
+     *
+     * <p>Decided by {@link #parse}, never by finding the organization's folder somewhere in the URL: a path like
+     * {@code org/A/branding/../../B/branding/logo-5.png} contains A's folder, and a browser collapses it to B's
+     * image. And held to an extension an upload can have ({@link #contentTypeOf}): parse takes any text after the
+     * last dot as the extension, so a climb spelled with backslashes and {@code %2e%2e}, which a browser also
+     * collapses, would otherwise ride there as part of a well-formed key.
+     */
+    public boolean isUploadOf(final String orgId, final String url) {
+        if (orgId == null || orgId.isBlank() || url == null) {
+            return false;
+        }
+        final String key = media.isUploadEnabled() ? media.keyOfUrl(url) : localKeyOf(url);
+        final BrandingKey parsed = parse(key);
+        return parsed != null && orgId.equals(parsed.orgId()) && contentTypeOf(key) != null;
+    }
+
+    /** The key a local URL names ({@link #urlFor} without a media host), query and fragment dropped, or null. */
+    private static String localKeyOf(final String url) {
+        final String bare = url.trim().split("[?#]", 2)[0];
+        final int at = bare.indexOf(LOCAL_PATH);
+        return at < 0 ? null : bare.substring(at + LOCAL_PATH.length());
+    }
+
+    /** The first of the candidates that is an upload of this organization ({@link #isUploadOf}), or null. */
+    public String firstUploadOf(final String orgId, final String... candidates) {
+        for (final String candidate : candidates) {
+            if (isUploadOf(orgId, candidate)) {
+                return candidate;
+            }
+        }
+        return null;
+    }
+
+    /** The key prefix of one organization's branding uploads. */
+    private static String folderOf(final String orgId) {
+        return ORG_PREFIX + orgId + "/" + FOLDER;
+    }
+
     /** The URL a browser loads this key from: the CDN when configured, this app's own GET locally. */
     public String urlFor(final String key) {
-        return media.isUploadEnabled() ? media.publicUrl(key) : localBaseUrl() + "/branding-photos/" + key;
+        return media.isUploadEnabled() ? media.publicUrl(key) : localBaseUrl() + LOCAL_PATH + key;
     }
 
     /**
@@ -295,7 +341,7 @@ public class BrandingPhotos {
             return;
         }
         try {
-            for (final String key : media.listKeys(ORG_PREFIX + orgId + "/" + FOLDER)) {
+            for (final String key : media.listKeys(folderOf(orgId))) {
                 index(key);
             }
         } catch (final RuntimeException ex) {

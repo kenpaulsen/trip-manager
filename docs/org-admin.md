@@ -505,7 +505,7 @@ script, no DNS step, no deploy (wildcard DNS and the wildcard certificate alread
   `content-templates.md` "Organization sites"): a shared site's sections list a hosted org only when the
   section's `includeOrgs` pick includes it AND the org has not unchecked "Shared sites" on its profile
   (`Organization.allowSharedSites`, org-admin controlled, saved through `saveOrgEdits`' 8th argument; where
-  such a listing's Register chip then sends a visitor is the org's next choice, "Shared-site Register
+  such a listing's card then sends a visitor is the org's next choice, "Shared-site Register
   target" below). With
   no pick, a shared site lists the orgs that have no site of their own — so assigning a subdomain also
   takes the org OFF the shared sites until a site admin curates it back in.

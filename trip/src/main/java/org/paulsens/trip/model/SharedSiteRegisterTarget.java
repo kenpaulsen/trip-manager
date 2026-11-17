@@ -1,7 +1,7 @@
 package org.paulsens.trip.model;
 
 /**
- * Where a SHARED site sends a visitor who clicks an organization's trip (the landing page's Register chip and
+ * Where a SHARED site sends a visitor who clicks an organization's trip (the landing page's card and
  * the Trips menu). The organization chooses, on its profile, beside the "Allow shared sites" checkbox; the
  * choice means nothing on the org's own site, where a trip link is always its own detail page.
  *

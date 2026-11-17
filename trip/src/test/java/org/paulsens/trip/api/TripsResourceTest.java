@@ -850,6 +850,21 @@ public class TripsResourceTest extends ResourceTestSupport {
         Assert.assertNull(member.withoutEvents().page());
     }
 
+    /** POST answers the same 400, before any save: a new trip's links are all "changed". */
+    @Test
+    public void createRefusesALinkThatIsNoWebAddressWith400() {
+        signedInAsSiteAdmin(ME);
+        Mockito.when(trips.createTrip()).thenAnswer(call -> trip("new-trip", ME));
+        final String orgId = java.util.UUID.randomUUID().toString();
+        assertError(resource.create(CSRF_OK, new TripDto(null, "Rome 2027", "Ten days", null, false, null, null, 40,
+                null, orgId, null, null, null, null, null, "javascript:alert(1)", null, null, null, null, null,
+                null)), 400, ApiErrors.VALIDATION_FAILED);
+        assertError(resource.create(CSRF_OK, new TripDto(null, "Rome 2027", "Ten days", null, false, null, null, 40,
+                null, orgId, null, null, null, null, null, null, "example.org/register", null, null, null, null,
+                null)), 400, ApiErrors.VALIDATION_FAILED);
+        Mockito.verify(trips, Mockito.never()).saveTrip(ArgumentMatchers.any(), ArgumentMatchers.any());
+    }
+
     private static TripDto linksBody(final String flyerUrl, final String externalUrl) {
         return new TripDto(null, null, null, null, false, null, null, null, null, null, null, null, null, null,
                 null, flyerUrl, externalUrl, null, null, null, null, null, null, null);

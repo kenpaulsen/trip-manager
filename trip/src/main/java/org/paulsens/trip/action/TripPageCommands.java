@@ -179,9 +179,11 @@ public class TripPageCommands {
     }
 
     /**
-     * The registration block's facts. {@code taken} counts CONFIRMED and PENDING registrations; {@code seatsLeft}
-     * is null when the trip has no limit. {@code prices} are the trip's priced questions as configured; the
-     * person-specific price (age bands, codes) is checkout's to compute, never this block's.
+     * The registration block's facts. {@code taken} is the count of CONFIRMED and PENDING registrations, or for an
+     * external trip the count its editor typed ({@link Trip#getShownRegCount}): its registrations live on another
+     * site, so this site has none to count. {@code seatsLeft} is null when the trip has no limit. {@code prices}
+     * are the trip's priced questions as configured; the person-specific price (age bands, codes) is checkout's to
+     * compute, never this block's.
      */
     public record RegistrationInfo(Phase phase, int taken, Integer limit, Integer seatsLeft,
             List<PriceGroup> prices, String fallbackPrice, String startDateIso, String registerUrl,
@@ -197,7 +199,9 @@ public class TripPageCommands {
     }
 
     private RegistrationInfo buildInfo(final Trip trip) {
-        final int taken = (int) registrations(trip).stream()
+        // An EXTERNAL trip's registrations live on another site, so this site counts none of them: its places
+        // taken are the count its editor typed. Here, in the ONE phase rule, so a card and the page agree on Full.
+        final int taken = trip.isExternal() ? trip.getShownRegCount() : (int) registrations(trip).stream()
                 .filter(reg -> reg.getStatus() != Registration.Status.NOT_REGISTERED)
                 .count();
         final Integer limit = trip.getRegLimit();

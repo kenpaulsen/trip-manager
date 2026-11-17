@@ -338,7 +338,10 @@ public class TripCommandsTest {
         assertNull(trip.getOrgId(), "Clearing the picker clears the id");
     }
 
-    /** A typed link that is no web address is refused at the save, so the editor and REST agree (review F1). */
+    /**
+     * A typed link that is no web address is refused at the save, so the editor and REST agree (medjugorje
+     * de420d055f12 F1).
+     */
     @Test
     public void aSaveRefusesAnExternalOrFlyerUrlThatIsNoWebAddress() {
         final Trip trip = Trip.builder().title("Links " + java.util.UUID.randomUUID()).build();
@@ -376,5 +379,29 @@ public class TripCommandsTest {
         assertFalse(asSiteAdmin().saveTrip(copy), "A changed link is judged by the rule");
         copy.setFlyerUrl("https://example.org/another.pdf");
         assertTrue(asSiteAdmin().saveTrip(copy), "And a good one replaces the legacy value");
+    }
+
+    /**
+     * The pre-read is advisory: when it FAILS, the stored links cannot be told from the ones being saved, so none
+     * is judged and the save goes on. Judging them as new would refuse a paid checkout's roster write on a trip
+     * with a legacy link whenever the read hiccups.
+     */
+    @Test
+    public void aFailedPreReadJudgesNoLinkAndTheSaveGoesOn() throws java.io.IOException {
+        final Trip legacy = Trip.builder().title("Unreadable " + java.util.UUID.randomUUID()).build();
+        legacy.setFlyerUrl("www.example.org/legacy.pdf");
+        assertTrue(org.paulsens.trip.dynamo.DAO.getInstance().saveTrip(legacy));
+        final TripCommands blind = new TripCommands(() -> new OrgCommands(() -> new Caller(Person.Id.from("admin"),
+                true, org.paulsens.trip.audit.AuditActor.system(), new PrivilegeCommands()))) {
+            @Override
+            PreRead preRead(final String tripId) {
+                return new PreRead(null, false);
+            }
+        };
+        legacy.getPeople().add(people.get(0).getId());
+        assertTrue(blind.saveTrip(legacy), "An unreadable store judges no link");
+        assertNull(asSiteAdmin().preRead("no-such-trip-" + System.nanoTime()).stored(), "Absent is not unreadable");
+        assertTrue(asSiteAdmin().preRead("no-such-trip-" + System.nanoTime()).readable());
+        assertTrue(asSiteAdmin().preRead(null).readable(), "No id yet: a new trip, all links judged");
     }
 }

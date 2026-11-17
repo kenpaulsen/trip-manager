@@ -66,6 +66,19 @@ public class ActionBeanFailurePathsTest {
         Assert.assertNull(trips.getTripEvent("evt-1"));
     }
 
+    /**
+     * The read before a save, when it THROWS: unreadable, which is a different answer from "no such trip". A save
+     * that took it for absent would judge every link of a stored trip as new and refuse a roster write over a
+     * legacy flyer link.
+     */
+    @Test
+    public void aTripPreReadThatThrowsIsUnreadableNotAbsent() {
+        final TripCommands.PreRead read = new TripCommands().preRead("fail-trip");
+
+        Assert.assertFalse(read.readable(), "a failed read is not 'no such row'");
+        Assert.assertNull(read.stored());
+    }
+
     /** Credential lookups fail soft to null; a privilege save failure maps to false (both logged). */
     @Test
     public void credentialAndPrivilegeFailureTails() {

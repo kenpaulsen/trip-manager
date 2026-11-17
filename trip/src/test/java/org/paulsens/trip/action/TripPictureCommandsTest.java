@@ -24,6 +24,7 @@ import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripPicture;
 import org.primefaces.event.FileUploadEvent;
+import org.primefaces.model.ResponsiveOption;
 import org.primefaces.model.file.UploadedFile;
 import org.testng.Assert;
 import org.testng.annotations.BeforeMethod;
@@ -625,5 +626,59 @@ public class TripPictureCommandsTest {
         Assert.assertEquals(bean.srcset(new TripPicture("tripPictures/trip-1/7", null, 300, 200, "#000000")),
                 base + "-480.jpg 300w", "One entry for a picture smaller than every rendition");
         Assert.assertEquals(bean.srcset(null), "");
+    }
+
+    /** ONE rule for what a screen reader says for a picture, shared by the listing card and the trip page. */
+    @Test
+    public void aPictureIsDescribedByItsOwnTextElseByTheTripsShortTitle() {
+        final Trip titled = Trip.builder().id("alt-trip").title("2026 Oct: Fatima and Lourdes").build();
+        final TripPicture described = new TripPicture("tripPictures/alt-trip/1", "The hill at sunset", 1920, 1280,
+                "#000000");
+        final TripPicture blank = new TripPicture("tripPictures/alt-trip/2", "  ", 1920, 1280, "#000000");
+        final TripPicture undescribed = new TripPicture("tripPictures/alt-trip/3", null, 1920, 1280, "#000000");
+
+        Assert.assertEquals(bean.altOf(described, titled), "The hill at sunset");
+        Assert.assertEquals(bean.altOf(blank, titled), "Fatima and Lourdes", "The title without its sort prefix");
+        Assert.assertEquals(bean.altOf(undescribed, titled), "Fatima and Lourdes");
+        Assert.assertEquals(bean.altOf(null, titled), "Fatima and Lourdes", "No picture: the trip still has a name");
+        Assert.assertEquals(bean.altOf(described, null), "The hill at sunset", "A description needs no trip");
+        Assert.assertEquals(bean.altOf(undescribed, null), "", "Nothing to say, and never null in an attribute");
+        Assert.assertEquals(bean.altOf(null, null), "");
+
+        final TripCardCommands.Card card = new TripCardCommands.Card(titled, "/trip", TripCardCommands.State.REGISTER,
+                blank, null, null, null, null, false);
+        Assert.assertEquals(card.getAlt(), bean.altOf(blank, titled), "A card answers the same rule");
+    }
+
+    /**
+     * The widths a picture is drawn at, per layout, named once here rather than in every page: the full content
+     * width, and a card of the listing's grid. Pinned as text because the page hands them to the browser as they
+     * are; whether they match the layout is the browser tests' question.
+     */
+    @Test
+    public void wideAndGridSizesNameTheDrawnWidthsOfEachLayout() {
+        Assert.assertEquals(bean.wideSizes(true),
+                "(min-width: 1272px) 1200px, (min-width: 992px) calc(100vw - 72px), calc(100vw - 28px)");
+        Assert.assertEquals(bean.wideSizes(false), "(min-width: 1472px) 1068px, (min-width: 992px) calc(100vw - 404px),"
+                + " (min-width: 715px) calc(100vw - 360px), calc(100vw - 110px)");
+        Assert.assertEquals(bean.gridSizes(true), "(min-width: 1272px) 390px,"
+                + " (min-width: 1052px) calc((100vw - 104px) / 3), (min-width: 992px) calc((100vw - 88px) / 2),"
+                + " (min-width: 688px) calc((100vw - 44px) / 2), calc(100vw - 28px)");
+        Assert.assertEquals(bean.gridSizes(false), "(min-width: 1472px) 346px,"
+                + " (min-width: 1384px) calc((100vw - 436px) / 3), (min-width: 1064px) calc((100vw - 420px) / 2),"
+                + " (min-width: 992px) calc(100vw - 404px), (min-width: 715px) calc(100vw - 360px),"
+                + " calc(100vw - 110px)");
+    }
+
+    /**
+     * A phone shows three thumbnails under the gallery, not five (about 35px each); the strip itself stays, because
+     * the gallery's swipe is bound on it.
+     */
+    @Test
+    public void theGalleryShowsThreeThumbnailsOnAPhone() {
+        final List<ResponsiveOption> options = bean.getGalleryResponsive();
+        Assert.assertEquals(options.size(), 1);
+        Assert.assertEquals(options.getFirst().getBreakpoint(), "480px");
+        Assert.assertEquals(options.getFirst().getNumVisible(), 3);
     }
 }

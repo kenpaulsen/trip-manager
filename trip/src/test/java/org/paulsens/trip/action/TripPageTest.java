@@ -255,6 +255,17 @@ public class TripPageTest {
         assertEquals(info.registerLabel(), "Join Pilgrimage");
         final Trip external = Trip.builder().nonHostedTripUrl("https://example.com/reg").build();
         assertEquals(new TripPageCommands().registerUrl(external), "https://example.com/reg");
+        // An external trip's places are taken on another site: the typed count is its "taken", in the one phase rule.
+        final Trip elsewhere = Trip.builder().nonHostedTripUrl("https://example.com/reg").build();
+        elsewhere.setRegLimit(45);
+        elsewhere.setNonHostedRegNumber(45);
+        final TripPageCommands.RegistrationInfo full = new TripPageCommands(() -> null,
+                () -> elsewhere.getStartDate().minusDays(1)).registrationInfo(elsewhere);
+        assertEquals(full.phase(), TripPageCommands.Phase.FULL, "full by the count its editor typed");
+        assertEquals(full.taken(), 45);
+        elsewhere.setNonHostedRegNumber(12);
+        assertEquals(new TripPageCommands(() -> null, () -> elsewhere.getStartDate().minusDays(1))
+                .registrationInfo(elsewhere).phase(), TripPageCommands.Phase.OPEN);
         final Trip unsafe = Trip.builder().nonHostedTripUrl("javascript:alert(1)").build();
         assertEquals(new TripPageCommands().registerUrl(unsafe), "/trip/tripDetails.jsf?trip=" + unsafe.getId(),
                 "a stored value that is no web address never becomes the Register link");

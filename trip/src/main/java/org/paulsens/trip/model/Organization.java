@@ -153,7 +153,7 @@ public final class Organization implements Serializable {
     private Boolean allowSharedSites;
 
     /**
-     * Where a shared site's Register chip and Trips menu send a visitor for one of this org's trips: a
+     * Where a shared site's card and Trips menu send a visitor for one of this org's trips: a
      * {@link SharedSiteRegisterTarget} NAME, stored as a string so a value from a newer build reads back as
      * the default rather than failing the whole row. {@code null} = {@link SharedSiteRegisterTarget#DETAIL_PAGE},
      * the behavior every existing row already has. Org-admin controlled, beside {@link #allowSharedSites}.

@@ -22,6 +22,8 @@ public class BrandingPhotosTest {
 
     private static final String ORG = "org-1234";
     private static final String OTHER_ORG = "org-9999";
+    /** The system-property form of {@code TRIP_MEDIA_BASE_URL} ({@code MediaCommands.env}). */
+    private static final String MEDIA_BASE_URL_PROP = "trip.media.base.url";
 
     private final List<String> deleted = new ArrayList<>();
     private MediaCommands media;
@@ -291,5 +293,69 @@ public class BrandingPhotosTest {
         Mockito.when(media.isUploadEnabled()).thenReturn(true);
         Mockito.when(media.getObject(key)).thenReturn(java.util.Optional.of(bytes("remote")));
         Assert.assertEquals(photos.currentBytes(key).orElseThrow(), bytes("remote"));
+    }
+
+    /**
+     * A trip card borrows an organization's image only when the organization UPLOADED it here: a typed URL on any
+     * other host would make every visitor of a shared listing call that host.
+     */
+    @Test
+    public void onlyAnUploadOfThatOrganizationCountsAsItsOwnImage() {
+        final String key = BrandingPhotos.keyFor(ORG, "logo", 5L, "png");
+        Assert.assertTrue(photos.isUploadOf(ORG, "http://acme.localhost:8080/branding-photos/" + key),
+                "Locally the upload is served by this app, from whichever host it was made on");
+        Assert.assertTrue(photos.isUploadOf(ORG, "http://localhost:8080/branding-photos/" + key + "?v=5"));
+        Assert.assertFalse(photos.isUploadOf(OTHER_ORG, "http://localhost:8080/branding-photos/" + key),
+                "Another organization's upload is not this one's");
+        Assert.assertFalse(photos.isUploadOf(ORG, "https://tracker.example/p.gif"), "A typed URL on another host");
+        Assert.assertFalse(photos.isUploadOf(ORG, "https://tracker.example/" + key), "Nor one that only looks like it");
+        Assert.assertFalse(photos.isUploadOf(ORG, null));
+        Assert.assertFalse(photos.isUploadOf(null, "http://localhost:8080/branding-photos/" + key));
+        Assert.assertFalse(photos.isUploadOf(" ", "http://localhost:8080/branding-photos/" + key));
+
+        final String upload = "http://localhost:8080/branding-photos/" + key;
+        Assert.assertEquals(photos.firstUploadOf(ORG, "https://tracker.example/p.gif", upload), upload,
+                "A typed link-preview URL is passed over for the uploaded background");
+        Assert.assertNull(photos.firstUploadOf(ORG, "https://tracker.example/p.gif", null, " "));
+        Assert.assertNull(photos.firstUploadOf(ORG));
+
+        // Org A's folder is IN this path, and a browser collapses the dot segments to the other organization's image.
+        final String climbing = "org/" + ORG + "/branding/../../" + OTHER_ORG + "/branding/logo-5.png";
+        Assert.assertFalse(photos.isUploadOf(ORG, "http://localhost:8080/branding-photos/" + climbing),
+                "A path that climbs out of the organization's folder is not its upload");
+        Assert.assertFalse(photos.isUploadOf(OTHER_ORG, "http://localhost:8080/branding-photos/" + climbing),
+                "Nor the upload of the organization it climbs into: it is no branding key at all");
+        Assert.assertFalse(photos.isUploadOf(ORG, "http://localhost:8080/branding-photos/" + key + "/../x.png"));
+        // No slash and no second literal dot: the climb rides in what parse reads as the extension, and a browser
+        // reads a backslash as a slash and %2e%2e as two dots.
+        final String inExtension = "org/" + ORG + "/branding/logo-5.x\\%2e%2e\\%2e%2e\\%2e%2e\\" + OTHER_ORG
+                + "\\branding\\background-9%2ejpg";
+        Assert.assertFalse(photos.isUploadOf(ORG, "http://localhost:8080/branding-photos/" + inExtension),
+                "Only an extension an upload can have ends a key of ours");
+        Assert.assertFalse(photos.isUploadOf(ORG, "http://localhost:8080/branding-photos/"
+                + BrandingPhotos.keyFor(ORG, "logo", 5L, "gif")), "An extension no upload is stored under");
+
+        // The REAL inverse of the media host's URL (MediaCommands.keyOfUrl), not a stub of it: the host comes from
+        // the same setting production reads.
+        Mockito.when(media.isUploadEnabled()).thenReturn(true);
+        Mockito.when(media.keyOfUrl(ArgumentMatchers.any())).thenCallRealMethod();
+        System.setProperty(MEDIA_BASE_URL_PROP, "https://media.example/");
+        try {
+            Assert.assertTrue(photos.isUploadOf(ORG, "https://media.example/" + key), "The media host's own URL");
+            Assert.assertTrue(photos.isUploadOf(ORG, " https://media.example/" + key + "?v=5 "));
+            Assert.assertFalse(photos.isUploadOf(OTHER_ORG, "https://media.example/" + key),
+                    "Another organization's upload is not this one's, on the media host either");
+            Assert.assertFalse(photos.isUploadOf(ORG, "https://tracker.example/" + key),
+                    "With a media host, only its URL for that key is the upload");
+            Assert.assertFalse(photos.isUploadOf(ORG, "https://media.example/" + climbing),
+                    "The media host's URL for a path that climbs into another organization's folder");
+            Assert.assertFalse(photos.isUploadOf(OTHER_ORG, "https://media.example/" + climbing));
+            Assert.assertFalse(photos.isUploadOf(ORG, "https://media.example/" + inExtension),
+                    "The media host's URL for a climb written into the extension");
+            Assert.assertFalse(photos.isUploadOf(ORG, "https://media.example/downloads/guide.pdf"),
+                    "Another object on the media host");
+        } finally {
+            System.clearProperty(MEDIA_BASE_URL_PROP);
+        }
     }
 }

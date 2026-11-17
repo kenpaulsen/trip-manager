@@ -222,9 +222,11 @@ as everywhere.
   hidden from the agenda, in start order, grouped by day (`TripPageCommands.publicAgenda`). Flights, buses and
   lodging are logistics and never appear; participants and private notes are never part of it.
 - **`trip-registration`** (`TripRegistrationType`, `tripRegistration.xhtml`): open / full / closed (closed once the
-  event starts), places left (CONFIRMED and PENDING registrations against `regLimit`), the trip's priced questions'
-  shown choices and prices (else its `estimatedPrice`), a countdown, and the Register button
-  (`TripPageCommands.registrationInfo`). A person's own price (age, codes) is checkout's, never this block's.
+  event starts), places left (`regLimit` less the places taken: the count of CONFIRMED and PENDING registrations, or
+  for an external trip the count its editor typed, `Trip.getShownRegCount`, because its registrations live on
+  another site), the trip's priced questions' shown choices and prices (else its `estimatedPrice`), a countdown, and
+  the Register button (`TripPageCommands.registrationInfo`). A person's own price (age, codes) is checkout's, never
+  this block's.
 
 Both types have one optional "Event" property (blank: the page's own trip; a pick: show it on an org's home page);
 `TripPageCommands.tripFor` resolves explicit pick, then the page key, then the host page's `theTripId` (a section

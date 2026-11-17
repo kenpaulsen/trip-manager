@@ -566,6 +566,12 @@ public final class FakeData {
             }
         }
         seedSitePages(pages);
+        // Beta's page also lists Spanish trips, and there are none: the one place a Spanish section's EMPTY state
+        // renders locally (Beta keeps no trip at all; the browser tests rely on that).
+        saveContent(new ContentInstance("beta-trips-es",
+                OrgPageBootstrap.pageKey(Organization.Id.from(BETA_ORG_ID)),
+                "Próximos viajes", StarterTemplates.PILGRIMAGES_ID, 1,
+                new HashMap<>(Map.of("language", "Spanish", "cfpwOnly", "false")), null, 3, 0, null, "fake-seed"));
     }
 
     /** The address of Acme's seeded site page (its About menu), for the webtests. */
@@ -1669,7 +1675,7 @@ public final class FakeData {
                 .language(Language.English)
                 .estimatedPrice("$3,000")
                 .director("Fr. Demo Director")
-                .flyerUrl("https://example.com/demo-flyer.pdf")     // the only seed with a flyer link
+                .flyerUrl("https://example.com/demo-flyer.pdf")     // a flyer link (the External Demo has the other)
                 .startDate(LocalDateTime.now().plusDays(30))
                 .endDate(LocalDateTime.now().plusDays(40))
                 .people(new ArrayList<>(List.of(allPeople.get(2))))
@@ -1711,6 +1717,9 @@ public final class FakeData {
                 .provider("Queen of Peace Medjugorje Centre, Toronto, Canada")
                 .language(Language.English)
                 .nonHostedTripUrl("https://example.com/external-pilgrimage")
+                // Staff and a flyer too: its listing card skips its page here, but the page shows both.
+                .director("Fr. External Director")
+                .flyerUrl("https://example.com/external-flyer.pdf")
                 .nonHostedRegNumber(35)
                 .startDate(LocalDateTime.now().plusDays(70))
                 .endDate(LocalDateTime.now().plusDays(80))

@@ -206,9 +206,11 @@ public class TripCommands {
             PageFeedback.warn("Not saved", String.join(" ", pricing));
             return false;
         }
-        // ONE advisory pre-read of the stored row, for the two checks below that compare against it.
-        final Trip stored = (trip.getId() == null) ? null : advisoryGetTrip(trip.getId());
-        final List<String> links = linkProblems(trip, stored);
+        // ONE advisory pre-read of the stored row, for the two checks below that compare against it. A read that
+        // FAILED judges nothing: the links cannot be told from what is stored, and the save must survive it.
+        final PreRead before = preRead(trip.getId());
+        final Trip stored = before.stored();
+        final List<String> links = before.readable() ? linkProblems(trip, stored) : List.of();
         if (!links.isEmpty()) {
             PageFeedback.warn("Not saved: " + String.join(" ", links));
             return false;
@@ -921,12 +923,12 @@ public class TripCommands {
     static final String DETAIL_URL = "/trip/tripDetails.jsf?trip=";
 
     /**
-     * Where a listed trip links for this viewer: the landing page's Register chip and the Trips menu's
+     * Where a listed trip links for this viewer: the landing page's card and the Trips menu's
      * public entries both ask here, so the two can never send the same visitor to different places.
      * <ul>
      *   <li>An EXTERNAL trip, for anyone not registered on it, goes to its own site (registration happens
      *       there).</li>
-     *   <li>A viewer registered on the trip always gets this site's detail page -- the chip shows their
+     *   <li>A viewer registered on the trip always gets this site's detail page -- the card shows their
      *       status, and the status lives here.</li>
      *   <li>On a SHARED site, the owning organization's {@link SharedSiteRegisterTarget} decides: its own site's
      *       copy of the trip page, its own site's home page, or (the default) this site's detail page. An org
@@ -970,12 +972,36 @@ public class TripCommands {
 
     /** {@link #externalUrlOf} for Java callers: the ONE screen of an external trip's stored URL. */
     public static String externalUrl(final Trip trip) {
-        return trip == null || !trip.isExternal() ? "" : ContentRenderer.requireHttpUrl(trip.getNonHostedTripUrl());
+        return trip == null || !trip.isExternal() ? "" : webAddress(trip.getNonHostedTripUrl());
+    }
+
+    /**
+     * A typed link as it may reach an href: trimmed, when it starts with {@code http://} or {@code https://} and
+     * holds no control character; else "". By SCHEME, not by {@code java.net.URI}'s grammar: a browser opens an
+     * address with a space or a {@code |} in it, such addresses are already stored (both fields were free text),
+     * and a stricter parse made them vanish. The scheme is the whole danger ({@code javascript:}); the page
+     * escapes the value into its attribute.
+     */
+    static String webAddress(final String raw) {
+        if (raw == null) {
+            return "";
+        }
+        final String url = raw.trim();
+        final int scheme = url.regionMatches(true, 0, "https://", 0, 8) ? 8
+                : url.regionMatches(true, 0, "http://", 0, 7) ? 7 : -1;
+        final boolean usable = scheme > 0 && url.length() > scheme && url.chars().noneMatch(Character::isISOControl);
+        return usable ? url : "";
+    }
+
+    /** A flyer link as it may reach an href: a {@link #webAddress}, or a path on this site; else "". */
+    static String flyerLink(final String raw) {
+        final String url = raw == null ? "" : raw.trim();
+        return url.startsWith("/") ? ContentRenderer.requireLinkUrl(url) : webAddress(url);
     }
 
     /** A trip's flyer link, screened the same way: absolute http(s) or a path on this site, else "". */
     public String flyerUrlOf(final Trip trip) {
-        return trip == null ? "" : ContentRenderer.requireLinkUrl(trip.getFlyerUrl());
+        return trip == null ? "" : flyerLink(trip.getFlyerUrl());
     }
 
     /** {@link #linkProblems(Trip, String, String)} against the stored row; a null row is a trip not yet stored. */
@@ -999,8 +1025,7 @@ public class TripCommands {
             problems.add("The External Trip URL must be a web address starting with https:// or http://.");
         }
         final String flyer = trip.getFlyerUrl();
-        if (flyer != null && !flyer.isBlank() && !flyer.equals(storedFlyer)
-                && ContentRenderer.requireLinkUrl(flyer).isEmpty()) {
+        if (flyer != null && !flyer.isBlank() && !flyer.equals(storedFlyer) && flyerLink(flyer).isEmpty()) {
             problems.add("The Flyer URL must be a web address starting with https:// or http://.");
         }
         return problems;
@@ -1759,11 +1784,24 @@ public class TripCommands {
         return events;
     }
 
-    private Trip advisoryGetTrip(final String tripId) {
+    /** The stored row as a save finds it: there, absent (a trip not yet stored), or UNREADABLE just now. */
+    record PreRead(Trip stored, boolean readable) {
+    }
+
+    /**
+     * The advisory read before a save. "No such row" and "the read failed" are different answers: the first is a
+     * new trip, whose links are all judged; the second judges nothing, like {@link #isBrandNew}'s "an unreadable
+     * store counts as existing". Package-private so a test can make the read fail.
+     */
+    PreRead preRead(final String tripId) {
+        if (tripId == null) {
+            return new PreRead(null, true);
+        }
         try {
-            return DAO.getInstance().getTrip(tripId, Cached.YES).orElse(null);
+            return new PreRead(DAO.getInstance().getTrip(tripId, Cached.YES).orElse(null), true);
         } catch (final RuntimeException ex) {
-            return null;
+            log.warn("Could not read trip {} before saving it; its links are not judged", tripId, ex);
+            return new PreRead(null, false);
         }
     }
 

@@ -12,7 +12,7 @@ import org.testng.annotations.Test;
 import static org.testng.Assert.assertEquals;
 
 /**
- * Where a listed trip links ({@link TripCommands#publicTripUrl}): the landing page's Register chip and the
+ * Where a listed trip links ({@link TripCommands#publicTripUrl}): the landing page's card and the
  * Trips menu both ask, so every branch of the shared-site Register target is pinned here.
  */
 public class PublicTripUrlTest {
@@ -100,6 +100,18 @@ public class PublicTripUrlTest {
             assertEquals(TripCommands.linkProblems(trip(bad), null).size(), 1, bad);
             assertEquals(TripCommands.linkProblems(trip(bad), trip(bad)), java.util.List.of(), "unchanged: " + bad);
         }
+        // By scheme, not by java.net.URI's grammar: a browser opens these, and such values are already stored.
+        for (final String works : new String[] {"https://tours.example/medjugorje?ref=a|b",
+                "https://cdn.example/2026 Holy Angels.pdf", "HTTP://example.org/tour?d={x}"}) {
+            assertEquals(url(trip(works), false, SHARED, home), works, works);
+            assertEquals(TripCommands.linkProblems(trip(works), null), java.util.List.of(), works);
+            assertEquals(TripCommands.flyerLink(works), works, works);
+        }
+        assertEquals(TripCommands.webAddress("https://example.org/a\nb"), "", "a control character");
+        assertEquals(TripCommands.webAddress("https://"), "", "a scheme with nothing after it");
+        assertEquals(TripCommands.webAddress(null), "");
+        assertEquals(TripCommands.flyerLink("//evil.example/x"), "", "protocol-relative is another host");
+        assertEquals(TripCommands.flyerLink(null), "");
         final TripCommands trips = new TripCommands(() -> null);
         assertEquals(trips.externalUrlOf(trip(" https://example.org/go ")), "https://example.org/go");
         assertEquals(trips.externalUrlOf(trip(null)), "", "not an external trip");
