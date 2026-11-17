@@ -3,6 +3,7 @@ package org.paulsens.trip.content;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import org.paulsens.trip.action.TripCommands;
 import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.site.SiteContext;
@@ -126,7 +127,8 @@ public class OrgPageBootstrapTest {
         }
         Assert.assertEquals(rows.get(0).getTemplateId(), StarterTemplates.TEXT_ONLY_ID);
         Assert.assertEquals(rows.get(1).getTemplateId(), StarterTemplates.PILGRIMAGES_ID);
-        Assert.assertEquals(rows.get(1).getValues().get("language"), "English");
+        Assert.assertEquals(rows.get(1).getValues().get("language"), TripCommands.ANY_LANGUAGE,
+                "an org's starter lists its trips in every language, not just English");
         Assert.assertEquals(rows.get(1).getValues().get("cfpwOnly"), "false");
         Assert.assertEquals(rows.get(2).getTemplateId(), StarterTemplates.PHOTO_ALBUMS_ID);
     }

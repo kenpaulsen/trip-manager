@@ -4,6 +4,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.paulsens.trip.action.TripCommands;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.model.ContentTemplate;
@@ -60,6 +61,9 @@ public class ProgrammaticTypesTest {
         final var languages = type.choicesFor("language");
         Assert.assertTrue(languages.stream().anyMatch(c -> c.value().equals("English")));
         Assert.assertTrue(languages.stream().anyMatch(c -> c.value().equals("Spanish")));
+        Assert.assertEquals(languages.get(languages.size() - 1).value(), TripCommands.ANY_LANGUAGE,
+                "'Any language' is offered, last, so a new section's menu still opens on a real language");
+        Assert.assertEquals(languages.get(0).value(), "English");
     }
 
     @Test

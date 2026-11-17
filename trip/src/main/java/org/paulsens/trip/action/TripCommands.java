@@ -55,6 +55,11 @@ public class TripCommands {
     private static final String NO_TRIP = "none";
     /** Shown (as a growl) on the profile page when a trip asked for by id could not be opened; see noTripUrl. */
     public static final String NO_TRIP_ACCESS_MESSAGE = "That trip is not available to you.";
+    /**
+     * A "Trip Listings" section's language value meaning "every language". Deliberately not a {@link Language}
+     * constant: that enum is what a TRIP is conducted in, and no trip is conducted in "any".
+     */
+    public static final String ANY_LANGUAGE = "Any";
     /** How long a finished pilgrimage stays on the public landing page (user-set product rule). */
     private static final int PUBLIC_PAST_DAYS = 7;
 
@@ -1198,9 +1203,11 @@ public class TripCommands {
 
     /**
      * The pilgrimages a "Trip Listings" programmatic content instance shows: its admin-provided
-     * properties (language, CFPW-only, max count, and on a shared site the curated {@code includeOrgs}
-     * list) applied to the raw public listing through {@link ListingScope}. Blank or unparsable properties
-     * fall back to everything the site may show -- a public page renders permissively, never errors. On an
+     * properties (language, CFPW-only, max count, and on a shared site the curated {@code includeOrgs} list)
+     * applied to the raw public listing through {@link ListingScope}. The language is the exception to the
+     * permissive fallback: a blank or unknown language means English (the site default), and only
+     * {@link #ANY_LANGUAGE} lists every language. Every other blank or unparsable property falls back to
+     * everything the site may show -- a public page renders permissively, never errors. On an
      * ORGANIZATION's site the listing is always that org's own trips, whatever the instance says: tenant
      * isolation is a property of the site, not an option an editor could forget to tick.
      */
@@ -1210,12 +1217,14 @@ public class TripCommands {
         }
         final Map<String, String> values = instance.getValues();
         final ListingScope scope = ListingScope.forInstance(values);
-        final Language wanted = parseLanguage(values.get("language"));
+        final String language = values.get("language");
+        final boolean anyLanguage = language != null && ANY_LANGUAGE.equals(language.trim());
+        final Language wanted = parseLanguage(language);
         final boolean cfpwOnly = Boolean.parseBoolean(values.get("cfpwOnly")) && !SiteContext.current().isOrg();
         final int max = parsePositive(values.get("maxCount"), Integer.MAX_VALUE);
         return publicTripsAnywhere().stream()
                 .filter(trip -> scope.shows(trip.getOrgId()))
-                .filter(trip -> languageOf(trip) == wanted)
+                .filter(trip -> anyLanguage || languageOf(trip) == wanted)
                 .filter(trip -> !cfpwOnly || trip.isCfpw())
                 .filter(trip -> !trip.isConference())
                 .limit(max)

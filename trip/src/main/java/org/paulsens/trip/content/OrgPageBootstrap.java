@@ -17,6 +17,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.function.ToIntFunction;
 import java.util.regex.Pattern;
+import org.paulsens.trip.action.TripCommands;
 import org.paulsens.trip.action.TripPageCommands;
 import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.Organization;
@@ -217,8 +218,11 @@ public final class OrgPageBootstrap {
         return List.of(
                 row(key, "Welcome", StarterTemplates.TEXT_ONLY_ID, templateVersion, 0,
                         Map.of("body", welcomeBody(org.getName()))),
+                // Every language: a fixed English filter left a Spanish-only org's home page empty (vyvm,
+                // 2026-11-17), and an org is often seeded before it has a trip to infer a language from.
                 row(key, "Upcoming Trips", StarterTemplates.PILGRIMAGES_ID, templateVersion, 1,
-                        Map.of("language", "English", "cfpwOnly", "false")),
+                        Map.of(PilgrimagesType.PROP_LANGUAGE, TripCommands.ANY_LANGUAGE,
+                                PilgrimagesType.PROP_CFPW_ONLY, "false")),
                 row(key, "Pictures", StarterTemplates.PHOTO_ALBUMS_ID, templateVersion, 2, Map.of()));
     }
 

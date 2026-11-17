@@ -3,9 +3,11 @@ package org.paulsens.trip.action;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.Map;
+import java.util.Set;
 import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.Person;
@@ -201,6 +203,39 @@ public class TripCommandsTest {
         assertTrue(cfpwOnly.stream().allMatch(Trip::isCfpw), "cfpwOnly restricts to CFPW-hosted trips");
         assertEquals(tripCommands.getPublicTripsFor(listingInstance(null, "banana")).size(), all,
                 "A non-boolean reads as false: every provider");
+    }
+
+    /**
+     * "Any" lists every language: exactly the English listing plus the Spanish one. A language-less section
+     * still reads as English, so an existing section's meaning never changes.
+     */
+    @Test
+    public void anAnyLanguageListingShowsEveryLanguage() {
+        final List<Trip> english = tripCommands.getPublicTripsFor(languageInstance("English"));
+        final List<Trip> spanish = tripCommands.getPublicTripsFor(languageInstance("Spanish"));
+        final List<Trip> any = tripCommands.getPublicTripsFor(languageInstance(TripCommands.ANY_LANGUAGE));
+        assertFalse(spanish.isEmpty(), "the seeds carry a public Spanish trip");
+        assertEquals(new HashSet<>(any), union(english, spanish), "Any = every language's trips");
+        assertEquals(any.size(), english.size() + spanish.size(), "and each trip once");
+        assertEquals(tripCommands.getPublicTripsFor(languageInstance(" Any ")).size(), any.size(),
+                "a stray space is forgiven, like every other listing property");
+        assertEquals(tripCommands.getPublicTripsFor(languageInstance(null)), english,
+                "no language still means English");
+    }
+
+    private static Set<Trip> union(final List<Trip> first, final List<Trip> second) {
+        final Set<Trip> all = new HashSet<>(first);
+        all.addAll(second);
+        return all;
+    }
+
+    private ContentInstance languageInstance(final String language) {
+        final Map<String, String> values = new HashMap<>();
+        if (language != null) {
+            values.put("language", language);
+        }
+        return new ContentInstance("ci-1", "page:trip-index", "Pilgrimages", "tpl-1", 1, values,
+                null, 0, 1, null, null);
     }
 
     private ContentInstance listingInstance(final String maxCount, final String cfpwOnly) {

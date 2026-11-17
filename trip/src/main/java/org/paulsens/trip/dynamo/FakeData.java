@@ -1419,9 +1419,13 @@ public final class FakeData {
                 "soccer-warmup"));
         trips.add(pictured(PIC_VEGAS_TRIP_ID, "Las Vegas Players Showcase", ACME_ORG_ID, "Acme Inc", 95, 98,
                 "Las Vegas, Nevada", "US", "$640 per player", null, List.of("youth"), "soccer-match"));
-        trips.add(pictured(PIC_PERU_TRIP_ID, "Peru Family Adventure", ACME_ORG_ID, "Acme Inc", 45, 56,
+        final Trip peru = pictured(PIC_PERU_TRIP_ID, "Peru Family Adventure", ACME_ORG_ID, "Acme Inc", 45, 56,
                 "Paracas, Cusco and the Amazon, Peru", "PE", "$2,140 per person", null, List.of("family", "tour"),
-                "cusco-plaza", "ballestas-arch", "huacachina-dunes"));
+                "cusco-plaza", "ballestas-arch", "huacachina-dunes");
+        // Spanish on purpose: Acme's starter section lists every language ("Any"), so its next departure is the one
+        // seed where a Spanish trip is featured in a section that is not itself Spanish (OrgSubdomainPwIT).
+        peru.setLanguage(Language.Spanish);
+        trips.add(peru);
         trips.add(pictured(PIC_TREK_TRIP_ID, "Machu Picchu Trek 2027", ACME_ORG_ID, "Acme Inc", 110, 121,
                 "Cusco and the Inca Trail, Peru", "PE", "$3,410 from Portland", 2, List.of("tour"), "andes-train"));
     }

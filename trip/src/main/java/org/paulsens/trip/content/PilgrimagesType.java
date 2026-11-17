@@ -5,13 +5,15 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Stream;
 import org.paulsens.trip.action.TripCommands;
 import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.Language;
 import org.paulsens.trip.model.Placeholder;
 
 /**
- * The public trip listing for one language, as a programmatic content type: what v1 hardcoded as a
+ * The public trip listing for one language, or for every language ({@code TripCommands.ANY_LANGUAGE}), as a
+ * programmatic content type: what v1 hardcoded as a
  * per-language block on the landing page, drawn since issue 154 as picture cards. The instance's title is the
  * section heading ("English Medjugorje Pilgrimages"); the fragment drives the same cached {@code TripCommands}
  * listing the v1 page used, filtered by these properties.
@@ -40,14 +42,15 @@ final class PilgrimagesType implements ProgrammaticContentTemplate {
 
     @Override
     public String getDescription() {
-        return "The public trips of one language as picture cards, straight from the trip data.";
+        return "The public trips of one language, or of every language, as picture cards, straight from the trip "
+                + "data.";
     }
 
     @Override
     public List<Placeholder> getProperties() {
         return List.of(
                 new Placeholder(PROP_LANGUAGE, Placeholder.Type.CHOICE, "Language",
-                        "Which language's trips to list", true),
+                        "Which language's trips to list, or any language", true),
                 new Placeholder(PROP_CFPW_ONLY, Placeholder.Type.CHOICE, "Providers",
                         "All public trips, or only CFPW-hosted ones", false),
                 new Placeholder(PROP_MAX_COUNT, Placeholder.Type.TEXT, "Max to display",
@@ -109,9 +112,10 @@ final class PilgrimagesType implements ProgrammaticContentTemplate {
     @Override
     public List<Choice> choicesFor(final String propertyName) {
         if (PROP_LANGUAGE.equals(propertyName)) {
-            return Arrays.stream(Language.values())
-                    .map(PilgrimagesType::languageChoice)
-                    .toList();
+            // "Any language" LAST: an existing section's stored value is untouched, and a new section's menu
+            // still opens on the first language, as it always has.
+            return Stream.concat(Arrays.stream(Language.values()).map(PilgrimagesType::languageChoice),
+                    Stream.of(new Choice(TripCommands.ANY_LANGUAGE, "Any language"))).toList();
         }
         if (PROP_CFPW_ONLY.equals(propertyName)) {
             return List.of(new Choice("false", "All providers"), new Choice("true", "CFPW only"));

@@ -56,7 +56,10 @@ hostname**, resolved once per request into a `SiteContext` (`org.paulsens.trip.s
   key from the bean at initPage on every request and never stores it anywhere a later request could read it
   back (see `SiteContext`'s hard rule: never in sessionScope/viewScope).
 - **The starter page** (`OrgPageBootstrap.rows`): a welcome section naming the org (obviously placeholder
-  text), an English `pilgrimages` section, and a `photo-albums` section — "less is more". Seeded through the
+  text), a `pilgrimages` section for **every language** (`language` = `TripCommands.ANY_LANGUAGE`, "Any"; a
+  fixed English filter left a Spanish-only org's page empty), and a `photo-albums` section -- "less is more".
+  "Any language" is also the last choice in any Trip Listings section's Language menu; a card in such a section
+  takes its eyebrow words from its own trip's language. Seeded through the
   normal DAO save path by `OrgCommands.ensureHomePage`, **exactly once per org** (the org row records
   `homePageSeededAt`): on the subdomain's first assignment, or lazily from the org dashboard for an org
   slugged earlier. An org that empties its page keeps it empty; a hand-authored page is never overwritten.
