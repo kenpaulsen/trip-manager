@@ -61,6 +61,9 @@ public class ReminderHtmlEventNoteTest {
         Assert.assertFalse(image.dropped());
         Assert.assertEquals(ReminderHtml.cleanEventNote("<img src=\"https://x.example/a.png\"></img>after"),
                 "<img src=\"https://x.example/a.png\">after", "a stray </img> closes nothing");
+        // Plain http too: the editor's image-by-URL prompt accepts it, and a video does not get the same allowance.
+        Assert.assertEquals(ReminderHtml.cleanEventNote("<img src=\"http://plain.example/a.png\">"),
+                "<img src=\"http://plain.example/a.png\">");
 
         final ReminderHtml.Cleaned video = ReminderHtml.cleanEventNoteNoting("<iframe class=\"ql-video\" "
                 + "frameborder=\"0\" allowfullscreen=\"true\" src=\"https://www.youtube.com/embed/abc\"></iframe>"
@@ -82,7 +85,7 @@ public class ReminderHtmlEventNoteTest {
         assertDropped("<img src=x onerror=alert(1)>after", "after");
         assertDropped("<img src=\"https://x.example/a.png\" onerror=\"alert(1)\" style=\"position:fixed\">",
                 "<img src=\"https://x.example/a.png\">");
-        assertDropped("<img src=\"http://plain.example/a.png\">ok", "ok");
+        assertDropped("<iframe class=\"ql-video\" src=\"http://v.example/1\"></iframe>ok", "ok");
         assertDropped("<img src=\"data:image/png;base64,AAAA\">ok", "ok");
         assertDropped("<img src=\"javascript:alert(1)\">ok", "ok");
         assertDropped("<iframe src=\"https://evil.example/\">inside</iframe>ok", "ok");

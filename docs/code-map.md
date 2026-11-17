@@ -77,8 +77,12 @@ on this page" report and the CodeMirror completion; local bytes served by `web/S
 
 Rules for these beans: `CLAUDE.md` ("Rules that apply everywhere") and `.claude/rules/page-state.md`.
 
-Not a bean, but where a reader looks for it: `ReminderHtml` is also the private-note allowlist (`cleanNote`, its `NOTE`
-mode), the one cleaner every trip-event note passes on save and on every read.
+Not a bean, but where a reader looks for it: `ReminderHtml` is also the allowlist for both kinds of trip-event note,
+each cleaned on save and on every read. A traveler's private note is `cleanNote` (its `NOTE` mode); a page that reads
+it from the event shows it through `#{trip.noteHtml(event, personId)}`. An event's shared notes are `cleanEventNote`
+(its `EVENT_NOTE` mode: the private note's list plus web images, Quill's https video embed and its code block,
+medjugorje#156); a page that reads them from the event shows them through `#{trip.eventNotesHtml(event)}`, and the
+REST DTOs clean them in `TripMapper`.
 
 ### People lists and people search
 

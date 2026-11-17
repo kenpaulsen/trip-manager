@@ -57,7 +57,7 @@ public class EventNotesCleaningTest {
                 () -> Assert.assertTrue(trips.saveEventForm(trip, eventForm(trip, RAW))));
         Assert.assertEquals(trip.getTripEvents().get(0).getNotes(), CLEAN);
         Assert.assertEquals(growls.size(), 1, growls.toString());
-        Assert.assertTrue(growls.get(0).contains("some formatting they cannot hold"), growls.toString());
+        Assert.assertTrue(growls.get(0).contains("some formatting its notes cannot keep"), growls.toString());
     }
 
     @Test
@@ -77,6 +77,33 @@ public class EventNotesCleaningTest {
         final List<String> quiet = TestFaces.growlsOf(new HashMap<>(),
                 () -> Assert.assertTrue(trips.saveEventForm(trip, again)));
         Assert.assertEquals(quiet, List.of(), "notes that lose nothing save without a warning");
+    }
+
+    /**
+     * A pasted picture (Quill inlines it as a data address thousands of characters long) is refused, as a
+     * reminder's save refuses it: the cleaner could only write it out as that many characters of visible text.
+     */
+    @Test
+    public void aPastedPictureIsRefusedNotStoredAsText() {
+        final String pasted = "<p>Hotel</p><p><img src=\"data:image/png;base64," + "A".repeat(3_000) + "\"></p>";
+        // Refused like every other dialog refusal (a growl and keepOpen; TripEventFormTest runs them the same way).
+        final Trip trip = Trip.builder().title("Pasted").build();
+        Assert.assertFalse(trips.saveEventForm(trip, eventForm(trip, pasted)));
+        Assert.assertTrue(trip.getTripEvents().isEmpty(), "nothing was added");
+
+        final Trip existing = tripWithRawNotes();
+        final String id = existing.getTripEvents().get(0).getId();
+        final TripEventForm edit = trips.eventFormFor(existing, null, id);
+        edit.setNotes(pasted);
+        Assert.assertFalse(trips.saveEventForm(existing, edit));
+        Assert.assertEquals(existing.getTripEvent(id).getNotes(), RAW, "the event is left as it was");
+
+        Assert.assertTrue(TripCommands.eventNotesProblem(pasted).contains("too large to keep"));
+
+        Assert.assertNotNull(TripCommands.eventNotesProblem("<a href=\"https://x/" + "y".repeat(3_000) + "\">z</a>"),
+                "an address too long to read is refused too");
+        Assert.assertNull(TripCommands.eventNotesProblem(CLEAN));
+        Assert.assertNull(TripCommands.eventNotesProblem(null));
     }
 
     @Test

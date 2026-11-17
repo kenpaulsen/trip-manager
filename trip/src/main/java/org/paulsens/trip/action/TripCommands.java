@@ -374,6 +374,11 @@ public class TripCommands {
             refuseEvent("The event needs a type, a title and a start time before it can be added.");
             return null;
         }
+        final String problem = eventNotesProblem(notes);
+        if (problem != null) {
+            refuseEvent(problem);
+            return null;
+        }
         final ReminderHtml.Cleaned cleaned = ReminderHtml.cleanEventNoteNoting(notes);
         try {
             final String id = trip.addTripEvent(type, title, cleaned.body(), start, end);
@@ -386,14 +391,31 @@ public class TripCommands {
     }
 
     /**
+     * Why an event's notes cannot be stored, or null when they can: a tag the cleaner cannot read (no {@code >}
+     * within {@link ReminderHtml#MAX_TAG}) would be written out as its own text. In practice that is a pasted
+     * picture, which Quill inlines as a data address thousands of characters long, and every itinerary, the
+     * public schedule and the apps would show those characters. Refused, as a reminder's save refuses it
+     * ({@code ReminderCommands.TAG_TOO_LONG}), rather than stored as a wall of text.
+     */
+    public static String eventNotesProblem(final String notes) {
+        if (ReminderHtml.hasUnreadableLink(notes)) {
+            return "A link in the event's notes has an address too long to keep (or is not closed). Shorten it.";
+        }
+        return ReminderHtml.hasUnreadableTag(notes) ? "Something pasted into the event's notes (usually a picture) "
+                + "is too large to keep. Remove it, or add the picture by its web address instead." : null;
+    }
+
+    /**
      * Says so when cleaning an event's notes removed something its writer could see, rather than report plain
      * success over notes that lost it. The notes are written out unescaped on every itinerary, the shared
-     * itinerary and the public trip page, so they are cleaned as they are stored (medjugorje#156).
+     * itinerary and the public trip page, so they are cleaned as they are stored (medjugorje#156). Worded from
+     * what the event-note list drops, and the same way as the private note's warning (saveEventNoteById).
      */
     private static void warnIfNotesLostFormatting(final ReminderHtml.Cleaned cleaned) {
         if (cleaned.dropped()) {
-            PageFeedback.warn("The event's notes were kept, but some formatting they cannot hold (a table, a font, "
-                    + "a script, or an image, video or link that is not a full https address) was removed.");
+            PageFeedback.warn("Event updated, but some formatting its notes cannot keep (a table, a script, a font "
+                    + "family, an image that is not a full web address, a video that is not an https address, or "
+                    + "a link that is not a full web, email or phone address) was removed.");
         }
     }
 
@@ -418,6 +440,10 @@ public class TripCommands {
         }
         if (hasOtherEventAt(trip, eventId, title, start)) {
             return refuseEvent(alreadyStarts(title, start) + ", so this change would make a duplicate.");
+        }
+        final String problem = eventNotesProblem(notes);
+        if (problem != null) {
+            return refuseEvent(problem);
         }
         final ReminderHtml.Cleaned cleaned = ReminderHtml.cleanEventNoteNoting(notes);
         owned.setType(type);

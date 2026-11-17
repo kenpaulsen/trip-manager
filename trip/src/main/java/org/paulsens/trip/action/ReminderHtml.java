@@ -48,7 +48,7 @@ import java.util.regex.Pattern;
  *
  * <p>A trip event's shared NOTES ({@link #cleanEventNote}, medjugorje#156) keep the private note's list plus the
  * three tools the event dialog's editor offers that it does not: an image by web address, a video embed and a code
- * block. Rebuilt like everything else: an {@code <img>} only with an {@code https://} address (a numeric size and a
+ * block. Rebuilt like everything else: an {@code <img>} only with an {@code http(s)://} address (a numeric size and a
  * plain alt text at most), an {@code <iframe>} only as Quill's own {@code ql-video} with an {@code https://}
  * address and fixed attributes, and Quill's two code-block classes. The 2026-11-16 production scan of all 1,071
  * event notes found nothing the private note's list does not keep (colors, sizes, links, lists, strike), and no
@@ -70,9 +70,13 @@ public final class ReminderHtml {
      */
     private static final Pattern ATTRIBUTE = Pattern.compile(
             "(?<![-a-zA-Z0-9_:.])([a-zA-Z_:][-a-zA-Z0-9_:.]*+)\\s*+=\\s*(\"[^\"]*\"|'[^']*'|[^\\s\"'>]+)");
-    /** An apostrophe is fine in an address: the value is always written back inside double quotes. */
-    private static final Pattern WEB_ADDRESS =
-            Pattern.compile("(?i)(https?://|mailto:|tel:|sms:)[^\\s\"<>`\\\\]+");
+    /**
+     * What may follow an address's scheme, for every address this class writes into a double-quoted {@code href}
+     * or {@code src}: no space, quote, angle bracket, backtick or backslash. ONE copy, so a tightening reaches
+     * links, images and videos alike. An apostrophe is fine: the value is always written back inside double quotes.
+     */
+    private static final String ADDRESS_TAIL = "[^\\s\"<>`\\\\]+";
+    private static final Pattern WEB_ADDRESS = Pattern.compile("(?i)(https?://|mailto:|tel:|sms:)" + ADDRESS_TAIL);
     private static final Pattern LINK_TOKEN = Pattern.compile("\\{\\{[a-zA-Z]+Link\\}\\}");
     /**
      * The Quill classes kept: the ones the toolbar can produce, and nothing else. NOT every {@code ql-} class:
@@ -100,8 +104,13 @@ public final class ReminderHtml {
             "/?[A-Za-z0-9_-]{1,80}(?:/[A-Za-z0-9_-]{1,80}){0,5}\\.jsf(?:\\?[A-Za-z0-9_=&%.+ -]{0,200})?");
     /** Old tags a note writes as their current equivalent. */
     private static final Map<String, String> NOTE_ALIASES = Map.of("strike", "s", "font", "span");
-    /** The address of an event note's image or video: a literal https address, nothing that decodes into one. */
-    private static final Pattern HTTPS_ADDRESS = Pattern.compile("(?i)https://[^\\s\"<>`\\\\]+");
+    /**
+     * The address of an event note's image: a literal web address, nothing that decodes into one. Plain http too,
+     * because the editor's image-by-URL prompt accepts it ({@code quillEditor.xhtml}) and the browser upgrades it.
+     */
+    private static final Pattern IMAGE_ADDRESS = Pattern.compile("(?i)https?://" + ADDRESS_TAIL);
+    /** The address of an event note's video: https only, as Quill's own video embeds are. */
+    private static final Pattern VIDEO_ADDRESS = Pattern.compile("(?i)https://" + ADDRESS_TAIL);
     /** Quill 2's code block, which only an event note keeps (a mailed reminder has no Quill stylesheet). */
     private static final Pattern CODE_CLASS = Pattern.compile("ql-code-block(-container)?");
     /** An image's width or height as Quill writes it: a number, at most a unit. */
@@ -437,7 +446,7 @@ public final class ReminderHtml {
             attributes.putIfAbsent(attribute.group(1).toLowerCase(Locale.ROOT), unquoted(attribute.group(2)).trim());
         }
         final String src = attributes.getOrDefault("src", "");
-        if (!HTTPS_ADDRESS.matcher(src).matches()) {
+        if (!("iframe".equals(name) ? VIDEO_ADDRESS : IMAGE_ADDRESS).matcher(src).matches()) {
             return null;
         }
         if ("iframe".equals(name)) {

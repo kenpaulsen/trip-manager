@@ -1348,7 +1348,12 @@ public final class FakeData {
                 LocalDateTime.now().minusDays(4), LocalDateTime.now(), null, null));
         events2.add(newTripEvent(FAKE2_SEA_LGW_EVENT_ID, TripEvent.Type.FLIGHT, "SEA -> LGW", "Alaska flight 255",
                 LocalDateTime.now().minusDays(5), null, null, null));
-        events2.add(newTripEvent(FAKE2_DBV_KEF_EVENT_ID, TripEvent.Type.FLIGHT, "DBV -> KEF", "Trip for 1 to Iceland",
+        // Notes stored as a row from before notes were cleaned (medjugorje#156) can hold: formatting to keep and an
+        // image handler that must never run. Only a seed can hold it -- every write path cleans now -- so the
+        // browser test proves the READ paths clean (EventNotesPwIT).
+        events2.add(newTripEvent(FAKE2_DBV_KEF_EVENT_ID, TripEvent.Type.FLIGHT, "DBV -> KEF",
+                "<p>Trip for 1 to <span style=\"color: rgb(230, 0, 0)\">Iceland</span></p>"
+                        + "<img src=x onerror=\"window.pwLegacyNoteRan=1\">",
                 LocalDateTime.now(), null, null, null));
         final Trip summer = Trip.builder()
                 .id(FAKE2_TRIP_ID)

@@ -588,6 +588,24 @@ public class TripsResourceTest extends ResourceTestSupport {
                 500, ApiErrors.STORE_FAILED);
     }
 
+    /** An appended event carrying a pasted picture is refused before anything is applied (medjugorje#156). */
+    @Test
+    public void anAppendedEventWithAPastedPictureIsRefused() {
+        signedInAsSiteAdmin(ME);
+        final Trip existing = trip(TRIP_ID, ME);
+        tripExists(existing);
+        final TripEventDto pasted = new TripEventDto(null, "EVENT", "Welcome",
+                "<img src=\"data:image/png;base64," + "A".repeat(3_000) + "\">", LocalDateTime.now(), null, null, null,
+                null, null);
+        final TripDto body = new TripDto(null, "Renamed", null, null, false, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, List.of(pasted), null);
+
+        assertError(resource.update(TRIP_ID, CSRF_OK, body), 400, ApiErrors.VALIDATION_FAILED);
+        Assert.assertEquals(existing.getTitle(), "Pilgrimage", "nothing in the body was applied");
+        Assert.assertEquals(existing.getTripEvents().size(), 1);
+        Mockito.verify(trips, Mockito.never()).saveTrip(ArgumentMatchers.any(), ArgumentMatchers.any());
+    }
+
     @Test
     public void updateNeedsTripManagerOnThatTrip() {
         signedInAs(ME);
@@ -1012,6 +1030,12 @@ public class TripsResourceTest extends ResourceTestSupport {
         final TripEventDto written = (TripEventDto) resource.updateEvent(TRIP_ID, "evt-1", CSRF_OK, body).getEntity();
         Assert.assertEquals(existing.getTripEvent("evt-1").getNotes(), "<p>new</p>");
         Assert.assertEquals(written.notes(), "<p>new</p>");
+
+        // A pasted picture would be stored as thousands of characters of visible text: refused, nothing changed.
+        final String pasted = "<img src=\"data:image/png;base64," + "A".repeat(3_000) + "\">";
+        assertError(resource.updateEvent(TRIP_ID, "evt-1", CSRF_OK, new TripEventDto(null, null, null, pasted,
+                null, null, null, null, null, null)), 400, ApiErrors.VALIDATION_FAILED);
+        Assert.assertEquals(existing.getTripEvent("evt-1").getNotes(), "<p>new</p>");
     }
 
     @Test

@@ -480,9 +480,8 @@ public class TripsResource extends BaseResource {
     /** {@link #eventDto} without either viewer-relative field: nothing on it belongs to any one person. */
     private static TripEventDto sharedEventDto(final TripEvent event) {
         final TripEventDto dto = TripMapper.INSTANCE.toDto(event);
-        return new TripEventDto(dto.id(), dto.type(), dto.title(), ReminderHtml.cleanEventNote(dto.notes()),
-                dto.start(), dto.end(), dto.participants(), null, null,
-                hasAnyDetail(event) ? new LinkedHashMap<>(event.getDetails()) : null);
+        return new TripEventDto(dto.id(), dto.type(), dto.title(), dto.notes(), dto.start(), dto.end(),
+                dto.participants(), null, null, hasAnyDetail(event) ? new LinkedHashMap<>(event.getDetails()) : null);
     }
 
     /** The itinerary item types, for a client building a picker. */
@@ -523,6 +522,10 @@ public class TripsResource extends BaseResource {
         if (eventsCarryIds(body)) {
             return error(400, ApiErrors.VALIDATION_FAILED, "tripEvents on a write are append-only: ids "
                     + "must be null (editing an existing event is the editor page's job).");
+        }
+        final String notesProblem = appendedNotesProblem(body);
+        if (notesProblem != null) {
+            return error(400, ApiErrors.VALIDATION_FAILED, notesProblem);
         }
         final String badValue = badEnumValue(body);
         if (badValue != null) {
@@ -583,6 +586,10 @@ public class TripsResource extends BaseResource {
         if (eventsCarryIds(body)) {
             return error(400, ApiErrors.VALIDATION_FAILED, "tripEvents on a write are append-only: ids "
                     + "must be null (editing an existing event is the editor page's job).");
+        }
+        final String notesProblem = appendedNotesProblem(body);
+        if (notesProblem != null) {
+            return error(400, ApiErrors.VALIDATION_FAILED, notesProblem);
         }
         final String badValue = badEnumValue(body);
         if (badValue != null) {
@@ -707,6 +714,10 @@ public class TripsResource extends BaseResource {
         }
         if (body == null) {
             return error(400, ApiErrors.BAD_REQUEST, "A body is required.");
+        }
+        final String notesProblem = TripCommands.eventNotesProblem(body.notes());
+        if (notesProblem != null) {
+            return error(400, ApiErrors.VALIDATION_FAILED, notesProblem);
         }
         if (body.type() != null) {
             final TripEvent.Type type = eventType(body.type());
@@ -862,9 +873,9 @@ public class TripsResource extends BaseResource {
      */
     private static TripEventDto eventDto(final TripEvent event, final Person.Id viewer) {
         final TripEventDto dto = TripMapper.INSTANCE.toDto(event);
-        // Both notes go out cleaned: the apps and any other client render them as HTML (medjugorje#156, #116).
-        return new TripEventDto(dto.id(), dto.type(), dto.title(), ReminderHtml.cleanEventNote(dto.notes()),
-                dto.start(), dto.end(), dto.participants(), event.getParticipants().contains(viewer),
+        // The private note goes out cleaned here, the shared notes already are (TripMapper; medjugorje#116, #156).
+        return new TripEventDto(dto.id(), dto.type(), dto.title(), dto.notes(), dto.start(), dto.end(),
+                dto.participants(), event.getParticipants().contains(viewer),
                 TripCommands.cleanNoteOrNull(event.getPrivNotes().get(viewer)),
                 hasAnyDetail(event) ? new LinkedHashMap<>(event.getDetails()) : null);
     }
@@ -1145,6 +1156,17 @@ public class TripsResource extends BaseResource {
     private static OptionChoice choiceOf(final RegChoiceDto dto) {
         return new OptionChoice(dto.id(), dto.label(), dto.priceCents() == null ? 0L : dto.priceCents(),
                 dto.capacity(), dto.attestationText(), dto.days(), dto.enabled());
+    }
+
+    /**
+     * Why an appended event's notes cannot be stored ({@link TripCommands#eventNotesProblem}: a pasted picture
+     * the cleaner would write out as its own text), or null when every one can.
+     */
+    private static String appendedNotesProblem(final TripDto body) {
+        return (body == null || body.tripEvents() == null) ? null : body.tripEvents().stream()
+                .map(dto -> TripCommands.eventNotesProblem(dto.notes()))
+                .filter(problem -> problem != null)
+                .findFirst().orElse(null);
     }
 
     /**
