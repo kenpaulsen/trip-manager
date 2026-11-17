@@ -992,6 +992,28 @@ public class TripsResourceTest extends ResourceTestSupport {
         Mockito.verify(trips).saveTrip(ArgumentMatchers.eq(existing), ArgumentMatchers.any());
     }
 
+    /**
+     * An event's notes are cleaned on the way in and on the way out (medjugorje#156): the apps and the site render
+     * them as HTML, and a row stored before notes were cleaned may hold anything.
+     */
+    @Test
+    public void eventNotesAreCleanedOnTheWayInAndOut() {
+        signedInAsSiteAdmin(ME);
+        final Trip existing = trip(TRIP_ID, ME);
+        existing.getTripEvent("evt-1").setNotes("<p>old</p><script>alert(1)</script>");
+        tripExists(existing);
+        Mockito.when(trips.saveTrip(ArgumentMatchers.eq(existing), ArgumentMatchers.any())).thenReturn(true);
+
+        final TripDto read = (TripDto) resource.get(TRIP_ID, null).getEntity();
+        Assert.assertEquals(read.tripEvents().get(0).notes(), "<p>old</p>");
+
+        final TripEventDto body = new TripEventDto(null, null, null, "<p>new</p><img src=x onerror=alert(1)>",
+                null, null, null, null, null, null);
+        final TripEventDto written = (TripEventDto) resource.updateEvent(TRIP_ID, "evt-1", CSRF_OK, body).getEntity();
+        Assert.assertEquals(existing.getTripEvent("evt-1").getNotes(), "<p>new</p>");
+        Assert.assertEquals(written.notes(), "<p>new</p>");
+    }
+
     @Test
     public void updateEventRefusesTheWrongCallerEventAndType() {
         signedInAs(ME);

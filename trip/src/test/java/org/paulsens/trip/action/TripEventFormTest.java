@@ -195,7 +195,8 @@ public class TripEventFormTest {
         final TripEvent added = theTrip.getTripEvents().get(0);
         Assert.assertEquals(added.getType(), TripEvent.Type.FLIGHT);
         Assert.assertEquals(added.getTitle(), "PDX -> FCO");
-        Assert.assertEquals(added.getNotes(), "Alaska Airlines AS 123: 8:15am -> 5:25pm (9h 10m)");
+        // Stored cleaned (medjugorje#156): the arrow is escaped, and a page writes it out as the same "->".
+        Assert.assertEquals(added.getNotes(), "Alaska Airlines AS 123: 8:15am -&gt; 5:25pm (9h 10m)");
         Assert.assertEquals(added.detail(TripEvent.Detail.FROM), "pdx");
         Assert.assertEquals(added.detail(TripEvent.Detail.DURATION), "9h 10m");
         Assert.assertNull(added.detail(TripEvent.Detail.CARRIER));
@@ -214,7 +215,7 @@ public class TripEventFormTest {
         final TripEvent added = theTrip.getTripEvents().get(0);
         Assert.assertEquals(added.getType(), TripEvent.Type.GROUND);
         Assert.assertEquals(added.getTitle(), "Medjugorje -> Split");
-        Assert.assertEquals(added.getNotes(), "Globtour bus: 9:00am -> 11:30am (2h 30m)");
+        Assert.assertEquals(added.getNotes(), "Globtour bus: 9:00am -&gt; 11:30am (2h 30m)");
         Assert.assertEquals(added.detail(TripEvent.Detail.CARRIER), "Globtour bus");
         Assert.assertNull(added.detail(TripEvent.Detail.FLIGHT_NUMBER));
 
@@ -296,7 +297,7 @@ public class TripEventFormTest {
         Assert.assertTrue(trip.saveEventForm(theTrip, edit));
         Assert.assertSame(theTrip.getTripEvent(flight.getId()), flight, "edited in place");
         Assert.assertEquals(flight.getTitle(), "PDX -> LHR");
-        Assert.assertEquals(flight.getNotes(), "Alaska Airlines AS 123: 8:15am -> 5:25pm", "no duration now");
+        Assert.assertEquals(flight.getNotes(), "Alaska Airlines AS 123: 8:15am -&gt; 5:25pm", "no duration now");
         Assert.assertEquals(flight.detail(TripEvent.Detail.TO), "lhr");
         Assert.assertNull(flight.detail(TripEvent.Detail.DURATION));
         Assert.assertEquals(flight.getParticipants(), List.of(Person.Id.from("ada"), Person.Id.from("bob")));

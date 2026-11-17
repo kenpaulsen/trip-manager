@@ -103,7 +103,7 @@ public class SharedItineraryCommands {
 
         static SharedItineraryRow of(final TripEvent event) {
             return new SharedItineraryRow(event.getId(), event.getType() == null ? "EVENT" : event.getType().name(),
-                    event.getTitle(), event.getNotes(), event.getStart(), event.getEnd());
+                    event.getTitle(), ReminderHtml.cleanEventNote(event.getNotes()), event.getStart(), event.getEnd());
         }
     }
 }

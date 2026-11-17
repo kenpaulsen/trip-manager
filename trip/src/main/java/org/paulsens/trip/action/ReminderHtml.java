@@ -2,6 +2,8 @@ package org.paulsens.trip.action;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -41,8 +43,16 @@ import java.util.regex.Pattern;
  * with one literal value ({@code #hex}, {@code rgb()}, {@code var(--name, #hex)}, a bare word, a size such as
  * {@code 0.8em}; no {@code url()}, no escape, no entity can match); {@code <font color>} written as a colored
  * {@code <span>} and {@code <strike>} as {@code <s>}; and a link to one of the site's own {@code .jsf} pages by
- * relative address, which cannot carry a scheme. No image, for either list ({@link Mode}). Notes were evaluated
- * as EL until 2026-11 (medjugorje#116) and written out unescaped, so this is what makes them safe to show.
+ * relative address, which cannot carry a scheme. No image in either of those lists ({@link Mode}). Notes were
+ * evaluated as EL until 2026-11 (medjugorje#116) and written out unescaped, so this is what makes them safe to show.
+ *
+ * <p>A trip event's shared NOTES ({@link #cleanEventNote}, medjugorje#156) keep the private note's list plus the
+ * three tools the event dialog's editor offers that it does not: an image by web address, a video embed and a code
+ * block. Rebuilt like everything else: an {@code <img>} only with an {@code https://} address (a numeric size and a
+ * plain alt text at most), an {@code <iframe>} only as Quill's own {@code ql-video} with an {@code https://}
+ * address and fixed attributes, and Quill's two code-block classes. The 2026-11-16 production scan of all 1,071
+ * event notes found nothing the private note's list does not keep (colors, sizes, links, lists, strike), and no
+ * image, video or code block; the three are kept because the editor offers them, not because a note uses them.
  */
 public final class ReminderHtml {
     /** Tags copied through, without their attributes unless named below. */
@@ -90,14 +100,29 @@ public final class ReminderHtml {
             "/?[A-Za-z0-9_-]{1,80}(?:/[A-Za-z0-9_-]{1,80}){0,5}\\.jsf(?:\\?[A-Za-z0-9_=&%.+ -]{0,200})?");
     /** Old tags a note writes as their current equivalent. */
     private static final Map<String, String> NOTE_ALIASES = Map.of("strike", "s", "font", "span");
+    /** The address of an event note's image or video: a literal https address, nothing that decodes into one. */
+    private static final Pattern HTTPS_ADDRESS = Pattern.compile("(?i)https://[^\\s\"<>`\\\\]+");
+    /** Quill 2's code block, which only an event note keeps (a mailed reminder has no Quill stylesheet). */
+    private static final Pattern CODE_CLASS = Pattern.compile("ql-code-block(-container)?");
+    /** An image's width or height as Quill writes it: a number, at most a unit. */
+    private static final Pattern IMAGE_SIZE = Pattern.compile("[0-9]{1,4}(px|%)?");
+    /** An image's alt text, kept only when it needs no escaping inside a double-quoted attribute. */
+    private static final Pattern IMAGE_ALT = Pattern.compile("[^\"<>&]{0,200}");
 
     /**
-     * Which list a clean keeps: a reminder's, or a note's (the reminder's plus its styles, site links and old
-     * tags). Images are kept by neither: a remote one is fetched by every reader's browser (a tracking pixel in
-     * a note any trip member may write), and the 2026-11 production scan found none in any note.
+     * Which list a clean keeps: a reminder's; a private note's (the reminder's plus its styles, site links and old
+     * tags); or an event's shared notes (the private note's plus https images, Quill video embeds and code blocks,
+     * which the event dialog's editor offers). A private note keeps no image: a remote one is fetched by every
+     * reader's browser (a tracking pixel in a note any trip member may write). An event's notes are written only
+     * by its trip's managers, through the editor that offers images.
      */
     private enum Mode {
-        REMINDER, NOTE
+        REMINDER, NOTE, EVENT_NOTE;
+
+        /** Whether this list keeps a note's styles, site links and old tags: both notes do, a reminder not. */
+        boolean noteFormatting() {
+            return this != REMINDER;
+        }
     }
     /**
      * The longest thing still treated as a tag. A real tag is a few dozen characters; without a bound, a body
@@ -150,6 +175,18 @@ public final class ReminderHtml {
     public static Cleaned cleanNoteNoting(final String html) {
         final Drops drops = new Drops();
         final String body = clean(html, drops, Mode.NOTE);
+        return new Cleaned(body, drops.any);
+    }
+
+    /** A trip event's shared notes with only allowlisted markup left (see the class comment); null becomes blank. */
+    public static String cleanEventNote(final String html) {
+        return cleanEventNoteNoting(html).body();
+    }
+
+    /** {@link #cleanEventNote}, noting what it dropped, for the save to say so ({@link Cleaned}). */
+    public static Cleaned cleanEventNoteNoting(final String html) {
+        final Drops drops = new Drops();
+        final String body = clean(html, drops, Mode.EVENT_NOTE);
         return new Cleaned(body, drops.any);
     }
 
@@ -307,10 +344,21 @@ public final class ReminderHtml {
             nameEnd++;
         }
         final String tag = html.substring(nameStart, nameEnd).toLowerCase(Locale.ROOT);
-        final String name = mode == Mode.NOTE ? NOTE_ALIASES.getOrDefault(tag, tag) : tag;
+        final String name = mode.noteFormatting() ? NOTE_ALIASES.getOrDefault(tag, tag) : tag;
+        final String embed = (mode == Mode.EVENT_NOTE && !closing)
+                ? embedTag(name, html.substring(nameEnd, end), drops) : null;
+        if (embed != null) {
+            out.append(embed);
+            // A video's frame has nothing inside it to show, so it is skipped through its closing tag.
+            return "iframe".equals(name) ? afterClosing(html, name, end + 1) : end + 1;
+        }
         if (!closing && DROP_WITH_CONTENT.contains(name)) {
             drops.any = true;
             return afterClosing(html, name, end + 1);
+        }
+        if (closing && mode == Mode.EVENT_NOTE && "img".equals(name)) {
+            // A stray </img> closes nothing; the image itself was written (or refused) at its opening tag.
+            return end + 1;
         }
         if ("ol".equals(name)) {
             out.append(closing ? "</" + (lists.isEmpty() ? "ol" : lists.pop()) + ">"
@@ -372,6 +420,47 @@ public final class ReminderHtml {
         return "</" + open + "><" + wanted + ">";
     }
 
+    /**
+     * An event note's image or video embed, rebuilt from scratch, or null when this tag is neither or its address
+     * is refused (the caller then drops it as any unlisted tag, and notes the drop). Only what Quill writes is
+     * read: an image's {@code src}, {@code alt}, {@code width} and {@code height}; a video's {@code class} and
+     * {@code src}. Every other attribute (an event handler, a {@code srcdoc}, a {@code sandbox} to lift) is
+     * never copied, and a style or class on a kept image is noted as dropped.
+     */
+    private static String embedTag(final String name, final String raw, final Drops drops) {
+        if (!"img".equals(name) && !"iframe".equals(name)) {
+            return null;
+        }
+        final Map<String, String> attributes = new HashMap<>();
+        final Matcher attribute = ATTRIBUTE.matcher(raw);
+        while (attribute.find()) {
+            attributes.putIfAbsent(attribute.group(1).toLowerCase(Locale.ROOT), unquoted(attribute.group(2)).trim());
+        }
+        final String src = attributes.getOrDefault("src", "");
+        if (!HTTPS_ADDRESS.matcher(src).matches()) {
+            return null;
+        }
+        if ("iframe".equals(name)) {
+            final boolean video = List.of(attributes.getOrDefault("class", "").split(" ")).contains("ql-video");
+            return video ? "<iframe class=\"ql-video\" frameborder=\"0\" allowfullscreen=\"true\" src=\"" + src
+                    + "\"></iframe>" : null;
+        }
+        final String style = attributes.getOrDefault("style", "");
+        drops.any |= !style.isEmpty() || !attributes.getOrDefault("class", "").isEmpty();
+        final StringBuilder image = new StringBuilder("<img src=\"").append(src).append('"');
+        final String alt = attributes.get("alt");
+        if (alt != null && IMAGE_ALT.matcher(alt).matches()) {
+            image.append(" alt=\"").append(alt).append('"');
+        }
+        for (final String size : new String[] {"width", "height"}) {
+            final String value = attributes.get(size);
+            if (value != null && IMAGE_SIZE.matcher(value).matches()) {
+                image.append(' ').append(size).append("=\"").append(value).append('"');
+            }
+        }
+        return image.append('>').toString();
+    }
+
     /** {@code String.indexOf} ignoring case, without lower-casing the whole text (which can change its length). */
     private static int indexOfIgnoreCase(final String html, final String what, final int from) {
         for (int at = html.indexOf('<', from); at >= 0; at = html.indexOf('<', at + 1)) {
@@ -404,19 +493,20 @@ public final class ReminderHtml {
         while (attribute.find()) {
             final String key = attribute.group(1).toLowerCase(Locale.ROOT);
             final String value = unquoted(attribute.group(2)).trim();
-            if (mode == Mode.NOTE && "style".equals(key) && !styled) {
+            if (mode.noteFormatting() && "style".equals(key) && !styled) {
                 final String styles = noteStyle(value, drops);
                 kept.append(styles.isEmpty() ? "" : " style=\"" + styles + '"');
                 styled = true;
-            } else if (mode == Mode.NOTE && "color".equals(key) && !styled && NOTE_COLOR.matcher(value).matches()) {
+            } else if (mode.noteFormatting() && "color".equals(key) && !styled
+                    && NOTE_COLOR.matcher(value).matches()) {
                 // An old <font color="red">, written as the <span> it now is.
                 kept.append(" style=\"color: ").append(value).append('"');
                 styled = true;
             } else if ("a".equals(name) && "href".equals(key) && !linked
-                    && (isSafeAddress(value) || (mode == Mode.NOTE && SITE_PAGE.matcher(value).matches()))) {
+                    && (isSafeAddress(value) || (mode.noteFormatting() && SITE_PAGE.matcher(value).matches()))) {
                 kept.append(" href=\"").append(value).append('"');
                 linked = true;
-            } else if ("class".equals(key) && !classed && isQuillClasses(value)) {
+            } else if ("class".equals(key) && !classed && isQuillClasses(value, mode)) {
                 kept.append(" class=\"").append(value).append('"');
                 classed = true;
             } else if ("li".equals(name) && "data-list".equals(key) && !listed && LIST_KINDS.contains(value)) {
@@ -463,10 +553,14 @@ public final class ReminderHtml {
         return kept.toString();
     }
 
-    /** Every class named is one of Quill's own layout classes ({@code ql-align-center}, {@code ql-indent-1}). */
-    private static boolean isQuillClasses(final String value) {
+    /**
+     * Every class named is one of Quill's own layout classes ({@code ql-align-center}, {@code ql-indent-1}), or,
+     * in an event's notes, one of its two code-block classes.
+     */
+    private static boolean isQuillClasses(final String value, final Mode mode) {
         for (final String one : value.split(" ")) {
-            if (!QUILL_CLASS.matcher(one).matches()) {
+            if (!QUILL_CLASS.matcher(one).matches()
+                    && !(mode == Mode.EVENT_NOTE && CODE_CLASS.matcher(one).matches())) {
                 return false;
             }
         }

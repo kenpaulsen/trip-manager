@@ -29,6 +29,7 @@ import org.paulsens.trip.action.ItineraryAccess;
 import org.paulsens.trip.action.OrgCommands;
 import org.paulsens.trip.action.PaymentCommands;
 import org.paulsens.trip.action.ProfilePhotos;
+import org.paulsens.trip.action.ReminderHtml;
 import org.paulsens.trip.action.LodgingCommands;
 import org.paulsens.trip.action.LodgingViews;
 import org.paulsens.trip.action.TripPageCommands;
@@ -479,8 +480,9 @@ public class TripsResource extends BaseResource {
     /** {@link #eventDto} without either viewer-relative field: nothing on it belongs to any one person. */
     private static TripEventDto sharedEventDto(final TripEvent event) {
         final TripEventDto dto = TripMapper.INSTANCE.toDto(event);
-        return new TripEventDto(dto.id(), dto.type(), dto.title(), dto.notes(), dto.start(), dto.end(),
-                dto.participants(), null, null, hasAnyDetail(event) ? new LinkedHashMap<>(event.getDetails()) : null);
+        return new TripEventDto(dto.id(), dto.type(), dto.title(), ReminderHtml.cleanEventNote(dto.notes()),
+                dto.start(), dto.end(), dto.participants(), null, null,
+                hasAnyDetail(event) ? new LinkedHashMap<>(event.getDetails()) : null);
     }
 
     /** The itinerary item types, for a client building a picker. */
@@ -717,7 +719,7 @@ public class TripsResource extends BaseResource {
             event.setTitle(body.title());
         }
         if (body.notes() != null) {
-            event.setNotes(body.notes());
+            event.setNotes(ReminderHtml.cleanEventNote(body.notes()));
         }
         if (body.start() != null) {
             event.setStart(body.start());
@@ -860,8 +862,9 @@ public class TripsResource extends BaseResource {
      */
     private static TripEventDto eventDto(final TripEvent event, final Person.Id viewer) {
         final TripEventDto dto = TripMapper.INSTANCE.toDto(event);
-        return new TripEventDto(dto.id(), dto.type(), dto.title(), dto.notes(), dto.start(), dto.end(),
-                dto.participants(), event.getParticipants().contains(viewer),
+        // Both notes go out cleaned: the apps and any other client render them as HTML (medjugorje#156, #116).
+        return new TripEventDto(dto.id(), dto.type(), dto.title(), ReminderHtml.cleanEventNote(dto.notes()),
+                dto.start(), dto.end(), dto.participants(), event.getParticipants().contains(viewer),
                 TripCommands.cleanNoteOrNull(event.getPrivNotes().get(viewer)),
                 hasAnyDetail(event) ? new LinkedHashMap<>(event.getDetails()) : null);
     }
@@ -1165,7 +1168,7 @@ public class TripsResource extends BaseResource {
         for (final TripEventDto dto : body.tripEvents()) {
             final TripEvent event = new TripEvent(java.util.UUID.randomUUID().toString(),
                     dto.type() == null ? TripEvent.Type.EVENT : TripEvent.Type.valueOf(dto.type()),
-                    dto.title(), dto.notes(), dto.start(), dto.end(), null, null);
+                    dto.title(), ReminderHtml.cleanEventNote(dto.notes()), dto.start(), dto.end(), null, null);
             if (dto.details() != null) {
                 event.setDetails(new LinkedHashMap<>(dto.details()));
             }

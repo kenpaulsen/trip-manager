@@ -230,7 +230,8 @@ final class LodgingItinerary {
         row.setId(event.getId());
         row.setType(event.getType() == null ? "EVENT" : event.getType().name());
         row.setTitle(event.getTitle());
-        row.setNotes(event.getNotes());
+        // Written out unescaped on the itinerary, its print and badge views: cleaned (medjugorje#156).
+        row.setNotes(ReminderHtml.cleanEventNote(event.getNotes()));
         row.setStart(event.getStart());
         row.setEnd(event.getEnd());
         row.setEffectiveStart(event.getStart());

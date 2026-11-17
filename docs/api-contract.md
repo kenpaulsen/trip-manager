@@ -98,6 +98,11 @@ and `people` are checked against the organization the trip ends up in, and a pro
 old organization is a 400 `VALIDATION_FAILED` until the same body clears or replaces it.
 `TripEventDto`: id, type (EVENT|FLIGHT|GROUND|LODGING), title, notes, start, end, participants[ids],
 participating, privNote, details{from,to,flightNumber,duration,carrier} (backend phase).
+`notes` and `privNote` are HTML from the site's rich editor, and both are CLEANED through an allowlist
+(`ReminderHtml.cleanEventNote` / `cleanNote`) where they are stored and again where they are read, so a client may
+render them as HTML: tags off the list are removed, scripts and event handlers never survive, and text is escaped
+(`->` arrives as `-&gt;`). The event notes' list also keeps an `https` image, a Quill video `<iframe>` and a code
+block (medjugorje#156, 2026-11).
 
 **The trip page (2026-11).** Every `TripDto` carries `detailsUrl`: the ABSOLUTE address of the trip's public page as
 the apps embed it (`{base}/trip/tripPage.jsf?trip={id}`), on lists and single reads alike. `{base}` is the site of

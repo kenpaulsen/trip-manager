@@ -374,11 +374,26 @@ public class TripCommands {
             refuseEvent("The event needs a type, a title and a start time before it can be added.");
             return null;
         }
+        final ReminderHtml.Cleaned cleaned = ReminderHtml.cleanEventNoteNoting(notes);
         try {
-            return trip.addTripEvent(type, title, notes, start, end);
+            final String id = trip.addTripEvent(type, title, cleaned.body(), start, end);
+            warnIfNotesLostFormatting(cleaned);
+            return id;
         } catch (final IllegalStateException ex) {
             refuseEvent(alreadyStarts(title, start) + ", so it was not added again.");
             return null;
+        }
+    }
+
+    /**
+     * Says so when cleaning an event's notes removed something its writer could see, rather than report plain
+     * success over notes that lost it. The notes are written out unescaped on every itinerary, the shared
+     * itinerary and the public trip page, so they are cleaned as they are stored (medjugorje#156).
+     */
+    private static void warnIfNotesLostFormatting(final ReminderHtml.Cleaned cleaned) {
+        if (cleaned.dropped()) {
+            PageFeedback.warn("The event's notes were kept, but some formatting they cannot hold (a table, a font, "
+                    + "a script, or an image, video or link that is not a full https address) was removed.");
         }
     }
 
@@ -404,9 +419,10 @@ public class TripCommands {
         if (hasOtherEventAt(trip, eventId, title, start)) {
             return refuseEvent(alreadyStarts(title, start) + ", so this change would make a duplicate.");
         }
+        final ReminderHtml.Cleaned cleaned = ReminderHtml.cleanEventNoteNoting(notes);
         owned.setType(type);
         owned.setTitle(title);
-        owned.setNotes(notes == null ? "" : notes);
+        owned.setNotes(cleaned.body());
         owned.setStart(start);
         owned.setEnd(end);
         owned.setParticipants(participants == null ? new ArrayList<>() : new ArrayList<>(participants));
@@ -416,6 +432,7 @@ public class TripCommands {
         } catch (final IllegalArgumentException | IllegalStateException ex) {
             return refuseEvent("The event could not be updated: " + ex.getMessage());
         }
+        warnIfNotesLostFormatting(cleaned);
         return true;
     }
 
@@ -503,7 +520,9 @@ public class TripCommands {
         form.setType(event.getType() == null ? TripEvent.Type.EVENT.name() : event.getType().name());
         form.setGeneric(!event.hasDetails());
         form.setTitle(event.getTitle());
-        form.setNotes(event.getNotes());
+        // Cleaned: the editor puts the notes into the page as markup, and a row stored before notes were cleaned
+        // may hold anything. It also makes the editor's HTML source show exactly what a save will keep.
+        form.setNotes(ReminderHtml.cleanEventNote(event.getNotes()));
         form.setStart(event.getStart());
         form.setEnd(event.getEnd());
         form.setFrom(event.detail(TripEvent.Detail.FROM));
@@ -801,6 +820,19 @@ public class TripCommands {
      */
     public String noteHtml(final TripEvent event, final Person.Id personId) {
         return (event == null || personId == null) ? "" : ReminderHtml.cleanNote(event.getPrivNotes().get(personId));
+    }
+
+    /**
+     * An event's shared notes as HTML that is safe to write out unescaped ({@link ReminderHtml#cleanEventNote}):
+     * the ONE way a page shows notes it reads from the event itself ({@code trip/edit.xhtml},
+     * {@code admin/tripEvents.xhtml}). Every other reader cleans them too: the itinerary rows, the shared itinerary,
+     * the trip page's schedule and the REST DTOs. Stored rows are never rewritten for this (medjugorje#156): the
+     * 2026-11-16 scan showed every stored note survives the clean as it renders today.
+     *
+     * @return the notes, or "" when there are none; never {@code null}.
+     */
+    public String eventNotesHtml(final TripEvent event) {
+        return (event == null) ? "" : ReminderHtml.cleanEventNote(event.getNotes());
     }
 
     /**

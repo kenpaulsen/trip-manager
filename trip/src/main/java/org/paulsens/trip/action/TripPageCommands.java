@@ -159,7 +159,7 @@ public class TripPageCommands {
         final String time = sameDayEnd ? start + " - " + timeFormat.format(event.getEnd()) : start;
         return new AgendaItem(time, event.getTitle(), event.detail(TripEvent.Detail.PRESENTER),
                 event.detail(TripEvent.Detail.LOCATION), event.detail(TripEvent.Detail.TRACK),
-                blankToNull(event.getNotes()));
+                blankToNull(ReminderHtml.cleanEventNote(event.getNotes())));
     }
 
     // ------------------------------------------------------------------ the registration block
