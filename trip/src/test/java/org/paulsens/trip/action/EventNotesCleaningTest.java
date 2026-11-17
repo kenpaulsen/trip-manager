@@ -57,7 +57,8 @@ public class EventNotesCleaningTest {
                 () -> Assert.assertTrue(trips.saveEventForm(trip, eventForm(trip, RAW))));
         Assert.assertEquals(trip.getTripEvents().get(0).getNotes(), CLEAN);
         Assert.assertEquals(growls.size(), 1, growls.toString());
-        Assert.assertTrue(growls.get(0).contains("some formatting its notes cannot keep"), growls.toString());
+        Assert.assertTrue(growls.get(0).startsWith("Event added, but some formatting its notes cannot keep"),
+                "an Add says added, never updated: " + growls);
     }
 
     @Test
@@ -72,6 +73,7 @@ public class EventNotesCleaningTest {
                 () -> Assert.assertTrue(trips.saveEventForm(trip, edit)));
         Assert.assertEquals(trip.getTripEvent(id).getNotes(), CLEAN + "<p style=\"color: rgb(230, 0, 0)\">red</p>");
         Assert.assertEquals(warned.size(), 1, warned.toString());
+        Assert.assertTrue(warned.get(0).startsWith("Event updated, but"), warned.toString());
 
         final TripEventForm again = trips.eventFormFor(trip, null, id);
         final List<String> quiet = TestFaces.growlsOf(new HashMap<>(),

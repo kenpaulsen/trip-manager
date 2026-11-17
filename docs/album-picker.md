@@ -134,7 +134,11 @@ that is STILL a reference (`ChatAttachment.gone`: keys and facts cleared, `delet
 `deletedBy`). A client that cached the photo therefore drops it (a privacy point: a removed photo must not stay on
 phones through a reference), and the web chat writes "This photo is no longer available." in its place, as
 `noteIfGone` already does for an image that fails to load before the next read. A photo moved out of its trip album
-to a library slot keeps its row, so its references keep showing it. A failed read of the media table (an empty
+to a library slot keeps its row, so its references keep showing it. A photo HIDDEN after it was referenced (its
+sharer or a moderator kept it off the public site, `MediaItem.hidden`) goes out as the same tombstone: Choose from
+Albums no longer offers a hidden photo (`AlbumPhotoSource.isOfferable`, since a reference shows it to another
+audience), and that rule holds for references made before the hiding too. Nothing is rewritten, so showing the
+photo again brings its references back. A failed read of the media table (an empty
 `Optional`, never an empty map) leaves every reference as it was sent, so it can never look like every photo
 removed. Owner, 2026-11-17. A reference's reaction chip folds in the photo's reactions like any carrier's, but only
 the owning message's cached summary is refreshed when someone reacts, so a reference's chip can lag.

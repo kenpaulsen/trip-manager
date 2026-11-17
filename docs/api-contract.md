@@ -100,7 +100,7 @@ old organization is a 400 `VALIDATION_FAILED` until the same body clears or repl
 `TripEventDto`: id, type (EVENT|FLIGHT|GROUND|LODGING), title, notes, start, end, participants[ids],
 participating, privNote, details{from,to,flightNumber,duration,carrier} (backend phase).
 `notes` and `privNote` are HTML from the site's rich editor, and both are CLEANED through an allowlist
-(`ReminderHtml.cleanEventNote` / `cleanNote`) where they are stored and again where they are read, so a client may
+(`RichTextHtml.cleanEventNote` / `cleanNote`) where they are stored and again where they are read, so a client may
 render them as HTML: tags off the list are removed, scripts and event handlers never survive, and text is escaped
 (`->` arrives as `-&gt;`). The event notes' list also keeps an `https` image, a Quill video `<iframe>` and a code
 block (medjugorje#156, 2026-11).
@@ -195,15 +195,20 @@ cached by an older client build and must be refreshed before it is trusted. `req
 answer stored under `options["<id>"]` is free text for `TEXT`, ONE choice `id` for `CHOICE`, choice ids joined with
 commas for `MULTI_CHOICE`, and exactly `Yes` or `No` for `YES_NO`; a label is never stored, so renaming a choice
 keeps its answers. A choice with `enabled: false` is withdrawn: never offered for a new pick, though an existing
-answer may still name it. A required question counts as answered when non-blank and, for the choice types, naming
-at least one id. Since 2026-11-13 both apps ask every type themselves (radio rows, checkbox rows, Yes/No rows) and
+answer may still name it. Only a SHOWN question (`show: true`) is ever required: a question with `show` false or
+absent is hidden from registrants, so it is never asked and never required, whatever its `required` says. A required
+question counts as answered when non-blank and, for the choice types, naming at least one id; the party POST below
+refuses a traveler who leaves a shown, required question unanswered with `ANSWERS_REQUIRED`. Since 2026-11-13 both
+apps ask every type themselves (radio rows, checkbox rows, Yes/No rows) and
 send a person to the website only when the trip uses priced checkout (below) or shows a question whose type the
 build does not know; clients compare `type` trimmed and upper-cased.
 
 Self-registration: `POST /api/trips/{tripId}/registrations/party`
 `{travelers:[{personId, options{"<optId>":"answer"}, dailyDigest?}]}` → 200
 `{registered:[RegistrationDto], updated:[RegistrationDto], refused:{personId: NOT_ALLOWED|ALREADY_REGISTERED|
-CANNOT_JOIN}}`. Every traveler named is filed PENDING, or CONFIRMED when already on the trip's roster
+CANNOT_JOIN|ANSWERS_REQUIRED|WAIVERS_REQUIRED|CHECKOUT_REQUIRED}}`; the last three are explained beside the
+questions above, the documents and priced checkout below. Every traveler named is filed PENDING, or CONFIRMED
+when already on the trip's roster
 (`people`), with one party stamp; `registered[].status` echoes which. Already-registered ones get their
 answers updated when the server's `reg.allowEdits` allows, and a refusal is per traveler — mixed outcomes
 are a 200. Only the trip's own `regOptions[].id` keys are taken from `options`; `dailyDigest` absent means

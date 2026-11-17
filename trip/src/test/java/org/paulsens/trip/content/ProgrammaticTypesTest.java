@@ -171,7 +171,10 @@ public class ProgrammaticTypesTest {
         }
         Assert.assertTrue(ProgrammaticTypes.byId("person").orElseThrow().getSampleHtml().contains("personCard"));
         Assert.assertTrue(ProgrammaticTypes.byId("file").orElseThrow().getSampleHtml().contains("qopBullets"));
-        Assert.assertTrue(ProgrammaticTypes.byId("pilgrimages").orElseThrow().getSampleHtml().contains("pilgrimages"));
+        final String listings = ProgrammaticTypes.byId("pilgrimages").orElseThrow().getSampleHtml();
+        Assert.assertTrue(listings.contains("tripCard tripCardFeature") && listings.contains("tripCardGrid")
+                && listings.contains("tripCardNoPhoto") && !listings.contains("ui-accordion"),
+                "Trip Listings draws picture cards, not the retired accordion: " + listings);
         Assert.assertTrue(ProgrammaticTypes.byId("trip-schedule").orElseThrow().getSampleHtml()
                 .contains("agenda-item"));
         Assert.assertTrue(ProgrammaticTypes.byId("trip-registration").orElseThrow().getSampleHtml()

@@ -211,9 +211,22 @@ public class TripPictureCommands extends PhotoUploadBean {
 
     /**
      * How a batch from the albums went: how many pictures were added, how many of those are small enough to look
-     * soft, and the first reason any pick was NOT added (null when every one was).
+     * soft, the first reason any pick was NOT added (null when every one was), and whether the batch's first
+     * picture became the cover (the trip had none before it).
      */
-    public record AlbumResult(int added, int lowResolution, String refusal) {
+    public record AlbumResult(int added, int lowResolution, String refusal, boolean cover) {
+
+        AlbumResult(final int added, final int lowResolution, final String refusal) {
+            this(added, lowResolution, refusal, false);
+        }
+
+        /** What the manager is told, matching a single upload's "Cover picture added." */
+        public String addedMessage() {
+            if (added == 1) {
+                return cover ? "Cover picture added." : "Picture added.";
+            }
+            return added + " pictures added" + (cover ? "; the first is the cover." : ".");
+        }
     }
 
     /**
@@ -260,7 +273,7 @@ public class TripPictureCommands extends PhotoUploadBean {
                 .filter(one -> one.warning() != null && appended.kept().contains(one.picture()))
                 .count();
         final String why = appended.refusal() != null ? appended.refusal().message() : refusal;
-        return new AlbumResult(appended.kept().size(), (int) soft, why);
+        return new AlbumResult(appended.kept().size(), (int) soft, why, appended.cover());
     }
 
     /** One album pick, checked, read, cut and stored; a failure names why this pick adds nothing. */
@@ -594,7 +607,7 @@ public class TripPictureCommands extends PhotoUploadBean {
         final AlbumResult result = addFromAlbum(caller(), targetId(), chosen,
                 chosen.size() == 1 ? viewMap(ALT_VIEW_KEY) : null);
         if (result.refusal() == null) {
-            info(result.added() == 1 ? "Picture added." : result.added() + " pictures added.");
+            info(result.addedMessage());
         } else {
             error(result.added() == 0 ? result.refusal()
                     : result.added() + " of " + chosen.size() + " added. " + result.refusal());

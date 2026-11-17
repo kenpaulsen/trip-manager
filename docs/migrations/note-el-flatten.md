@@ -10,7 +10,7 @@ Until 2026-11 four pages (`trip/itinerary.xhtml`, `itinerary-print.xhtml`, `itin
 server with the full Faces EL context: static calls on `java.lang` included. A note is written by a trip manager in
 the itinerary's note dialog, and by any trip member for their own note over `PUT /api/trips/{tripId}/events/{eventId}/note`,
 so that was code execution for any trip member. The pages now write the note as stored, cleaned by the note
-allowlist (`ReminderHtml.cleanNote`, on save and on every read), and `evalEL` is gone.
+allowlist (`RichTextHtml.cleanNote`, on save and on every read), and `evalEL` is gone.
 
 Managers relied on the evaluation for one thing: each traveler's room, pasted into a LODGING event's notes as
 `#{reg.getRoomPDV(theTrip.id, person.id).content}`. A read-only scan of production on 2026-11-16 found that
@@ -27,7 +27,7 @@ expression and no other: 640 notes on 17 events of 16 trips, every one of them e
   HTML-escaped. The expression is RECOGNIZED by a pattern and answered by Java; nothing stored is evaluated. Any
   other expression, an event no trip lists, or an expression outside the private notes is a **blocker**: that event
   is reported and left untouched. `plan.json` holds each row as read and as it will be written; `plan.txt` summarizes
-  per trip and lists the notes the display cleaner (`ReminderHtml.cleanNote`) will lose formatting from, for the
+  per trip and lists the notes the display cleaner (`RichTextHtml.cleanNote`) will lose formatting from, for the
   owner to look at before the pages change. The first production plan listed 91, all old editor markup the cleaner
   then learned to keep, rebuilt: the named color `red` (also as `<font color>`), `<strike>`, `font-size: 0.8em`,
   `font-weight: bold`, and 43 relative links to the site's own `deltaklm.jsf` page. What remained was one stray

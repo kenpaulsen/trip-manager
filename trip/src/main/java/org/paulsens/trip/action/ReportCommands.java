@@ -123,7 +123,7 @@ public class ReportCommands {
         row.setCarrier(event.detail(TripEvent.Detail.CARRIER));
         row.setTitle(event.getTitle());
         // The ground transport report writes these out unescaped: cleaned like every other reader (medjugorje#156).
-        row.setNotes(ReminderHtml.cleanEventNote(event.getNotes()));
+        row.setNotes(RichTextHtml.cleanEventNote(event.getNotes()));
         row.setStart(event.getStart());
         row.setEnd(event.getEnd());
         row.setOvernight(isOvernight(event.getStart(), event.getEnd()));

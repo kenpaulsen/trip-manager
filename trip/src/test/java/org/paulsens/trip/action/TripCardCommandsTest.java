@@ -15,6 +15,7 @@ import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.model.Registration;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripPicture;
 import org.paulsens.trip.site.SiteContext;
@@ -130,25 +131,37 @@ public class TripCardCommandsTest {
         final Trip full = trip("full", 20);
         final Trip mine = trip("mine", 30);
         final Trip external = trip("external", 40);
+        final Trip waiting = trip("waiting", 50);
         external.setNonHostedTripUrl("https://example.com/elsewhere");
         external.setNonHostedRegNumber(45);
         external.setRegLimit(45);
-        listed(open, full, mine, external);
+        listed(open, full, mine, external, waiting);
         phase(open, TripPageCommands.Phase.OPEN);
         phase(full, TripPageCommands.Phase.FULL);
         phase(mine, TripPageCommands.Phase.FULL);
         // An external trip's fullness is part of the trip page's ONE phase rule (TripPageTest), not the card's.
         phase(external, TripPageCommands.Phase.FULL);
-        Mockito.when(registrations.isChipRegistered("mine", VIEWER)).thenReturn(true);
+        phase(waiting, TripPageCommands.Phase.OPEN);
+        // Neither stubbed trip is read through the real lookup, which answers a NOT_REGISTERED row when none exists.
+        Mockito.when(registrations.getRegistration(ArgumentMatchers.anyString(), ArgumentMatchers.eq(VIEWER)))
+                .thenAnswer(ask -> new Registration(ask.getArgument(0), VIEWER));
+        Mockito.when(registrations.getRegistration("mine", VIEWER)).thenReturn(
+                new Registration("mine", VIEWER).withStatus(Registration.Status.CONFIRMED));
+        Mockito.when(registrations.getRegistration("waiting", VIEWER)).thenReturn(
+                new Registration("waiting", VIEWER).withStatus(Registration.Status.PENDING));
 
         final List<TripCardCommands.Card> all = cards.cards(instance, VIEWER);
         Assert.assertEquals(all.stream().map(TripCardCommands.Card::getState).toList(), List.of(
                 TripCardCommands.State.REGISTER, TripCardCommands.State.FULL, TripCardCommands.State.REGISTERED,
-                TripCardCommands.State.FULL), "Registered outranks Full; every other card is the page's phase");
-        Mockito.verify(registrations, Mockito.times(1)).isChipRegistered("mine", VIEWER);
+                TripCardCommands.State.FULL, TripCardCommands.State.PENDING),
+                "the viewer's own registration outranks Full, and one waiting for approval reads Pending, never "
+                + "Registered; every other card is the page's phase");
+        Mockito.verify(registrations, Mockito.times(1)).getRegistration("mine", VIEWER);
         Mockito.verify(trips).publicTripUrlFor(mine, true);
+        Mockito.verify(trips).publicTripUrlFor(waiting, true);
         Mockito.verify(trips).publicTripUrlFor(open, false);
         Assert.assertEquals(TripCardCommands.State.REGISTERED.getLabel(), "Registered");
+        Assert.assertEquals(TripCardCommands.State.PENDING.getLabel(), "Pending");
         Assert.assertEquals(TripCardCommands.State.FULL.getStyle(), "full");
 
         Assert.assertEquals(TripCardCommands.stateOf(TripPageCommands.Phase.OPEN), TripCardCommands.State.REGISTER);

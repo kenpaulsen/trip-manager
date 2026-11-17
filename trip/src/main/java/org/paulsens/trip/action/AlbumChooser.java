@@ -153,14 +153,14 @@ public class AlbumChooser {
 
     /** The dialog's Add, for a use that takes several: the host re-checks every pick and reports albumAdded. */
     public void add(final String use, final String picks) {
-        final Optional<Use> found = Use.of(use);
-        if (found.isPresent() && found.get() == Use.TRIP_PICTURES) {
-            tripPictures.addFromAlbumUi(picks);
-        } else if (found.isPresent() && found.get() == Use.LIBRARY) {
-            library.addFromAlbumUi(picks);
-        } else {
-            refuse("albumAdded");
-        }
+        // A switch EXPRESSION, like scope's: the compiler insists on every Use, so a new one cannot fall through.
+        final Runnable action = switch (Use.of(use).orElse(null)) {
+            case TRIP_PICTURES -> () -> tripPictures.addFromAlbumUi(picks);
+            case LIBRARY -> () -> library.addFromAlbumUi(picks);
+            case BADGE, PROFILE, LINK_PREVIEW, LODGING, URL, CHAT -> () -> refuse("albumAdded");
+            case null -> () -> refuse("albumAdded");
+        };
+        action.run();
     }
 
     /**
@@ -168,25 +168,22 @@ public class AlbumChooser {
      * the photo, so that dialog's two step panels are re-rendered here for it to open on its cropper.
      */
     public void pick(final String use, final String mediaId) {
-        final Optional<PhotoUploadBean> cropHost = Use.of(use).flatMap(this::cropHostOf);
-        if (cropHost.isPresent()) {
-            cropHost.get().pickFromAlbum(mediaId);
-            refreshCropSteps();
-        } else if (Use.of(use).filter(found -> found == Use.URL).isPresent()) {
-            library.pickFromAlbum(mediaId);
-        } else {
-            refuse("albumPicked");
-        }
+        final Runnable action = switch (Use.of(use).orElse(null)) {
+            case BADGE -> () -> pickToCrop(badgePhotos, mediaId);
+            case PROFILE -> () -> pickToCrop(profilePhotos, mediaId);
+            case LINK_PREVIEW -> () -> pickToCrop(branding, mediaId);
+            case LODGING -> () -> pickToCrop(lodgingUpload, mediaId);
+            case URL -> () -> library.pickFromAlbum(mediaId);
+            case TRIP_PICTURES, LIBRARY, CHAT -> () -> refuse("albumPicked");
+            case null -> () -> refuse("albumPicked");
+        };
+        action.run();
     }
 
-    private Optional<PhotoUploadBean> cropHostOf(final Use use) {
-        return Optional.ofNullable(switch (use) {
-            case BADGE -> badgePhotos;
-            case PROFILE -> profilePhotos;
-            case LINK_PREVIEW -> branding;
-            case LODGING -> lodgingUpload;
-            default -> null;
-        });
+    /** A host on the shared crop dialog parks the photo; its two step panels then open on the cropper. */
+    private void pickToCrop(final PhotoUploadBean host, final String mediaId) {
+        host.pickFromAlbum(mediaId);
+        refreshCropSteps();
     }
 
     private void refuse(final String outcomeParam) {

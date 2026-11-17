@@ -101,9 +101,11 @@ which keeps a picture's fade-in (opacity is not movement) and swaps a gallery pi
   featured. **A card's `srcset` stops at the 960 rendition** (`CARD_MAX_WIDTH`, `srcsetUpTo`; owner, 2026-11-17):
   a dense phone screen otherwise picks the 1920 copy, several times the bytes, for a picture a few inches wide.
   Performance before sharpness on a listing; the trip page's hero and gallery still offer all three widths. The
-  cards below the first row are `loading="lazy"` in the markup, and `tripCards.js` fetches them at low priority
-  once the page has loaded, so a phone's first scroll does not meet empty cards. The list is memoized per request (`RequestMemo`), and a signed-in viewer's registration is looked up
-  once per card.
+  cards below the first row are `loading="lazy"` in the markup. Once the page has loaded, `tripCards.js` fetches
+  the pictures of the cards within two screens of the window at low priority (an `IntersectionObserver`, margin
+  `200%`), and keeps that lead as the visitor scrolls, so a phone's first scroll does not meet empty cards and a
+  long listing is never fetched whole. The list is memoized per request (`RequestMemo`), and a signed-in viewer's
+  registration is looked up once per card.
 - **Links are screened.** An external trip's stored URL reaches a link only through `TripCommands.externalUrlOf`
   (a web address starting with http:// or https://, else the card links to the trip's own page), and the flyer only
   through `flyerUrlOf` (the same, or a path on this site). The screen is by SCHEME (`TripCommands.webAddress`), not
@@ -112,7 +114,9 @@ which keeps a picture's fade-in (opacity is not movement) and swaps a gallery pi
   a listing organizations share. An unchanged stored value is never judged, since every save of a trip (a paid
   checkout's roster write, an approval) passes the same gate and reading is already screened; nor is any link when
   the pre-read of the stored row failed (`TripCommands.preRead`).
-- **State:** Registered when the viewer has a registration of their own (any status); otherwise the trip page's own
+- **State:** the viewer's own registration first: Registered (with a check) once it is confirmed, Pending (a clock,
+  a neutral chip) while it waits for approval, as the old listing's chip said (owner, 2026-11-17: showing a
+  pending registration as Registered was a regression). Without one, the trip page's own
   phase (`TripPageCommands.registrationInfo`): Closed once it has started, Full when every place is taken, else
   Register. An external trip is Full by its typed count against its limit, inside that same rule
   (`TripPageCommands.buildInfo`). A card and the page it opens cannot

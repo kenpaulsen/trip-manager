@@ -69,21 +69,55 @@ final class PilgrimagesType implements ProgrammaticContentTemplate {
         return "/WEB-INF/ptypes/pilgrimages.xhtml";
     }
 
+    /** Where the sample's pictures go: {@link StarterTemplates#SAMPLE_PICTURE}. */
+    private static final String PICTURE_SLOT = "@picture@";
+
+    /**
+     * The picture cards the fragment draws (pilgrimages.xhtml, tripCard.xhtml), in their own classes: the next
+     * departure large, then the grid, one card with a picture and one with the generated cover a trip without one
+     * gets. Each card is a div, not a link: a sample goes nowhere.
+     */
     @Override
     public String getSampleHtml() {
         return """
-                <h3>Upcoming trips</h3>
-                <div class="ui-accordion ui-widget ui-helper-reset pilgrimages">
-                    <div class="ui-accordion-header ui-helper-reset ui-state-default ui-corner-all">
-                        <div class="tripTitle"><span class="title">Rome and Assisi</span></div>
-                        <div class="info">May 3 - 12, 2027</div>
-                    </div>
-                    <div class="ui-accordion-header ui-helper-reset ui-state-default ui-corner-all">
-                        <div class="tripTitle"><span class="title">Holy Land</span></div>
-                        <div class="info">October 8 - 18, 2027</div>
+                <div class="tripCardsSection">
+                    <h3>Upcoming trips</h3>
+                    <div class="tripCards">
+                        <div class="tripCard tripCardFeature">
+                            <span class="tripCardMedia"><img class="tripCardImg" src="@picture@" alt=""
+                                width="1600" height="1067" /></span>
+                            <span class="tripCardTop"><span class="tripChip tripChip-register">Register</span></span>
+                            <span class="tripCardText">
+                                <span class="tripCardEyebrow"><i class="pi pi-send" aria-hidden="true"></i>
+                                    <span>Next departure</span></span>
+                                <span class="tripCardTitle">Rome and Assisi</span>
+                                <span class="tripCardMeta">May 3 - 12, 2027 · Rome, Italy</span>
+                            </span>
+                        </div>
+                        <div class="tripCardGrid">
+                            <div class="tripCard">
+                                <span class="tripCardMedia"><img class="tripCardImg" src="@picture@" alt=""
+                                    width="1600" height="1067" /></span>
+                                <span class="tripCardTop"><span class="tripChip tripChip-full">Full</span></span>
+                                <span class="tripCardText">
+                                    <span class="tripCardTitle">Holy Land</span>
+                                    <span class="tripCardMeta">October 8 - 18, 2027 · Jerusalem, Israel</span>
+                                </span>
+                            </div>
+                            <div class="tripCard tripCardNoPhoto">
+                                <span class="tripCardMedia"><span class="tripCardGenerated" aria-hidden="true"><i
+                                    class="pi pi-compass"></i></span></span>
+                                <span class="tripCardTop"><span class="tripChip tripChip-register">Register</span>
+                                    </span>
+                                <span class="tripCardText">
+                                    <span class="tripCardTitle">Lourdes and Fatima</span>
+                                    <span class="tripCardMeta">June 1 - 10, 2028</span>
+                                </span>
+                            </div>
+                        </div>
                     </div>
                 </div>
-                """;
+                """.replace(PICTURE_SLOT, StarterTemplates.SAMPLE_PICTURE);
     }
 
     /** The first language this site lists a trip in; a site with no public trip shows the sample. */

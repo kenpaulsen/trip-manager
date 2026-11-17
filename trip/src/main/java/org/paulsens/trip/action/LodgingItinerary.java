@@ -231,7 +231,7 @@ final class LodgingItinerary {
         row.setType(event.getType() == null ? "EVENT" : event.getType().name());
         row.setTitle(event.getTitle());
         // Written out unescaped on the itinerary, its print and badge views: cleaned (medjugorje#156).
-        row.setNotes(ReminderHtml.cleanEventNote(event.getNotes()));
+        row.setNotes(RichTextHtml.cleanEventNote(event.getNotes()));
         row.setStart(event.getStart());
         row.setEnd(event.getEnd());
         row.setEffectiveStart(event.getStart());
@@ -239,7 +239,7 @@ final class LodgingItinerary {
         row.setParticipantCount(event.getParticipants().size());
         row.getParticipantIds().addAll(event.getParticipants());
         // Cleaned here, where every itinerary page reads it: the pages write the note out unescaped.
-        row.setPrivNote(ReminderHtml.cleanNote(event.getPrivNotes().get(personId)));
+        row.setPrivNote(RichTextHtml.cleanNote(event.getPrivNotes().get(personId)));
         row.setLodging(event.getType() == TripEvent.Type.LODGING);
         row.setFirstStay(true);
         return row;

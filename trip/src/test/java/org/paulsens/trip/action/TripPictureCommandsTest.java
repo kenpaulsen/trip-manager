@@ -923,4 +923,15 @@ public class TripPictureCommandsTest {
         viewMap.remove("theTripId");
         Assert.assertNull(bean.getAlbumScope(), "No trip open, no albums");
     }
+
+    /** An album batch says when it set the cover, as an upload does ("Cover picture added."). */
+    @Test
+    public void anAlbumBatchSaysWhenItSetTheCover() {
+        Assert.assertEquals(new TripPictureCommands.AlbumResult(1, 0, null, true).addedMessage(),
+                "Cover picture added.");
+        Assert.assertEquals(new TripPictureCommands.AlbumResult(1, 0, null, false).addedMessage(), "Picture added.");
+        Assert.assertEquals(new TripPictureCommands.AlbumResult(3, 0, null, true).addedMessage(),
+                "3 pictures added; the first is the cover.");
+        Assert.assertEquals(new TripPictureCommands.AlbumResult(2, 0, null).addedMessage(), "2 pictures added.");
+    }
 }

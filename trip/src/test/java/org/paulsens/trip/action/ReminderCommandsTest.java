@@ -346,7 +346,7 @@ public class ReminderCommandsTest {
         assertEquals(rawTooLong.getProblem(), "The message is too long.");
 
         final ReminderViews.Form longLink = form("Bad", TODAY);
-        longLink.setBody("<p><a href=\"https://example.com/" + "x".repeat(ReminderHtml.MAX_TAG) + "\">Sign</a></p>");
+        longLink.setBody("<p><a href=\"https://example.com/" + "x".repeat(RichTextHtml.MAX_TAG) + "\">Sign</a></p>");
         assertFalse(admin().save(tripId, longLink));
         assertTrue(longLink.getProblem().startsWith("A link in this message has an address too long"),
                 longLink.getProblem());
@@ -1229,7 +1229,7 @@ public class ReminderCommandsTest {
         final Organization org = DAO.getInstance().getOrganization(Organization.Id.from(orgId), Cached.NO)
                 .orElseThrow();
         final String copyId = TemplateCommands.orgCopyId(ReminderDefaults.BALANCE_DUE_ID, org);
-        final String body = "<p>Logo <img src=\"data:image/png;base64," + "A".repeat(ReminderHtml.MAX_TAG * 4)
+        final String body = "<p>Logo <img src=\"data:image/png;base64," + "A".repeat(RichTextHtml.MAX_TAG * 4)
                 + "\"></p>";
         final ContentTemplate copy = new ContentTemplate(copyId, 0, "Pay up", "x", "<p>Pay soon</p>", List.of(),
                 null, null, TemplateKind.MAIL, null, null, null);
@@ -1258,7 +1258,7 @@ public class ReminderCommandsTest {
     public void aPastedImageTooLongToReadIsRefusedNotMailedAsText() throws IOException {
         final Trip trip = newTrip();
         final ReminderViews.Form form = form("Logo", TODAY.plusDays(5));
-        form.setBody("<p>Logo <img src=\"data:image/png;base64," + "A".repeat(ReminderHtml.MAX_TAG * 4) + "\"></p>");
+        form.setBody("<p>Logo <img src=\"data:image/png;base64," + "A".repeat(RichTextHtml.MAX_TAG * 4) + "\"></p>");
         assertFalse(admin().save(trip.getId(), form));
         assertEquals(form.getProblem(), ReminderCommands.TAG_TOO_LONG);
         assertTrue(DAO.getInstance().getReminderPlan(trip.getId())

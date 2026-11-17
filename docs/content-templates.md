@@ -366,13 +366,11 @@ registry never changes at runtime.
   data-attributes) reaches the server VERBATIM. Switching back to visual re-parses through Quill and
   therefore simplifies such markup, so that pass runs only when the text actually changed. A template
   BODY additionally has the model-bound "Edit raw HTML" mode in `templateDialog` (no Quill parse at all
-  in either direction) -- the right choice for structural template bodies. **The content dialog's editors
-  (2026-11)** carry the same core as a **Visual | HTML | Preview** tab strip instead of the toolbar button
-  (`styleClass="tabbedEditor"` opts an editor in): Preview asks the page's `previewContent` remoteCommand to
-  render the WHOLE section from the current unsaved values into the hidden `dlgPreviewHost` (it processes the
-  form but re-renders only that host, so the editors and their tab state survive) and copies it into the
-  field's pane; the old Preview fieldset and Refresh button are gone. The request carries `contentPreview=1`,
-  which every `required` in the dialog honors as a bypass, or a half-filled form could never preview.
+  in either direction) -- the right choice for structural template bodies. **The content drawer's editors**
+  use the same toolbar button. They once carried a Visual | HTML | Preview tab strip; it was removed once the
+  drawer drew the item in the page as it is typed (the in-page preview, below), which made a second preview
+  redundant. That redraw carries `contentPreview=1`, which every `required` in the dialog honors as a bypass,
+  or a half-filled form could never preview.
 - **The content dialog (2026-11)**: 90% of the window (capped at 1400px by `trip.css`, `.contentDlg`); each
   prompt's label is a `p:outputLabel` FOR the row's widget (`content.widgetIdFor`), so PrimeFaces draws the
   required star from the widget's own `required` and a blank required prompt refuses Apply with the message in
@@ -487,6 +485,11 @@ then asked for the preview to follow the form, field by field. It is `WEB-INF/co
   carries scalars for the script: the step, the working item's id, kind and newness, the target section, the
   page, the insertion point. `onShow` fires after every re-render; a command that hides an already re-rendered
   dialog (Cancel) gets no `onHide` and calls `tripDrawer.hidden()` itself.
+- **No mask, so the page is locked by hand while a form is open.** The modal dialog's mask used to keep an editor
+  away from every other opener; the drawer has none, and each opener re-renders it for another item, dropping what
+  was typed without a word. While the form step is shown, `lockPage` makes the page's openers (`.contentEditBtn`,
+  `.addHereBtn`, the Page Operations buttons) `inert` and draws them faded (`body.tripDrawerBusy`); Apply or Cancel
+  ends it. The list step locks nothing: nothing typed there is lost. `AddSectionPwIT`.
 - **Step 1, the list** (`dlgPick`). Search (every word must be in the name, description or tags:
   `TemplateCard.searchText`), tag chips (the tags two or more offered templates share), a recently-used group
   (the last few template ids in `localStorage`, per browser; rows are moved, never copied) and, on a classic
@@ -532,7 +535,7 @@ colors only, never fixed hex values (`WEB-INF/quillEditor.xhtml`, `EditorColors`
 `style="color: var(--status-danger, #b71c1c)"` or `var(--brand-<id>, #a07a2c)`: the variable follows the org's palette
 and dark mode, the fallback is the org's light value at the time of writing. A MAIL template's body (and the mail
 merge) is a `mailEditor` and gets the plain `#rrggbb`. `HtmlFragmentValidator`, `RichTextRules.normalize` and
-`WaiverHtml.sanitize` keep these inline styles; `ReminderHtml` drops all styles, and the Communications editor has no
+`WaiverHtml.sanitize` keep these inline styles; `RichTextHtml` drops all styles, and the Communications editor has no
 color buttons. Doc for the brand colors themselves: `org-admin.md`, "Brand colors".
 
 ## A container's row (the body of a CONTAINER template)

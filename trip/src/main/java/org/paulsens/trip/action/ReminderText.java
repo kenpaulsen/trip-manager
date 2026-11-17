@@ -102,7 +102,7 @@ public final class ReminderText {
      * {@code text} as HTML with every known token replaced: the mail BODY. A value is HTML-escaped; a known
      * token with no value becomes empty (a countdown message has no balance), and an unknown token is left as
      * typed, which only a message that skipped {@link #unknownTokens} can contain. Does NOT clean: the caller
-     * passes a body already cleaned by {@link ReminderHtml#clean} (the send, once per send); a stored body goes
+     * passes a body already cleaned by {@link RichTextHtml#clean} (the send, once per send); a stored body goes
      * through {@link #renderBody}. Package-private so no page or other package can skip the cleaning.
      */
     static String render(final String text, final Map<String, String> values) {
@@ -118,13 +118,13 @@ public final class ReminderText {
     }
 
     /**
-     * A reminder's stored body, ready to be written out as HTML: cleaned again ({@link ReminderHtml#clean}), then
+     * A reminder's stored body, ready to be written out as HTML: cleaned again ({@link RichTextHtml#clean}), then
      * merged. Every page and test-mail path writes a stored body out through this, so none can forget the
      * cleaning. The one exception is the send: {@code ReminderSender.sendAll} cleans the body once for the
      * whole send and merges it per traveler with {@link #render}, so the cleaning is not paid per traveler.
      */
     public static String renderBody(final String storedBody, final Map<String, String> values) {
-        return render(ReminderHtml.clean(storedBody), values);
+        return render(RichTextHtml.clean(storedBody), values);
     }
 
     private static String substitute(final String text, final Map<String, String> values, final boolean html) {

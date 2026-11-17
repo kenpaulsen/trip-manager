@@ -91,7 +91,6 @@ public class TripCommandsTest {
         assertEquals(reread.getDestination(), "Assisi, Italy");
         assertEquals(reread.getCountry(), "IT");
         assertEquals(reread.getTags(), List.of("retreat", "youth"), "Offered tags only, in the list's order");
-        assertEquals(tripCommands.tagLabels(reread), "Retreat, Youth");
         assertTrue(tripCommands.getCountries().size() > 240);
         assertEquals(tripCommands.getTagChoices().size(), 9);
 

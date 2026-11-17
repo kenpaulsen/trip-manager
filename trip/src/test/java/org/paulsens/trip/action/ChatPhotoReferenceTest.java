@@ -287,6 +287,17 @@ public class ChatPhotoReferenceTest {
         Assert.assertFalse(photos.withCurrentReferences(page).getMessages().getFirst().getAttachments().getFirst()
                 .isDeleted(), "A moved photo is not a removed one");
 
+        // Hidden since it was referenced (kept off the public site): Choose from Albums would no longer offer it, so
+        // the reference stops showing it to the other trip's chat too. Shown again, it comes back.
+        Assert.assertTrue(DAO.getInstance().saveMedia(moved.withHidden(true)));
+        final ChatAttachment hidden =
+                photos.withCurrentReferences(page).getMessages().getFirst().getAttachments().getFirst();
+        Assert.assertTrue(hidden.isDeleted() && hidden.isRef(), "A hidden original's reference is a tombstone");
+        Assert.assertNull(hidden.getS3Key(), "No key left to fetch the hidden photo by");
+        Assert.assertTrue(DAO.getInstance().saveMedia(moved.withHidden(false)));
+        Assert.assertFalse(photos.withCurrentReferences(page).getMessages().getFirst().getAttachments().getFirst()
+                .isDeleted(), "Nothing was rewritten: shown again, the reference shows it again");
+
         photos.deleteEverywhere(List.of(original));
         final ChatAttachment gone =
                 photos.withCurrentReferences(page).getMessages().getFirst().getAttachments().getFirst();

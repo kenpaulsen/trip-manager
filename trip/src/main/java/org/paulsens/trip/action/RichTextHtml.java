@@ -11,11 +11,15 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * The cleaner for a trip reminder's body ({@code docs/reminders.md}): an ALLOWLIST. The body is written by a
- * trip facilitator, who may hold no privilege at all, and it is rendered unescaped to everyone who reviews it
- * (organization and site admins included) and mailed to travelers. So nothing gets through because it failed
- * to look dangerous: a tag is kept only when its name is on the list, and it is rebuilt from scratch with only
- * the attributes named here. Everything else is dropped or escaped.
+ * The platform's rich-text ALLOWLIST, for three kinds of typed text: a trip reminder's body ({@code
+ * docs/reminders.md}), an event's shared notes ({@link #cleanEventNote}), and a traveler's private note on an event
+ * ({@link #cleanNote}). Named ReminderHtml until 2026-11-17, when it already served all three; any new rich-text sink
+ * starts here, never at {@link WaiverHtml#sanitize}.
+ *
+ * <p>A reminder's body is written by a trip facilitator, who may hold no privilege at all, and it is rendered
+ * unescaped to everyone who reviews it (organization and site admins included) and mailed to travelers. So nothing
+ * gets through because it failed to look dangerous: a tag is kept only when its name is on the list, and it is
+ * rebuilt from scratch with only the attributes named here. Everything else is dropped or escaped.
  *
  * <p>{@link WaiverHtml#sanitize} is the wrong tool for this body, which is why this class exists. It is a
  * blocklist for text only an org admin writes, and the first review of the reminders found three bodies it
@@ -54,7 +58,7 @@ import java.util.regex.Pattern;
  * event notes found nothing the private note's list does not keep (colors, sizes, links, lists, strike), and no
  * image, video or code block; the three are kept because the editor offers them, not because a note uses them.
  */
-public final class ReminderHtml {
+public final class RichTextHtml {
     /** Tags copied through, without their attributes unless named below. */
     private static final Set<String> ALLOWED = Set.of("p", "br", "b", "strong", "i", "em", "u", "s", "a", "ul", "ol",
             "li", "h1", "h2", "h3", "h4", "blockquote", "span", "div", "pre", "code", "sub", "sup", "hr");
@@ -140,7 +144,7 @@ public final class ReminderHtml {
      */
     static final int MAX_TAG = 2_000;
 
-    private ReminderHtml() {
+    private RichTextHtml() {
     }
 
     /** The body with only allowlisted markup left; null becomes blank. Cleaning a cleaned body changes nothing. */
@@ -277,7 +281,7 @@ public final class ReminderHtml {
      * save refuses it (after {@link #hasUnreadableLink}, whose refusal names the link).
      */
     static boolean hasUnreadableTag(final String html) {
-        return hasUnreadable(html, ReminderHtml::startsTagName);
+        return hasUnreadable(html, RichTextHtml::startsTagName);
     }
 
     /** Where a tag the unreadable-tag scan cares about opens: {@code (html, at)} for each {@code <}. */

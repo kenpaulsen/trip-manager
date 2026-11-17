@@ -323,11 +323,6 @@ public class TripCommands {
         return TripTags.current();
     }
 
-    /** A trip's tag labels, comma-separated, for the editor's summary and the listing; "" when none. */
-    public String tagLabels(final Trip trip) {
-        return String.join(", ", TripTags.labelsOf(trip, TripTags.current()));
-    }
-
     /**
      * Who is on the stored trip but not on the one about to be saved.
      *
@@ -384,10 +379,10 @@ public class TripCommands {
             refuseEvent(problem);
             return null;
         }
-        final ReminderHtml.Cleaned cleaned = ReminderHtml.cleanEventNoteNoting(notes);
+        final RichTextHtml.Cleaned cleaned = RichTextHtml.cleanEventNoteNoting(notes);
         try {
             final String id = trip.addTripEvent(type, title, cleaned.body(), start, end);
-            warnIfNotesLostFormatting(cleaned);
+            warnIfNotesLostFormatting("Event added", cleaned);
             return id;
         } catch (final IllegalStateException ex) {
             refuseEvent(alreadyStarts(title, start) + ", so it was not added again.");
@@ -397,16 +392,16 @@ public class TripCommands {
 
     /**
      * Why an event's notes cannot be stored, or null when they can: a tag the cleaner cannot read (no {@code >}
-     * within {@link ReminderHtml#MAX_TAG}) would be written out as its own text. In practice that is a pasted
+     * within {@link RichTextHtml#MAX_TAG}) would be written out as its own text. In practice that is a pasted
      * picture, which Quill inlines as a data address thousands of characters long, and every itinerary, the
      * public schedule and the apps would show those characters. Refused, as a reminder's save refuses it
      * ({@code ReminderCommands.TAG_TOO_LONG}), rather than stored as a wall of text.
      */
     public static String eventNotesProblem(final String notes) {
-        if (ReminderHtml.hasUnreadableLink(notes)) {
+        if (RichTextHtml.hasUnreadableLink(notes)) {
             return "A link in the event's notes has an address too long to keep (or is not closed). Shorten it.";
         }
-        return ReminderHtml.hasUnreadableTag(notes) ? "Something pasted into the event's notes (usually a picture) "
+        return RichTextHtml.hasUnreadableTag(notes) ? "Something pasted into the event's notes (usually a picture) "
                 + "is too large to keep. Remove it, or add the picture by its web address instead." : null;
     }
 
@@ -415,10 +410,11 @@ public class TripCommands {
      * success over notes that lost it. The notes are written out unescaped on every itinerary, the shared
      * itinerary and the public trip page, so they are cleaned as they are stored (medjugorje#156). Worded from
      * what the event-note list drops, and the same way as the private note's warning (saveEventNoteById).
+     * {@code done} names what happened ("Event added" or "Event updated"), so the warning never misnames it.
      */
-    private static void warnIfNotesLostFormatting(final ReminderHtml.Cleaned cleaned) {
+    private static void warnIfNotesLostFormatting(final String done, final RichTextHtml.Cleaned cleaned) {
         if (cleaned.dropped()) {
-            PageFeedback.warn("Event updated, but some formatting its notes cannot keep (a table, a script, a font "
+            PageFeedback.warn(done + ", but some formatting its notes cannot keep (a table, a script, a font "
                     + "family, an image that is not a full web address, a video that is not an https address, or "
                     + "a link that is not a full web, email or phone address) was removed.");
         }
@@ -450,7 +446,7 @@ public class TripCommands {
         if (problem != null) {
             return refuseEvent(problem);
         }
-        final ReminderHtml.Cleaned cleaned = ReminderHtml.cleanEventNoteNoting(notes);
+        final RichTextHtml.Cleaned cleaned = RichTextHtml.cleanEventNoteNoting(notes);
         owned.setType(type);
         owned.setTitle(title);
         owned.setNotes(cleaned.body());
@@ -463,7 +459,7 @@ public class TripCommands {
         } catch (final IllegalArgumentException | IllegalStateException ex) {
             return refuseEvent("The event could not be updated: " + ex.getMessage());
         }
-        warnIfNotesLostFormatting(cleaned);
+        warnIfNotesLostFormatting("Event updated", cleaned);
         return true;
     }
 
@@ -553,7 +549,7 @@ public class TripCommands {
         form.setTitle(event.getTitle());
         // Cleaned: the editor puts the notes into the page as markup, and a row stored before notes were cleaned
         // may hold anything. It also makes the editor's HTML source show exactly what a save will keep.
-        form.setNotes(ReminderHtml.cleanEventNote(event.getNotes()));
+        form.setNotes(RichTextHtml.cleanEventNote(event.getNotes()));
         form.setStart(event.getStart());
         form.setEnd(event.getEnd());
         form.setFrom(event.detail(TripEvent.Detail.FROM));
@@ -817,7 +813,7 @@ public class TripCommands {
         }
         // Cleaned on the way in (and again on the way out, cleanNote): a note is written out unescaped to the
         // traveler, their family managers and every admin, and any trip member may write their own over REST.
-        final ReminderHtml.Cleaned cleaned = ReminderHtml.cleanNoteNoting(RichText.paragraphsToBreaks(note));
+        final RichTextHtml.Cleaned cleaned = RichTextHtml.cleanNoteNoting(RichText.paragraphsToBreaks(note));
         owned.getPrivNotes().put(personId, cleaned.body());
         final boolean saved = saveTrip(trip);
         if (saved && cleaned.dropped()) {
@@ -838,23 +834,23 @@ public class TripCommands {
         if (owned == null || personId == null) {
             return "";
         }
-        return ReminderHtml.cleanNote(owned.getPrivNotes().get(personId));
+        return RichTextHtml.cleanNote(owned.getPrivNotes().get(personId));
     }
 
     /**
      * One person's private note on an event as HTML that is safe to write out unescaped: the ONE way a page shows
      * a note it reads from the event itself ({@code admin/tripEvents.xhtml}); the itinerary rows go through
-     * {@link ReminderHtml#cleanNote} too. Never evaluated: notes were EL until 2026-11 (medjugorje#116), and the stored
+     * {@link RichTextHtml#cleanNote} too. Never evaluated: notes were EL until 2026-11 (medjugorje#116), and the stored
      * room expressions were flattened to text before that ended ({@code docs/migrations/note-el-flatten.md}).
      *
      * @return the note, or "" when there is none; never {@code null}.
      */
     public String noteHtml(final TripEvent event, final Person.Id personId) {
-        return (event == null || personId == null) ? "" : ReminderHtml.cleanNote(event.getPrivNotes().get(personId));
+        return (event == null || personId == null) ? "" : RichTextHtml.cleanNote(event.getPrivNotes().get(personId));
     }
 
     /**
-     * An event's shared notes as HTML that is safe to write out unescaped ({@link ReminderHtml#cleanEventNote}):
+     * An event's shared notes as HTML that is safe to write out unescaped ({@link RichTextHtml#cleanEventNote}):
      * the ONE way a page shows notes it reads from the event itself ({@code trip/edit.xhtml},
      * {@code admin/tripEvents.xhtml}). Every other reader cleans them too: the itinerary rows, the shared itinerary,
      * the trip page's schedule and the REST DTOs. Stored rows are never rewritten for this (medjugorje#156): the
@@ -863,16 +859,16 @@ public class TripCommands {
      * @return the notes, or "" when there are none; never {@code null}.
      */
     public String eventNotesHtml(final TripEvent event) {
-        return (event == null) ? "" : ReminderHtml.cleanEventNote(event.getNotes());
+        return (event == null) ? "" : RichTextHtml.cleanEventNote(event.getNotes());
     }
 
     /**
-     * A stored note cleaned for writing out ({@link ReminderHtml#cleanNote}), keeping "no note" as null: for the
+     * A stored note cleaned for writing out ({@link RichTextHtml#cleanNote}), keeping "no note" as null: for the
      * REST DTO, where an absent note is an absent field. Everything that prints a note wants "" instead, so it
-     * calls {@link ReminderHtml#cleanNote}, which never answers null.
+     * calls {@link RichTextHtml#cleanNote}, which never answers null.
      */
     public static String cleanNoteOrNull(final String stored) {
-        return (stored == null) ? null : ReminderHtml.cleanNote(stored);
+        return (stored == null) ? null : RichTextHtml.cleanNote(stored);
     }
 
     /** @return whether this event's participant list actually changed. */

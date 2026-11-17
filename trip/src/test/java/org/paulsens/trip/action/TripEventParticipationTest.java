@@ -214,7 +214,7 @@ public class TripEventParticipationTest {
 
         Assert.assertTrue(trip.saveEventNote(theTrip, event, who, "<p>Seat 14C</p><p><br></p><p>Aisle</p>"));
 
-        // Stored through the note allowlist (ReminderHtml.cleanNote), which writes a break as <br>.
+        // Stored through the note allowlist (RichTextHtml.cleanNote), which writes a break as <br>.
         Assert.assertEquals(DAO.getInstance().getTripEvent(event.getId(), Cached.NO).getPrivNotes().get(who),
                 "Seat 14C<br><br>Aisle");
     }

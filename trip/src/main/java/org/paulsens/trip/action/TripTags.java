@@ -55,16 +55,9 @@ public final class TripTags {
     }
 
     /**
-     * The labels of a trip's tags that are still on the offered list, in the list's order; a stored id the list no
-     * longer offers is not shown.
-     */
-    public static List<String> labelsOf(final Trip trip, final List<Tag> offered) {
-        return shownOn(trip, offered).stream().map(Tag::label).toList();
-    }
-
-    /**
-     * A trip's tags that are still on the offered list, in the list's order: what any reader is shown (the website
-     * through {@link #labelsOf}, the apps as the trips API's {@code tags} and {@code tagLabels}).
+     * A trip's tags that are still on the offered list, in the list's order; a stored id the list no longer offers
+     * is not shown. THE rule for what any reader is shown (the apps get it as the trips API's {@code tags} and
+     * {@code tagLabels}), so a page that shows tags one day reads it here too, never a second copy.
      */
     public static List<Tag> shownOn(final Trip trip, final List<Tag> offered) {
         if (trip == null) {

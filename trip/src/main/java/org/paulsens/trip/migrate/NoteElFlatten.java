@@ -9,7 +9,7 @@ import java.util.Map;
 import java.util.TreeMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import org.paulsens.trip.action.ReminderHtml;
+import org.paulsens.trip.action.RichTextHtml;
 import org.paulsens.trip.chat.MailTemplates;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
@@ -64,7 +64,7 @@ public final class NoteElFlatten {
 
     /**
      * What one {@code plan} found: the changes, the blockers, and the notes (event id + person id) the note cleaner
-     * will lose formatting from once notes stop being evaluated ({@link ReminderHtml#cleanNote}), for the owner
+     * will lose formatting from once notes stop being evaluated ({@link RichTextHtml#cleanNote}), for the owner
      * to look at before the pages change.
      */
     public record Plan(List<Change> changes, List<Blocker> blockers, List<String> formattingLoss) {
@@ -116,7 +116,7 @@ public final class NoteElFlatten {
                         + " holds an expression this repair does not know: " + snippet(flattened)));
                 return;
             }
-            if (ReminderHtml.cleanNoteNoting(flattened).dropped()) {
+            if (RichTextHtml.cleanNoteNoting(flattened).dropped()) {
                 formattingLoss.add(eventId + " " + note.getKey().getValue() + " (" + title + ")");
             }
             event.getPrivNotes().put(note.getKey(), flattened);

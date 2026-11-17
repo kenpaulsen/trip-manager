@@ -353,7 +353,7 @@ public class ReminderCommands {
         form.setAudience(reminder.getAudience().name());
         form.setSubject(reminder.getSubject());
         // Cleaned on the way out like every other place the body is written: the editor loads it as HTML.
-        form.setBody(ReminderHtml.clean(reminder.getBody()));
+        form.setBody(RichTextHtml.clean(reminder.getBody()));
         form.setPushText(reminder.getPushText());
         return form;
     }
@@ -388,7 +388,7 @@ public class ReminderCommands {
         final boolean dated = anchor == TripReminder.Anchor.FIXED_DATE;
         final int days = (dated || "ON".equals(form.getTiming())) ? 0 : form.getDays();
         // One clean gives both the stored body and the warning, so the two always judge the same input.
-        final ReminderHtml.Cleaned cleaned = cleanNoting(form.getBody());
+        final RichTextHtml.Cleaned cleaned = cleanNoting(form.getBody());
         final TripReminder reminder = TripReminder.builder()
                 .id(adding ? UUID.randomUUID().toString() : existing.getId())
                 // The kind is what the message IS (and fixes its audience), so an edit can never change it.
@@ -420,7 +420,7 @@ public class ReminderCommands {
 
     /**
      * The body as it is stored: Quill may percent-encode a placeholder typed as a link address, so the braces
-     * are put back first, and then everything not on {@link ReminderHtml}'s allowlist is removed. A facilitator
+     * are put back first, and then everything not on {@link RichTextHtml}'s allowlist is removed. A facilitator
      * writes this text and admins read it unescaped, so it is an allowlist, never a blocklist.
      */
     static String cleanBody(final String html) {
@@ -428,8 +428,8 @@ public class ReminderCommands {
     }
 
     /** {@link #cleanBody}, with whether the cleaner dropped something the writer could see. */
-    private static ReminderHtml.Cleaned cleanNoting(final String html) {
-        return ReminderHtml.cleanNoting(bracesRestored(html));
+    private static RichTextHtml.Cleaned cleanNoting(final String html) {
+        return RichTextHtml.cleanNoting(bracesRestored(html));
     }
 
     private static String bracesRestored(final String html) {
@@ -473,10 +473,10 @@ public class ReminderCommands {
         if (form.getBody() != null && form.getBody().length() > MAX_RAW_BODY) {
             return "The message is too long.";
         }
-        if (ReminderHtml.hasUnreadableLink(form.getBody())) {
+        if (RichTextHtml.hasUnreadableLink(form.getBody())) {
             return "A link in this message has an address too long to send (or is not closed). Shorten it.";
         }
-        if (ReminderHtml.hasUnreadableTag(form.getBody())) {
+        if (RichTextHtml.hasUnreadableTag(form.getBody())) {
             return TAG_TOO_LONG;
         }
         final String body = cleanBody(form.getBody());
@@ -557,7 +557,7 @@ public class ReminderCommands {
         final ContentTemplate stored = new TemplateCommands().resolveForOrg(templateId, orgId);
         if (stored == null || stored.getKind() != TemplateKind.MAIL
                 || !ReminderText.unknownTokens(stored.getName() + stored.getBody()).isEmpty()
-                || ReminderHtml.hasUnreadableTag(stored.getBody())) {
+                || RichTextHtml.hasUnreadableTag(stored.getBody())) {
             // A missing template, one reworded with a placeholder this page cannot fill, or one holding a tag too
             // long to read (a pasted image the save would refuse) falls back to the text that is known to render
             // rather than putting a broken draft in front of the facilitator.

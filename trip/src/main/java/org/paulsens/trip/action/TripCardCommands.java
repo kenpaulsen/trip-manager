@@ -15,6 +15,7 @@ import org.paulsens.trip.api.Beans;
 import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.model.Registration;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripPicture;
 import org.paulsens.trip.site.SiteContext;
@@ -29,8 +30,9 @@ import org.paulsens.trip.site.SiteContext;
  * whether it is the section's featured next departure.
  *
  * <p><b>The state</b> is the trip page's own ({@link TripPageCommands#registrationInfo}): a card and the page it
- * opens can never disagree about Full or Closed. A viewer with a registration of their own reads Registered instead,
- * whatever its status; the detail page says which.
+ * opens can never disagree about Full or Closed. A viewer with a registration of their own reads its status instead:
+ * Registered once it is confirmed, Pending while it waits for approval (as the old listing's chip said; a check mark
+ * there would read as accepted).
  *
  * <p><b>No picture</b> falls back to the owning organization's link-preview image, then its background image, each
  * only when it is one the organization uploaded here (never a typed URL on another host), then nothing, which the
@@ -54,8 +56,10 @@ public class TripCardCommands {
     public enum State {
         /** Open, and the viewer is not on it. */
         REGISTER("Register"),
-        /** The viewer has a registration here, in any status. */
+        /** The viewer's own registration here is confirmed. */
         REGISTERED("Registered"),
+        /** The viewer's own registration here waits for approval. */
+        PENDING("Pending"),
         /** Every place is taken. */
         FULL("Full"),
         /** Under way or over. */
@@ -180,15 +184,25 @@ public class TripCardCommands {
         final String orgName = site.get().isOrg() || trip.getProvider() == null || trip.getProvider().isBlank()
                 ? null : trip.getProvider();
         // ONE registration lookup per card (an uncached read): the link and the state both turn on it.
-        final boolean registered = viewer != null && registrations.get().isChipRegistered(trip.getId(), viewer);
-        return new Card(trip, trips.get().publicTripUrlFor(trip, registered), stateOf(trip, registered), cover,
+        final Registration.Status status = viewer == null ? Registration.Status.NOT_REGISTERED
+                : statusOf(registrations.get().getRegistration(trip.getId(), viewer));
+        final boolean registered = status != Registration.Status.NOT_REGISTERED;
+        return new Card(trip, trips.get().publicTripUrlFor(trip, registered), stateOf(trip, status), cover,
                 cover == null ? null : pics.url(cover, CARD_MAX_WIDTH),
                 cover == null ? null : pics.srcsetUpTo(cover, CARD_MAX_WIDTH),
                 cover == null ? fallbackOf(trip) : null, orgName, featured);
     }
 
-    private State stateOf(final Trip trip, final boolean registered) {
-        if (registered) {
+    private static Registration.Status statusOf(final Registration registration) {
+        return registration == null || registration.getStatus() == null ? Registration.Status.NOT_REGISTERED
+                : registration.getStatus();
+    }
+
+    private State stateOf(final Trip trip, final Registration.Status status) {
+        if (status == Registration.Status.PENDING) {
+            return State.PENDING;
+        }
+        if (status != Registration.Status.NOT_REGISTERED) {
             return State.REGISTERED;
         }
         final TripPageCommands.RegistrationInfo info = pages.get().registrationInfo(trip);

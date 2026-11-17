@@ -297,7 +297,11 @@ public class ChatPhotos {
      * media row ({@link ChatAttachment#followingAlbum}). A reference whose photo has NO media row left (the
      * original's message or trip was removed, which removes the row) goes out as a tombstone that stays a reference
      * ({@link ChatAttachment#gone}), so a client that cached the photo drops it rather than keep showing a removed
-     * photo. A row moved out of its trip album to a library slot still counts: the photo is still there. A page with
+     * photo. A photo HIDDEN since it was referenced (its sharer or a moderator kept it off the public site,
+     * {@link MediaItem#getHidden}) goes out as the same tombstone: {@link AlbumPhotoSource} would no longer offer it,
+     * because a reference shows it to another audience, and that rule must not lapse once the reference exists.
+     * Nothing is rewritten, so showing the photo again brings the reference back. A row moved out of its trip album
+     * to a library slot still counts: the photo is still there. A page with
      * no reference costs nothing; one with any reads the media table once, however many albums its references come
      * from, and when that read fails every reference goes out as it was sent (a failed read must never look like
      * every photo removed).
@@ -326,7 +330,8 @@ public class ChatPhotos {
     }
 
     private static ChatAttachment current(final ChatAttachment ref, final MediaItem row) {
-        return row == null ? ref.gone() : ref.followingAlbum(row.getRev(), row.getSize(), row.getDisplayKey());
+        return row == null || Boolean.TRUE.equals(row.getHidden()) ? ref.gone()
+                : ref.followingAlbum(row.getRev(), row.getSize(), row.getDisplayKey());
     }
 
     /**

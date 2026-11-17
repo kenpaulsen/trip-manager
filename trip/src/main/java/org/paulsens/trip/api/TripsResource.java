@@ -31,7 +31,7 @@ import org.paulsens.trip.action.ItineraryAccess;
 import org.paulsens.trip.action.OrgCommands;
 import org.paulsens.trip.action.PaymentCommands;
 import org.paulsens.trip.action.ProfilePhotos;
-import org.paulsens.trip.action.ReminderHtml;
+import org.paulsens.trip.action.RichTextHtml;
 import org.paulsens.trip.action.LodgingCommands;
 import org.paulsens.trip.action.LodgingViews;
 import org.paulsens.trip.action.TripPageCommands;
@@ -144,16 +144,18 @@ public class TripsResource extends BaseResource {
         // host the list is further that org's alone -- the site boundary holds for API clients too.
         final SiteContext site = SiteContext.current();
         final Set<String> own = listing ? ownAndManaged(me) : Set.of();
+        // The offered tag list is the same for every row of one listing: read and parsed once, not per trip.
+        final List<TripTags.Tag> offered = TripTags.current();
         return ok(found.stream()
                 .filter(trip -> site.admits(trip.getOrgId()))
                 .filter(trip -> listing || canReadTrip(trip))
-                .map(trip -> listing ? openListingDto(trip, own) : listingDto(trip))
+                .map(trip -> listing ? openListingDto(trip, own, offered) : listingDto(trip, offered))
                 .toList());
     }
 
-    private TripDto listingDto(final Trip trip) {
+    private TripDto listingDto(final Trip trip, final List<TripTags.Tag> offered) {
         return withShownTags(TripMapper.INSTANCE.toDto(trip).withoutEvents().withDetailsUrl(detailsUrl(trip))
-                .withPictures(pictureDtos(trip)).withFallbackPicture(fallbackPictureOf(trip)), trip);
+                .withPictures(pictureDtos(trip)).withFallbackPicture(fallbackPictureOf(trip)), trip, offered);
     }
 
     /**
@@ -175,8 +177,8 @@ public class TripsResource extends BaseResource {
      * offers (the website's rule, {@link TripTags#shownOn}). An app cannot rebuild a label from its id, which is a
      * lossy slug.
      */
-    private static TripDto withShownTags(final TripDto dto, final Trip trip) {
-        final List<TripTags.Tag> shown = TripTags.shownOn(trip, TripTags.current());
+    private static TripDto withShownTags(final TripDto dto, final Trip trip, final List<TripTags.Tag> offered) {
+        final List<TripTags.Tag> shown = TripTags.shownOn(trip, offered);
         return dto.withTags(shown.stream().map(TripTags.Tag::id).toList(),
                 shown.stream().map(TripTags.Tag::label).toList());
     }
@@ -208,8 +210,8 @@ public class TripsResource extends BaseResource {
      * cannot read the trip gets {@code people} narrowed to themselves and the people they manage, which is
      * all the apps ask of it there ("am I, or is my family, on this trip?").
      */
-    private TripDto openListingDto(final Trip trip, final Set<String> own) {
-        final TripDto dto = listingDto(trip);
+    private TripDto openListingDto(final Trip trip, final Set<String> own, final List<TripTags.Tag> offered) {
+        final TripDto dto = listingDto(trip, offered);
         if (canReadTrip(trip) || dto.people() == null) {
             return dto;
         }
@@ -580,7 +582,7 @@ public class TripsResource extends BaseResource {
         }
         // Creator roles, allow-list-bounded; withheld roles were already reported to the support channel.
         new OrgCommands(this::caller).grantCreatorTripRoles(trip);
-        return ok(listingDto(trip));
+        return ok(listingDto(trip, TripTags.current()));
     }
 
     @PUT
@@ -663,7 +665,7 @@ public class TripsResource extends BaseResource {
         if (!Beans.get(TripCommands.class).saveTrip(trip, orgs)) {
             return error(500, ApiErrors.STORE_FAILED, "Could not save the trip.");
         }
-        return ok(listingDto(trip));
+        return ok(listingDto(trip, TripTags.current()));
     }
 
     /** Whether the body names an organization other than the one the trip belongs to. */
@@ -750,7 +752,7 @@ public class TripsResource extends BaseResource {
             event.setTitle(body.title());
         }
         if (body.notes() != null) {
-            event.setNotes(ReminderHtml.cleanEventNote(body.notes()));
+            event.setNotes(RichTextHtml.cleanEventNote(body.notes()));
         }
         if (body.start() != null) {
             event.setStart(body.start());
@@ -881,7 +883,8 @@ public class TripsResource extends BaseResource {
                 dto.nonHostedTripUrl(), dto.nonHostedRegNumber(), dto.regOptions(), dto.people(),
                 eventDtos(trip, me), dto.kind(), dto.paymentConfig(), dto.page(), detailsUrl(trip),
                 pictureDtos(trip), dto.destination(), dto.country(), dto.tags(), null)
-                .withFallbackPicture(fallbackPictureOf(trip)), trip);
+                .withFallbackPicture(fallbackPictureOf(trip)), trip,
+                TripTags.current());
     }
 
     private static List<TripEventDto> eventDtos(final Trip trip, final Person.Id viewer) {
@@ -1211,7 +1214,7 @@ public class TripsResource extends BaseResource {
         for (final TripEventDto dto : body.tripEvents()) {
             final TripEvent event = new TripEvent(java.util.UUID.randomUUID().toString(),
                     dto.type() == null ? TripEvent.Type.EVENT : TripEvent.Type.valueOf(dto.type()),
-                    dto.title(), ReminderHtml.cleanEventNote(dto.notes()), dto.start(), dto.end(), null, null);
+                    dto.title(), RichTextHtml.cleanEventNote(dto.notes()), dto.start(), dto.end(), null, null);
             if (dto.details() != null) {
                 event.setDetails(new LinkedHashMap<>(dto.details()));
             }

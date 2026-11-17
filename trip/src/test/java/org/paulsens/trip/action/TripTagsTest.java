@@ -40,7 +40,8 @@ public class TripTagsTest {
     @Test
     public void labelsShowOnlyTagsStillOffered() {
         final Trip trip = Trip.builder().tags(List.of("youth", "retired-tag", "retreat")).build();
-        Assert.assertEquals(TripTags.labelsOf(trip, OFFERED), List.of("Retreat", "Youth"));
-        Assert.assertEquals(TripTags.labelsOf(null, OFFERED), List.of());
+        Assert.assertEquals(TripTags.shownOn(trip, OFFERED).stream().map(TripTags.Tag::label).toList(),
+                List.of("Retreat", "Youth"));
+        Assert.assertEquals(TripTags.shownOn(null, OFFERED), List.of());
     }
 }

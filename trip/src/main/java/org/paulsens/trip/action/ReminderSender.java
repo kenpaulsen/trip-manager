@@ -184,7 +184,7 @@ public class ReminderSender {
         final String replyTo = replyToSource.apply(trip, plan);
         // Cleaned ONCE here, on the way out, and merged per traveler in sendOne with ReminderText.render: the
         // same body for every one of them. Only the fan-out gets the cleaned copy; it is the one that mails.
-        final TripReminder cleaned = reminder.withBody(ReminderHtml.clean(reminder.getBody()));
+        final TripReminder cleaned = reminder.withBody(RichTextHtml.clean(reminder.getBody()));
         final List<ReminderRecipients.Target> targets = recipients.targets(trip, reminder, today);
         final List<ReminderSend.Outcome> outcomes =
                 fanOut(trip, cleaned, sendDate, manual, who, from, replyTo, targets);
