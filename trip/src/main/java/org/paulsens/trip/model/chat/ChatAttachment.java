@@ -129,6 +129,18 @@ public class ChatAttachment implements Serializable {
     }
 
     /**
+     * This REFERENCE once the photo it points at is gone from its album (the message that shared it, or that
+     * message's trip, was removed): a tombstone that stays a reference, so a client can say the photo is no longer
+     * available instead of naming a remover nobody here knows. Keys, caption and dimensions are cleared like any
+     * tombstone's, so a client holding the photo in its cache drops it with the keys. Its {@code deletedAt} is the
+     * epoch: when the original went is not known here, and a fixed value keeps every read of the message the same.
+     */
+    public ChatAttachment gone() {
+        return new ChatAttachment(kind, null, null, null, null, null, null, null, null, Instant.EPOCH, null, null,
+                Boolean.TRUE);
+    }
+
+    /**
      * This attachment with its public-site flag changed and everything else kept: the uploader (or a chat
      * admin) may change their mind about the public site at any time after posting.
      */

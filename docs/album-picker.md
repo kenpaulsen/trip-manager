@@ -117,21 +117,27 @@ all of those with the original. What a reference must never do, and the code tha
 | changes the public-site flag | `ChatPhotoEdits.setVisibility` refuses |
 | becomes the parent of the photo's thread when the thread is made late | `PhotoChatCommands.messageCarrying` matches owners only |
 
-A reference copies the photo's size, small rendition and `rev` once, at send. When the photo is later turned where it
-was first shared, the reference is not rewritten (nothing indexes references); instead `ChatPhotos.withCurrentReferences`
-brings every reference on a page up to date from its album row as the chat feed and history go out
-(`ChatCommands.feed`/`history`): every turn is a quarter that moves `rev` on by one, so an odd number of turns since
-the send swaps the dimensions (`ChatAttachment.followingAlbum`), and only a rev that moved FORWARD counts (so every
-rebuild of an album row must carry its `rev`, as `MediaCommands.update` and `assignToSlot` do). A page with no
-reference costs nothing; one with any reads the album rows once (`ChatPhotos.albumRowsByKey`). Nothing signals the
-referencing chat when the original turns, so a chat already open keeps a reference's old shape until its messages
-are read again (a reload, or a history read), like the reaction-chip lag above.
+A reference copies the photo's size, small rendition and `rev` once, at send. When the photo is later turned where
+it was first shared, the reference is not rewritten (nothing indexes references); instead
+`ChatPhotos.withCurrentReferences` brings every reference on a page up to date from its album row as the chat feed
+and history go out (`ChatCommands.feed`/`history`): every turn is a quarter that moves `rev` on by one, so an odd
+number of turns since the send swaps the dimensions (`ChatAttachment.followingAlbum`), and only a rev that moved
+FORWARD counts (so every rebuild of an album row must carry its `rev`, as `MediaCommands.update` and `assignToSlot`
+do). A page with no reference costs nothing; one with any reads the media table once (`ChatPhotos.mediaRowsByKey`).
+Nothing signals the referencing chat when the original turns, so a chat already open keeps a reference's old shape
+until its messages are read again (a reload, or a history read), like the reaction-chip lag above.
 
 When the ORIGINAL is removed (its message, or its whole trip), a reference has nothing left to show. There is no
-index from a photo to the messages that reference it, so the reference is not rewritten: the web chat replaces the
-image that fails to load with "This photo is no longer available." (`noteIfGone`, references only), and the apps
-show their placeholder. A reference's reaction chip folds in the photo's reactions like any carrier's, but only the
-owning message's cached summary is refreshed when someone reacts, so a reference's chip can lag.
+index from a photo to the messages that reference it, so the stored reference is not rewritten; instead, every read
+of the chat (`ChatPhotos.withCurrentReferences`) sends a reference whose photo has no media row left as a tombstone
+that is STILL a reference (`ChatAttachment.gone`: keys and facts cleared, `deletedAt` the epoch, `ref: true`, no
+`deletedBy`). A client that cached the photo therefore drops it (a privacy point: a removed photo must not stay on
+phones through a reference), and the web chat writes "This photo is no longer available." in its place, as
+`noteIfGone` already does for an image that fails to load before the next read. A photo moved out of its trip album
+to a library slot keeps its row, so its references keep showing it. A failed read of the media table (an empty
+`Optional`, never an empty map) leaves every reference as it was sent, so it can never look like every photo
+removed. Owner, 2026-11-17. A reference's reaction chip folds in the photo's reactions like any carrier's, but only
+the owning message's cached summary is refreshed when someone reacts, so a reference's chip can lag.
 
 Wire contract: `docs/api-contract.md`, chat photos (`ref` on an attachment; `album:{mediaId}` as a send key).
 

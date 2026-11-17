@@ -473,7 +473,9 @@ refused: 403 `FORBIDDEN` and 404); removing it removes only the reference. If th
 answering, so a `ref` photo that fails to load reads as "no longer available". A `ref` attachment's `width`,
 `height`, `rev` and `thumbKey` follow the original on every history or poll read (it may have been rotated where it
 was shared), with NO `mutationsVersion` bump in the referencing channel: a client replaces a held message with the
-copy a later history read returns. The web chat creates references;
+copy a later history read returns. When the original is removed, a `ref` attachment comes back as a tombstone that
+keeps `ref: true` (keys, caption and dimensions cleared, `deletedAt` set to the epoch, no `deletedBy`): drop any
+cached copy and show "no longer available" rather than "deleted by". The web chat creates references;
 the apps so far only display them. A posted photo's public-site flag may be revisited
 at any time by the uploader or a chat admin (2026-10-12): `PATCH /api/chat/channels/trip:{tripId}/photos?key=`
 `{hidden, messageId?}` (`messageId` is only a hint; the server finds the message by key) moves BOTH copies, the

@@ -294,14 +294,22 @@ public class ChatPhotos {
      * A page whose references show their photos as they are NOW. A reference copies the photo's size, small
      * rendition and {@code rev} once, at send, and nothing indexes references, so when the photo is turned where it
      * was first shared no reference can be rewritten: each is brought up to date here, on the way out, from its
-     * album row ({@link ChatAttachment#followingAlbum}). A page with no reference costs nothing; one with any reads
-     * the album rows ONCE, however many albums its references come from.
+     * media row ({@link ChatAttachment#followingAlbum}). A reference whose photo has NO media row left (the
+     * original's message or trip was removed, which removes the row) goes out as a tombstone that stays a reference
+     * ({@link ChatAttachment#gone}), so a client that cached the photo drops it rather than keep showing a removed
+     * photo. A row moved out of its trip album to a library slot still counts: the photo is still there. A page with
+     * no reference costs nothing; one with any reads the media table once, however many albums its references come
+     * from, and when that read fails every reference goes out as it was sent (a failed read must never look like
+     * every photo removed).
      */
     public ChatPage withCurrentReferences(final ChatPage page) {
         if (page.getMessages().stream().noneMatch(ChatPhotos::carriesReference)) {
             return page;
         }
-        final Map<String, MediaItem> rows = albumRowsByKey();
+        return mediaRowsByKey().map(rows -> withCurrentReferences(page, rows)).orElse(page);
+    }
+
+    private static ChatPage withCurrentReferences(final ChatPage page, final Map<String, MediaItem> rows) {
         return page.withMessages(page.getMessages().stream()
                 .map(message -> carriesReference(message) ? current(message, rows) : message)
                 .toList());
@@ -318,22 +326,28 @@ public class ChatPhotos {
     }
 
     private static ChatAttachment current(final ChatAttachment ref, final MediaItem row) {
-        return row == null ? ref : ref.followingAlbum(row.getRev(), row.getSize(), row.getDisplayKey());
+        return row == null ? ref.gone() : ref.followingAlbum(row.getRev(), row.getSize(), row.getDisplayKey());
     }
 
     /**
-     * Seam: every trip album row by its photo's key (the first, when a key has two), from one read of the media
-     * table; empty when it cannot be read, which leaves every reference as it was sent.
+     * Every media row by its photo's key (the first, when a key has two), from one read of the media table; EMPTY
+     * when the table cannot be read. Empty is not "no rows": it leaves every reference as it was sent, where an
+     * empty map would turn every one of them into a tombstone.
      */
-    protected Map<String, MediaItem> albumRowsByKey() {
+    Optional<Map<String, MediaItem>> mediaRowsByKey() {
         try {
-            return DAO.getInstance().getAllMedia(Cached.YES).stream()
-                    .filter(row -> isChatSlot(row.getSlot()) && row.getS3Key() != null)
-                    .collect(Collectors.toMap(MediaItem::getS3Key, row -> row, (first, second) -> first));
+            return Optional.of(allMedia().stream()
+                    .filter(row -> row.getS3Key() != null)
+                    .collect(Collectors.toMap(MediaItem::getS3Key, row -> row, (first, second) -> first)));
         } catch (final RuntimeException ex) {
-            log.error("Unable to read the trip albums to refresh chat references", ex);
-            return Map.of();
+            log.error("Unable to read the media table to refresh chat references", ex);
+            return Optional.empty();
         }
+    }
+
+    /** Seam: the whole media table, from the cache. */
+    protected List<MediaItem> allMedia() {
+        return DAO.getInstance().getAllMedia(Cached.YES);
     }
 
     /**

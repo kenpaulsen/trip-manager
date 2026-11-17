@@ -266,11 +266,37 @@ public class ChatPhotoReferenceTest {
     }
 
     @Test
-    public void aReferenceWhoseAlbumRowIsGoneShowsWhatItWasSent() {
+    public void aReferenceWhoseOriginalWasRemovedGoesOutAsATombstoneThatStaysAReference() {
         final ChatAttachment ref = reference();
-        photos.deleteEverywhere(List.of(original));
         final ChatPage page = new ChatPage(List.of(carrying("2", ref)), null, null, 0L, 0L, false, true, null, null);
+
+        // A failed read of the media table must never look like every photo removed: references go out as sent.
+        // The read itself throws here, so the real catch is what answers "unreadable".
+        final ChatPhotos unreadable = new ChatPhotos(new MediaCommands()) {
+            @Override
+            protected List<MediaItem> allMedia() {
+                throw new IllegalStateException("media table refused");
+            }
+        };
+        Assert.assertTrue(unreadable.mediaRowsByKey().isEmpty(), "Unreadable, which is not the same as no rows");
+        Assert.assertSame(unreadable.withCurrentReferences(page), page);
+
+        // A photo moved out of its trip album (to a library slot) is still there: its references keep showing it.
+        final MediaItem moved = albumRow.withPlacement("home-images", 0, albumRow.getUploaded());
+        Assert.assertTrue(DAO.getInstance().saveMedia(moved));
+        Assert.assertFalse(photos.withCurrentReferences(page).getMessages().getFirst().getAttachments().getFirst()
+                .isDeleted(), "A moved photo is not a removed one");
+
+        photos.deleteEverywhere(List.of(original));
+        final ChatAttachment gone =
+                photos.withCurrentReferences(page).getMessages().getFirst().getAttachments().getFirst();
+        Assert.assertTrue(gone.isDeleted(), "A tombstone, so a client that cached the photo drops it");
+        Assert.assertTrue(gone.isRef(), "Still a reference: the client says the photo is no longer available");
+        Assert.assertNull(gone.getS3Key(), "No key left to fetch the removed photo by");
+        Assert.assertNull(gone.getThumbKey());
+        Assert.assertNull(gone.getWidth());
+        Assert.assertNull(gone.getDeletedBy(), "Nobody here knows who removed the original");
         Assert.assertEquals(photos.withCurrentReferences(page).getMessages().getFirst().getAttachments().getFirst(),
-                ref, "Nothing to follow: the page notes the photo is gone when it fails to load");
+                gone, "Every read of the message says the same");
     }
 }
