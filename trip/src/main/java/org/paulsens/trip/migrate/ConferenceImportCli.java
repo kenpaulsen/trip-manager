@@ -8,7 +8,6 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -67,7 +66,7 @@ public final class ConferenceImportCli {
                     + "[--actor EMAIL] [--yes] [--patch-legacy-pricing]");
             return 1;
         }
-        final Map<String, String> opts = options(args);
+        final Map<String, String> opts = CliArgs.options(args);
         final boolean patch = opts.containsKey(PATCH_FLAG);
         try {
             return switch (args[0]) {
@@ -90,10 +89,10 @@ public final class ConferenceImportCli {
     // ------------------------------------------------------------------ commands
 
     private int plan(final Map<String, String> opts) throws IOException {
-        final ImportMapping mapping = ImportMapping.read(path(opts, "mapping"), mapper);
-        final LegacyExport export = LegacyExport.read(path(opts, "export"), mapper);
+        final ImportMapping mapping = ImportMapping.read(CliArgs.path(opts, "mapping"), mapper);
+        final LegacyExport export = LegacyExport.read(CliArgs.path(opts, "export"), mapper);
         final ImportPlan plan = new ConferenceImportPlanner(mapper, mapping, new DaoTarget()).plan(export);
-        final Path dir = Files.createDirectories(path(opts, "out"));
+        final Path dir = Files.createDirectories(CliArgs.path(opts, "out"));
         mapper.writeValue(dir.resolve("plan.json").toFile(), plan);
         mapper.writeValue(dir.resolve("snapshot.json").toFile(),
                 ImportSnapshot.of(plan, mapping.targetOrgId(), operator(opts.get("actor"))));
@@ -109,10 +108,10 @@ public final class ConferenceImportCli {
     }
 
     private int apply(final Map<String, String> opts) throws IOException {
-        requireYes(opts);
-        final ImportMapping mapping = ImportMapping.read(path(opts, "mapping"), mapper);
-        final LegacyExport export = LegacyExport.read(path(opts, "export"), mapper);
-        final Path dir = path(opts, "out");
+        CliArgs.requireYes(opts);
+        final ImportMapping mapping = ImportMapping.read(CliArgs.path(opts, "mapping"), mapper);
+        final LegacyExport export = LegacyExport.read(CliArgs.path(opts, "export"), mapper);
+        final Path dir = CliArgs.path(opts, "out");
         final ImportPlan plan = mapper.readValue(dir.resolve("plan.json").toFile(), ImportPlan.class);
         final Caller caller = siteAdmin(opts.get("actor"));
         final ImportReport report = new ConferenceImportApplier(mapper, caller, done -> saveReport(dir, done))
@@ -130,9 +129,9 @@ public final class ConferenceImportCli {
 
     /** The real applier and verifier on the real plan, in memory: what an apply would do, without doing it. */
     private int rehearse(final Map<String, String> opts) throws IOException {
-        final ImportMapping mapping = ImportMapping.read(path(opts, "mapping"), mapper);
-        final LegacyExport export = LegacyExport.read(path(opts, "export"), mapper);
-        final Path dir = path(opts, "out");
+        final ImportMapping mapping = ImportMapping.read(CliArgs.path(opts, "mapping"), mapper);
+        final LegacyExport export = LegacyExport.read(CliArgs.path(opts, "export"), mapper);
+        final Path dir = CliArgs.path(opts, "out");
         final Path rehearsal = Files.createDirectories(dir.resolve("rehearsal"));
         final ImportPlan plan = mapper.readValue(dir.resolve("plan.json").toFile(), ImportPlan.class);
         mapper.readValue(dir.resolve("snapshot.json").toFile(), ImportSnapshot.class).seed(plan);
@@ -169,9 +168,9 @@ public final class ConferenceImportCli {
     }
 
     private int verify(final Map<String, String> opts) throws IOException {
-        final ImportMapping mapping = ImportMapping.read(path(opts, "mapping"), mapper);
-        final LegacyExport export = LegacyExport.read(path(opts, "export"), mapper);
-        final Path dir = path(opts, "out");
+        final ImportMapping mapping = ImportMapping.read(CliArgs.path(opts, "mapping"), mapper);
+        final LegacyExport export = LegacyExport.read(CliArgs.path(opts, "export"), mapper);
+        final Path dir = CliArgs.path(opts, "out");
         final ImportPlan plan = mapper.readValue(dir.resolve("plan.json").toFile(), ImportPlan.class);
         return verify(export, mapping, plan, dir);
     }
@@ -187,8 +186,8 @@ public final class ConferenceImportCli {
     }
 
     private int rollback(final Map<String, String> opts) throws IOException {
-        requireYes(opts);
-        final Path dir = path(opts, "out");
+        CliArgs.requireYes(opts);
+        final Path dir = CliArgs.path(opts, "out");
         final ImportReport report = mapper.readValue(dir.resolve("report.json").toFile(), ImportReport.class);
         final ConferenceImportRollback rollback = new ConferenceImportRollback(mapper,
                 siteAdmin(opts.get("actor")).auditActor());
@@ -209,9 +208,9 @@ public final class ConferenceImportCli {
      */
     private int patchPricing(final Map<String, String> opts) throws IOException {
         final boolean write = opts.containsKey("yes");
-        final ImportMapping mapping = ImportMapping.read(path(opts, "mapping"), mapper);
-        final LegacyExport export = LegacyExport.read(path(opts, "export"), mapper);
-        final Path dir = Files.createDirectories(path(opts, "out"));
+        final ImportMapping mapping = ImportMapping.read(CliArgs.path(opts, "mapping"), mapper);
+        final LegacyExport export = LegacyExport.read(CliArgs.path(opts, "export"), mapper);
+        final Path dir = Files.createDirectories(CliArgs.path(opts, "out"));
         final ImportPlan plan = new ConferenceImportPlanner(mapper, mapping, new DaoTarget()).plan(export);
         if (!plan.blockers().isEmpty()) {
             out.println("Blockers (" + plan.blockers().size() + "): the patch needs a clean plan.");
@@ -239,8 +238,8 @@ public final class ConferenceImportCli {
     }
 
     private int rollbackPatch(final Map<String, String> opts) throws IOException {
-        requireYes(opts);
-        final Path dir = path(opts, "out");
+        CliArgs.requireYes(opts);
+        final Path dir = CliArgs.path(opts, "out");
         final ImportReport report = mapper.readValue(dir.resolve(PATCH_REPORT).toFile(), ImportReport.class);
         final ConferenceImportRollback rollback = new ConferenceImportRollback(mapper,
                 siteAdmin(opts.get("actor")).auditActor());
@@ -324,33 +323,6 @@ public final class ConferenceImportCli {
         } catch (final IOException ex) {
             throw new UncheckedIOException(ex);
         }
-    }
-
-    private static void requireYes(final Map<String, String> opts) {
-        if (!opts.containsKey("yes")) {
-            throw new IllegalArgumentException("This writes to the target; pass --yes after reviewing plan.txt.");
-        }
-    }
-
-    private static Path path(final Map<String, String> opts, final String name) {
-        final String value = opts.get(name);
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException("--" + name + " is required.");
-        }
-        return Path.of(value);
-    }
-
-    private static Map<String, String> options(final String[] args) {
-        final Map<String, String> opts = new LinkedHashMap<>();
-        for (int i = 1; i < args.length; i++) {
-            if (!args[i].startsWith("--")) {
-                continue;
-            }
-            final String name = args[i].substring(2);
-            final boolean hasValue = i + 1 < args.length && !args[i + 1].startsWith("--");
-            opts.put(name, hasValue ? args[++i] : "");
-        }
-        return opts;
     }
 
     /** The target as the planner reads it: fresh DAO reads, never the cache. */

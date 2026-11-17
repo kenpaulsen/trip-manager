@@ -280,27 +280,20 @@ public class MailSendSesPathTest {
     }
 
     /**
-     * The merge itself: rendering stays sequential (the EL slot is shared), the SES sends fan out one
-     * StructuredTaskScope fork per recipient, and the response list keeps recipient order.
+     * The merge itself: each recipient's already-personalized message, the SES sends fanned out one
+     * StructuredTaskScope fork per recipient, and the response list in recipient order.
      */
     @Test
-    public void sendTemplateRendersSequentiallyAndFansOutTheSends() {
+    public void sendMergedFansOutTheSends() {
         Mockito.clearInvocations(ses);
         Mockito.when(ses.sendEmail(ArgumentMatchers.any(SendEmailRequest.class))).thenReturn(okResponse());
-        final com.sun.jsft.util.ELUtil el = Mockito.mock(com.sun.jsft.util.ELUtil.class);
-        Mockito.when(el.eval("S")).thenReturn("S");
-        Mockito.when(el.eval("B")).thenReturn("B");
         final Person one = new Person();
         one.setEmail("one@example.org");
         final Person two = new Person();
         two.setEmail("two@example.org");
 
-        final List<SendEmailResponse> out;
-        try (var elStatic = Mockito.mockStatic(com.sun.jsft.util.ELUtil.class)) {
-            elStatic.when(com.sun.jsft.util.ELUtil::getInstance).thenReturn(el);
-            out = new MailCommands(ses).sendTemplate("f@example.org", List.of(one, two), null,
-                    "r@example.org", "S", "B", AuditActor.system());
-        }
+        final List<SendEmailResponse> out = new MailCommands(ses).sendMerged("f@example.org", null,
+                "r@example.org", List.of(merged(one), merged(two)), AuditActor.system());
 
         Assert.assertEquals(out.size(), 2, "one response per usable recipient, in recipient order");
         Assert.assertEquals(out.get(0).messageId(), "ses-99");
@@ -321,22 +314,15 @@ public class MailSendSesPathTest {
         final AtomicInteger maxSeen = new AtomicInteger();
         Mockito.when(ses.sendEmail(ArgumentMatchers.any(SendEmailRequest.class)))
                 .thenAnswer(invocation -> recordOverlap(inFlight, maxSeen));
-        final com.sun.jsft.util.ELUtil el = Mockito.mock(com.sun.jsft.util.ELUtil.class);
-        Mockito.when(el.eval("S")).thenReturn("S");
-        Mockito.when(el.eval("B")).thenReturn("B");
-        final List<Person> recipients = new ArrayList<>();
+        final List<MailCommands.Merged> recipients = new ArrayList<>();
         for (int i = 0; i < MERGE_RECIPIENTS; i++) {
             final Person person = new Person();
             person.setEmail("r" + i + "@example.org");
-            recipients.add(person);
+            recipients.add(merged(person));
         }
 
-        final List<SendEmailResponse> out;
-        try (var elStatic = Mockito.mockStatic(com.sun.jsft.util.ELUtil.class)) {
-            elStatic.when(com.sun.jsft.util.ELUtil::getInstance).thenReturn(el);
-            out = new MailCommands(ses).sendTemplate("f@example.org", recipients, null,
-                    "r@example.org", "S", "B", AuditActor.system());
-        }
+        final List<SendEmailResponse> out = new MailCommands(ses).sendMerged("f@example.org", null,
+                "r@example.org", recipients, AuditActor.system());
 
         Assert.assertTrue(maxSeen.get() <= MailCommands.MERGE_PARALLELISM,
                 "sends in flight at once must not exceed MERGE_PARALLELISM (" + MailCommands.MERGE_PARALLELISM
@@ -366,34 +352,29 @@ public class MailSendSesPathTest {
         return okResponse();
     }
 
-    /** Off a Faces thread the EL evaluates to null; sendTemplate must refuse loudly, not mail "null". */
     @Test
-    public void sendTemplateWithoutAFacesContextFailsRatherThanMailingTheWordNull() {
-        final Person person = new Person();
-        person.setEmail("who@example.org");
-
-        Assert.assertThrows(IllegalStateException.class,
-                () -> mail.sendTemplate("f@example.org", List.of(person), null,
-                        "r@example.org", "#{requestScope.subject}", "template-text", AuditActor.system()));
-    }
-
-    @Test
-    public void sendTemplateSkipsARecipientWithNoUsableAddress() {
+    public void sendMergedSkipsARecipientWithNoUsableAddress() {
         Mockito.clearInvocations(ses);
         final Person noAddress = new Person();
         noAddress.setEmail("not an address");
 
-        Assert.assertTrue(mail.sendTemplate("f@example.org", List.of(noAddress), null,
-                "r@example.org", "S", "B", AuditActor.system()).isEmpty());
+        Assert.assertTrue(mail.sendMerged("f@example.org", null, "r@example.org", List.of(merged(noAddress)),
+                AuditActor.system()).isEmpty());
         Mockito.verify(ses, Mockito.never()).sendEmail(ArgumentMatchers.any(SendEmailRequest.class));
     }
 
-    /** The documented quirk: previewTemplate off a Faces thread returns the literal text "null". */
+    /** The bound-actor form sends the same way. */
     @Test
-    public void previewTemplateOffAFacesThreadReturnsTheLiteralNull() {
-        final Person person = new Person();
+    public void sendMergedWithoutAnActorStillSends() {
+        Mockito.clearInvocations(ses);
+        Mockito.when(ses.sendEmail(ArgumentMatchers.any(SendEmailRequest.class))).thenReturn(okResponse());
+        final Person one = new Person();
+        one.setEmail("one@example.org");
 
-        Assert.assertEquals(mail.previewTemplate(person, "#{requestScope.to.first}"), "null",
-                "renderTemplate exists precisely because this does not fail loudly");
+        Assert.assertEquals(mail.sendMerged("f@example.org", null, "r@example.org", List.of(merged(one))).size(), 1);
+    }
+
+    private static MailCommands.Merged merged(final Person to) {
+        return new MailCommands.Merged(to, "S", "B");
     }
 }

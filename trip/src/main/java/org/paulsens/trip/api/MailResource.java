@@ -12,6 +12,7 @@ import java.util.Map;
 import java.util.Objects;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.MailCommands;
+import org.paulsens.trip.action.MailMerge;
 import org.paulsens.trip.action.OrgCommands;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.model.Person;
@@ -48,7 +49,7 @@ public class MailResource extends BaseResource {
         return V1;
     }
 
-    /** Renders a template against one person, without sending anything. */
+    /** Renders a merge against one person, without sending anything. */
     @POST
     @Path("preview")
     @Consumes({V1, MediaType.APPLICATION_JSON})
@@ -74,20 +75,23 @@ public class MailResource extends BaseResource {
         }
         final java.util.Set<String> allowed = orgs.allowedRecipientEmails();
         if (allowed != null && !person.getId().equals(personId())
-                && (person.getEmail() == null
-                        || !allowed.contains(person.getEmail().trim().toLowerCase(java.util.Locale.ROOT)))) {
+                && !OrgCommands.isAllowedEmail(allowed, person.getEmail())) {
             return error(403, ApiErrors.FORBIDDEN, "That person is outside your organization(s).");
         }
-        // renderTemplate, not previewTemplate: the latter evaluates through the Faces expression context and
-        // off a Faces thread returns the literal text "null" for the whole template -- a preview that looks
-        // like it worked. A bad expression throws here by design, so it is reported rather than swallowed.
-        try {
-            return ok(Map.of("rendered",
-                    Beans.get(MailCommands.class).renderTemplate(person, body.template())));
-        } catch (final RuntimeException ex) {
-            log.debug("Template preview failed", ex);
-            return error(422, ApiErrors.VALIDATION_FAILED, "Template could not be rendered: " + ex.getMessage());
+        // The merge's {{field}} substitution, the page's own rules: the text is never evaluated (it was EL
+        // until medjugorje#79, which let an org-scoped emailAdmin run code here), and a field the caller may
+        // not use is refused rather than blanked.
+        final MailMerge merge = new MailMerge(this::caller);
+        final String problem = merge.problem(body.subject(), body.template(), body.tripId());
+        if (problem != null) {
+            return error(422, ApiErrors.VALIDATION_FAILED, problem);
         }
+        return ok(previewOf(body, merge.render(person, body.subject(), body.template(), body.tripId())));
+    }
+
+    private static Map<String, String> previewOf(final PreviewRequest body, final MailMerge.Preview rendered) {
+        return (body.subject() == null) ? Map.of("rendered", rendered.body())
+                : Map.of("rendered", rendered.body(), "subject", rendered.subject());
     }
 
     /**
@@ -112,7 +116,7 @@ public class MailResource extends BaseResource {
         if (invalid != null) {
             return invalid;
         }
-        // The page's forged-post guard (OrgCommands.sendMerge), which this door lacked: every organization's
+        // The page's forged-post guard (MailMerge.send), which this door lacked: every organization's
         // domain is verified in the one SES account, so an unchecked From let one tenant mail as another.
         if (!orgs.isMergeFromSendable(body.from())) {
             return error(422, ApiErrors.VALIDATION_FAILED, OrgCommands.INVALID_MERGE_FROM);
@@ -122,11 +126,10 @@ public class MailResource extends BaseResource {
         // emailAdmin is org-scoped: recipients outside the caller's orgs are dropped and counted in
         // "rejected" (null allowed-set == site admin, unrestricted).
         final java.util.Set<String> allowed = orgs.allowedRecipientEmails();
-        final List<String> accepted = body.to().stream()
+        // The bare addresses that were checked are exactly what is mailed (OrgCommands.boundRecipients).
+        final List<String> accepted = OrgCommands.boundRecipients(allowed, body.to()).stream()
                 .map(mail::validateEmail)
                 .filter(Objects::nonNull)
-                .filter(email -> allowed == null
-                        || allowed.contains(email.trim().toLowerCase(java.util.Locale.ROOT)))
                 .toList();
         if (accepted.isEmpty()) {
             return error(422, ApiErrors.VALIDATION_FAILED, "No usable recipient addresses.");
@@ -169,7 +172,14 @@ public class MailResource extends BaseResource {
             String from, List<String> to, String bcc, String replyTo, String subject, String body) {
     }
 
-    /** A template rendered against one person, for showing a human before anything is sent. */
-    public record PreviewRequest(String personId, String template) {
+    /**
+     * A merge body ({@code template}) rendered against one person, for showing a human before anything is sent.
+     * {@code subject} (optional) is rendered too; {@code tripId} (optional) is the trip its trip fields are about.
+     */
+    public record PreviewRequest(String personId, String template, String subject, String tripId) {
+        /** The original two-field request: body only, no trip. */
+        public PreviewRequest(final String personId, final String template) {
+            this(personId, template, null, null);
+        }
     }
 }

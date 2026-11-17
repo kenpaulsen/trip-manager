@@ -237,7 +237,8 @@ final class LodgingItinerary {
         row.setEffectiveEnd(event.getEnd());
         row.setParticipantCount(event.getParticipants().size());
         row.getParticipantIds().addAll(event.getParticipants());
-        row.setPrivNote(nullSafe(event.getPrivNotes().get(personId)));
+        // Cleaned here, where every itinerary page reads it: the pages write the note out unescaped.
+        row.setPrivNote(ReminderHtml.cleanNote(event.getPrivNotes().get(personId)));
         row.setLodging(event.getType() == TripEvent.Type.LODGING);
         row.setFirstStay(true);
         return row;

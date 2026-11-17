@@ -85,6 +85,33 @@ public class ArchitectureTest {
                 "every Stripe call passes its organization's key in RequestOptions; never the global one");
     }
 
+    /**
+     * The EL evaluator ({@code com.sun.jsft.util.ELUtil}) runs whatever it is given with the full EL context:
+     * static calls on {@code java.lang} included. Stored private notes (medjugorje#116) and the mail merge's text
+     * (medjugorje#79) reached it, which was code execution for any trip member and any org {@code emailAdmin}.
+     * Only these may use it, each on text that ships with the application, never text a person typed:
+     * classpath mail templates with escaped scalar values, and one constant expression. The list is FILES, so it
+     * stays this short: a whole bean on it would let a new evaluating method in that bean pass unseen (two
+     * unused ones, {@code tripUtil.mapList} and {@code people.toSortedList}, were deleted for that reason). A new
+     * user of the evaluator needs the same proof, and an entry here.
+     */
+    private static final List<String> EL_EVALUATOR_USERS =
+            List.of("chat/MailTemplates.java", "action/TodoCommands.java");
+
+    @Test
+    public void storedOrTypedTextNeverReachesTheElEvaluator() throws IOException {
+        final List<String> offenders = new ArrayList<>();
+        for (final Path source : mainSources()) {
+            final String path = source.toString().replace('\\', '/');
+            if (EL_EVALUATOR_USERS.stream().noneMatch(path::endsWith)) {
+                offenders.addAll(linesMatching(source, "ELUtil"));
+                offenders.addAll(linesMatching(source, "createValueExpression"));
+            }
+        }
+        Assert.assertEquals(offenders, List.of(),
+                "personalize with {{token}} substitution (TokenText) instead of evaluating text as EL");
+    }
+
     /** Matches CODE lines only: comments may (and do) name the banned things while explaining their absence. */
     private static List<String> linesMatching(final Path source, final String needle) throws IOException {
         final List<String> hits = new ArrayList<>();

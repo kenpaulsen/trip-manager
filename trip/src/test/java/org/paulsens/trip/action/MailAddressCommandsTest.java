@@ -335,6 +335,20 @@ public class MailAddressCommandsTest {
         assertNull(mailAddr.composeAddress("Q", "info", "example.org", null, "x"));
     }
 
+    /** A From name with a comma or a period is a quoted string, and the composer reads it back as typed. */
+    @Test
+    public void aFromNameWithSpecialsIsQuotedAndSeedsTheComposerAsTyped() {
+        final MailAddressCommands mailAddr = commands();
+        final String from = mailAddr.composeAddress("Parish Office, St. Joseph", "office", "example.org", DOMAINS,
+                "x");
+        assertEquals(from, "\"Parish Office, St. Joseph\" <office@example.org>");
+        assertEquals(MailAddressCommands.displayNameOf(from), "Parish Office, St. Joseph");
+        assertEquals(MailAddressCommands.addressOf(from), "office@example.org");
+        assertEquals(mailAddr.composerName(from), "Parish Office, St. Joseph");
+        assertEquals(mailAddr.composeAddress("Office\r\nBcc: x@evil.example", "office", "example.org", DOMAINS, "x"),
+                "\"Office Bcc: x@evil.example\" <office@example.org>", "a line break cannot start a header");
+    }
+
     @Test
     public void isSendableAnswersWhetherSesCouldSendAsAnAddress() {
         final MailAddressCommands mailAddr = commands();

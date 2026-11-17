@@ -3,6 +3,7 @@ package org.paulsens.trip.action;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -31,6 +32,17 @@ import java.util.regex.Pattern;
  * attribute is kept (the editor needs it to reopen the list as it was), and an {@code <ol>} whose first item is
  * a bullet is written as {@code <ul>} (and the written list switches kind where the items do), because a mail
  * client knows nothing of {@code data-list} and would number the list.
+ *
+ * <p>A trip event's private NOTE ({@code TripCommands.saveEventNoteById}) is cleaned here too, by
+ * {@link #cleanNote}: the same list, plus what the itinerary's note editor offers and a reminder's does not,
+ * and what years of stored notes hold (the 2026-11 production scan: named colors, {@code <font color>},
+ * {@code <strike>}, a smaller font, bold, and links to the site's own pages). All of it is rebuilt, never
+ * copied: a style only as {@code color}, {@code background-color}, {@code font-size} or {@code font-weight}
+ * with one literal value ({@code #hex}, {@code rgb()}, {@code var(--name, #hex)}, a bare word, a size such as
+ * {@code 0.8em}; no {@code url()}, no escape, no entity can match); {@code <font color>} written as a colored
+ * {@code <span>} and {@code <strike>} as {@code <s>}; and a link to one of the site's own {@code .jsf} pages by
+ * relative address, which cannot carry a scheme. No image, for either list ({@link Mode}). Notes were evaluated
+ * as EL until 2026-11 (medjugorje#116) and written out unescaped, so this is what makes them safe to show.
  */
 public final class ReminderHtml {
     /** Tags copied through, without their attributes unless named below. */
@@ -61,6 +73,32 @@ public final class ReminderHtml {
             "ql-(align-(center|right|justify)|indent-[1-8]|direction-rtl|size-(small|large|huge)"
                     + "|font-(serif|monospace)|ui)");
     private static final Set<String> LIST_KINDS = Set.of("bullet", "ordered", "checked", "unchecked");
+    /** One style value a note may keep: a color, a bare word (a named color, bold), or a size; nothing else. */
+    private static final String NOTE_VALUE = "(#[0-9a-fA-F]{3,8}|rgba?\\([0-9.,%\\s]{1,40}\\)"
+            + "|var\\(--[a-zA-Z0-9-]{1,60}(?:\\s*,\\s*#[0-9a-fA-F]{3,8})?\\)|[a-zA-Z]{1,30}"
+            + "|[0-9]{1,3}(?:\\.[0-9]{1,2})?(?:px|em|rem|%)?)";
+    /**
+     * One style declaration a note may keep, read whole: the property, then ONE literal value. Bounded
+     * repetitions, so a long run of digits cannot make it backtrack.
+     */
+    private static final Pattern NOTE_DECLARATION = Pattern.compile(
+            "\\s*((?i:color|background-color|font-size|font-weight))\\s*:\\s*" + NOTE_VALUE + "\\s*");
+    /** The value of an old {@code <font color>}: one literal color, as above. */
+    private static final Pattern NOTE_COLOR = Pattern.compile(NOTE_VALUE);
+    /** A link to one of the site's own pages by relative address: no scheme, so nothing but a page can open. */
+    private static final Pattern SITE_PAGE = Pattern.compile(
+            "/?[A-Za-z0-9_-]{1,80}(?:/[A-Za-z0-9_-]{1,80}){0,5}\\.jsf(?:\\?[A-Za-z0-9_=&%.+ -]{0,200})?");
+    /** Old tags a note writes as their current equivalent. */
+    private static final Map<String, String> NOTE_ALIASES = Map.of("strike", "s", "font", "span");
+
+    /**
+     * Which list a clean keeps: a reminder's, or a note's (the reminder's plus its styles, site links and old
+     * tags). Images are kept by neither: a remote one is fetched by every reader's browser (a tracking pixel in
+     * a note any trip member may write), and the 2026-11 production scan found none in any note.
+     */
+    private enum Mode {
+        REMINDER, NOTE
+    }
     /**
      * The longest thing still treated as a tag. A real tag is a few dozen characters; without a bound, a body
      * built of openings that never close makes every one of them scan to the end of the text, and the cleaner's
@@ -99,11 +137,23 @@ public final class ReminderHtml {
      */
     public static Cleaned cleanNoting(final String html) {
         final Drops drops = new Drops();
-        final String body = clean(html, drops);
+        final String body = clean(html, drops, Mode.REMINDER);
         return new Cleaned(body, drops.any);
     }
 
-    private static String clean(final String html, final Drops drops) {
+    /** A trip event's private note with only allowlisted markup left (see the class comment); null becomes blank. */
+    public static String cleanNote(final String html) {
+        return cleanNoteNoting(html).body();
+    }
+
+    /** {@link #cleanNote}, noting what it dropped, for the save to say so ({@link Cleaned}). */
+    public static Cleaned cleanNoteNoting(final String html) {
+        final Drops drops = new Drops();
+        final String body = clean(html, drops, Mode.NOTE);
+        return new Cleaned(body, drops.any);
+    }
+
+    private static String clean(final String html, final Drops drops, final Mode mode) {
         if (html == null) {
             return "";
         }
@@ -123,7 +173,7 @@ public final class ReminderHtml {
                 final int end = html.indexOf("-->", at + 4);
                 at = (end < 0) ? html.length() : end + 3;
             } else if (tagEnd > 0) {
-                at = copyTag(html, at, tagEnd, out, lists, drops);
+                at = copyTag(html, at, tagEnd, out, lists, drops, mode);
             } else {
                 // A "<" that opens nothing this cleaner recognizes is text, and is written as text. When it began
                 // a tag (a pasted image's data address runs far past MAX_TAG), the writer saw no such text: a drop.
@@ -249,28 +299,30 @@ public final class ReminderHtml {
 
     /** Writes the tag spanning {@code start..end} when it is allowed; answers where reading goes on. */
     private static int copyTag(final String html, final int start, final int end, final StringBuilder out,
-            final Deque<String> lists, final Drops drops) {
+            final Deque<String> lists, final Drops drops, final Mode mode) {
         final boolean closing = html.charAt(start + 1) == '/';
         int nameEnd = start + (closing ? 2 : 1);
         final int nameStart = nameEnd;
         while (nameEnd < end && (isLetter(html.charAt(nameEnd)) || Character.isDigit(html.charAt(nameEnd)))) {
             nameEnd++;
         }
-        final String name = html.substring(nameStart, nameEnd).toLowerCase(Locale.ROOT);
+        final String tag = html.substring(nameStart, nameEnd).toLowerCase(Locale.ROOT);
+        final String name = mode == Mode.NOTE ? NOTE_ALIASES.getOrDefault(tag, tag) : tag;
         if (!closing && DROP_WITH_CONTENT.contains(name)) {
             drops.any = true;
             return afterClosing(html, name, end + 1);
         }
         if ("ol".equals(name)) {
-            out.append(closing ? "</" + (lists.isEmpty() ? "ol" : lists.pop()) + ">" : openList(html, end, lists));
+            out.append(closing ? "</" + (lists.isEmpty() ? "ol" : lists.pop()) + ">"
+                    : openList(html, end, lists, mode));
         } else if ("li".equals(name) && !closing) {
-            final String attributes = attributesOf(name, html.substring(nameEnd, end), drops);
+            final String attributes = attributesOf(name, html.substring(nameEnd, end), drops, mode);
             out.append(switchList(attributes, lists)).append("<li").append(attributes).append('>');
         } else if (ALLOWED.contains(name)) {
             if (closing) {
                 out.append(VOID.contains(name) ? "" : "</" + name + ">");
             } else {
-                out.append('<').append(name).append(attributesOf(name, html.substring(nameEnd, end), drops))
+                out.append('<').append(name).append(attributesOf(name, html.substring(nameEnd, end), drops, mode))
                         .append('>');
             }
         } else {
@@ -284,13 +336,14 @@ public final class ReminderHtml {
      * item. Only the NEXT tag is read (Quill writes the first {@code <li>} directly after the {@code <ol>}), so
      * a body of list openings with no items costs nothing extra.
      */
-    private static String openList(final String html, final int afterOl, final Deque<String> lists) {
+    private static String openList(final String html, final int afterOl, final Deque<String> lists,
+            final Mode mode) {
         final int next = html.indexOf('<', afterOl);
         final boolean item = next >= 0 && opensTag(html, next, "li");
         final int itemEnd = item ? tagEnd(html, next) : -1;
         // Only a look ahead: what that item drops is noted when the item itself is written.
         final boolean bullets = itemEnd > 0
-                && isBullet(attributesOf("li", html.substring(next + 3, itemEnd), new Drops()));
+                && isBullet(attributesOf("li", html.substring(next + 3, itemEnd), new Drops(), mode));
         lists.push(bullets ? "ul" : "ol");
         return bullets ? "<ul>" : "<ol>";
     }
@@ -341,16 +394,26 @@ public final class ReminderHtml {
     }
 
     /** The attributes this tag keeps, rebuilt: a link's checked address, a list item's kind, a Quill class. */
-    private static String attributesOf(final String name, final String raw, final Drops drops) {
+    private static String attributesOf(final String name, final String raw, final Drops drops, final Mode mode) {
         final StringBuilder kept = new StringBuilder();
         final Matcher attribute = ATTRIBUTE.matcher(raw);
         boolean linked = false;
         boolean classed = false;
         boolean listed = false;
+        boolean styled = false;
         while (attribute.find()) {
             final String key = attribute.group(1).toLowerCase(Locale.ROOT);
             final String value = unquoted(attribute.group(2)).trim();
-            if ("a".equals(name) && "href".equals(key) && !linked && isSafeAddress(value)) {
+            if (mode == Mode.NOTE && "style".equals(key) && !styled) {
+                final String styles = noteStyle(value, drops);
+                kept.append(styles.isEmpty() ? "" : " style=\"" + styles + '"');
+                styled = true;
+            } else if (mode == Mode.NOTE && "color".equals(key) && !styled && NOTE_COLOR.matcher(value).matches()) {
+                // An old <font color="red">, written as the <span> it now is.
+                kept.append(" style=\"color: ").append(value).append('"');
+                styled = true;
+            } else if ("a".equals(name) && "href".equals(key) && !linked
+                    && (isSafeAddress(value) || (mode == Mode.NOTE && SITE_PAGE.matcher(value).matches()))) {
                 kept.append(" href=\"").append(value).append('"');
                 linked = true;
             } else if ("class".equals(key) && !classed && isQuillClasses(value)) {
@@ -379,6 +442,25 @@ public final class ReminderHtml {
             final boolean linked, final boolean classed) {
         final boolean styled = "style".equals(key) || ("class".equals(key) && !classed);
         return (styled && !value.isEmpty()) || ("a".equals(name) && "href".equals(key) && !linked);
+    }
+
+    /**
+     * The declarations of a note's {@code style} it may keep, rebuilt ("color: red; font-size: 0.8em"), or "" when
+     * none is kept. Each declaration must match {@link #NOTE_DECLARATION} whole; any other one (a font family, a
+     * position, a {@code url()}) is dropped and noted.
+     */
+    private static String noteStyle(final String value, final Drops drops) {
+        final StringBuilder kept = new StringBuilder();
+        for (final String declaration : value.split(";")) {
+            final Matcher style = NOTE_DECLARATION.matcher(declaration);
+            if (style.matches()) {
+                kept.append(kept.isEmpty() ? "" : "; ").append(style.group(1).toLowerCase(Locale.ROOT)).append(": ")
+                        .append(style.group(2));
+            } else if (!declaration.isBlank()) {
+                drops.any = true;
+            }
+        }
+        return kept.toString();
     }
 
     /** Every class named is one of Quill's own layout classes ({@code ql-align-center}, {@code ql-indent-1}). */

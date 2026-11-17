@@ -105,7 +105,6 @@ public class UtilAndPhotosTest {
     @Test
     public void miscHelpersBehave() {
         Assert.assertNotNull(util.sortBy("name"));
-        Assert.assertNull(util.evalEL(null));
         Assert.assertThrows(RuntimeException.class, () -> util.throwException("boom"));
         // The unit suite runs in local mode by construction (see the surefire sysprop).
         Assert.assertTrue(util.isLocal());

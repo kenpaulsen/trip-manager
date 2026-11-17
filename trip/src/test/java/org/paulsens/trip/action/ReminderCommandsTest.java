@@ -358,7 +358,7 @@ public class ReminderCommandsTest {
         final ReminderViews.Form typo = form("Typo", TODAY);
         typo.setBody("<p>Hi {{fristName}}</p>");
         assertFalse(admin().save(tripId, typo));
-        assertEquals(typo.getProblem(), "Unknown placeholder {{fristName}}: use one from the list.");
+        assertEquals(typo.getProblem(), "Unknown field {{fristName}}: use one from the list.");
 
         assertFalse(admin().save(tripId, null));
         assertTrue(DAO.getInstance().getReminderPlan(tripId).isEmpty(), "Nothing refused was stored");

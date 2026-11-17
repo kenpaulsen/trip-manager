@@ -838,7 +838,8 @@ public class TripsResource extends BaseResource {
     private static TripEventDto eventDto(final TripEvent event, final Person.Id viewer) {
         final TripEventDto dto = TripMapper.INSTANCE.toDto(event);
         return new TripEventDto(dto.id(), dto.type(), dto.title(), dto.notes(), dto.start(), dto.end(),
-                dto.participants(), event.getParticipants().contains(viewer), event.getPrivNotes().get(viewer),
+                dto.participants(), event.getParticipants().contains(viewer),
+                TripCommands.cleanNoteOrNull(event.getPrivNotes().get(viewer)),
                 hasAnyDetail(event) ? new LinkedHashMap<>(event.getDetails()) : null);
     }
 

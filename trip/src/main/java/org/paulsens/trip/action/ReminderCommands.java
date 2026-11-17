@@ -492,7 +492,7 @@ public class ReminderCommands {
         final List<String> unknown = new ArrayList<>(ReminderText.unknownTokens(form.getSubject()));
         unknown.addAll(ReminderText.unknownTokens(body));
         unknown.addAll(ReminderText.unknownTokens(form.getPushText()));
-        return unknown.isEmpty() ? null : "Unknown placeholder {{" + unknown.get(0) + "}}: use one from the list.";
+        return unknown.isEmpty() ? null : "Unknown field {{" + unknown.get(0) + "}}: use one from the list.";
     }
 
     /** Deletes one message. Its sent history stays. */

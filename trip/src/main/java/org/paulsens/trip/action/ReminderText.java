@@ -1,22 +1,19 @@
 package org.paulsens.trip.action;
 
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-import org.paulsens.trip.chat.MailTemplates;
 
 /**
  * The wording side of a trip reminder: the {@code {{token}}} vocabulary a facilitator may use, the check that a
- * message uses nothing else, and the substitution. Java-only substitution, like the managed MAIL templates
- * ({@code MailCommands.renderManagedTemplateForOrg}): no EL, so a message typed by a trip facilitator can never
- * evaluate anything, and it renders on the scheduler's thread with no Faces context.
+ * message uses nothing else, and the substitution ({@link TokenText}, shared with the mail merge). Java-only
+ * substitution, like the managed MAIL templates ({@code MailCommands.renderManagedTemplateForOrg}): no EL, so a
+ * message typed by a trip facilitator can never evaluate anything, and it renders on the scheduler's thread with
+ * no Faces context.
  *
- * <p>Every value is escaped except the link tokens, which the code builds itself. A token that is unknown is
+ * <p>Every value is HTML-escaped in a body, link tokens included. A token that is unknown is
  * REFUSED when the message is saved ({@link #unknownTokens}); nothing approved can go out with a raw
  * {@code {{typo}}} in it.
  */
@@ -84,7 +81,6 @@ public final class ReminderText {
             new Token(PROFILE_LINK, "Web address of the traveler's profile, where a passport is entered."));
 
     private static final Set<String> NAMES = namesOf(TOKENS);
-    private static final Pattern TOKEN = Pattern.compile("\\{\\{\\s*([^{}]*?)\\s*\\}\\}");
 
     private ReminderText() {
     }
@@ -99,16 +95,7 @@ public final class ReminderText {
 
     /** The {@code {{...}}} names in {@code text} that are not in the vocabulary, in order, each once. */
     public static List<String> unknownTokens(final String text) {
-        final Set<String> unknown = new LinkedHashSet<>();
-        if (text != null) {
-            final Matcher matcher = TOKEN.matcher(text);
-            while (matcher.find()) {
-                if (!NAMES.contains(matcher.group(1))) {
-                    unknown.add(matcher.group(1));
-                }
-            }
-        }
-        return new ArrayList<>(unknown);
+        return TokenText.unknown(text, NAMES);
     }
 
     /**
@@ -141,24 +128,7 @@ public final class ReminderText {
     }
 
     private static String substitute(final String text, final Map<String, String> values, final boolean html) {
-        if (text == null) {
-            return "";
-        }
-        final Matcher matcher = TOKEN.matcher(text);
-        final StringBuilder out = new StringBuilder();
-        while (matcher.find()) {
-            final String name = matcher.group(1);
-            final String raw = valueOf(values, name);
-            final String value = !NAMES.contains(name) ? matcher.group() : html ? MailTemplates.escape(raw) : raw;
-            matcher.appendReplacement(out, Matcher.quoteReplacement(value));
-        }
-        matcher.appendTail(out);
-        return out.toString();
-    }
-
-    private static String valueOf(final Map<String, String> values, final String name) {
-        final String value = (values == null) ? null : values.get(name);
-        return (value == null) ? "" : value;
+        return TokenText.substitute(text, values, NAMES, html);
     }
 
     /** Sample values for a preview that has no real recipient yet, so every token shows something. */

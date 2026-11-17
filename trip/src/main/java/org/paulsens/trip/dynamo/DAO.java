@@ -558,6 +558,14 @@ public final class DAO {
     public TripEvent getTripEvent(final String id, final Cached cached) {
         return NearCacheContext.call(cached, () -> tripEventDao.getTripEvent(id));
     }
+    /** Every event row's stored JSON, by id, uncached: for one-time data repairs only (migrate/). */
+    public Map<String, String> rawTripEventContents() {
+        return tripEventDao.rawTripEventContents();
+    }
+    /** Rewrites one event row's stored JSON only if it still holds {@code expected}; for data repairs only. */
+    public boolean replaceTripEventContent(final String id, final String expected, final String replacement) {
+        return tripEventDao.replaceTripEventContent(id, expected, replacement);
+    }
     public Boolean saveTripEvent(final TripEvent te) {
         return tripEventDao.saveTripEvent(te);
     }

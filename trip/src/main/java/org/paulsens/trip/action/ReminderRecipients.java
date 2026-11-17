@@ -9,6 +9,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 import org.paulsens.trip.audit.AuditActor;
@@ -185,12 +186,7 @@ public final class ReminderRecipients {
         final long due = dueCents.apply(trip.getId(), traveler.getId());
         final List<String> unsigned = unsignedTitles.apply(trip, traveler.getId());
         final String passport = passportIssue(traveler.getPassport(), trip);
-        facts.put(ReminderText.TRAVELER_NAME, CheckinCommands.displayName(traveler));
-        facts.put(ReminderText.BALANCE_DUE, MoneyMath.formatCents(due));
-        facts.put(ReminderText.DOCUMENT_LIST, String.join(", ", unsigned));
-        facts.put(ReminderText.PASSPORT_ISSUE, (passport == null) ? "" : passport);
-        facts.put(ReminderText.PROFILE_LINK,
-                baseUrl.apply(trip) + "/account/person.jsf?id=" + traveler.getId().getValue());
+        putTravelerFacts(facts, trip, traveler, due, unsigned, passport);
         final TripReminder.Audience audience = reminder.getAudience();
         final String reason = switch (audience) {
             case WITH_BALANCE -> (due > 0) ? "Owes " + MoneyMath.formatCents(due) : null;
@@ -202,6 +198,32 @@ public final class ReminderRecipients {
         final Discloses discloses = (audience == TripReminder.Audience.WITH_BALANCE) ? Discloses.AMOUNT
                 : (audience == TripReminder.Audience.PASSPORT_ISSUE) ? Discloses.PASSPORT : Discloses.NOTHING;
         return (reason == null) ? null : new Target(traveler, reason, discloses, mailTo(traveler), facts);
+    }
+
+    /** The keys {@link #travelerFacts} fills: what the mail merge asks for before paying for those reads. */
+    static final Set<String> TRAVELER_FACTS = Set.of(ReminderText.TRAVELER_NAME, ReminderText.BALANCE_DUE,
+            ReminderText.DOCUMENT_LIST, ReminderText.PASSPORT_ISSUE, ReminderText.PROFILE_LINK);
+
+    private void putTravelerFacts(final Map<String, String> facts, final Trip trip, final Person traveler,
+            final long due, final List<String> unsigned, final String passport) {
+        facts.put(ReminderText.TRAVELER_NAME, CheckinCommands.displayName(traveler));
+        facts.put(ReminderText.BALANCE_DUE, MoneyMath.formatCents(due));
+        facts.put(ReminderText.DOCUMENT_LIST, String.join(", ", unsigned));
+        facts.put(ReminderText.PASSPORT_ISSUE, (passport == null) ? "" : passport);
+        facts.put(ReminderText.PROFILE_LINK,
+                baseUrl.apply(trip) + "/account/person.jsf?id=" + traveler.getId().getValue());
+    }
+
+    /**
+     * One traveler's own values on this trip, whatever a reminder's audience: name, balance, unsigned
+     * documents, passport problem and profile link. Fresh reads, as for a reminder; the mail merge asks only
+     * when its text uses one of them.
+     */
+    public Map<String, String> travelerFacts(final Trip trip, final Person traveler) {
+        final Map<String, String> facts = new LinkedHashMap<>();
+        putTravelerFacts(facts, trip, traveler, dueCents.apply(trip.getId(), traveler.getId()),
+                unsignedTitles.apply(trip, traveler.getId()), passportIssue(traveler.getPassport(), trip));
+        return facts;
     }
 
     /** The traveler's own address when it is usable; else their family managers, who answer for them. */
@@ -230,8 +252,11 @@ public final class ReminderRecipients {
                 : null;
     }
 
-    /** The token values every message of this trip shares. */
-    private Map<String, String> tripFacts(final Trip trip, final LocalDate today) {
+    /**
+     * The token values every message of this trip shares (title, dates, links, organization). The mail merge
+     * asks once per send ({@code MergeValues}).
+     */
+    Map<String, String> tripFacts(final Trip trip, final LocalDate today) {
         final Map<String, String> facts = new LinkedHashMap<>();
         final String base = baseUrl.apply(trip);
         final String id = trip.getId();

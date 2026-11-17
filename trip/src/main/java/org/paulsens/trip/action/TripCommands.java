@@ -759,22 +759,51 @@ public class TripCommands {
             log.warn("Refusing to note event {}: not part of trip {}", eventId, trip.getId());
             return false;
         }
-        owned.getPrivNotes().put(personId, RichText.paragraphsToBreaks(note));
-        return saveTrip(trip);
+        // Cleaned on the way in (and again on the way out, cleanNote): a note is written out unescaped to the
+        // traveler, their family managers and every admin, and any trip member may write their own over REST.
+        final ReminderHtml.Cleaned cleaned = ReminderHtml.cleanNoteNoting(RichText.paragraphsToBreaks(note));
+        owned.getPrivNotes().put(personId, cleaned.body());
+        final boolean saved = saveTrip(trip);
+        if (saved && cleaned.dropped()) {
+            PageFeedback.warn("Notes saved, but some formatting a note cannot keep (an image, a video, a table, "
+                    + "a font, or a link that is not a full web address) was removed.");
+        }
+        return saved;
     }
 
     /**
-     * One person's private note on a trip event, for seeding the note dialog's editor.
+     * One person's private note on a trip event, for seeding the note dialog's editor: cleaned, because the
+     * editor puts it into the page as markup, and a note stored before notes were cleaned may hold anything.
      *
-     * @return the stored note, or "" when there is none (or the event is not on this trip); never {@code null}.
+     * @return the note, or "" when there is none (or the event is not on this trip); never {@code null}.
      */
     public String getEventNote(final Trip trip, final String eventId, final Person.Id personId) {
         final TripEvent owned = (trip == null || eventId == null) ? null : trip.getTripEvent(eventId);
         if (owned == null || personId == null) {
             return "";
         }
-        final String note = owned.getPrivNotes().get(personId);
-        return (note == null) ? "" : note;
+        return ReminderHtml.cleanNote(owned.getPrivNotes().get(personId));
+    }
+
+    /**
+     * One person's private note on an event as HTML that is safe to write out unescaped: the ONE way a page shows
+     * a note it reads from the event itself ({@code admin/tripEvents.xhtml}); the itinerary rows go through
+     * {@link ReminderHtml#cleanNote} too. Never evaluated: notes were EL until 2026-11 (medjugorje#116), and the stored
+     * room expressions were flattened to text before that ended ({@code docs/migrations/note-el-flatten.md}).
+     *
+     * @return the note, or "" when there is none; never {@code null}.
+     */
+    public String noteHtml(final TripEvent event, final Person.Id personId) {
+        return (event == null || personId == null) ? "" : ReminderHtml.cleanNote(event.getPrivNotes().get(personId));
+    }
+
+    /**
+     * A stored note cleaned for writing out ({@link ReminderHtml#cleanNote}), keeping "no note" as null: for the
+     * REST DTO, where an absent note is an absent field. Everything that prints a note wants "" instead, so it
+     * calls {@link ReminderHtml#cleanNote}, which never answers null.
+     */
+    public static String cleanNoteOrNull(final String stored) {
+        return (stored == null) ? null : ReminderHtml.cleanNote(stored);
     }
 
     /** @return whether this event's participant list actually changed. */

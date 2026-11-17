@@ -1156,6 +1156,16 @@ public class RegistrationCommands {
         return (pdv == null) ? transientRoom(tripId, userId, "") : pdv;
     }
 
+    /**
+     * {@link #getRoomPDV}'s answer as text, never null: "" when there is none. The ONE conversion, shared by the
+     * mail merge's {@code {{room}}} and the note repair ({@code migrate/NoteElFlatten}), so both say exactly what
+     * the itinerary showed.
+     */
+    public String roomLabel(final String tripId, final Person.Id userId) {
+        final PersonDataValue room = getRoomPDV(tripId, userId);
+        return (room == null || room.getContent() == null) ? "" : room.getContent().toString();
+    }
+
     private String reservedRoomLabel(final String tripId, final Person.Id userId) {
         try {
             return lodgingSource.get().roomLabelFor(tripId, userId);

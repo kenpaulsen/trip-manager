@@ -1,5 +1,7 @@
 package org.paulsens.trip.util;
 
+import java.util.regex.Pattern;
+
 /**
  * Whether an address is usable as an email recipient.
  *
@@ -13,6 +15,10 @@ package org.paulsens.trip.util;
  * applied, plus one addition: a domain ending in {@code .} is now rejected ({@code a@b.}), which the old check
  * let through. They live here so the notification code can ask the same question without constructing a
  * {@code MailCommands}, which builds an SES client in a field.
+ *
+ * <p>It also holds the one display-name quoting for a "Name &lt;addr&gt;" ({@link #phrase}, read back by
+ * {@link #unphrase}), shared by {@code MailCommands.formatEmail} (every merge recipient) and
+ * {@code MailAddressCommands.composeAddress} (every composed From).
  */
 public final class EmailAddresses {
 
@@ -50,5 +56,31 @@ public final class EmailAddresses {
     /** Whether this address can be mailed. Notification preferences treat an invalid address as OFF. */
     public static boolean isValid(final String candidate) {
         return normalize(candidate) != null;
+    }
+
+    /** RFC 5322's specials (bar the angle brackets, which callers refuse or strip), legal only when quoted. */
+    private static final Pattern SPECIALS = Pattern.compile("[()\\[\\]:;@\\\\,.\"]");
+
+    /**
+     * A display name as a valid RFC 5322 phrase: runs of whitespace (line breaks included, so no header can be
+     * injected) collapsed to one space, then as is when it is plain words, else a quoted string with its
+     * backslashes and quotes escaped. "bob@home", "Team: Bob" or "Smith, John" left bare is not a valid mailbox,
+     * which strict parsing refuses or reads as two. Blank for a blank name. The caller keeps angle brackets out
+     * first: {@code MailCommands.bareEmail} takes the first '&lt;' and {@code MailAddressCommands.addressOf} the
+     * last, quoted or not.
+     */
+    public static String phrase(final String name) {
+        final String trimmed = (name == null) ? "" : name.replaceAll("\\s+", " ").trim();
+        return SPECIALS.matcher(trimmed).find()
+                ? '"' + trimmed.replace("\\", "\\\\").replace("\"", "\\\"") + '"' : trimmed;
+    }
+
+    /** The name a {@link #phrase} stands for: a quoted string unquoted and unescaped, anything else trimmed. */
+    public static String unphrase(final String phrase) {
+        final String trimmed = (phrase == null) ? "" : phrase.trim();
+        if (trimmed.length() < 2 || trimmed.charAt(0) != '"' || trimmed.charAt(trimmed.length() - 1) != '"') {
+            return trimmed;
+        }
+        return trimmed.substring(1, trimmed.length() - 1).replaceAll("\\\\(.)", "$1");
     }
 }

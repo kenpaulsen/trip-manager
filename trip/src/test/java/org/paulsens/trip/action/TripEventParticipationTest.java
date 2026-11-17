@@ -10,6 +10,7 @@ import org.paulsens.trip.model.TripEvent;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
+import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.cache.Cached;
 
 /**
@@ -213,8 +214,61 @@ public class TripEventParticipationTest {
 
         Assert.assertTrue(trip.saveEventNote(theTrip, event, who, "<p>Seat 14C</p><p><br></p><p>Aisle</p>"));
 
+        // Stored through the note allowlist (ReminderHtml.cleanNote), which writes a break as <br>.
         Assert.assertEquals(DAO.getInstance().getTripEvent(event.getId(), Cached.NO).getPrivNotes().get(who),
-                "Seat 14C<br /><br />Aisle");
+                "Seat 14C<br><br>Aisle");
+    }
+
+    /**
+     * A note stored before notes were cleaned on save (written straight to the row here, as every note was
+     * until medjugorje#116) is cleaned on every read path the pages use: the event's own accessor
+     * (admin/tripEvents) and the itinerary's rows (the itinerary, its printout and the badge).
+     */
+    @Test
+    public void aNoteStoredBeforeCleaningIsCleanedWhereverItIsRead() {
+        final Trip theTrip = trip();
+        final Person.Id who = FakeData.getFakePeople().get(2).getId();
+        final TripEvent event = theTrip.getTripEvents().stream()
+                .filter(e -> e.getType() != TripEvent.Type.LODGING).findFirst().orElseThrow();
+        final TripEvent row = DAO.getInstance().getTripEvent(event.getId(), Cached.NO);
+        row.getPrivNotes().put(who, "Room #{7*7}<img src=x onerror=alert(1)><b onclick=\"x()\">old</b>");
+        Assert.assertTrue(DAO.getInstance().saveTripEvent(row), "written straight to the row, bypassing the save");
+
+        final String clean = "Room #{7*7}<b>old</b>";
+        Assert.assertEquals(trip.noteHtml(DAO.getInstance().getTripEvent(event.getId(), Cached.NO), who), clean);
+        final Trip fresh = DAO.getInstance().getTrip(theTrip.getId(), Cached.NO).orElseThrow();
+        final LodgingViews.ItineraryRow shown = new LodgingCommands(() -> Caller.forActor(AuditActor.system()))
+                .itineraryRows(fresh, java.util.List.of(event.getId()), who).stream()
+                .filter(r -> event.getId().equals(r.getId())).findFirst().orElseThrow();
+        Assert.assertEquals(shown.getPrivNote(), clean, "the itinerary row is cleaned too");
+    }
+
+    /**
+     * medjugorje#116: notes were written out unescaped and evaluated as EL. A note is cleaned on save, and every
+     * read path cleans again, so a note stored before cleaning existed is safe too; an expression is just text.
+     */
+    @Test
+    public void aNoteIsCleanedOnTheWayInAndOut() {
+        final Trip theTrip = trip();
+        final Person.Id who = FakeData.getFakePeople().get(0).getId();
+        final TripEvent event = theTrip.getTripEvents().get(1);
+
+        Assert.assertTrue(trip.saveEventNoteById(theTrip, event.getId(), who,
+                "<p style=\"color:#c00\">Room #{7*7}</p><img src=x onerror=alert(1)><script>x()</script>"));
+        final String stored = DAO.getInstance().getTripEvent(event.getId(), Cached.NO).getPrivNotes().get(who);
+        Assert.assertTrue(stored.contains("Room #{7*7}"), "an expression is kept as text: " + stored);
+        Assert.assertTrue(stored.contains("style=\"color: #c00\""), "a color survives: " + stored);
+        Assert.assertFalse(stored.contains("<img") || stored.contains("onerror") || stored.contains("script"),
+                "nothing that runs survives: " + stored);
+        Assert.assertEquals(trip.getEventNote(theTrip, event.getId(), who), stored);
+
+        final TripEvent raw = DAO.getInstance().getTripEvent(event.getId(), Cached.NO);
+        raw.getPrivNotes().put(who, "<b onclick=\"x()\">old</b><iframe src=\"https://x\"></iframe>");
+        Assert.assertEquals(trip.noteHtml(raw, who), "<b>old</b>", "a note stored before cleaning is cleaned on read");
+        Assert.assertEquals(trip.noteHtml(raw, Person.Id.newInstance()), "");
+        Assert.assertEquals(trip.noteHtml(null, who), "");
+        Assert.assertNull(TripCommands.cleanNoteOrNull(null));
+        Assert.assertEquals(TripCommands.cleanNoteOrNull("<i>x</i>"), "<i>x</i>");
     }
 
     @Test

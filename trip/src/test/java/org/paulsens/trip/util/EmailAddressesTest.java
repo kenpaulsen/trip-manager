@@ -56,4 +56,19 @@ public class EmailAddressesTest {
         // Addresses arrive from a comma-separated list, so padding is normal and must not disqualify anyone.
         Assert.assertEquals(EmailAddresses.normalize("  joe@example.com  "), "joe@example.com");
     }
+
+    @Test
+    public void aDisplayNameWithSpecialsIsQuotedAndReadsBack() {
+        Assert.assertEquals(EmailAddresses.phrase("  Queen   of Peace "), "Queen of Peace", "plain words stay bare");
+        Assert.assertEquals(EmailAddresses.phrase(null), "");
+        for (final String name : new String[] {"Parish Office, St. Joseph", "Team: Bob", "O\"Neil \\ Jr.", "a;b"}) {
+            final String phrase = EmailAddresses.phrase(name);
+            Assert.assertTrue(phrase.startsWith("\"") && phrase.endsWith("\""), "quoted: " + phrase);
+            Assert.assertEquals(EmailAddresses.unphrase(phrase), name, "round trip of " + name);
+        }
+        Assert.assertEquals(EmailAddresses.phrase("O\"Neil \\ Jr."), "\"O\\\"Neil \\\\ Jr.\"");
+        Assert.assertEquals(EmailAddresses.unphrase(" Plain Name "), "Plain Name");
+        Assert.assertEquals(EmailAddresses.unphrase("\""), "\"", "a lone quote is not a quoted string");
+        Assert.assertEquals(EmailAddresses.unphrase(null), "");
+    }
 }

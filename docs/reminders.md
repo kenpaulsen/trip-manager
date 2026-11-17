@@ -109,7 +109,8 @@ Push honors the person's own push settings.
 
 ## Wording
 
-`ReminderText` holds the `{{token}}` vocabulary, the unknown-token check and the substitution. It is Java-only
+`ReminderText` holds the `{{token}}` vocabulary, the unknown-token check and the substitution (the engine,
+`TokenText`, is shared with the mail merge's `MergeText` since 2026-11, when the merge stopped using EL). It is Java-only
 substitution with no EL, like the managed MAIL templates, so a facilitator's text can never evaluate anything
 and it renders on the scheduler's thread. A message with an unknown token is refused at save. The body is
 HTML-escaped per value (`render`); the subject and the push text are plain text (`renderPlain`).

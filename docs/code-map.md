@@ -59,7 +59,9 @@ versioned library, a trip's pinned versions with the re-sign decision, the two-b
 registration gate and the signed-copy PDF; see `docs/waivers.md`), `reminder` (ReminderCommands -- a trip's
 Communications page: scheduled messages that are drafts until a facilitator approves the exact wording and date,
 the one-pass `review`, the test send, the sender and the sent history; `ReminderSender` is the single path to a
-mailbox and `reminder/ReminderScheduler` the daily run; see `docs/reminders.md`),
+mailbox and `reminder/ReminderScheduler` the daily run; see `docs/reminders.md`), `mailMerge` (MailMerge -- the
+mail merge's send, preview and rules: `{{field}}` substitution through `MergeText`/`MergeValues`, never EL; the
+`emailAdmin` bounds are `OrgCommands`' own),
 `checkin` (CheckinCommands -- tickets, staff
 check-in, counts, the trip-bound balance, batch badges and the export rows; see `docs/checkin.md`), `tripStylesheets`
 (TripStylesheets -- a trip page's own stylesheets: one `text/css` library item each under `org/{orgId}/stylesheets/`,
@@ -68,6 +70,9 @@ on this page" report and the CodeMirror completion; local bytes served by `web/S
 `docs/conference.md` "Look and feel"), `deploy`, `json`, `tripUtil`.
 
 Rules for these beans: `CLAUDE.md` ("Rules that apply everywhere") and `.claude/rules/page-state.md`.
+
+Not a bean, but where a reader looks for it: `ReminderHtml` is also the private-note allowlist (`cleanNote`, its `NOTE`
+mode), the one cleaner every trip-event note passes on save and on every read.
 
 ### People lists and people search
 

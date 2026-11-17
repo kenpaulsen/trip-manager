@@ -14,6 +14,7 @@ import org.paulsens.trip.cache.PointCache;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripEvent;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
+import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
 import software.amazon.awssdk.services.dynamodb.model.GetItemResponse;
 
 @Slf4j
@@ -74,6 +75,44 @@ public class TripEventDAO {
 
     protected TripEvent getTripEvent(final String id) {
         return cache.get(id, this::loadTripEvent).orElse(null);
+    }
+
+    /**
+     * Every event row's stored JSON, by id, straight from the table (no cache): what a one-time data repair reads,
+     * so it can write back only rows that still hold exactly this text ({@link #replaceTripEventContent}).
+     */
+    protected Map<String, String> rawTripEventContents() {
+        final Map<String, String> contents = new HashMap<>();
+        for (final Map<String, AttributeValue> item
+                : persistence.scanAll(b -> b.tableName(TRIP_EVENT_TABLE).consistentRead(true).build())) {
+            final AttributeValue id = item.get(ID);
+            final AttributeValue content = item.get(CONTENT);
+            if (id != null && content != null && content.s() != null) {
+                contents.put(id.s(), content.s());
+            }
+        }
+        return contents;
+    }
+
+    /**
+     * Writes {@code replacement} as this event's stored JSON only if the row still holds {@code expected}, and
+     * drops the cached copy. False, writing nothing, when the row changed since it was read (someone saved the
+     * event): a repair must never overwrite an edit it did not see.
+     */
+    protected boolean replaceTripEventContent(final String id, final String expected, final String replacement) {
+        final Map<String, AttributeValue> item = new HashMap<>();
+        item.put(ID, persistence.toStrAttr(id));
+        item.put(CONTENT, persistence.toStrAttr(replacement));
+        try {
+            persistence.putItem(b -> b.tableName(TRIP_EVENT_TABLE).item(item)
+                    .conditionExpression("#c = :expected")
+                    .expressionAttributeNames(Map.of("#c", CONTENT))
+                    .expressionAttributeValues(Map.of(":expected", persistence.toStrAttr(expected))));
+        } catch (final ConditionalCheckFailedException ex) {
+            return false;
+        }
+        cache.remove(id);
+        return true;
     }
 
     /** Hard-deletes one event row. Events carry no tripId, so the caller must resolve ids via the Trip FIRST. */

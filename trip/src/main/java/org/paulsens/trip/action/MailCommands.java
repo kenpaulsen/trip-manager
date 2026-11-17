@@ -1,10 +1,7 @@
 package org.paulsens.trip.action;
 
-import com.sun.jsft.util.ELUtil;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Named;
-import java.io.FileNotFoundException;
-import java.io.UncheckedIOException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -49,15 +46,12 @@ import org.paulsens.trip.cache.Cached;
 @ApplicationScoped
 public class MailCommands {
     final DAO dao = DAO.getInstance();
-    final ELUtil elUtil = ELUtil.getInstance();
     /**
      * The single place a managed template id turns into a template row. Constructed rather than injected:
      * the senders below run on background threads with no CDI request context, and this bean holds no
      * per-request state of its own (its caller seam is only used by the authoring methods).
      */
     private final TemplateCommands templates = new TemplateCommands();
-    private static final String EMAIL_TPL_PREFIX = "mailTemplates/";
-    private static final String EMAIL_TPL_SUFFIX = ".tpl";
     /** Client-level timeouts replace the per-call orTimeout the CF era needed; a hung send fails, not hangs. */
     private static final Duration ATTEMPT_TIMEOUT = Duration.ofSeconds(10);
     private static final Duration CALL_TIMEOUT = Duration.ofSeconds(30);
@@ -178,7 +172,7 @@ public class MailCommands {
      * <p>The caller always knows who is asking. When nobody is -- the daily digest, a scheduled job -- the
      * answer is {@link AuditActor#system()}, which says so, rather than an empty actor, which does not.
      *
-     * <p>NOTE: see {@code sendTemplate}; that method is generally more useful.
+     * <p>NOTE: a mail merge (one personalized message per person) goes through {@link #sendMerged}.
      */
     public SendEmailResponse send(
             final String from,
@@ -264,91 +258,46 @@ public class MailCommands {
     }
 
     /**
-     * Send an email using a template file.
-     * See {@link #sendTemplate(String, Collection<Person>, String, String, String, String)}
-     *
-     * @param from          From address to show, example: {@code Business Name &lt;no-reply@nowhere.com&gt;}
-     * @param to            The collection of people to send email to.
-     * @param bcc           String of comma-separated people to bcc *on every email*.
-     * @param replyTo       The email address to accept replies, example: {@code real-email@real-place.com}
-     * @param subjectStr    The email subject.
-     * @param template      Template to use. Note: {@link #EMAIL_TPL_PREFIX} and {@link #EMAIL_TPL_SUFFIX} are added.
+     * One recipient's message of a mail merge, already personalized ({@code MailMerge.send} renders it
+     * with {@link MergeText}). Rendering happens before this class sees it: no text here is ever evaluated.
      */
-    public List<SendEmailResponse> sendTemplateFile(
+    public record Merged(Person to, String subject, String body) {
+    }
+
+    /** {@link #sendMerged(String, String, String, List, AuditActor)} as the bound actor. */
+    public List<SendEmailResponse> sendMerged(
             final String from,
-            final Collection<Person> to,
             final String bcc,
             final String replyTo,
-            final String subjectStr,
-            final String templateName) {
-        final String template = elUtil.readFile(EMAIL_TPL_PREFIX + templateName + EMAIL_TPL_SUFFIX);
-        if (template == null) {
-            // Unchecked wrapper, checked cause: the missing-file signal survives (callers and tests key on
-            // FileNotFoundException) without forcing a throws clause onto every EL-driven call site.
-            throw new UncheckedIOException(new FileNotFoundException(templateName));
-        }
-        return sendTemplate(from, to, bcc, replyTo, subjectStr, template);
+            final List<Merged> mails) {
+        return sendMerged(from, bcc, replyTo, mails, AuditActor.current());
     }
 
     /**
-     * Attempts to load a predefined email template and "mail-merge" the given people. Each {@link Person}, will be
-     * set as #{requestScope.to} so you can use {@code EL} to customize the email. The people in the "to" field will
-     * not be visible to anyone else in the "to" field because each person gets a personalized email.
+     * Sends a mail merge: each person their own message, so no recipient sees another's address. A person
+     * without a usable address is skipped with a warning.
      *
-     * @param from          From address to show, example: {@code Business Name &lt;no-reply@nowhere.com&gt;}
-     * @param to            The collection of people to send email to.
-     * @param bcc           String of comma-separated people to bcc *on every email*.
-     * @param replyTo       The email address to accept replies, example: {@code real-email@real-place.com}
-     * @param subjectStr    The email subject.
-     * @param template      Template to use.
+     * <p>The actor is a parameter for the reason {@link #send} gives: a merge started from an unbound spawn or
+     * a scheduler must say who asked for it. The SES calls fan out, one {@code StructuredTaskScope} fork per
+     * recipient, with at most {@link #MERGE_PARALLELISM} sends in flight at once; forks inherit the caller's
+     * ScopedValues, so the actor also flows into each send.
      *
-     * @return The status of all the email send attempts, in recipient order (null = that send failed).
+     * @return The status of every send attempt, in recipient order (null = that send failed).
      */
-    public List<SendEmailResponse> sendTemplate(
+    public List<SendEmailResponse> sendMerged(
             final String from,
-            final Collection<Person> to,
             final String bcc,
             final String replyTo,
-            final String subjectStr,
-            final String template) {
-        return sendTemplate(from, to, bcc, replyTo, subjectStr, template, AuditActor.current());
-    }
-
-    /**
-     * The same merge, with the actor supplied.
-     *
-     * <p>The form above resolves it with {@link AuditActor#current()}, which is correct wherever the identity
-     * is bound -- an XHTML page on its request thread, or any {@code RequestContext}-scoped virtual thread. A
-     * merge started from an unbound spawn or a scheduler must say who asked for it through this parameter.
-     *
-     * <p>Rendering and sending are split on purpose. The EL evaluation mutates {@code requestScope.to} -- one
-     * shared slot -- so each recipient's subject and body are rendered sequentially on the calling thread; only
-     * the SES calls fan out, one {@code StructuredTaskScope} fork per recipient, with at most
-     * {@link #MERGE_PARALLELISM} sends in flight at once. Forks inherit the caller's ScopedValues, so the actor
-     * also flows into each send.
-     */
-    public List<SendEmailResponse> sendTemplate(
-            final String from,
-            final Collection<Person> to,
-            final String bcc,
-            final String replyTo,
-            final String subjectStr,
-            final String template,
+            final List<Merged> mails,
             final AuditActor actor) {
         final List<Prepared> prepared = new ArrayList<>();
-        for (final Person person : to) {
-            final String toEmail = formatEmail(person);
+        for (final Merged mail : mails) {
+            final String toEmail = formatEmail(mail.to());
             if (toEmail == null) {
-                log.warn("Invalid email address: '" + person.getEmail() + "'");
+                log.warn("Invalid email address: '" + mail.to().getEmail() + "'");
                 continue;
             }
-            elUtil.setELValue("#{requestScope.to}", person);
-            final Object subject = elUtil.eval(subjectStr);
-            final Object body = elUtil.eval(template);
-            if (!(body instanceof String) || !(subject instanceof String)) {
-                throw new IllegalStateException("Body and subject must be a String!");
-            }
-            prepared.add(new Prepared(toEmail, String.valueOf(subject), String.valueOf(body)));
+            prepared.add(new Prepared(toEmail, mail.subject(), mail.body()));
         }
         return fanOutSends(from, bcc, replyTo, actor, prepared);
     }
@@ -412,30 +361,6 @@ public class MailCommands {
         } finally {
             permits.release();
         }
-    }
-
-    public String previewTemplate(final Person to, final String template) {
-        final ELUtil elUtil = ELUtil.getInstance();
-        elUtil.setELValue("#{requestScope.to}", to);
-        return String.valueOf(elUtil.eval(template));
-    }
-
-    /**
-     * Renders a template for one person without needing a {@code FacesContext}.
-     *
-     * <p>{@link #previewTemplate} evaluates through {@code ELUtil.eval}, which resolves against the Faces
-     * expression context. Off a Faces thread that yields null for the whole template and
-     * {@code String.valueOf} turns it into the literal text "null" -- so the preview does not fail, it
-     * cheerfully returns something that looks like a rendered result and is not one.
-     *
-     * <p>Uses {@code renderWithoutJsf}, which was written for exactly this and is what the mail templates
-     * already go through. Note its contract: a typo in a template throws {@code PropertyNotFoundException}
-     * rather than rendering blank, deliberately, so callers must contain that per recipient.
-     *
-     * <p>The variable is named {@code to} to match what the templates already reference.
-     */
-    public String renderTemplate(final Person to, final String template) {
-        return ELUtil.getInstance().renderWithoutJsf(template, Map.of("to", to));
     }
 
     public Collection<String> addRecipients(final Collection<String> current, final Collection<Person.Id> newPeople) {
@@ -601,9 +526,19 @@ public class MailCommands {
         if (email == null) {
             return null;
         }
-        final String prefName = Optional.ofNullable(person.getPreferredName()).orElse("");
-        final String lastName = Optional.ofNullable(person.getLast()).orElse("");
-        return prefName + ' ' + lastName + " <" + email + ">";
+        final String name = EmailAddresses.phrase(nameOnly(person.getPreferredName()) + ' '
+                + nameOnly(person.getLast()));
+        return name.isEmpty() ? "<" + email + ">" : name + " <" + email + ">";
+    }
+
+    /**
+     * A name without the characters that separate or delimit addresses. The names are the person's own to edit,
+     * and {@link #send} splits on commas (even inside quotes), so a nickname of "x@elsewhere.example," would
+     * otherwise add a destination to every message addressed to them; an angle bracket would move
+     * {@link #bareEmail}'s idea of the address.
+     */
+    private static String nameOnly(final String name) {
+        return (name == null) ? "" : name.replaceAll("[,;<>\\r\\n]", " ");
     }
 
     public List<Person> emailsToPeople(final List<String> email) {
@@ -619,8 +554,11 @@ public class MailCommands {
                 .orElseGet(() -> Person.builder().email(email).build());
     }
 
-    /** Extracts the address from a "Name &lt;email&gt;" recipient string (returns bare addresses unchanged). */
-    static String bareEmail(final String recipient) {
+    /**
+     * Extracts the address from a "Name &lt;email&gt;" recipient string (returns bare addresses unchanged). A send
+     * bounds its recipients with {@code OrgCommands.boundRecipients}, which mails exactly what this returns.
+     */
+    public static String bareEmail(final String recipient) {
         final int lt = recipient.indexOf('<');
         final int gt = recipient.lastIndexOf('>');
         return (lt >= 0 && gt > lt) ? recipient.substring(lt + 1, gt).trim() : recipient.trim();

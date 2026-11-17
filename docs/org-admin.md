@@ -101,7 +101,7 @@ Privileges page once verified:
 | `peopleAdmin` | People pages + Manage People for that org's people only; family admin ops over them |
 | `addTrip` | Creating trips belonging to that org (page and `POST /api/trips` use the same rule) |
 | `addConference` | Creating CONFERENCES for that org, and making or unmaking one; org admins are NOT implied, and the org's allow-list must offer it at use (`docs/conference.md`, "Access"); chip name "Create Conferences" |
-| `emailAdmin` | Mail-merge bounded to that org's members + its trips' rosters (`OrgCommands.sendMerge`) |
+| `emailAdmin` | Mail-merge bounded to that org's members + its trips' rosters (`MailMerge.send`) |
 | `paymentsAdmin` | The trip editor's Payment Settings row for that org's trips, and the payment page's sandbox toggle (`PaymentCommands.isPaymentsAdmin`) |
 | `contentAdmin`, `mediaAdmin` | That org's own site: its page, templates, media library (also global; see "Org-site editors") |
 | `auditAdmin` | That org's own audit trail — its site's view and its Dashboard card (also global: every trail); chip name "Audit Viewer" |
@@ -406,7 +406,7 @@ Within its candidates, the dropdown offers what the **per-org allow-list**, `Org
   the org's own and the shared domains (`OrgCommands.mailDomains(orgId)` / `.mailDomainsForTrip(trip)`); a
   domain dropped in SES, or another org's domain still named in a stale list, is not offered.
 
-Enforcement is server-side, not just in the widget: `OrgCommands.sendMerge` refuses a From outside
+Enforcement is server-side, not just in the widget: `MailMerge.send` refuses a From outside
 `mergeMailDomains()`, and `applyPaymentFrom` refuses one outside the owning org's list, leaving the
 working config untouched rather than half-applied.
 

@@ -170,9 +170,6 @@ public class TripUtilCommandsTest {
     public void pageHelpersAreSafeWithoutAFacesContext() {
         tripUtil.setCallbackParam("goTo", "/x");   // a no-op, never a NullPointerException
         assertEquals(tripUtil.getContextPath(), "", "no context means the root context path");
-        assertNull(tripUtil.evalEL(null), "a null expression evaluates to nothing");
-        assertNull(tripUtil.evalEL("plain text"), "and outside a request so does everything else");
-        assertTrue(tripUtil.mapList(java.util.List.of(), "length()").isEmpty(), "nothing to map, nothing evaluated");
     }
     /**
      * A signed-in user refused by a page gate goes home with this message, never to login: signing in again

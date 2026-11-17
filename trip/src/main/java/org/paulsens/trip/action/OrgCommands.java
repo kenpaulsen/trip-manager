@@ -48,6 +48,7 @@ import org.paulsens.trip.pay.ProcessorPing;
 import org.paulsens.trip.pay.StripeDomains;
 import org.paulsens.trip.security.ProcessorSecrets;
 import org.paulsens.trip.site.SiteUrls;
+import org.paulsens.trip.util.EmailAddresses;
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
 
 /**
@@ -1570,40 +1571,6 @@ public class OrgCommands {
                 .toList();
     }
 
-    /**
-     * The mail-merge send, org-bounded server-side: recipients (and bcc entries) outside the caller's
-     * allowed set are DROPPED with a growl naming the count, and the send proceeds for the rest. This is
-     * the enforcement point behind the Send button -- the page never composes the filter itself.
-     */
-    public boolean sendMerge(final String from, final List<String> toEmails, final String bcc,
-            final String replyTo, final String subject, final String body) {
-        if (!canMail()) {
-            return fail("Not allowed", "Sending mail requires the emailAdmin privilege.");
-        }
-        final java.util.Set<String> allowed = allowedRecipientEmails();
-        final List<String> toList = (toEmails == null) ? List.of() : toEmails;
-        final List<String> accepted = toList.stream()
-                .filter(email -> allowed == null || isAllowedEmail(allowed, email))
-                .toList();
-        final int rejected = toList.size() - accepted.size();
-        if (rejected > 0) {
-            PageFeedback.warn(rejected + " recipient(s) outside "
-                    + "your organization(s) were skipped.");
-        }
-        if (accepted.isEmpty()) {
-            return fail("Nobody to mail", "No recipients are within your organization(s).");
-        }
-        // The composer can only produce an allowed domain, so this is the forged-post guard: a From on a
-        // domain SES has not verified for this tenant is refused HERE rather than silently at SES.
-        if (!isMergeFromSendable(from)) {
-            return fail("Invalid From", INVALID_MERGE_FROM);
-        }
-        final String boundedBcc = boundBcc(bcc, allowed);
-        final MailCommands mail = mailSource.get();
-        mail.sendTemplate(from, mail.emailsToPeople(accepted), boundedBcc, replyTo, subject, body);
-        return true;
-    }
-
     // ------------------------------------------------------------------ sending domains
     //
     // SES only accepts a From on a domain it has verified, so every From box in the app is a domain
@@ -2096,7 +2063,7 @@ public class OrgCommands {
      * Whether the caller may send a merge as this From: a well-formed mailbox on one of {@link
      * #mergeMailDomains}. Every domain is SES-verified in the ONE account, so SES accepts any tenant's
      * domain from anybody; this is the only thing keeping one organization from mailing as another. Public
-     * because each edge that assembles its own send (the page through {@link #sendMerge}, the REST mail
+     * because each edge that assembles its own send (the page through {@code MailMerge.send}, the REST mail
      * resource) must ask the same question.
      */
     public boolean isMergeFromSendable(final String from) {
@@ -2153,9 +2120,32 @@ public class OrgCommands {
         }
     }
 
-    private static boolean isAllowedEmail(final java.util.Set<String> allowed, final String email) {
-        return email != null && allowed.contains(email.trim().toLowerCase(Locale.ROOT));
+    /**
+     * Whether an address is in the allowed set. The merge page's recipients are "Pref Last &lt;email&gt;"
+     * ({@code MailCommands.formatEmail}), so the bare address is compared: the whole string never matched, and an
+     * org-scoped {@code emailAdmin} had every recipient picked on the page dropped. The predicate behind
+     * {@link #boundRecipients} and the previews' first-recipient check. A SEND never filters with this: it bounds
+     * its recipients with {@link #boundRecipients}, which mails the address it checked, not the entry it came in.
+     */
+    public static boolean isAllowedEmail(final java.util.Set<String> allowed, final String email) {
+        final String one = singleAddress(email);
+        return one != null && allowed.contains(one.toLowerCase(Locale.ROOT));
     }
+
+    /**
+     * The address an entry is mailed at, or null: the part from its first '&lt;' to its last '&gt;' ("Pref Last
+     * &lt;a@x.org&gt;"), else the whole entry ("a@x.org"), reduced ONCE, then refused if it still holds a separator,
+     * a bracket, a quote or a space, or is not an address. Text before the brackets is a display name and is
+     * ignored, so "b@x.org,&lt;a@x.org&gt;" is a@x.org: only this one checked address is mailed, never the entry.
+     * The check and the send both use exactly this string; reducing again before checking let
+     * "&lt;outsider,&lt;member&gt;&gt;" be approved as the member and mailed as the list.
+     */
+    static String singleAddress(final String entry) {
+        final String bare = (entry == null) ? "" : MailCommands.bareEmail(entry);
+        return (NOT_ONE_ADDRESS.matcher(bare).find() || !EmailAddresses.isValid(bare)) ? null : bare;
+    }
+
+    private static final java.util.regex.Pattern NOT_ONE_ADDRESS = java.util.regex.Pattern.compile("[,;<>\"\\s]");
 
     /** The caller-bounded form of {@link #boundBcc} for edges that assemble their own sends (REST). */
     public String boundedBcc(final String bcc) {
@@ -2163,15 +2153,29 @@ public class OrgCommands {
     }
 
     /** BCC entries ride every message, so they are bounded exactly like recipients (comma-separated). */
-    private static String boundBcc(final String bcc, final java.util.Set<String> allowed) {
-        if (bcc == null || bcc.isBlank() || allowed == null) {
+    static String boundBcc(final String bcc, final java.util.Set<String> allowed) {
+        if (bcc == null || bcc.isBlank()) {
             return bcc;
         }
-        final List<String> kept = java.util.Arrays.stream(bcc.split(","))
-                .map(String::trim)
-                .filter(entry -> !entry.isEmpty() && isAllowedEmail(allowed, entry))
-                .toList();
+        final List<String> kept = boundRecipients(allowed, java.util.Arrays.stream(bcc.split(",")).toList());
         return kept.isEmpty() ? null : String.join(",", kept);
+    }
+
+    /**
+     * The recipients a sender may mail, as the bare addresses that were CHECKED: the one step every send takes
+     * (the page, the REST door, the BCC bound). The address checked must be the address mailed: checking an
+     * entry's bare address and then mailing the whole entry let "outsider,&lt;member&gt;" reach the outsider,
+     * since the mailer splits on commas. {@code allowed} null (a site admin) keeps every entry, still reduced.
+     */
+    public static List<String> boundRecipients(final java.util.Set<String> allowed, final List<String> entries) {
+        final List<String> bounded = new ArrayList<>();
+        for (final String entry : entries) {
+            final String one = singleAddress(entry);
+            if (one != null && (allowed == null || allowed.contains(one.toLowerCase(Locale.ROOT)))) {
+                bounded.add(one);
+            }
+        }
+        return bounded;
     }
 
     /** Whether this person is on the roster of any trip belonging to this org (blocks member removal). */

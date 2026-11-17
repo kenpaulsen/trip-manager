@@ -15,5 +15,7 @@ The conference import from an older deployment (people, past conferences, regist
 (also `--repair`, for group rows whose stamped membership went stale), `sweep-orphan-tx-bindings.sh`
 (deletes bindings left behind by deleted transactions; dry-run by default),
 `rotate-password-pepper.sh` (pepper rotation and plaintext-password migration). One-time migration docs are in
-`docs/migrations/`. The family-accounts migration scripts (report/migrate/consistency) live in the private
+`docs/migrations/`. `migrate/NoteElFlattenCli` (run by the private repo's `scripts/flatten-note-el.sh`) replaced
+the room EL stored in trip events' private notes with text (`docs/migrations/note-el-flatten.md`); notes are never
+evaluated now. The family-accounts migration scripts (report/migrate/consistency) live in the private
 repo's `scripts/` -- see `docs/family-accounts.md`.

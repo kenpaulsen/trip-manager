@@ -46,6 +46,9 @@ public class MailResourceTest extends ResourceTestSupport {
     private void person(final Person.Id id) {
         final Person person = new Person();
         person.setId(id);
+        person.setFirst("Kenneth");
+        person.setNickname("Ken");
+        person.setLast("Paulsen");
         Mockito.when(people.getPerson(id)).thenReturn(person);
     }
 
@@ -76,16 +79,15 @@ public class MailResourceTest extends ResourceTestSupport {
     public void previewDefaultsToTheCallerAndRendersWithoutSending() {
         signedInAsSiteAdmin(ADMIN);
         person(ADMIN);
-        Mockito.when(mail.renderTemplate(ArgumentMatchers.any(), ArgumentMatchers.eq("Hi #{person.first}")))
-                .thenReturn("Hi Ken");
 
         final Response response = resource.preview(CSRF_OK,
-                new MailResource.PreviewRequest(null, "Hi #{person.first}"));
+                new MailResource.PreviewRequest(null, "Hi {{firstName}} {{ lastName }}"));
 
         assertOk(response);
         @SuppressWarnings("unchecked")
         final Map<String, Object> body = (Map<String, Object>) response.getEntity();
-        Assert.assertEquals(body.get("rendered"), "Hi Ken");
+        Assert.assertEquals(body.get("rendered"), "Hi Ken Paulsen");
+        Assert.assertFalse(body.containsKey("subject"), "no subject asked for, none answered");
         // Preview must be side-effect free.
         Mockito.verify(mail, Mockito.never()).send(ArgumentMatchers.any(), ArgumentMatchers.any(),
                 ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
@@ -101,15 +103,47 @@ public class MailResourceTest extends ResourceTestSupport {
                 404, ApiErrors.NOT_FOUND);
     }
 
-    /** A bad expression must surface as an error, not render as the literal text "null". */
+    /** The subject renders too, as plain text: a subject is not HTML. */
     @Test
-    public void aTemplateThatCannotRenderIs422() {
+    public void previewRendersTheSubjectWhenOneIsSent() {
         signedInAsSiteAdmin(ADMIN);
         person(ADMIN);
-        Mockito.when(mail.renderTemplate(ArgumentMatchers.any(), ArgumentMatchers.anyString()))
-                .thenThrow(new IllegalStateException("no such property"));
 
-        assertError(resource.preview(CSRF_OK, new MailResource.PreviewRequest(null, "#{bad}")),
+        final Response response = resource.preview(CSRF_OK,
+                new MailResource.PreviewRequest(null, "<p>{{legalFirstName}}</p>", "For {{fullName}} & co", null));
+
+        assertOk(response);
+        @SuppressWarnings("unchecked")
+        final Map<String, Object> body = (Map<String, Object>) response.getEntity();
+        Assert.assertEquals(body.get("rendered"), "<p>Kenneth</p>");
+        Assert.assertEquals(body.get("subject"), "For Ken Paulsen & co");
+    }
+
+    /**
+     * medjugorje#79: the template was EL, so an org-scoped emailAdmin could run code on the server. It is never
+     * evaluated now, and text still holding an expression is refused rather than rendered or mailed raw.
+     */
+    @Test
+    public void anExpressionIsRefusedNeverEvaluated() {
+        signedInAsSiteAdmin(ADMIN);
+        person(ADMIN);
+
+        for (final String template : List.of("#{Runtime.getRuntime().availableProcessors()}", "${7*7}",
+                "Hi #{to.first}")) {
+            final Response response = resource.preview(CSRF_OK, new MailResource.PreviewRequest(null, template));
+            assertError(response, 422, ApiErrors.VALIDATION_FAILED);
+        }
+        Mockito.verifyNoInteractions(mail);
+    }
+
+    @Test
+    public void anUnknownFieldOrATripFieldWithoutATripIs422() {
+        signedInAsSiteAdmin(ADMIN);
+        person(ADMIN);
+
+        assertError(resource.preview(CSRF_OK, new MailResource.PreviewRequest(null, "{{noSuchField}}")),
+                422, ApiErrors.VALIDATION_FAILED);
+        assertError(resource.preview(CSRF_OK, new MailResource.PreviewRequest(null, "Room {{room}}")),
                 422, ApiErrors.VALIDATION_FAILED);
     }
 
@@ -163,6 +197,51 @@ public class MailResourceTest extends ResourceTestSupport {
         Mockito.when(mail.validateEmail("a@x.org")).thenReturn("a@x.org");
         final Response own = scoped.send(CSRF_OK, send(List.of("a@x.org")));
         Assert.assertEquals(((Map<?, ?>) own.getEntity()).get("message"), "No usable recipient addresses.");
+    }
+
+    /**
+     * The address that passes the organization bound is the address that is mailed. An entry such as
+     * "outsider,&lt;member&gt;" has a bare address inside its angle brackets that is in bounds, but mailing the
+     * whole entry would split it on the comma and reach the outsider (review of 281a02cf, F1).
+     */
+    @Test
+    public void onlyTheBareAddressThatWasCheckedIsMailed() throws java.io.IOException {
+        final Organization bounded = new Organization(null, "Bound org " + System.nanoTime(), null, null, null, null,
+                null, 0L);
+        bounded.setMailDomains(List.of("example.com"));
+        Assert.assertTrue(DAO.getInstance().saveOrganization(bounded));
+        final String orgId = bounded.getId().getValue();
+        final Person member = Person.builder().first("In").last("Bounds")
+                .email("member." + System.nanoTime() + "@example.org").build();
+        Assert.assertTrue(DAO.getInstance().savePerson(member));
+        final org.paulsens.trip.action.Caller siteAdmin = new org.paulsens.trip.action.Caller(
+                Person.Id.newInstance(), true, AuditActor.from(null), new PrivilegeCommands());
+        Assert.assertTrue(new OrgCommands(() -> siteAdmin).addMember(orgId, member.getId()));
+        final Person.Id emailAdmin = Person.Id.newInstance();
+        final PrivilegeCommands priv = new PrivilegeCommands();
+        Assert.assertTrue(priv.savePrivilege(priv.getOrCreate("emailAdmin", orgId, "mail")
+                .withNewPerson(emailAdmin), null));
+        signedInAs(emailAdmin);
+        Mockito.when(mail.validateEmail(ArgumentMatchers.anyString()))
+                .thenAnswer(call -> org.paulsens.trip.util.EmailAddresses.normalize(call.getArgument(0)));
+
+        final Response response = resource(new MailResource()).send(CSRF_OK, new MailResource.SendRequest(
+                "no-reply@example.com", List.of("outsider@evil.example,<" + member.getEmail() + ">",
+                        "<outsider@evil.example,<" + member.getEmail() + ">>"),
+                "outsider@evil.example,<" + member.getEmail() + ">", null, "A subject", "A body"));
+
+        assertOk(response);
+        // The split is decided on the request thread, so this holds whatever the send threads have done so far.
+        @SuppressWarnings("unchecked")
+        final Map<String, Object> split = (Map<String, Object>) response.getEntity();
+        Assert.assertEquals(split.get("accepted"), List.of(member.getEmail()), "the bare entry's member only");
+        Assert.assertEquals(split.get("rejected"), 1, "the nested entry names more than one address");
+        Mockito.verify(mail, Mockito.timeout(5000)).send(ArgumentMatchers.eq("no-reply@example.com"),
+                ArgumentMatchers.eq(member.getEmail()), ArgumentMatchers.eq(member.getEmail()), ArgumentMatchers.any(),
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any());
+        Mockito.verify(mail, Mockito.never()).send(ArgumentMatchers.any(),
+                ArgumentMatchers.contains("outsider"), ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any());
     }
 
     /** The blast-radius cap: 201 addresses is a mistake, not a bigger campaign. */

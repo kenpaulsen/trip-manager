@@ -423,6 +423,13 @@ or a non-member -- the review seed uses it to take the reviewer accounts back ou
   organization's allow-list; every verified domain for a site admin), the website's mail-merge rule; otherwise
   422 `VALIDATION_FAILED` "The From address must use one of your verified sending domains." A missing `from` is
   refused the same way.
+- **Mail preview** (`POST /api/mail/preview`, 2026-11-16): `{"personId", "template", "subject"?, "tripId"?}` answers
+  `{"rendered"}` (plus `"subject"` when one was sent). The template is the website mail merge's text: `{{field}}`
+  substitution (`MergeText`), never evaluated. It was EL until medjugorje#79, which let an org-scoped `emailAdmin`
+  run code on the server. 422 `VALIDATION_FAILED`, naming the problem, for text still holding `#{` or `${`, an
+  unknown field, a trip field with no `tripId` the caller may mail, or a field the caller may not use (address and
+  passport status: site admin or the trip's `tripMgr`; balance: the trip's finance viewers). `personId` blank means
+  the caller; anyone else must be someone the caller may mail (403 otherwise).
 - **Photo mention search** (`GET /api/photo-chat/mention-search?q=`, 2026-11-12): returns only people who share
   an organization with the caller (it searched every account before), matched by name and by what each person
   shares with everyone, in last-name order; a caller in no organization gets an empty list. Shape, limits and

@@ -1527,29 +1527,70 @@ public class OrgCommandsTest {
 
         final MailCommands mail = Mockito.mock(MailCommands.class);
         Mockito.when(mail.emailsToPeople(Mockito.anyList())).thenReturn(List.of(member));
-        final OrgCommands asSender = new OrgCommands(() -> new Caller(sender.getId(), false,
+        final MailMerge asSender = new MailMerge(() -> new Caller(sender.getId(), false,
                 new AuditActor(sender.getEmail(), sender.getId().getValue()), new PrivilegeCommands()),
                 () -> mail);
         // A From must be on a verified sending domain; the composer can only produce one, so this is the
         // forged-post guard. "from@x" is what the old free-text box happily accepted and SES then refused.
-        assertFalse(asSender.sendMerge("from@x", List.of(member.getEmail()), null, "r", "S", "B"),
+        assertFalse(asSender.send("from@x", List.of(member.getEmail()), null, "r", "S", "B", null),
                 "an unverified From domain is refused here, not silently at SES");
         Mockito.verifyNoInteractions(mail);
 
         final String from = "no-reply@example.com";
-        assertTrue(asSender.sendMerge(from, List.of(member.getEmail(), outsider.getEmail()),
-                outsider.getEmail(), "reply@x", "Subj", "Body"));
+        // The page's recipients are "Pref Last <email>": the org bound compares the bare address.
+        final String pageForm = "Some Body <" + member.getEmail() + ">";
+        assertTrue(asSender.send(from, List.of(pageForm, outsider.getEmail()),
+                outsider.getEmail(), "reply@x", "Subj {{firstName}}", "Body", null));
         // The out-of-org recipient AND the out-of-org bcc were dropped before the send.
         Mockito.verify(mail).emailsToPeople(List.of(member.getEmail()));
-        Mockito.verify(mail).sendTemplate(from, List.of(member), null, "reply@x", "Subj", "Body");
+        Mockito.verify(mail).sendMerged(from, null, "reply@x", List.of(new MailCommands.Merged(member,
+                "Subj " + java.util.Objects.toString(member.getPreferredName(), ""), "Body")));
 
-        assertFalse(asSender.sendMerge(from, List.of(outsider.getEmail()), null, "r", "S", "B"),
+        assertFalse(asSender.send(from, List.of(outsider.getEmail()), null, "r", "S", "B", null),
                 "nothing in-org to mail is a refusal");
-        assertFalse(new OrgCommands(() -> new Caller(member.getId(), false,
+        assertFalse(asSender.send(from, List.of(member.getEmail()), null, "r", "S", "Hi #{to.first}", null),
+                "an expression is refused, never evaluated");
+        assertFalse(new MailMerge(() -> new Caller(member.getId(), false,
                         new AuditActor(member.getEmail(), member.getId().getValue()),
                         new PrivilegeCommands()), () -> mail)
-                .sendMerge(from, List.of(member.getEmail()), null, "r", "S", "B"),
+                .send(from, List.of(member.getEmail()), null, "r", "S", "B", null),
                 "no emailAdmin anywhere, no sending");
+    }
+
+    /** The bound mails ONE checked address: a list hidden in an entry or in an allowed address is never in bounds. */
+    @Test
+    public void theRecipientBoundKeepsOnlySingleCheckedAddresses() {
+        final java.util.Set<String> allowed = java.util.Set.of("a@x.org", "a@x.org,b@evil.com", "a@x.org;b@evil.com");
+        assertFalse(OrgCommands.isAllowedEmail(allowed, "a@x.org,b@evil.com"));
+        assertFalse(OrgCommands.isAllowedEmail(allowed, "a@x.org;b@evil.com"));
+        assertFalse(OrgCommands.isAllowedEmail(allowed, "Ann X <a@x.org,b@evil.com>"), "checked as its bare address");
+        assertTrue(OrgCommands.isAllowedEmail(allowed, "Ann X <a@x.org>"));
+        assertEquals(OrgCommands.boundRecipients(allowed, java.util.Arrays.asList("Ann X <a@x.org>",
+                "b@evil.com,<a@x.org>", null, "c@other.org")), List.of("a@x.org", "a@x.org"));
+        assertEquals(OrgCommands.boundBcc("Ann X <a@x.org>, c@other.org", allowed), "a@x.org");
+        assertEquals(OrgCommands.boundBcc("Ann X <a@x.org>", null), "a@x.org", "a site admin's bcc is reduced too");
+    }
+
+    /**
+     * The machine check for "the address checked is the address mailed": whatever boundRecipients returns is ONE
+     * address with nothing the mailer could split, and it is approved as exactly itself. Nested and doubled
+     * entries, the shapes three review rounds found, are refused outright, for a site admin too.
+     */
+    @Test
+    public void whatTheBoundReturnsIsExactlyOneCheckedAddress() {
+        final List<String> tricky = java.util.Arrays.asList("<b@evil.example,<a@x.org>>", "<b@evil.example <a@x.org>>",
+                "b@evil.example,<a@x.org>", "<a@x.org;b@evil.example>", "\"a@x.org\" <b@evil.example>>", "a@x.org",
+                "Ann <a@x.org>", "", null, "<>", "not an address");
+        for (final java.util.Set<String> allowed : java.util.Arrays.asList(java.util.Set.of("a@x.org"), null)) {
+            for (final String mailed : OrgCommands.boundRecipients(allowed, tricky)) {
+                assertFalse(mailed.matches(".*[,;<>\"\\s].*"), "nothing to split or re-read: " + mailed);
+                assertTrue(OrgCommands.isAllowedEmail(java.util.Set.of(mailed.toLowerCase(java.util.Locale.ROOT)),
+                        mailed), "approved as exactly itself: " + mailed);
+            }
+            assertEquals(OrgCommands.boundRecipients(allowed, tricky), List.of("a@x.org", "a@x.org", "a@x.org"),
+                    "only the member's own address survives: from the bare entry, from the bracketed one (its "
+                            + "display name ignored), and never where the brackets hold more than one");
+        }
     }
 
     @Test

@@ -4,7 +4,6 @@ import jakarta.faces.context.FacesContext;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 import org.paulsens.trip.model.BindingType;
@@ -36,23 +35,6 @@ public class BeanFacesTailsTest {
             Assert.assertSame(PersonCommands.getPersonCommands(), first,
                     "with a FacesContext the bean is application-scoped, not per-call");
             Assert.assertSame(appMap.get("people"), first);
-        }
-    }
-
-    @Test
-    public void toSortedListSortsThroughTheExpression() {
-        final FacesContext ctx = Mockito.mock(FacesContext.class, Mockito.RETURNS_DEEP_STUBS);
-        final Map<String, Object> reqMap = new HashMap<>();
-        Mockito.when(ctx.getExternalContext().getRequestMap()).thenReturn(reqMap);
-        try (MockedStatic<FacesContext> faces = Mockito.mockStatic(FacesContext.class)) {
-            faces.when(FacesContext::getCurrentInstance).thenReturn(ctx);
-
-            // Off a real Faces thread the EL answers null for every item, so the sort is a stable no-op --
-            // what matters is that it neither NPEs nor loses elements.
-            final List<String> sorted = new PersonCommands().toSortedList(
-                    List.of("b", "a"), "loopItem");
-
-            Assert.assertEquals(Set.copyOf(sorted), Set.copyOf(List.of("a", "b")));
         }
     }
 

@@ -41,10 +41,13 @@ public class MailRecipientsTest {
         Assert.assertNull(mail.formatEmail(person("Ken", "Paulsen", "not-an-address")));
     }
 
-    /** Both names absent leaves the two separators behind -- cosmetic, but pinned so a "tidy-up" is deliberate. */
+    /**
+     * Both names absent leaves just the address in brackets. The deliberate tidy-up this test asked for: it came
+     * with the display name being made a valid phrase (separators stripped, specials quoted, 2026-11-16).
+     */
     @Test
     public void formatEmailToleratesMissingNames() {
-        Assert.assertEquals(mail.formatEmail(person(null, null, "ken@example.org")), "  <ken@example.org>");
+        Assert.assertEquals(mail.formatEmail(person(null, null, "ken@example.org")), "<ken@example.org>");
     }
 
     /** The display form must survive a round trip, or a reply-to becomes an unroutable string. */
@@ -128,20 +131,4 @@ public class MailRecipientsTest {
         Assert.assertEquals(found.get(0).getEmail(), "a@example.org");
     }
 
-    /** Template rendering off a Faces thread: renderTemplate works, and a bad expression THROWS by design. */
-    @Test
-    public void renderTemplateWorksWithoutAFacesContext() {
-        final Person to = person("Ken", "Paulsen", "ken@example.org");
-
-        Assert.assertEquals(mail.renderTemplate(to, "Hello #{to.preferredName}!"), "Hello Ken!");
-        Assert.assertEquals(mail.renderTemplate(to, "No expressions here"), "No expressions here");
-    }
-
-    @Test
-    public void aBadTemplateExpressionThrowsRatherThanRenderingBlank() {
-        final Person to = person("Ken", "Paulsen", "ken@example.org");
-
-        Assert.assertThrows(RuntimeException.class,
-                () -> mail.renderTemplate(to, "#{to.noSuchPropertyAtAll}"));
-    }
 }

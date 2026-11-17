@@ -446,7 +446,9 @@ public class MailAddressCommands {
             return fail(where, "display name cannot contain '<' or '>'.");
         }
         final String address = cleanLocal + "@" + cleanDomain;
-        return cleanName.isEmpty() ? address : cleanName + " <" + address + ">";
+        // "Parish Office, St. Joseph" bare is two mailboxes to a strict parser; displayNameOf reads it back.
+        final String phrase = EmailAddresses.phrase(cleanName);
+        return phrase.isEmpty() ? address : phrase + " <" + address + ">";
     }
 
     /** True when {@code value} is a usable From for {@code allowed} -- the seeders' "keep it" test. */
@@ -544,13 +546,13 @@ public class MailAddressCommands {
         return value.trim();
     }
 
-    /** The display name outside "Name &lt;addr&gt;", or "" for a bare address. */
+    /** The display name outside "Name &lt;addr&gt;", unquoted when it is a quoted string, or "" for a bare address. */
     public static String displayNameOf(final String value) {
         if (value == null) {
             return "";
         }
         final int open = value.lastIndexOf('<');
-        return open > 0 ? value.substring(0, open).trim() : "";
+        return open > 0 ? EmailAddresses.unphrase(value.substring(0, open)) : "";
     }
 
     public static String localOf(final String value) {

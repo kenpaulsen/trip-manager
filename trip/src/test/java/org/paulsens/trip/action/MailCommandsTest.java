@@ -1,17 +1,14 @@
 package org.paulsens.trip.action;
 
-import java.io.FileNotFoundException;
-import java.io.UncheckedIOException;
 import java.util.Collection;
 import java.util.List;
+import org.paulsens.trip.model.Person;
 import org.testng.annotations.Test;
 import software.amazon.awssdk.services.ses.model.Destination;
 import software.amazon.awssdk.services.ses.model.SendEmailResponse;
 
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNotNull;
-import static org.testng.Assert.assertTrue;
-import static org.testng.Assert.fail;
 import org.paulsens.trip.audit.AuditActor;
 
 public class MailCommandsTest {
@@ -57,27 +54,18 @@ public class MailCommandsTest {
                         AuditActor.system());
         assertNotNull(response, "An unsendable request must complete, not fail");
     }
-
+    /** A name is the person's own to edit; it must not add a destination to mail addressed to them. */
     @Test
-    void sendTemplateFileExistingTemplateIsFoundAndLoaded() {
-        // Passing an empty "to" list keeps the SES client from being invoked, so this exercises
-        // only the template lookup path. Success here means the .tpl file was located on the classpath.
-        final List<SendEmailResponse> result = new MailCommands().sendTemplateFile(
-                "from@example.com", List.of(), "", "reply@example.com", "Subject", "test");
-        assertNotNull(result);
-        assertEquals(result, List.of());
-    }
+    void aDisplayNameCannotAddARecipient() {
+        final Person person = Person.builder().nickname("x@evil.example,").last("Doe; <y@evil.example>")
+                .email("me@example.org").build();
+        final String formatted = new MailCommands().formatEmail(person);
 
-    @Test
-    void sendTemplateFileMissingTemplateFailsWithFileNotFound() {
-        try {
-            new MailCommands().sendTemplateFile(
-                    "from@example.com", List.of(), "", "reply@example.com", "Subject",
-                    "this-template-does-not-exist");
-            fail("Expected UncheckedIOException carrying FileNotFoundException");
-        } catch (final UncheckedIOException ex) {
-            assertTrue(ex.getCause() instanceof FileNotFoundException,
-                    "Expected FileNotFoundException, got: " + ex.getCause());
-        }
+        assertEquals(formatted, "\"x@evil.example Doe y@evil.example\" <me@example.org>",
+                "separators gone, and a name holding specials is a quoted string");
+        assertEquals(formatted.indexOf(','), -1, "nothing for the mailer to split on");
+        assertEquals(MailCommands.bareEmail(formatted), "me@example.org");
+        assertEquals(new MailCommands().formatEmail(Person.builder().first("Ann").last("O\"Neil \\ Jr.")
+                .email("ann@example.org").build()), "\"Ann O\\\"Neil \\\\ Jr.\" <ann@example.org>");
     }
 }
