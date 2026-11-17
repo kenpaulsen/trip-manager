@@ -5,7 +5,9 @@ import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Function;
 import org.paulsens.trip.audit.RequestContext;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.content.OrgPageBootstrap;
@@ -279,8 +281,7 @@ public class TripPageTest {
         final Trip unsafe = Trip.builder().nonHostedTripUrl("javascript:alert(1)").build();
         final Map<String, Trip> known = Map.of(hosted.getId(), hosted, external.getId(), external,
                 unsafe.getId(), unsafe);
-        final java.util.function.Function<String, java.util.Optional<Trip>> trips =
-                id -> java.util.Optional.ofNullable(known.get(id));
+        final Function<String, Optional<Trip>> trips = id -> Optional.ofNullable(known.get(id));
 
         assertEquals(TripPageCommands.contentLink("/trip/joinTrip.jsf?trip=" + external.getId(), trips),
                 "https://example.com/reg", "an external trip's Register link leaves for its provider");
@@ -298,6 +299,24 @@ public class TripPageTest {
                 "#schedule", "https://example.org/elsewhere", "", null}) {
             assertEquals(TripPageCommands.contentLink(link, trips), link, String.valueOf(link));
         }
+    }
+
+    @Test
+    public void aRegisterLinkResolvesOnlyForATripThisSiteReachesAndSurvivesAFailedLookup() throws Exception {
+        final Trip external = pilgrimageTrip("Reachable External Trip", null);
+        external.setNonHostedTripUrl("https://example.com/cfpw-reg");
+        assertTrue(dao.saveTrip(external));
+        final String link = TripPageCommands.JOIN_URL + external.getId();
+        assertEquals(TripPageCommands.contentLink(link), "https://example.com/cfpw-reg", "its own site resolves it");
+        assertEquals(onSite(ACME_SITE, () -> TripPageCommands.contentLink(link)), link,
+                "another organization's site never puts this trip's registration on its pages");
+
+        assertEquals(TripPageCommands.contentLink(link, TripPageTest::failingLookup), link,
+                "a failed lookup keeps the stored link rather than blanking the section");
+    }
+
+    private static Optional<Trip> failingLookup(final String tripId) {
+        throw new IllegalStateException("cache down: " + tripId);
     }
 
     @Test

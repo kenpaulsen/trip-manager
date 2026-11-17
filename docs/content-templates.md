@@ -635,7 +635,8 @@ protocol-relative `//host` or `/\host` -- as "". `IMAGE_URL` and `VIDEO_URL` kee
 exactly a trip's own registration page (`/trip/joinTrip.jsf?trip=<uuid>`, what the trip-page starters store) renders
 as that trip's `tripPage.registerUrl` (`TripPageCommands.contentLink`, the hook `ContentCommands.render` hands
 the renderer), so an EXTERNAL trip's Register buttons leave for its External Trip URL whenever it is set. Decided
-at render, never at seeding: the URL may be added or changed after the page exists.
+at render, never at seeding: the URL may be added or changed after the page exists. Only a trip the site may show
+(`ListingScope.reachable`) is resolved; another organization's trip id stays as stored, as does a failed lookup.
 
 **The full-width layout.** `BrandCommands.isFullWidth()` is true on the product's marketing host and on an
 org site whose `site.layout` setting is `full-width` (`org-admin.md`, "Branding"); `homePage.xhtml` passes

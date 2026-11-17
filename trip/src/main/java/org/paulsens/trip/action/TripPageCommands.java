@@ -265,36 +265,45 @@ public class TripPageCommands {
         return external.isEmpty() ? TripCommands.DETAIL_URL + trip.getId() : external;
     }
 
-    /** Our own registration page for a trip, as the starter sections store it (OrgPageBootstrap). */
-    private static final String JOIN_URL = "/trip/joinTrip.jsf?trip=";
+    /**
+     * Our own registration page for a trip, followed by its id: what the starter sections store for their Register
+     * buttons (OrgPageBootstrap) and what {@link #contentLink} recognizes, so the two cannot drift apart.
+     */
+    public static final String JOIN_URL = "/trip/joinTrip.jsf?trip=";
 
     /** Exactly a {@link #JOIN_URL} for one trip id, nothing more: a staff link with {@code &id=} is not one. */
-    private static final Pattern JOIN_LINK = Pattern.compile(
-            "/trip/joinTrip\\.jsf\\?trip=((?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})");
+    private static final Pattern JOIN_LINK = Pattern.compile(Pattern.quote(JOIN_URL)
+            + "((?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})");
 
     /**
      * A content section's link target as it renders: a stored link to a trip's own registration page becomes
      * {@link #registerUrl} of that trip, so an EXTERNAL trip's Register button leaves for its provider. The starter
      * sections store that link (the hero's and the closing banner's buttons, frozen when the page is seeded), and
      * an editor may type it too; resolving it at render rather than at seeding is what keeps it right when the
-     * External Trip URL is added, changed or removed later. Every other link, and one naming no known trip, is
-     * returned unchanged. A cached read only: this runs on the public render path (RenderPathCacheTest).
+     * External Trip URL is added, changed or removed later. Only a trip this site may show is resolved
+     * ({@link #reachableTrip}, the conference sections' own gate): another organization's trip must not put its
+     * registration on this organization's pages. Every other link is returned unchanged. A cached read only: this
+     * runs on the public render path (RenderPathCacheTest).
      */
     public static String contentLink(final String url) {
-        return contentLink(url, TripPageCommands::cachedTrip);
+        return contentLink(url, id -> Optional.ofNullable(reachableTrip(id)));
     }
 
-    /** {@link #contentLink(String)} with the trip lookup supplied: the testable half. */
+    /**
+     * {@link #contentLink(String)} with the trip lookup supplied: the testable half. A lookup that fails keeps the
+     * stored link: thrown, it would blank the whole section ({@code ContentCommands.render}), hero and all.
+     */
     static String contentLink(final String url, final Function<String, Optional<Trip>> trips) {
         final Matcher join = url == null ? null : JOIN_LINK.matcher(url.trim());
         if (join == null || !join.matches()) {
             return url;
         }
-        return trips.apply(join.group(1)).map(TripPageCommands::registerTarget).orElse(url);
-    }
-
-    private static Optional<Trip> cachedTrip(final String tripId) {
-        return DAO.getInstance().getTrip(tripId, Cached.YES);
+        try {
+            return trips.apply(join.group(1)).map(TripPageCommands::registerTarget).orElse(url);
+        } catch (final RuntimeException ex) {
+            log.error("Unable to resolve the Register link of trip " + join.group(1), ex);
+            return url;
+        }
     }
 
     // ------------------------------------------------------------------ the page's look

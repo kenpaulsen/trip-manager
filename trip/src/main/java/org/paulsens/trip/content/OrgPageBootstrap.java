@@ -17,6 +17,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.function.ToIntFunction;
 import java.util.regex.Pattern;
+import org.paulsens.trip.action.TripPageCommands;
 import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.SitePage;
@@ -336,7 +337,7 @@ public final class OrgPageBootstrap {
         final String key = tripPageKey(trip.getId());
         // Stored as OUR registration page even for an external trip: the render resolves it to where the trip
         // registers now (TripPageCommands.contentLink), so a URL added or changed after seeding still applies.
-        final String register = "/trip/joinTrip.jsf?trip=" + trip.getId();
+        final String register = TripPageCommands.JOIN_URL + trip.getId();
         final Map<String, String> hero = new HashMap<>();
         hero.put("eyebrow", orgName == null ? "" : orgName);
         hero.put("headline", trip.getShortTitle());
@@ -391,7 +392,7 @@ public final class OrgPageBootstrap {
         final String key = tripPageKey(trip.getId());
         // Stored as OUR registration page even for an external trip: the render resolves it to where the trip
         // registers now (TripPageCommands.contentLink), so a URL added or changed after seeding still applies.
-        final String register = "/trip/joinTrip.jsf?trip=" + trip.getId();
+        final String register = TripPageCommands.JOIN_URL + trip.getId();
         final String registerLabel = trip.getKind().getRegisterLabel();
         final String speakers = tripRowId(trip, "speakers");
         final String schedule = tripRowId(trip, "schedule");

@@ -271,7 +271,7 @@ public final class ReminderRecipients {
         facts.put(ReminderText.ORG_NAME, orgName(trip));
         facts.put(ReminderText.TRIP_LINK, base + TripCommands.DETAIL_URL + id);
         facts.put(ReminderText.PAYMENT_LINK, base + "/trip/pay.jsf?trip=" + id);
-        facts.put(ReminderText.DOCUMENTS_LINK, base + "/trip/joinTrip.jsf?trip=" + id);
+        facts.put(ReminderText.DOCUMENTS_LINK, base + TripPageCommands.JOIN_URL + id);
         facts.put(ReminderText.ITINERARY_LINK, base + "/trip/itinerary.jsf?trip=" + id);
         return facts;
     }
