@@ -70,7 +70,7 @@ and no token change, the bearer stays the manager. A manager of someone on the r
 roster, events, lodging) without a seat of their own -- the website's `canSeeTrip` rule, on the API since this
 date. Chat posts while acting carry `onBehalfOf` (Chat section).
 
-`TripDto`: id, title, description, detailsUrl, pictures, destination, country, tags, openToPublic, chatEnabled,
+`TripDto`: id, title, description, detailsUrl, pictures, destination, country, tags, tagLabels, openToPublic, chatEnabled,
 startDate, endDate, regLimit, provider,
 orgId, language, estimatedPrice, director, localGuide, facilitators, flyerUrl, nonHostedTripUrl (a write that
 CHANGES either is answered 400 `VALIDATION_FAILED` unless `nonHostedTripUrl` is an absolute http(s) URL and `flyerUrl`
@@ -125,7 +125,10 @@ when the upload was), `placeholder` the picture's average color (`#rrggbb`) to p
 manager's description (absent: use the title). A trip with no picture shows the organization's picture, then a
 generated cover; never an empty box. Also `destination` (free text, "Medjugorje, Bosnia and Herzegovina"),
 `country` (ISO 3166-1 alpha-2, `BA`) and `tags` (ids from the platform's one list, the "Trip tags" setting; default
-`pilgrimage, retreat, conference, mission, youth, family, study, service, tour`). On `POST`/`PUT` the last three are
+`pilgrimage, retreat, conference, mission, youth, family, study, service, tour`). On a read, `tags` holds only the ids the list
+still offers, in its order, and `tagLabels` (2026-11-16, issue 155; read-only) their labels beside them, as the
+setting spells them: show those, never a label rebuilt from an id (an id is a lossy slug, `Faith & Family` is
+`faith-family`); a client of an older server, which sends no `tagLabels`, may fall back to the ids. On `POST`/`PUT` the last three are
 written like the other details (absent: left alone): the destination is trimmed (blank clears it), an unknown
 country is dropped, and only listed tags are kept, in the list's order. `pictures` on a write is ignored; they
 change only through:

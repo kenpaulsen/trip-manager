@@ -28,6 +28,7 @@ public interface TripMapper {
     @Mapping(target = "people", source = "people")
     @Mapping(target = "detailsUrl", ignore = true)
     @Mapping(target = "pictures", ignore = true)
+    @Mapping(target = "tagLabels", ignore = true)
     TripDto toDto(Trip trip);
 
     @Mapping(target = "participating", ignore = true)

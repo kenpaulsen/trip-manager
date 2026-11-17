@@ -24,6 +24,10 @@ import java.util.List;
  * <p>{@code pictures}, {@code destination}, {@code country} and {@code tags} (issue 154): the pictures are read-only
  * here (position 0 is the cover; the {@code /pictures} endpoints change them), the other three are written on
  * {@code POST}/{@code PUT} like the other details, a null leaving the stored value alone.
+ *
+ * <p>{@code tagLabels} (issue 155) is read-only and runs beside {@code tags}: on a read both hold only the tags the
+ * platform list still offers, in its order, so a client shows each label as the setting spells it (an id is a lossy
+ * slug of its label) and a tag taken off the list disappears, as it does on the website ({@link #withTags}).
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record TripDto(
@@ -55,7 +59,24 @@ public record TripDto(
         List<TripPictureDto> pictures,
         String destination,
         String country,
-        List<String> tags) {
+        List<String> tags,
+        List<String> tagLabels) {
+
+    /** The shape before tag labels (issue 155), for the same reason as the others; a read fills them in. */
+    public TripDto(final String id, final String title, final String description, final Boolean openToPublic,
+            final boolean chatEnabled, final LocalDateTime startDate, final LocalDateTime endDate,
+            final Integer regLimit, final String provider, final String orgId, final String language,
+            final String estimatedPrice, final String director, final String localGuide, final String facilitators,
+            final String flyerUrl, final String nonHostedTripUrl, final Integer nonHostedRegNumber,
+            final List<RegOptionDto> regOptions, final List<String> people, final List<TripEventDto> tripEvents,
+            final String kind, final TripPaymentConfigDto paymentConfig, final TripPageOptionsDto page,
+            final String detailsUrl, final List<TripPictureDto> pictures, final String destination,
+            final String country, final List<String> tags) {
+        this(id, title, description, openToPublic, chatEnabled, startDate, endDate, regLimit, provider, orgId,
+                language, estimatedPrice, director, localGuide, facilitators, flyerUrl, nonHostedTripUrl,
+                nonHostedRegNumber, regOptions, people, tripEvents, kind, paymentConfig, page, detailsUrl, pictures,
+                destination, country, tags, null);
+    }
 
     /** The shape before pictures, destination, country and tags (issue 154), for the same reason as the others. */
     public TripDto(final String id, final String title, final String description, final Boolean openToPublic,
@@ -69,7 +90,7 @@ public record TripDto(
         this(id, title, description, openToPublic, chatEnabled, startDate, endDate, regLimit, provider, orgId,
                 language, estimatedPrice, director, localGuide, facilitators, flyerUrl, nonHostedTripUrl,
                 nonHostedRegNumber, regOptions, people, tripEvents, kind, paymentConfig, page, detailsUrl, null, null,
-                null, null);
+                null, null, null);
     }
 
     /**
@@ -131,7 +152,7 @@ public record TripDto(
         return new TripDto(id, title, description, openToPublic, chatEnabled, startDate, endDate, regLimit,
                 provider, orgId, language, estimatedPrice, director, localGuide, facilitators, flyerUrl,
                 nonHostedTripUrl, nonHostedRegNumber, regOptions, people, null, kind, null, null, detailsUrl, pictures,
-                destination, country, tags);
+                destination, country, tags, tagLabels);
     }
 
     /**
@@ -144,7 +165,7 @@ public record TripDto(
                 provider, orgId, language, estimatedPrice, director, localGuide, facilitators, flyerUrl,
                 nonHostedTripUrl, nonHostedRegNumber, regOptions, people, tripEvents, kind,
                 paymentsAdmin ? paymentConfig : null, manager ? page : null, detailsUrl, pictures, destination,
-                country, tags);
+                country, tags, tagLabels);
     }
 
     /** The same trip with this roster in place of its own (an {@code open} listing narrows it to the caller's). */
@@ -152,7 +173,7 @@ public record TripDto(
         return new TripDto(id, title, description, openToPublic, chatEnabled, startDate, endDate, regLimit,
                 provider, orgId, language, estimatedPrice, director, localGuide, facilitators, flyerUrl,
                 nonHostedTripUrl, nonHostedRegNumber, regOptions, narrowed, tripEvents, kind, paymentConfig, page,
-                detailsUrl, pictures, destination, country, tags);
+                detailsUrl, pictures, destination, country, tags, tagLabels);
     }
 
     /**
@@ -164,7 +185,7 @@ public record TripDto(
         return new TripDto(id, title, description, openToPublic, chatEnabled, startDate, endDate, regLimit,
                 provider, orgId, language, estimatedPrice, director, localGuide, facilitators, flyerUrl,
                 nonHostedTripUrl, nonHostedRegNumber, regOptions, people, tripEvents, kind, paymentConfig, page, url,
-                pictures, destination, country, tags);
+                pictures, destination, country, tags, tagLabels);
     }
 
     /**
@@ -175,6 +196,17 @@ public record TripDto(
         return new TripDto(id, title, description, openToPublic, chatEnabled, startDate, endDate, regLimit,
                 provider, orgId, language, estimatedPrice, director, localGuide, facilitators, flyerUrl,
                 nonHostedTripUrl, nonHostedRegNumber, regOptions, people, tripEvents, kind, paymentConfig, page,
-                detailsUrl, resolved, destination, country, tags);
+                detailsUrl, resolved, destination, country, tags, tagLabels);
+    }
+
+    /**
+     * The same trip with the tags a reader is shown: the ids the platform list still offers and their labels, the two
+     * lists side by side (docs/api-contract.md "Trips"). The stored ids are not changed.
+     */
+    public TripDto withTags(final List<String> offeredIds, final List<String> labels) {
+        return new TripDto(id, title, description, openToPublic, chatEnabled, startDate, endDate, regLimit,
+                provider, orgId, language, estimatedPrice, director, localGuide, facilitators, flyerUrl,
+                nonHostedTripUrl, nonHostedRegNumber, regOptions, people, tripEvents, kind, paymentConfig, page,
+                detailsUrl, pictures, destination, country, offeredIds, labels);
     }
 }

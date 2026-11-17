@@ -34,6 +34,7 @@ import org.paulsens.trip.action.LodgingViews;
 import org.paulsens.trip.action.TripPageCommands;
 import org.paulsens.trip.action.TripCommands;
 import org.paulsens.trip.action.TripPictureCommands;
+import org.paulsens.trip.action.TripTags;
 import org.paulsens.trip.action.PhotoUploadBean;
 import org.paulsens.trip.media.PhotoProcessor;
 import org.paulsens.trip.model.TripPicture;
@@ -144,8 +145,19 @@ public class TripsResource extends BaseResource {
     }
 
     private TripDto listingDto(final Trip trip) {
-        return TripMapper.INSTANCE.toDto(trip).withoutEvents().withDetailsUrl(detailsUrl(trip))
-                .withPictures(pictureDtos(trip));
+        return withShownTags(TripMapper.INSTANCE.toDto(trip).withoutEvents().withDetailsUrl(detailsUrl(trip))
+                .withPictures(pictureDtos(trip)), trip);
+    }
+
+    /**
+     * The trip's tags as a reader is shown them, ids and labels side by side: only the tags the platform list still
+     * offers (the website's rule, {@link TripTags#shownOn}). An app cannot rebuild a label from its id, which is a
+     * lossy slug.
+     */
+    private static TripDto withShownTags(final TripDto dto, final Trip trip) {
+        final List<TripTags.Tag> shown = TripTags.shownOn(trip, TripTags.current());
+        return dto.withTags(shown.stream().map(TripTags.Tag::id).toList(),
+                shown.stream().map(TripTags.Tag::label).toList());
     }
 
     /**
@@ -829,12 +841,14 @@ public class TripsResource extends BaseResource {
 
     private TripDto withViewerEvents(final Trip trip, final Person.Id me) {
         final TripDto dto = TripMapper.INSTANCE.toDto(trip);
-        return new TripDto(dto.id(), dto.title(), dto.description(), dto.openToPublic(), dto.chatEnabled(),
-                dto.startDate(), dto.endDate(), dto.regLimit(), dto.provider(), dto.orgId(), dto.language(),
+        final TripDto full = new TripDto(dto.id(), dto.title(), dto.description(), dto.openToPublic(),
+                dto.chatEnabled(), dto.startDate(), dto.endDate(), dto.regLimit(), dto.provider(), dto.orgId(),
+                dto.language(),
                 dto.estimatedPrice(), dto.director(), dto.localGuide(), dto.facilitators(), dto.flyerUrl(),
                 dto.nonHostedTripUrl(), dto.nonHostedRegNumber(), dto.regOptions(), dto.people(),
                 eventDtos(trip, me), dto.kind(), dto.paymentConfig(), dto.page(), detailsUrl(trip),
                 pictureDtos(trip), dto.destination(), dto.country(), dto.tags());
+        return withShownTags(full, trip);
     }
 
     private static List<TripEventDto> eventDtos(final Trip trip, final Person.Id viewer) {

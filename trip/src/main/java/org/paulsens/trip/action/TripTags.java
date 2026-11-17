@@ -59,10 +59,18 @@ public final class TripTags {
      * longer offers is not shown.
      */
     public static List<String> labelsOf(final Trip trip, final List<Tag> offered) {
+        return shownOn(trip, offered).stream().map(Tag::label).toList();
+    }
+
+    /**
+     * A trip's tags that are still on the offered list, in the list's order: what any reader is shown (the website
+     * through {@link #labelsOf}, the apps as the trips API's {@code tags} and {@code tagLabels}).
+     */
+    public static List<Tag> shownOn(final Trip trip, final List<Tag> offered) {
         if (trip == null) {
             return List.of();
         }
-        return offered.stream().filter(tag -> trip.getTags().contains(tag.id())).map(Tag::label).toList();
+        return offered.stream().filter(tag -> trip.getTags().contains(tag.id())).toList();
     }
 
     /**

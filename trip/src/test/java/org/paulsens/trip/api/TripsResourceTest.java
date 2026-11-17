@@ -1582,7 +1582,8 @@ public class TripsResourceTest extends ResourceTestSupport {
         trip.getPictures().add(new TripPicture("tripPictures/trip-1/6", null, 960, 640, "#445566"));
         trip.setDestination("Medjugorje, Bosnia and Herzegovina");
         trip.setCountry("BA");
-        trip.setTags(List.of("retreat"));
+        // "dropped" is a stored id the platform list no longer offers: a reader is not shown it (TripTags.shownOn).
+        trip.setTags(List.of("retreat", "dropped"));
         tripExists(trip);
         Mockito.when(trips.getTripsForUser(ME)).thenReturn(List.of(trip));
 
@@ -1600,12 +1601,15 @@ public class TripsResourceTest extends ResourceTestSupport {
         Assert.assertEquals(one.destination(), "Medjugorje, Bosnia and Herzegovina");
         Assert.assertEquals(one.country(), "BA");
         Assert.assertEquals(one.tags(), List.of("retreat"));
+        Assert.assertEquals(one.tagLabels(), List.of("Retreat"), "Labels as the setting spells them, beside the ids");
+        Assert.assertEquals(trip.getTags(), List.of("retreat", "dropped"), "A read never changes what is stored");
         Assert.assertEquals(one.redactedFor(false, false).pictures(), one.pictures(), "Public by URL: kept");
         Assert.assertEquals(one.withPeople(List.of()).tags(), one.tags());
 
         final TripDto row = (TripDto) ((List<?>) resource.list("mine", 50, null).getEntity()).getFirst();
         Assert.assertEquals(row.pictures(), one.pictures(), "A listing carries them too");
         Assert.assertEquals(row.withoutEvents().country(), "BA");
+        Assert.assertEquals(row.tagLabels(), List.of("Retreat"), "A listing carries the labels too");
 
         trip.getPictures().clear();
         final TripDto none = (TripDto) resource(new TripsResource()).get(TRIP_ID, null).getEntity();
