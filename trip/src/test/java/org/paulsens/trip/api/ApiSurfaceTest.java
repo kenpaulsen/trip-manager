@@ -1,6 +1,7 @@
 package org.paulsens.trip.api;
 
 import jakarta.ws.rs.DELETE;
+import jakarta.ws.rs.GET;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.PATCH;
@@ -127,14 +128,15 @@ public class ApiSurfaceTest {
         // They live on ChatResource, not in a resource of their own: a root at chat/channels/{channelId}/... would
         // overlap ChatResource's own template. And they only read: a pick is attached by the send, which checks it
         // again (AlbumPhotoSource.offered), so nothing here may ever write.
+        // Every method under the path, whatever its verb, so an added write reaches the assertion.
         final List<String> albumRoutes = Arrays.stream(ChatResource.class.getDeclaredMethods())
                 .filter(method -> method.getAnnotation(Path.class) != null)
                 .filter(method -> method.getAnnotation(Path.class).value().startsWith("album-sources"))
-                .filter(method -> method.getAnnotation(jakarta.ws.rs.GET.class) != null && !isWrite(method))
-                .map(method -> method.getAnnotation(Path.class).value())
+                .map(method -> (method.getAnnotation(GET.class) != null && !isWrite(method) ? "GET " : "other ")
+                        + method.getAnnotation(Path.class).value())
                 .sorted()
                 .toList();
-        Assert.assertEquals(albumRoutes, List.of("album-sources", "album-sources/{albumTripId}/photos"));
+        Assert.assertEquals(albumRoutes, List.of("GET album-sources", "GET album-sources/{albumTripId}/photos"));
     }
 
     @Test

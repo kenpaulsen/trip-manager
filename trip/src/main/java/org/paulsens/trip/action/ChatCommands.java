@@ -1111,10 +1111,7 @@ public class ChatCommands {
         return new AttachGate(channel, null, null);
     }
 
-    public ChatPage feed(
-            final String tripId,
-            final Person.Id readerId,
-            final ChatMessage.Id since,
+    public ChatPage feed(final String tripId, final Person.Id readerId, final ChatMessage.Id since,
             final int limit) {
         final ChatChannel channel = getChannel(tripId);
         if (channel == null || !canRead(channel, readerId)) {
@@ -1127,20 +1124,25 @@ public class ChatCommands {
                 ));
     }
 
-    public ChatPage history(
-            final String tripId,
-            final Person.Id readerId,
-            final ChatMessage.Id before,
+    public ChatPage history(final String tripId, final Person.Id readerId, final ChatMessage.Id before,
+            final int limit) {
+        return withNames(ChatPhotos.getChatPhotos().withCurrentReferences(
+                storedHistory(tripId, readerId, before, limit)));
+    }
+
+    /**
+     * {@link #history} as stored, unnamed and with every reference keeping its key: account deletion needs a
+     * hidden original's key (a refreshed reference has none) to erase that photo's thread and reactions.
+     */
+    ChatPage storedHistory(final String tripId, final Person.Id readerId, final ChatMessage.Id before,
             final int limit) {
         final ChatChannel channel = getChannel(tripId);
         if (channel == null || !canRead(channel, readerId)) {
             return ChatPage.empty();
         }
-        final Optional<ChatMembership> member =
-                dao().getChatMembership(channel.getId(), readerId, Cached.NO);
-        return withNames(ChatPhotos.getChatPhotos().withCurrentReferences(dao().getChatMessagesBefore(
-                channel.getId(), before, limit, member.orElse(null), channel, tripOf(channel), Instant.now(), Cached.NO)
-                ));
+        final ChatMembership member = dao().getChatMembership(channel.getId(), readerId, Cached.NO).orElse(null);
+        return dao().getChatMessagesBefore(
+                channel.getId(), before, limit, member, channel, tripOf(channel), Instant.now(), Cached.NO);
     }
 
     /** The send is not acknowledged unless the durable write succeeded, so a failure must surface. */

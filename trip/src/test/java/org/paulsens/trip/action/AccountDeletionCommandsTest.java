@@ -17,6 +17,7 @@ import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Creds;
 import org.paulsens.trip.model.Family;
+import org.paulsens.trip.model.MediaItem;
 import org.paulsens.trip.model.OrgMember;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
@@ -25,10 +26,13 @@ import org.paulsens.trip.model.ReminderSend;
 import org.paulsens.trip.model.Transaction;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripEvent;
+import org.paulsens.trip.model.chat.ChatAttachment;
 import org.paulsens.trip.model.chat.ChatChannel;
 import org.paulsens.trip.model.chat.ChatMembership;
 import org.paulsens.trip.model.chat.ChatMessage;
 import org.paulsens.trip.model.chat.ChatPage;
+import org.paulsens.trip.model.chat.ChatReaction;
+import org.paulsens.trip.model.chat.PhotoChatMeta;
 import org.paulsens.trip.security.TokenService;
 import org.paulsens.trip.util.RandomData;
 import org.testng.Assert;
@@ -176,6 +180,39 @@ public class AccountDeletionCommandsTest {
         Assert.assertFalse(flightAfter.getPrivNotes().containsKey(me.getId()), "the private note is gone");
         Assert.assertEquals(dao.deleteChatReactionsBy(ChatChannel.Id.forTrip(past.getId()), me.getId()), 0,
                 "no reaction of theirs is left to delete");
+    }
+
+    /**
+     * A photo shared in another trip's chat and REFERENCED in theirs, which its sharer has since hidden. The chat
+     * page shows that reference as a tombstone with no key, but the photo keeps its thread and reactions, joined on
+     * the key, so deletion must read the key from the stored message (the review of f82cbb2f, F1).
+     */
+    @Test
+    public void reactionsOnAHiddenPhotoReferencedInTheirChatAreErasedToo() throws IOException {
+        final Person me = saved("Borrower");
+        final Organization org = savedOrg("Pilgrims Inc", "office@example.org", null);
+        join(me, org);
+        final Trip trip = savedTrip("Past pilgrimage", -30, -20, org, me);
+        final String key = "chat-photos/elsewhere/" + RandomData.genAlpha(8) + ".jpg";
+        Assert.assertTrue(dao.saveMedia(new MediaItem(RandomData.genAlpha(12), key, "Sunrise", null, "image/jpeg",
+                1234L, ChatPhotos.slotFor("elsewhere"), 0, LocalDateTime.now(), "sharer", null, Boolean.TRUE)));
+        final ChatAttachment ref = new ChatAttachment("image", key, "image/jpeg", 1234L, 1600, 900, null, null,
+                null, null, null, 1, Boolean.TRUE);
+        final ChatChannel channel = chat.ensureChannel(trip.getId(), actor(me));
+        Assert.assertTrue(dao.saveChatMessage(new ChatMessage(null, channel.getId(), me.getId(), null,
+                ChatMessage.MessageKind.TEXT, "look", null, List.of(ref), null, null, null, null, null, null, null),
+                channel, trip).isPresent());
+        Assert.assertTrue(dao.putChatReaction(new ChatReaction(ChatChannel.Id.forPhoto(key), PhotoChatMeta.PHOTO_ROOT,
+                me.getId(), "👍", null, null)));
+        Assert.assertNull(chat.history(trip.getId(), me.getId(), null, 50).getMessages().getFirst()
+                .getAttachments().getFirst().getS3Key(), "precondition: the page shows the hidden photo keyless");
+
+        final AccountDeletionCommands.Outcome outcome = deletion.deleteOwnAccount(me.getId(),
+                AccountDeletionCommands.CONFIRMATION, actor(me));
+
+        Assert.assertTrue(outcome.ok(), outcome.message());
+        Assert.assertEquals(dao.deleteChatReactionsBy(ChatChannel.Id.forPhoto(key), me.getId()), 0,
+                "their reaction on the hidden photo went with the account");
     }
 
     /** The record of reminder emails holds a name and an address; deletion erases both and keeps the row. */

@@ -152,32 +152,33 @@ public class AlbumChooser {
     // ------------------------------------------------------------------ what the dialog sends
 
     /** The dialog's Add, for a use that takes several: the host re-checks every pick and reports albumAdded. */
+    @SuppressWarnings("checkstyle:MissingSwitchDefault")
     public void add(final String use, final String picks) {
-        // A switch EXPRESSION, like scope's: the compiler insists on every Use, so a new one cannot fall through.
-        final Runnable action = switch (Use.of(use).orElse(null)) {
-            case TRIP_PICTURES -> () -> tripPictures.addFromAlbumUi(picks);
-            case LIBRARY -> () -> library.addFromAlbumUi(picks);
-            case BADGE, PROFILE, LINK_PREVIEW, LODGING, URL, CHAT -> () -> refuse("albumAdded");
-            case null -> () -> refuse("albumAdded");
-        };
-        action.run();
+        // The case null label is what makes the compiler insist on every Use, so a new one cannot fall through; a
+        // default arm would give that up, which is why checkstyle's MissingSwitchDefault is suppressed here.
+        switch (Use.of(use).orElse(null)) {
+            case TRIP_PICTURES -> tripPictures.addFromAlbumUi(picks);
+            case LIBRARY -> library.addFromAlbumUi(picks);
+            case BADGE, PROFILE, LINK_PREVIEW, LODGING, URL, CHAT -> refuse("albumAdded");
+            case null -> refuse("albumAdded");
+        }
     }
 
     /**
      * A one-photo pick: the host takes it and reports albumPicked. A host on the shared crop dialog has then parked
      * the photo, so that dialog's two step panels are re-rendered here for it to open on its cropper.
      */
+    @SuppressWarnings("checkstyle:MissingSwitchDefault") // exhaustive through case null, as in add
     public void pick(final String use, final String mediaId) {
-        final Runnable action = switch (Use.of(use).orElse(null)) {
-            case BADGE -> () -> pickToCrop(badgePhotos, mediaId);
-            case PROFILE -> () -> pickToCrop(profilePhotos, mediaId);
-            case LINK_PREVIEW -> () -> pickToCrop(branding, mediaId);
-            case LODGING -> () -> pickToCrop(lodgingUpload, mediaId);
-            case URL -> () -> library.pickFromAlbum(mediaId);
-            case TRIP_PICTURES, LIBRARY, CHAT -> () -> refuse("albumPicked");
-            case null -> () -> refuse("albumPicked");
-        };
-        action.run();
+        switch (Use.of(use).orElse(null)) {
+            case BADGE -> pickToCrop(badgePhotos, mediaId);
+            case PROFILE -> pickToCrop(profilePhotos, mediaId);
+            case LINK_PREVIEW -> pickToCrop(branding, mediaId);
+            case LODGING -> pickToCrop(lodgingUpload, mediaId);
+            case URL -> library.pickFromAlbum(mediaId);
+            case TRIP_PICTURES, LIBRARY, CHAT -> refuse("albumPicked");
+            case null -> refuse("albumPicked");
+        }
     }
 
     /** A host on the shared crop dialog parks the photo; its two step panels then open on the cropper. */

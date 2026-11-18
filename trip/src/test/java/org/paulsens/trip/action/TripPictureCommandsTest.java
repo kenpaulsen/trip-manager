@@ -750,6 +750,8 @@ public class TripPictureCommandsTest {
         Assert.assertEquals(result.added(), 3);
         Assert.assertNull(result.refusal());
         Assert.assertEquals(result.lowResolution(), 0);
+        Assert.assertTrue(result.cover(), "The trip had no pictures, so the batch's first became its cover");
+        Assert.assertEquals(result.addedMessage(), "3 pictures added; the first is the cover.");
         Assert.assertEquals(saves.size(), 1, "The whole batch is one read-modify-write");
 
         final List<TripPicture> pictures = trip().getPictures();
@@ -764,6 +766,11 @@ public class TripPictureCommandsTest {
             Assert.assertEquals(small.getWidth(), 480);
             Assert.assertEquals(small.getHeight(), 320);
         }
+
+        final TripPictureCommands.AlbumResult more = bean.addFromAlbum(caller, TRIP_ID, List.of(pick("wide")), null);
+        Assert.assertEquals(more.added(), 1);
+        Assert.assertFalse(more.cover(), "A trip that has a cover keeps it");
+        Assert.assertEquals(more.addedMessage(), "Picture added.");
     }
 
     @Test

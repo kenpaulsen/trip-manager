@@ -324,7 +324,7 @@ public class AccountDeletionCommands {
             final Set<String> photoKeys = new LinkedHashSet<>();
             ChatMessage.Id before = null;
             for (int page = 0; page < MAX_PAGES; page++) {
-                final ChatPage history = chat.history(tripId, me, before, PAGE);
+                final ChatPage history = chat.storedHistory(tripId, me, before, PAGE);
                 for (final ChatMessage message : history.getMessages()) {
                     for (final ChatAttachment attachment : message.getAttachments()) {
                         if (attachment.getS3Key() != null) {

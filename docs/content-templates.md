@@ -488,8 +488,11 @@ then asked for the preview to follow the form, field by field. It is `WEB-INF/co
 - **No mask, so the page is locked by hand while a form is open.** The modal dialog's mask used to keep an editor
   away from every other opener; the drawer has none, and each opener re-renders it for another item, dropping what
   was typed without a word. While the form step is shown, `lockPage` makes the page's openers (`.contentEditBtn`,
-  `.addHereBtn`, the Page Operations buttons) `inert` and draws them faded (`body.tripDrawerBusy`); Apply or Cancel
-  ends it. The list step locks nothing: nothing typed there is lost. `AddSectionPwIT`.
+  `.addHereBtn`, the Page Operations buttons) disabled, the way the site's other locks are (`disabled` plus
+  `ui-state-disabled`, so they take the theme's disabled look and a screen reader hears them as unavailable), with a
+  title saying to Apply or Cancel first. A watch keeps the clicked opener locked when PrimeFaces' `disableOnAjax`
+  enables it again after its request. Apply or Cancel ends it. The list step locks nothing: nothing typed there is
+  lost. `AddSectionPwIT`.
 - **Step 1, the list** (`dlgPick`). Search (every word must be in the name, description or tags:
   `TemplateCard.searchText`), tag chips (the tags two or more offered templates share), a recently-used group
   (the last few template ids in `localStorage`, per browser; rows are moved, never copied) and, on a classic
