@@ -168,14 +168,28 @@ public class TripPageCommands {
 
     // ------------------------------------------------------------------ the registration block
 
-    /** Where registration stands. */
+    /**
+     * Where registration stands. The window cases follow {@code CheckoutValidator}'s three refusals, in its order
+     * and at its edges: started, not opened yet, closed.
+     */
     public enum Phase {
-        /** The event has not started: registration is open. */
+        /** The event has not started and registration is within its window: registration is open. */
         OPEN,
         /** Every place is taken. */
         FULL,
-        /** The event is under way or over. */
-        CLOSED
+        /** The event is under way or over, or priced checkout's registration window has closed. */
+        CLOSED,
+        /**
+         * Priced checkout's registration window has not opened yet (before {@code opensAt}); the trip has not
+         * started. Its own state, not CLOSED: "Registration opens Monday, December 1" invites a visitor back,
+         * where "closed" tells them they missed it (owner, 2026-11-17).
+         */
+        NOT_OPEN;
+
+        /** The phase as the public wire spells it (Discover's {@code registration}). */
+        public String wireName() {
+            return this == NOT_OPEN ? "notOpen" : name().toLowerCase(Locale.ROOT);
+        }
     }
 
     /** One priced question's offer: its label and its choices as "Full weekend: $150.00". */
@@ -183,16 +197,34 @@ public class TripPageCommands {
     }
 
     /**
-     * The registration block's facts. {@code taken} is the count of CONFIRMED and PENDING registrations, or for an
-     * external trip the count its editor typed ({@link Trip#getShownRegCount}): its registrations live on another
-     * site, so this site has none to count. {@code seatsLeft} is null when the trip has no limit. {@code prices}
-     * are the trip's priced questions as configured; the person-specific price (age bands, codes) is checkout's to
-     * compute, never this block's.
+     * The registration block's facts. {@code started} is whether the trip has begun by the calendar-day rule of
+     * every countdown ({@link TripCommands#notStartedBy}): the countdown's test, kept apart from {@code phase},
+     * whose start edge is checkout's instant (a trip whose window has not opened, or has closed, still counts down
+     * to its first day). {@code opensOn} is the day registration opens, set only for {@link Phase#NOT_OPEN}.
+     * {@code taken} is the count of CONFIRMED and PENDING registrations, or for an external trip the count its
+     * editor typed ({@link Trip#getShownRegCount}): its registrations live on another site, so this site has none
+     * to count. {@code seatsLeft} is null when the trip has no limit. {@code prices} are the trip's priced
+     * questions as configured; the person-specific price (age bands, codes) is checkout's to compute, never this
+     * block's.
      */
-    public record RegistrationInfo(Phase phase, int taken, Integer limit, Integer seatsLeft,
-            List<PriceGroup> prices, String fallbackPrice, String startDateIso, String registerUrl,
-            String registerLabel) {
+    public record RegistrationInfo(Phase phase, boolean started, LocalDate opensOn, int taken, Integer limit,
+            Integer seatsLeft, List<PriceGroup> prices, String fallbackPrice, String startDateIso,
+            String registerUrl, String registerLabel) {
+
+        /** The opening day as the registration block says it, "Monday, December 1"; null unless NOT_OPEN. */
+        public String opensDay() {
+            return opensOn == null ? null : OPENS_DAY.format(opensOn);
+        }
+
+        /** The opening day as a card chip says it, "Dec 1"; null unless NOT_OPEN. */
+        public String opensDate() {
+            return opensOn == null ? null : OPENS_DATE.format(opensOn);
+        }
     }
+
+    // English, like every other word of the block and the chips; no year, as the owner wrote the copy.
+    private static final DateTimeFormatter OPENS_DAY = DateTimeFormatter.ofPattern("EEEE, MMMM d", Locale.US);
+    private static final DateTimeFormatter OPENS_DATE = DateTimeFormatter.ofPattern("MMM d", Locale.US);
 
     /** The registration block for a conference (or any trip), or null for none. */
     public RegistrationInfo registrationInfo(final Trip trip) {
@@ -210,15 +242,34 @@ public class TripPageCommands {
                 .count();
         final Integer limit = trip.getRegLimit();
         final Integer seatsLeft = limit == null ? null : Math.max(0, limit - taken);
-        final Phase phase = phaseOf(trip, seatsLeft);
-        return new RegistrationInfo(phase, taken, limit, seatsLeft, priceGroups(trip),
+        final LocalDateTime now = clock.get();
+        final boolean started = trip.getStartDate() != null && !TripCommands.notStartedBy(trip, now.toLocalDate());
+        final Phase phase = phaseOf(trip, seatsLeft, now);
+        final LocalDate opensOn = phase == Phase.NOT_OPEN ? trip.getCheckout().getOpensAt().toLocalDate() : null;
+        return new RegistrationInfo(phase, started, opensOn, taken, limit, seatsLeft, priceGroups(trip),
                 blankToNull(trip.getEstimatedPrice()), trip.getStartDateIso(), registerUrl(trip),
                 trip.getKind().getRegisterLabel());
     }
 
-    private Phase phaseOf(final Trip trip, final Integer seatsLeft) {
-        if (trip.getStartDate() != null && !trip.getStartDate().isAfter(clock.get())) {
+    /**
+     * The phase at {@code now}. The start edge is an instant, as checkout refuses (the countdown's calendar day is
+     * {@code started}'s business). Priced checkout's window ({@code CheckoutConfig.opensAt}/{@code closesAt})
+     * counts only while checkout is on (the free form ignores a window left stored on a trip with checkout off)
+     * and never for an external trip, whose registration happens on another site: nothing else enforces it.
+     * Without the window, Discover, the trip cards and the page's block said "open" while the form refused.
+     */
+    private static Phase phaseOf(final Trip trip, final Integer seatsLeft, final LocalDateTime now) {
+        if (trip.getStartDate() != null && !trip.getStartDate().isAfter(now)) {
             return Phase.CLOSED;
+        }
+        if (!trip.isExternal() && trip.getCheckout().isOn()) {
+            final LocalDateTime opensAt = trip.getCheckout().getOpensAt();
+            if (opensAt != null && now.isBefore(opensAt)) {
+                return Phase.NOT_OPEN;
+            }
+            if (!trip.getCheckout().isOpenAt(now)) {
+                return Phase.CLOSED;
+            }
         }
         return (seatsLeft != null && seatsLeft == 0) ? Phase.FULL : Phase.OPEN;
     }

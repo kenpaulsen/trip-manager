@@ -702,7 +702,7 @@ public class TripPictureCommandsTest {
         Assert.assertEquals(bean.altOf(null, null), "");
 
         final TripCardCommands.Card card = new TripCardCommands.Card(titled, "/trip", TripCardCommands.State.REGISTER,
-                blank, null, null, null, null, false);
+                "Register", blank, null, null, null, null, false);
         Assert.assertEquals(card.getAlt(), bean.altOf(blank, titled), "A card answers the same rule");
     }
 

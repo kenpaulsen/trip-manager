@@ -43,9 +43,16 @@ Both on `ChatResource`, the channel path, so they share `tripIdOf`/CSRF/auth wit
   answer the phone words, not a failure of the call. The association files the operating systems fetch
   (`/.well-known/apple-app-site-association`, `/.well-known/assetlinks.json`) are served by
   `WellKnownServlet` from the private overlay's `WEB-INF/well-known/`; they claim `/i/*` and
-  `/trip/chatInvite.jsf` on every host the app answers on. The phones, in turn, must claim every host a link
-  can be minted on (`SiteUrls.appLinkBaseUrlForTrip`): `unitetrip.com`, `*.unitetrip.com`, and the shared-site
-  host from `chat.mail.baseUrl` for an organization without a subdomain (today `visitqueenofpeace.com`).
+  `/trip/chatInvite.jsf` on every host the app answers on. Apple's file lists those paths; Android's claims the
+  whole host, so its paths are the ones each app build's manifest lists. A trip's pages, the embed
+  `/trip/tripPage.jsf?trip=<id>` and the full site page `/trip/tripDetails.jsf?trip=<id>` (medjugorje#155: the
+  apps open that trip, or its Discover page when signed out), are NOT claimed yet: the apps already parse them,
+  but Apple's file applies to every installed version at once, and the App Store build before that release drops
+  such a link, so claiming them early would swallow every trip link tapped on an iPhone. Add them to Apple's file
+  (and to `WellKnownFilesPwIT`) only once the iOS release that handles them is live on the App Store. The
+  phones, in turn, must claim every host a link can be minted on (`SiteUrls.appLinkBaseUrlForTrip`):
+  `unitetrip.com`, `*.unitetrip.com`, and the shared-site host from `chat.mail.baseUrl` for an organization
+  without a subdomain (today `visitqueenofpeace.com`).
   A link on a host neither app lists opens the browser instead, which is how the first live link failed
   (2026-10-15). A new shared-site domain therefore means a release of both apps.
   **An organization's custom domain is never an invite host** (owner decision 2026-11-13): a custom domain

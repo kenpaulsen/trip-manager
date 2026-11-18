@@ -43,8 +43,8 @@ public class DiscoverSearchTest {
         return new DiscoverTripDto(id, title, LocalDate.parse(start), LocalDate.parse(end), destination,
                 countries == null ? List.of() : List.of(countries.split(",")),
                 tags, tags.stream().map(DiscoverSearchTest::labelOf).toList(), kind, language, null, List.of(), orgId,
-                orgName, TREKS.equals(orgId) ? "https://cdn.example/treks-logo.png" : null,
-                "https://example.org/trip/tripPage.jsf?trip=" + id, registration, false);
+                orgName, null, TREKS.equals(orgId) ? "https://cdn.example/treks-logo.png" : null,
+                "https://example.org/trip/tripPage.jsf?trip=" + id, registration, null, false);
     }
 
     /** A tag's label as the setting would spell it: capitalized. */
@@ -193,15 +193,29 @@ public class DiscoverSearchTest {
         Assert.assertEquals(ids("from", "2027-02-01", "to", "2027-02-28"), List.of(), "a month nobody travels in");
     }
 
+    /** {@code notOpen} is a state of its own: its filter finds only such a trip, in any spelling of its case. */
+    @Test
+    public void theNotOpenStateIsItsOwnFilterValue() {
+        final DiscoverTripDto soon = trip("t-soon", "Opens Soon", "2027-06-01", "2027-06-08", null, "IT",
+                List.of(), "PILGRIMAGE", "English", PARISH, "Holy Redeemer Parish", "notOpen");
+        final List<Entry> listed = entries(MEDJUGORJE, NOWHERE, soon);
+        Assert.assertEquals(ids(DiscoverSearch.search(listed, query("state", "notOpen"))), List.of("t-soon"));
+        Assert.assertEquals(ids(DiscoverSearch.search(listed, query("state", "NOTOPEN"))), List.of("t-soon"));
+        Assert.assertEquals(ids(DiscoverSearch.search(listed, query("state", "closed"))), List.of("t-nowhere"),
+                "not open yet is not closed");
+        Assert.assertEquals(ids(DiscoverSearch.search(listed, query("state", "open", "state", "notOpen"))),
+                List.of("t-medj", "t-soon"));
+    }
+
     /** A trip with only one date is a one-day trip; one with none (never listed) is in no range. */
     @Test
     public void aMissingDateFallsBackToTheOther() {
         final DiscoverTripDto noEnd = new DiscoverTripDto("t-open-end", "Open End", LocalDate.parse("2027-05-01"),
                 null, null, List.of(), List.of(), List.of(), "PILGRIMAGE", "English", null, List.of(), PARISH,
-                "Parish", null, "u", "open", false);
+                "Parish", null, null, "u", "open", null, false);
         final DiscoverTripDto noDates = new DiscoverTripDto("t-undated", "Undated", null, null, null, List.of(),
-                List.of(), List.of(), "PILGRIMAGE", "English", null, List.of(), PARISH, "Parish", null, "u", "open",
-                false);
+                List.of(), List.of(), "PILGRIMAGE", "English", null, List.of(), PARISH, "Parish", null, null, "u",
+                "open", null, false);
         final List<Entry> odd = entries(noEnd, noDates);
 
         Assert.assertEquals(ids(DiscoverSearch.search(odd, query("from", "2027-05-01", "to", "2027-05-01"))),
@@ -362,7 +376,7 @@ public class DiscoverSearchTest {
         assertRefused("to must be a date, yyyy-MM-dd.", "to", "soon");
         assertRefused("to must not be before from.", "from", "2027-01-02", "to", "2027-01-01");
         assertRefused("limit must be a number.", "limit", "many");
-        assertRefused("Unknown state; expected open, full or closed.", "state", "waitlist");
+        assertRefused("Unknown state; expected open, full, closed or notOpen.", "state", "waitlist");
         assertRefused("cursor does not belong to this list.", "cursor", "!!not base64!!");
         assertRefused("cursor does not belong to this list.", "cursor", "bm90IGEgY3Vyc29y");
         try {

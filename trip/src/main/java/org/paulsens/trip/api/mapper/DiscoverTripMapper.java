@@ -4,7 +4,6 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.UnaryOperator;
@@ -74,19 +73,20 @@ public final class DiscoverTripMapper {
      * organization's site), site-relative in local mode, where {@link #absolute} finishes them per request.
      */
     public DiscoverTripDto map(final Trip trip, final Organization org) {
+        final TripPageCommands.RegistrationInfo registration = pages.registrationInfo(trip);
         return toDto(trip, org, TripTags.shownOn(trip, offeredTags), pictureDtos(trip), logoOf(org),
-                detailsUrl(trip), pages.registrationInfo(trip).phase());
+                detailsUrl(trip), registration.phase(), registration.opensOn());
     }
 
     /**
      * The allow-list itself: each component is one named, public value. Nothing here reads the roster, the staff,
      * the registration questions, the payment settings, the limits, the flyer or the external URL; the one fact
      * taken from the external URL is that there IS one ({@code registersOnWeb}), and from the seat count only the
-     * phase it produces.
+     * phase it produces, and from the registration window only the day a not-yet-open one opens.
      */
     public static DiscoverTripDto toDto(final Trip trip, final Organization org, final List<TripTags.Tag> shownTags,
             final List<TripPictureDto> pictures, final String orgLogoUrl, final String detailsUrl,
-            final TripPageCommands.Phase phase) {
+            final TripPageCommands.Phase phase, final LocalDate opensOn) {
         return new DiscoverTripDto(
                 trip.getId(),
                 trip.getShortTitle(),
@@ -102,9 +102,11 @@ public final class DiscoverTripMapper {
                 List.copyOf(pictures),
                 org.getId().getValue(),
                 org.getName(),
+                blankToNull(org.getAbbreviation()),
                 blankToNull(orgLogoUrl),
                 detailsUrl,
-                phase.name().toLowerCase(Locale.ROOT),
+                phase.wireName(),
+                phase == TripPageCommands.Phase.NOT_OPEN ? opensOn : null,
                 trip.isExternal());
     }
 
@@ -117,8 +119,8 @@ public final class DiscoverTripMapper {
         return new DiscoverTripDto(dto.id(), dto.title(), dto.startDate(), dto.endDate(), dto.destination(),
                 dto.countries(), dto.tags(), dto.tagLabels(), dto.kind(), dto.language(), dto.priceText(),
                 dto.pictures().stream().map(picture -> absolute(picture, absoluteUrl)).toList(),
-                dto.orgId(), dto.orgName(), absoluteUrl.apply(dto.orgLogoUrl()), absoluteUrl.apply(dto.detailsUrl()),
-                dto.registration(), dto.registersOnWeb());
+                dto.orgId(), dto.orgName(), dto.orgAbbreviation(), absoluteUrl.apply(dto.orgLogoUrl()),
+                absoluteUrl.apply(dto.detailsUrl()), dto.registration(), dto.registrationOpens(), dto.registersOnWeb());
     }
 
     private static TripPictureDto absolute(final TripPictureDto picture, final UnaryOperator<String> absoluteUrl) {

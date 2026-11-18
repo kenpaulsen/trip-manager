@@ -22,9 +22,11 @@ import java.util.List;
  * tags the platform list still offers. {@code kind} and {@code language} are enum names
  * ({@code PILGRIMAGE}, {@code CONFERENCE}; {@code English}, {@code Spanish}). {@code priceText} is the
  * organizer's free text, never a number to compute with. {@code pictures} has the cover first and is empty,
- * never null, for a trip with none. {@code orgLogoUrl} is present only for a logo the organization uploaded
- * here. {@code detailsUrl} is the trip's page on its organization's own site. {@code registration} is
- * {@code open}, {@code full} or {@code closed}: the phase alone, never a count of seats or people.
+ * never null, for a trip with none. {@code orgAbbreviation} is the organization's short label, trimmed, and
+ * absent when it set none. {@code orgLogoUrl} is present only for a logo the organization uploaded here.
+ * {@code detailsUrl} is the trip's page on its organization's own site. {@code registration} is {@code open},
+ * {@code full}, {@code closed} or {@code notOpen}: the phase alone, never a count of seats or people.
+ * {@code registrationOpens} is the day a {@code notOpen} trip's registration opens, and absent otherwise.
  * {@code registersOnWeb} is true for a trip whose registration happens on another website, so a client hands
  * the person to {@code detailsUrl} rather than to registration in the app.
  */
@@ -44,8 +46,10 @@ public record DiscoverTripDto(
         List<TripPictureDto> pictures,
         String orgId,
         String orgName,
+        String orgAbbreviation,
         String orgLogoUrl,
         String detailsUrl,
         String registration,
+        LocalDate registrationOpens,
         boolean registersOnWeb) {
 }

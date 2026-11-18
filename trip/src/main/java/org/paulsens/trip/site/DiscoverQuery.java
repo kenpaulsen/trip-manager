@@ -44,7 +44,8 @@ public record DiscoverQuery(List<String> tokens, SortedSet<String> countries, So
     private static final int MAX_QUERY_CHARS = 200;
     /** More values than this on one filter is not a filter anybody built by tapping chips. */
     private static final int MAX_VALUES = 50;
-    private static final Set<String> STATES = Set.of("open", "full", "closed");
+    /** The registration states, lower-cased as every filter value is ({@code notOpen} arrives as {@code notopen}). */
+    private static final Set<String> STATES = Set.of("open", "full", "closed", "notopen");
     private static final String CURSOR_SEPARATOR = "\n";
     private static final String BAD_CURSOR = "cursor does not belong to this list.";
 
@@ -159,7 +160,7 @@ public record DiscoverQuery(List<String> tokens, SortedSet<String> countries, So
     private static SortedSet<String> states(final Map<String, List<String>> params) {
         final SortedSet<String> states = values(params, "state");
         if (!STATES.containsAll(states)) {
-            throw new IllegalArgumentException("Unknown state; expected open, full or closed.");
+            throw new IllegalArgumentException("Unknown state; expected open, full, closed or notOpen.");
         }
         return states;
     }

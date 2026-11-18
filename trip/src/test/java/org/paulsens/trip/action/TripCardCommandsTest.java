@@ -1,6 +1,7 @@
 package org.paulsens.trip.action;
 
 import java.lang.reflect.Field;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
@@ -89,7 +90,8 @@ public class TripCardCommandsTest {
 
     private void phase(final Trip trip, final TripPageCommands.Phase phase) {
         Mockito.when(pages.registrationInfo(trip)).thenReturn(new TripPageCommands.RegistrationInfo(
-                phase, 0, null, null, List.of(), null, trip.getStartDateIso(), "/join", "Register"));
+                phase, false, phase == TripPageCommands.Phase.NOT_OPEN ? LocalDate.of(2027, 12, 1) : null, 0, null,
+                null, List.of(), null, trip.getStartDateIso(), "/join", "Register"));
     }
 
     @Test
@@ -172,6 +174,28 @@ public class TripCardCommandsTest {
 
         Assert.assertEquals(TripCardCommands.stateOf(TripPageCommands.Phase.OPEN), TripCardCommands.State.REGISTER);
         Assert.assertEquals(TripCardCommands.stateOf(TripPageCommands.Phase.CLOSED), TripCardCommands.State.CLOSED);
+    }
+
+    /** A window not open yet is its own chip, "Opens Dec 1" with a calendar, never Closed (owner, 2026-11-17). */
+    @Test
+    public void aWindowNotOpenYetReadsOpensAndItsDay() {
+        final Trip soon = trip("soon", 40);
+        final Trip open = trip("open", 50);
+        listed(soon, open);
+        phase(soon, TripPageCommands.Phase.NOT_OPEN);
+        phase(open, TripPageCommands.Phase.OPEN);
+
+        final TripCardCommands.Card card = cards.featured(instance, null);
+        Assert.assertSame(card.getTrip(), soon);
+        Assert.assertEquals(card.getState(), TripCardCommands.State.NOT_OPEN);
+        Assert.assertEquals(card.getStateLabel(), "Opens Dec 1");
+        Assert.assertEquals(card.getState().getStyle(), "notopen", "a style class with no underscore");
+        Assert.assertEquals(card.getState().getIcon(), "pi pi-calendar");
+        Assert.assertEquals(cards.rest(instance, null).getFirst().getStateLabel(), "Register",
+                "every other state says its own label");
+        Assert.assertEquals(TripCardCommands.stateOf(TripPageCommands.Phase.NOT_OPEN),
+                TripCardCommands.State.NOT_OPEN);
+        Assert.assertEquals(TripCardCommands.stateOf(TripPageCommands.Phase.FULL), TripCardCommands.State.FULL);
     }
 
     /** The staff-only pending chip asks twice per card (draw it? what does it say?): one uncached read answers both. */

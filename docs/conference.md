@@ -221,12 +221,17 @@ as everywhere.
 - **`trip-schedule`** (`TripScheduleType`, `WEB-INF/ptypes/tripSchedule.xhtml`): the trip's EVENT-type events not
   hidden from the agenda, in start order, grouped by day (`TripPageCommands.publicAgenda`). Flights, buses and
   lodging are logistics and never appear; participants and private notes are never part of it.
-- **`trip-registration`** (`TripRegistrationType`, `tripRegistration.xhtml`): open / full / closed (closed once the
-  event starts), places left (`regLimit` less the places taken: the count of CONFIRMED and PENDING registrations, or
-  for an external trip the count its editor typed, `Trip.getShownRegCount`, because its registrations live on
-  another site), the trip's priced questions' shown choices and prices (else its `estimatedPrice`), a countdown, and
-  the Register button (`TripPageCommands.registrationInfo`). A person's own price (age, codes) is checkout's, never
-  this block's.
+- **`trip-registration`** (`TripRegistrationType`, `tripRegistration.xhtml`): open / full / closed / not open yet
+  (closed once the event starts, or, with priced checkout on, once its registration window has closed; "Registration
+  opens Monday, December 1" before that window opens, `docs/checkout.md`), places left
+  (`regLimit` less the places taken: the count of CONFIRMED and PENDING registrations, or for an external trip the
+  count its editor typed, `Trip.getShownRegCount`, because its registrations live on another site), the trip's
+  priced questions' shown choices and prices (else its `estimatedPrice`), a countdown, and the Register button
+  (`TripPageCommands.registrationInfo`). The countdown follows the trip's START, not the phase:
+  `RegistrationInfo.started` is the calendar-day rule of every countdown (`TripCommands.notStartedBy`), so a block
+  not open yet or closed by the window still counts down, the whole first day counts down too (the phase itself
+  closes at the start instant, as checkout does), and a block shows no countdown only from the day after the trip's
+  first day. A person's own price (age, codes) is checkout's, never this block's.
 
 Both types have one optional "Event" property (blank: the page's own trip; a pick: show it on an org's home page);
 `TripPageCommands.tripFor` resolves explicit pick, then the page key, then the host page's `theTripId` (a section inside

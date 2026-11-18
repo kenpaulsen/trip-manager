@@ -133,10 +133,11 @@ which keeps a picture's fade-in (opacity is not movement) and swaps a gallery pi
 - **State:** the viewer's own registration first: Registered (with a check) once it is confirmed, Pending (a clock,
   a neutral chip) while it waits for approval, as the old listing's chip said (owner, 2026-11-17: showing a
   pending registration as Registered was a regression). Without one, the trip page's own
-  phase (`TripPageCommands.registrationInfo`): Closed once it has started, Full when every place is taken, else
-  Register. An external trip is Full by its typed count against its limit, inside that same rule
-  (`TripPageCommands.buildInfo`). A card and the page it opens cannot
-  disagree.
+  phase (`TripPageCommands.registrationInfo`): Closed once it has started, or (priced checkout on) from the moment
+  its registration window closes; "Opens Dec 1" (a calendar icon, neutral like Closed, `Card.stateLabel`) before
+  that window opens; Full when every place is taken, else Register.
+  An external trip is Full by its typed count against its limit, inside that same rule
+  (`TripPageCommands.buildInfo`). A card and the page it opens cannot disagree.
 - **Featured:** the first listed trip that has not started by the server's CALENDAR day
   (`TripCommands.notStartedBy`, the sidebar countdown's rule; never an instant cut, which on a UTC server ends a
   trip's "upcoming" the afternoon before for the Americas). Its "in N days" is filled in by the browser

@@ -51,6 +51,13 @@ full price, so the remainder is simply the person's trip balance, paid later fro
 shape a partial offline payment always had. `balanceDueOn` is shown to registrants (the totals panel, the result
 panel, the confirmation mail's status note) and never enforced.
 
+The trip's public registration PHASE (`TripPageCommands.registrationInfo`: the trip page's registration block, the
+trip cards, Discover's `registration`) reads the same window, in the validator's three-way order and at its edges
+(2026-11-17; it used to read open while the form refused): started is `CLOSED`; while checkout is on, before
+`opensAt` is `NOT_OPEN` ("Registration opens Monday, December 1" on the block, "Opens Dec 1" on a card, Discover's
+`notOpen` with `registrationOpens`, owner's decision), and from `closesAt` on is `CLOSED`. With checkout off
+nothing enforces a stored window, so the phase ignores it.
+
 `CheckoutValidator.problems` refuses: the window closed (`opensAt`/`closesAt`, or the trip started); a shown required
 question unanswered; a pick naming an unknown or withdrawn choice; a picked choice whose attestation was not ticked;
 a code that is unknown, inactive, expired, at its `maxUses`, or applies to nothing picked. `CheckoutCapacity.problems`

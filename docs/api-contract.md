@@ -436,14 +436,15 @@ is today or later). Everything else, including a trip that exists but is not lis
 | Parameter | Meaning |
 |---|---|
 | `q` | search words (first 5 used, ALL must match; case- and accent-insensitive, `&` read as "and") over title, destination, the code and name of EVERY country the trip visits and its English search names (`IsoCountries.aliasesOf`: "Turkey", "UK", "Ivory Coast", ...; the apps' on-phone search uses the same list), organization name, tag labels |
-| `country` `tag` `language` `kind` `org` `state` `month` | filters, each repeatable (`country=BA&country=PT`): values of one filter are alternatives, different filters must all hold. `country` = ISO code, matching a trip that visits that country at all (a trip in Portugal and France is found by either), `tag` = tag id, `language` = `English`/`Spanish`, `kind` = `PILGRIMAGE`/`CONFERENCE`, `org` = organization id, `state` = `open`/`full`/`closed`, `month` = departure month `yyyy-MM`. Case does not matter. An unknown value matches nothing (not an error), except `state` and a malformed `month` |
+| `country` `tag` `language` `kind` `org` `state` `month` | filters, each repeatable (`country=BA&country=PT`): values of one filter are alternatives, different filters must all hold. `country` = ISO code, matching a trip that visits that country at all (a trip in Portugal and France is found by either), `tag` = tag id, `language` = `English`/`Spanish`, `kind` = `PILGRIMAGE`/`CONFERENCE`, `org` = organization id, `state` = `open`/`full`/`closed`/`notOpen`, `month` = departure month `yyyy-MM`. Case does not matter. An unknown value matches nothing (not an error), except `state` and a malformed `month` |
 | `from` `to` | `yyyy-MM-dd`; keeps trips whose days overlap the range, edges included |
 | `sort` | `departure` (default, soonest first), `-departure`, `title`, `organization`, `country`, `language`; every order then runs by departure. `country` sorts a trip by the alphabetically first of its countries' English names, whatever order it lists them in; a trip with no country is last |
 | `limit` | page size, default 30, at most 100 (a larger value is served as 100) |
 | `cursor` | the previous page's `nextCursor`, opaque, valid only with the same `sort` |
 
 `DiscoverTrip` = `{id, title, startDate, endDate, destination?, countries[], tags[], tagLabels[], kind, language,
-priceText?, pictures[], orgId, orgName, orgLogoUrl?, detailsUrl, registration, registersOnWeb}`:
+priceText?, pictures[], orgId, orgName, orgAbbreviation?, orgLogoUrl?, detailsUrl, registration, registrationOpens?,
+registersOnWeb}`:
 
 - `title` is the short title. `startDate`/`endDate` are LocalDates (`2026-12-17`), not the LocalDateTime
   `TripDto` sends.
@@ -454,9 +455,17 @@ priceText?, pictures[], orgId, orgName, orgLogoUrl?, detailsUrl, registration, r
 - `priceText` is the organizer's free text ("$3,290 from Portland"): show it, never compute with it.
 - `pictures` = `[{key, url, url480, url960, alt?, width, height, placeholder?}]`, the `TripDto.pictures` shape,
   cover first, every URL absolute; `[]` for a trip with none.
+- `orgAbbreviation` (2026-11-17) is the organization's short label ("CFPW"), trimmed; absent when the
+  organization set none or a blank one. Absent means: build the organization chip as before, from `orgName`.
 - `orgLogoUrl` only for a logo the organization uploaded here (never a typed URL); absent otherwise.
 - `detailsUrl` is the trip's page on its organization's own site (as `TripDto.detailsUrl`).
-- `registration` is `open`, `full` or `closed` (started or over). No seat counts, no roster, ever.
+- `registration` is `open`, `full`, `closed` or `notOpen` (2026-11-17), the same three-way refusal and edges as
+  the registration form: `closed` = started or over, OR (with priced checkout on) from the moment the trip's
+  registration window closes; `notOpen` = (with priced checkout on) the window has not opened yet and the trip has
+  not started. Before 2026-11-17 a trip outside its window read `open`. A client treats a value it does not know
+  as `open`. No seat counts, no roster, ever.
+- `registrationOpens` (`yyyy-MM-dd`) is the day a `notOpen` trip's registration opens (the window's opening
+  day as stored), present only with `notOpen`. Say it as "Registration opens December 1" / chip "Opens Dec 1".
 - `registersOnWeb` true = registration happens on another website: hand the person to `detailsUrl` instead of
   registering in the app.
 
@@ -485,7 +494,7 @@ network address exceeds the limit (default 120 requests a minute, shared by the 
    "pictures":[{"key":"tripPictures/9a04.../cusco-plaza","url":"https://.../cusco-plaza-1920.jpg",
      "url480":"https://.../cusco-plaza-480.jpg","url960":"https://.../cusco-plaza-960.jpg",
      "alt":"Cusco's main square","width":1920,"height":1280,"placeholder":"#7a6a58"}],
-   "orgId":"a17c3b52-2e84-4d0b-9c66-08d94f2e6b73","orgName":"Acme Inc",
+   "orgId":"a17c3b52-2e84-4d0b-9c66-08d94f2e6b73","orgName":"Acme Inc","orgAbbreviation":"Acme",
    "detailsUrl":"https://acme.unitetrip.com/trip/tripPage.jsf?trip=9a04e6da-3d3d-4f93-a35f-54fd99925503",
    "registration":"open","registersOnWeb":false}],
  "total":7,"nextCursor":"ZGVwYXJ0dXJlCgoyMDI3LTAxLTAxCjlhMDRlNmRh...",

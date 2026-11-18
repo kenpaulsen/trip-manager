@@ -8,6 +8,7 @@ import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import org.mockito.ArgumentMatchers;
@@ -64,8 +65,8 @@ public class DiscoverTripDtoAllowListTest {
                 List.of("countries", "tags", "languages", "kinds", "organizations", "months"));
         allowed.put(DiscoverFacetDto.class, List.of("value", "label", "count", "logoUrl"));
         allowed.put(DiscoverTripDto.class, List.of("id", "title", "startDate", "endDate", "destination", "countries",
-                "tags", "tagLabels", "kind", "language", "priceText", "pictures", "orgId", "orgName", "orgLogoUrl",
-                "detailsUrl", "registration", "registersOnWeb"));
+                "tags", "tagLabels", "kind", "language", "priceText", "pictures", "orgId", "orgName",
+                "orgAbbreviation", "orgLogoUrl", "detailsUrl", "registration", "registrationOpens", "registersOnWeb"));
         allowed.put(TripPictureDto.class,
                 List.of("key", "url", "url480", "url960", "alt", "width", "height", "placeholder"));
         return allowed;
@@ -115,7 +116,7 @@ public class DiscoverTripDtoAllowListTest {
         final Organization org = new Organization();
         org.setId(Organization.Id.from(ORG_ID));
         org.setName("Holy Redeemer Parish");
-        org.setAbbreviation("HRP");
+        org.setAbbreviation("  HRP ");
         org.setContactEmail(SECRET + "@example.com");
         org.setAdminIds(List.of(Person.Id.from(SECRET + "-admin")));
         org.setDefaultMailDomain(SECRET + ".example");
@@ -180,7 +181,7 @@ public class DiscoverTripDtoAllowListTest {
         final TripPageCommands pages = Mockito.mock(TripPageCommands.class);
         // The registration block knows the counts; only its phase may cross.
         Mockito.when(pages.registrationInfo(ArgumentMatchers.any())).thenReturn(new TripPageCommands.RegistrationInfo(
-                TripPageCommands.Phase.FULL, 454_545, 464_646, 474_747,
+                TripPageCommands.Phase.FULL, false, null, 454_545, 464_646, 474_747,
                 List.of(new TripPageCommands.PriceGroup(SECRET + " priced question", List.of(SECRET + " choice"))),
                 SECRET + " fallback", "2026-12-17", "/trip/joinTrip.jsf?trip=" + SECRET, SECRET + " label"));
         return new DiscoverTripMapper(TripTags.parse("Pilgrimage, Retreat, Tour"), pictures, brand, photos, pages,
@@ -228,6 +229,7 @@ public class DiscoverTripDtoAllowListTest {
         Assert.assertEquals(dto.priceText(), "$3,290 from Portland");
         Assert.assertEquals(dto.orgId(), ORG_ID);
         Assert.assertEquals(dto.orgName(), "Holy Redeemer Parish");
+        Assert.assertEquals(dto.orgAbbreviation(), "HRP", "the organization's short label, trimmed");
         Assert.assertEquals(dto.orgLogoUrl(), "/branding-photos/org/x/branding/logo-1.png");
         Assert.assertEquals(dto.detailsUrl(), "/trip/tripPage.jsf?trip=" + trip.getId());
         Assert.assertEquals(dto.registration(), "full", "the phase alone");
@@ -248,15 +250,17 @@ public class DiscoverTripDtoAllowListTest {
         trip.setEstimatedPrice(" ");
 
         final DiscoverTripDto dto = DiscoverTripMapper.toDto(trip, org(), List.of(), List.of(), " ", "/page",
-                TripPageCommands.Phase.OPEN);
+                TripPageCommands.Phase.OPEN, null);
 
         Assert.assertNull(dto.destination());
         Assert.assertEquals(dto.countries(), List.of(), "no country is an empty list, never null");
         Assert.assertNull(dto.priceText());
         Assert.assertNull(dto.orgLogoUrl());
+        Assert.assertEquals(dto.orgAbbreviation(), "HRP");
         Assert.assertEquals(dto.language(), "English");
         Assert.assertEquals(dto.kind(), "PILGRIMAGE");
         Assert.assertEquals(dto.registration(), "open");
+        Assert.assertNull(dto.registrationOpens());
         Assert.assertFalse(dto.registersOnWeb());
         Assert.assertEquals(dto.pictures(), List.of(), "empty, never null: a client can tell none from not sent");
         final String json = json(dto);
@@ -271,9 +275,52 @@ public class DiscoverTripDtoAllowListTest {
         undated.setEndDate(null);
         undated.setOrgId(ORG_ID);
         final DiscoverTripDto noDates = DiscoverTripMapper.toDto(undated, org(), List.of(), List.of(), null, "/page",
-                TripPageCommands.Phase.CLOSED);
+                TripPageCommands.Phase.CLOSED, null);
         Assert.assertNull(noDates.startDate());
         Assert.assertNull(noDates.endDate());
+    }
+
+    /**
+     * A window not open yet crosses as {@code notOpen} plus the day it opens (yyyy-MM-dd); every other phase sends
+     * no {@code registrationOpens}, even when a day is handed in.
+     */
+    @Test
+    public void aWindowNotOpenYetSendsNotOpenAndItsDay() throws Exception {
+        final Trip trip = Trip.builder().title("Opens Later").build();
+        trip.setOrgId(ORG_ID);
+        final LocalDate day = LocalDate.of(2027, 12, 1);
+
+        final DiscoverTripDto soon = DiscoverTripMapper.toDto(trip, org(), List.of(), List.of(), null, "/page",
+                TripPageCommands.Phase.NOT_OPEN, day);
+        Assert.assertEquals(soon.registration(), "notOpen");
+        Assert.assertEquals(soon.registrationOpens(), day);
+        final String json = json(soon);
+        Assert.assertTrue(json.contains("\"registration\":\"notOpen\""), json);
+        Assert.assertTrue(json.contains("\"registrationOpens\":\"2027-12-01\""), json);
+
+        for (final TripPageCommands.Phase phase : List.of(TripPageCommands.Phase.OPEN, TripPageCommands.Phase.FULL,
+                TripPageCommands.Phase.CLOSED)) {
+            final DiscoverTripDto other = DiscoverTripMapper.toDto(trip, org(), List.of(), List.of(), null, "/page",
+                    phase, day);
+            Assert.assertEquals(other.registration(), phase.name().toLowerCase(Locale.ROOT));
+            Assert.assertNull(other.registrationOpens(), phase.name());
+            Assert.assertFalse(json(other).contains("registrationOpens"), phase.name());
+        }
+    }
+
+    /** An organization with no abbreviation, or a blank one, sends none: absent from the JSON, never "" or null. */
+    @Test
+    public void aBlankAbbreviationIsAbsent() throws Exception {
+        final Trip trip = Trip.builder().title("Day Trip").build();
+        trip.setOrgId(ORG_ID);
+        for (final String abbreviation : Arrays.asList(null, "", "   ")) {
+            final Organization org = org();
+            org.setAbbreviation(abbreviation);
+            final DiscoverTripDto dto = DiscoverTripMapper.toDto(trip, org, List.of(), List.of(), null, "/page",
+                    TripPageCommands.Phase.OPEN, null);
+            Assert.assertNull(dto.orgAbbreviation(), "abbreviation [" + abbreviation + "]");
+            Assert.assertFalse(json(dto).contains("orgAbbreviation"), json(dto));
+        }
     }
 
     /**
@@ -319,7 +366,9 @@ public class DiscoverTripDtoAllowListTest {
         Assert.assertEquals(new DiscoverTripDto(absolute.id(), absolute.title(), absolute.startDate(),
                 absolute.endDate(), absolute.destination(), absolute.countries(), absolute.tags(), absolute.tagLabels(),
                 absolute.kind(), absolute.language(), absolute.priceText(), relative.pictures(), absolute.orgId(),
-                absolute.orgName(), relative.orgLogoUrl(), relative.detailsUrl(), absolute.registration(),
-                absolute.registersOnWeb()), relative, "only the URLs differ");
+                absolute.orgName(), absolute.orgAbbreviation(), relative.orgLogoUrl(), relative.detailsUrl(),
+                absolute.registration(), absolute.registrationOpens(), absolute.registersOnWeb()), relative,
+                "only the URLs differ");
+        Assert.assertEquals(absolute.orgAbbreviation(), "HRP", "not a URL: carried as it is");
     }
 }

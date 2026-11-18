@@ -55,10 +55,12 @@ holding a sentinel in every other field to prove none comes out.
 | `language` | `Trip.language` (English when unset) | the home page's language sections |
 | `pictures` | cover and gallery, CDN URLs | the trip card and the trip page gallery |
 | `orgName` | `Organization.name` | the trip card's organization line; the org's site |
+| `orgAbbreviation` | `Organization.abbreviation`, trimmed; absent when blank | see below |
 | `orgId` | `Organization.id` | the org's public media and logo URLs (`org/{id}/...`) |
 | `orgLogoUrl` | the logo, ONLY when the org uploaded it here | the org site's header |
 | `detailsUrl` | the trip page on the org's own site | it is that public page's address |
-| `registration` | `open`, `full` or `closed` | the card's Full / Closed chip, the registration block |
+| `registration` | `open`, `full`, `closed` or `notOpen` (a priced checkout's window not open yet; `closed` also after it closes) | the card's Full / Closed / Opens chip, the registration block |
+| `registrationOpens` | the day a `notOpen` trip's window opens (`CheckoutConfig.opensAt`, day only), absent otherwise | the registration block ("Registration opens Monday, December 1") and the card chip ("Opens Dec 1") |
 | `registersOnWeb` | whether the trip registers on another site | the card links there instead of here |
 | `countries` | `Trip.countries`, ISO codes | see below |
 | `tags`, `tagLabels` | the trip's tags still on the platform list | see below |
@@ -75,12 +77,24 @@ pointed out that no page shows them.
   to be searched on, and #155 lists them in the public shape. Until Discover they reached signed-in callers
   only (`TripDto.tags`).
 
+A third, **`orgAbbreviation`** (the organization's short label, "CFPW"), crosses on the **owner's approval,
+2026-11-17**, given knowing what it widens: until now only SIGNED-IN people saw it, though those of any
+organization. No anonymous page prints it (the website shows it in the shared site's Org chip in the top bar
+and on the admin pages, both signed in); across organizations it reached every signed-in caller through
+`GET /api/orgs/directory` (the apps' "choose your organization" list) and `GET /api/orgs/{orgId}/site`. It was
+added so the apps' public organization chip matches the signed-in one. It is the organization's own choice of
+a name for itself, typed on its Profile tab next to the name Discover already sends, so it says nothing the
+name does not.
+
 Deliberately absent, each for a reason:
 
 - `people`, staff ids and names (`director*`, `facilitator*`, `localGuide`): Discover never says who travels.
 - `regLimit`, seats taken, seats left, `nonHostedRegNumber`: only the PHASE crosses. `full` does reveal that a
   limited trip reached its limit, exactly as the public card's chip does.
-- `regOptions`, `paymentConfig`, `checkout`, `waivers`, `page`: registration and money belong to members.
+- `regOptions`, `paymentConfig`, `checkout`, `waivers`, `page`: registration and money belong to members. Of the
+  checkout policy only two facts cross: the phase its window produces, and for a window not open yet its opening
+  DAY (`registrationOpens`, owner's decision 2026-11-17), which the trip's own page shows anyone ("Registration
+  opens Monday, December 1"). Never the closing time, the time of day, prices, bands or codes.
 - `flyerUrl`, `nonHostedTripUrl`: typed by a manager; a phone must not call a host one organization chose on
   behalf of people who never chose that organization. The same reason `orgLogoUrl` is uploaded-only
   (`BrandingPhotos.isUploadOf`, the trip cards' rule). `registersOnWeb` is the one fact taken from the URL.

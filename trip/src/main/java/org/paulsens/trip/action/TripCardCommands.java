@@ -62,8 +62,13 @@ public class TripCardCommands {
         PENDING("Pending"),
         /** Every place is taken. */
         FULL("Full"),
-        /** Under way or over. */
-        CLOSED("Closed");
+        /** Under way or over, or priced checkout's registration window has closed (as {@code Phase.CLOSED}). */
+        CLOSED("Closed"),
+        /**
+         * Priced checkout's registration window has not opened yet: the chip reads "Opens Dec 1"
+         * ({@link Card#getStateLabel}), this label being only its first word.
+         */
+        NOT_OPEN("Opens");
 
         private final String label;
 
@@ -75,9 +80,9 @@ public class TripCardCommands {
             return label;
         }
 
-        /** The lower-case name, for the chip's style class. */
+        /** The lower-case name without its underscore, for the chip's style class ({@code tripChip-notopen}). */
         public String getStyle() {
-            return name().toLowerCase(Locale.ROOT);
+            return name().replace("_", "").toLowerCase(Locale.ROOT);
         }
 
         /**
@@ -89,6 +94,7 @@ public class TripCardCommands {
             return switch (this) {
                 case REGISTERED -> "pi pi-check";
                 case PENDING -> "pi pi-clock";
+                case NOT_OPEN -> "pi pi-calendar";
                 case REGISTER, FULL, CLOSED -> "";
             };
         }
@@ -102,6 +108,8 @@ public class TripCardCommands {
         /** Where the whole card links. */
         String url;
         State state;
+        /** What the state chip says: the state's label, or "Opens Dec 1" for a window not open yet. */
+        String stateLabel;
         /** The cover picture, or null when the trip has none. */
         TripPicture cover;
         /** The cover's default {@code src} (the middle rendition); null without a cover. */
@@ -200,7 +208,8 @@ public class TripCardCommands {
         final Registration.Status status = viewer == null ? Registration.Status.NOT_REGISTERED
                 : RegistrationCommands.statusOf(registrations.get().getRegistration(trip.getId(), viewer));
         final boolean registered = status != Registration.Status.NOT_REGISTERED;
-        return new Card(trip, trips.get().publicTripUrlFor(trip, registered), stateOf(trip, status), cover,
+        final State state = stateOf(trip, status);
+        return new Card(trip, trips.get().publicTripUrlFor(trip, registered), state, labelOf(state, trip), cover,
                 cover == null ? null : pics.url(cover, CARD_MAX_WIDTH),
                 cover == null ? null : pics.srcsetUpTo(cover, CARD_MAX_WIDTH),
                 cover == null ? fallbackOf(trip) : null, orgName, featured);
@@ -219,10 +228,19 @@ public class TripCardCommands {
 
     /** The card's state IS the trip page's phase (an external trip's typed count is part of that rule). */
     static State stateOf(final TripPageCommands.Phase phase) {
-        if (phase == TripPageCommands.Phase.CLOSED) {
-            return State.CLOSED;
-        }
-        return phase == TripPageCommands.Phase.FULL ? State.FULL : State.REGISTER;
+        return switch (phase) {
+            case CLOSED -> State.CLOSED;
+            case NOT_OPEN -> State.NOT_OPEN;
+            case FULL -> State.FULL;
+            case OPEN -> State.REGISTER;
+        };
+    }
+
+    /** The chip's words: the state's label, or for a window not open yet its day, "Opens Dec 1". */
+    private String labelOf(final State state, final Trip trip) {
+        return state == State.NOT_OPEN
+                ? state.getLabel() + " " + pages.get().registrationInfo(trip).opensDate()
+                : state.getLabel();
     }
 
     /**

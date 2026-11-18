@@ -64,7 +64,7 @@ public class DiscoverIndexTest {
             throw new IllegalStateException("this trip cannot be mapped");
         }
         return DiscoverTripMapper.toDto(trip, org, List.of(), List.of(), null,
-                "/trip/tripPage.jsf?trip=" + trip.getId(), TripPageCommands.Phase.OPEN);
+                "/trip/tripPage.jsf?trip=" + trip.getId(), TripPageCommands.Phase.OPEN, null);
     }
 
     private static Organization org(final String id, final String name, final Boolean allowShared) {

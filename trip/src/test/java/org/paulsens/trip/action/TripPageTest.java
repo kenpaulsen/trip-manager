@@ -249,6 +249,116 @@ public class TripPageTest {
         assertNull(views.registrationInfo(null));
     }
 
+    /**
+     * Priced checkout's registration window shapes the phase on both sides, at the edges CheckoutValidator uses:
+     * NOT_OPEN (with its day) until the opening instant, open from it, closed from the closing instant itself.
+     * Discover's {@code registration} and the trip cards read this one phase, so they say what the form will do.
+     */
+    @Test
+    public void theCheckoutWindowClosesThePhaseOutsideIt() {
+        final LocalDateTime opens = NOW.plusDays(10);
+        final LocalDateTime closes = NOW.plusDays(20);
+        final Trip trip = Trip.builder().title("Windowed").startDate(NOW.plusDays(40)).endDate(NOW.plusDays(45))
+                .build();
+        trip.getCheckout().setOn(true);
+        trip.getCheckout().setOpensAt(opens);
+        trip.getCheckout().setClosesAt(closes);
+
+        assertEquals(phaseAt(trip, opens.minusMinutes(1)), TripPageCommands.Phase.NOT_OPEN, "not open yet");
+        assertEquals(phaseAt(trip, NOW), TripPageCommands.Phase.NOT_OPEN);
+        final TripPageCommands.RegistrationInfo notOpen = infoAt(trip, opens.minusMinutes(1));
+        assertEquals(notOpen.opensOn(), opens.toLocalDate(), "the opening DAY, as stored");
+        assertEquals(notOpen.opensDay(), "Wednesday, January 20", "the block's words: weekday, month, day");
+        assertEquals(notOpen.opensDate(), "Jan 20", "the card chip's words");
+        assertEquals(phaseAt(trip, opens), TripPageCommands.Phase.OPEN, "open at the opening instant");
+        assertNull(infoAt(trip, opens).opensOn(), "no opening day once it is open");
+        assertNull(infoAt(trip, opens).opensDay());
+        assertEquals(phaseAt(trip, closes.minusMinutes(1)), TripPageCommands.Phase.OPEN, "still open");
+        assertEquals(phaseAt(trip, closes), TripPageCommands.Phase.CLOSED, "closed at the closing instant");
+        assertEquals(phaseAt(trip, closes.plusDays(1)), TripPageCommands.Phase.CLOSED, "closed after it");
+        assertNull(infoAt(trip, closes).opensOn(), "a closed window has no opening day");
+
+        trip.setRegLimit(0);
+        assertEquals(phaseAt(trip, opens.minusMinutes(1)), TripPageCommands.Phase.NOT_OPEN,
+                "before the window it is not open, not full: nobody may register yet");
+        assertEquals(phaseAt(trip, closes), TripPageCommands.Phase.CLOSED, "after it, closed, not full");
+        assertEquals(phaseAt(trip, opens), TripPageCommands.Phase.FULL);
+        trip.setRegLimit(null);
+
+        trip.getCheckout().setOpensAt(null);
+        assertEquals(phaseAt(trip, NOW), TripPageCommands.Phase.OPEN, "no opening time: open now");
+        trip.getCheckout().setClosesAt(null);
+        trip.getCheckout().setOpensAt(opens);
+        assertEquals(phaseAt(trip, trip.getStartDate().minusMinutes(1)), TripPageCommands.Phase.OPEN,
+                "no closing time: open until the trip starts");
+        assertEquals(phaseAt(trip, trip.getStartDate()), TripPageCommands.Phase.CLOSED, "the start still closes");
+
+        // A window opening only after the trip starts: not open until the start, then closed, as checkout says.
+        trip.getCheckout().setOpensAt(trip.getStartDate().plusDays(1));
+        assertEquals(phaseAt(trip, trip.getStartDate().minusMinutes(1)), TripPageCommands.Phase.NOT_OPEN);
+        assertEquals(phaseAt(trip, trip.getStartDate()), TripPageCommands.Phase.CLOSED, "started wins");
+    }
+
+    /**
+     * The block's countdown follows the trip's START, never the phase: a trip whose checkout window has not opened,
+     * or has closed, still counts down to its first day. "Started" is the calendar-day rule of every countdown
+     * ({@code TripCommands.notStartedBy}), not the phase's instant: the whole first day still counts down.
+     */
+    @Test
+    public void aWindowedTripThatHasNotStartedStillCountsDown() {
+        final Trip trip = Trip.builder().title("Counting").startDate(NOW.plusDays(40)).endDate(NOW.plusDays(45))
+                .build();
+        trip.getCheckout().setOn(true);
+        trip.getCheckout().setOpensAt(NOW.plusDays(10));
+        trip.getCheckout().setClosesAt(NOW.plusDays(20));
+
+        final TripPageCommands.RegistrationInfo notOpen = infoAt(trip, NOW);
+        assertEquals(notOpen.phase(), TripPageCommands.Phase.NOT_OPEN);
+        assertFalse(notOpen.started(), "not open yet, not started: the countdown stays");
+        final TripPageCommands.RegistrationInfo open = infoAt(trip, NOW.plusDays(15));
+        assertEquals(open.phase(), TripPageCommands.Phase.OPEN);
+        assertFalse(open.started());
+        final TripPageCommands.RegistrationInfo shut = infoAt(trip, NOW.plusDays(30));
+        assertEquals(shut.phase(), TripPageCommands.Phase.CLOSED);
+        assertFalse(shut.started(), "the window closed; the trip is still ahead");
+        assertFalse(infoAt(trip, trip.getStartDate().minusMinutes(1)).started());
+        final TripPageCommands.RegistrationInfo firstDay = infoAt(trip, trip.getStartDate());
+        assertEquals(firstDay.phase(), TripPageCommands.Phase.CLOSED, "the phase closes at the start instant");
+        assertFalse(firstDay.started(), "but the first day is still a countdown day (calendar-day rule)");
+        assertFalse(infoAt(trip, trip.getStartDate().toLocalDate().atTime(23, 59)).started());
+        final TripPageCommands.RegistrationInfo dayAfter = infoAt(trip, trip.getStartDate().toLocalDate().plusDays(1)
+                .atStartOfDay());
+        assertTrue(dayAfter.started(), "started from the day after its first day");
+        assertEquals(dayAfter.phase(), TripPageCommands.Phase.CLOSED);
+        final Trip undated = Trip.builder().title("Undated").build();
+        undated.setStartDate(null);
+        assertFalse(infoAt(undated, NOW).started(), "no start date: never started");
+    }
+
+    private static TripPageCommands.RegistrationInfo infoAt(final Trip trip, final LocalDateTime now) {
+        return new TripPageCommands(() -> null, () -> now).registrationInfo(trip);
+    }
+
+    /** The window is checkout's policy: with checkout off, or for an external trip, nothing enforces it. */
+    @Test
+    public void aWindowNothingEnforcesLeavesThePhaseAlone() {
+        final Trip trip = Trip.builder().title("Off").startDate(NOW.plusDays(40)).endDate(NOW.plusDays(45)).build();
+        trip.getCheckout().setOpensAt(NOW.plusDays(10));
+        trip.getCheckout().setClosesAt(NOW.plusDays(20));
+        assertEquals(phaseAt(trip, NOW), TripPageCommands.Phase.OPEN, "checkout off: the free form ignores it");
+        assertEquals(phaseAt(trip, NOW.plusDays(30)), TripPageCommands.Phase.OPEN);
+
+        final Trip external = Trip.builder().title("Elsewhere").nonHostedTripUrl("https://example.com/reg")
+                .startDate(NOW.plusDays(40)).endDate(NOW.plusDays(45)).build();
+        external.getCheckout().setOn(true);
+        external.getCheckout().setClosesAt(NOW.minusDays(1));
+        assertEquals(phaseAt(external, NOW), TripPageCommands.Phase.OPEN, "registers on another site");
+    }
+
+    private static TripPageCommands.Phase phaseAt(final Trip trip, final LocalDateTime now) {
+        return infoAt(trip, now).phase();
+    }
+
     @Test
     public void anUnpricedTripFallsBackToItsEstimatedPrice() {
         final Trip trip = Trip.builder().title("Plain").estimatedPrice("$95").build();
