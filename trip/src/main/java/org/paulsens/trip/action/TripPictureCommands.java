@@ -205,8 +205,7 @@ public class TripPictureCommands extends PhotoUploadBean {
             removeAll(picture);
             return appended.refusal();
         }
-        return PictureResult.ok(picture, appended.cover() ? "Cover picture added." : "Picture added.",
-                prepared.warning());
+        return PictureResult.ok(picture, addedMessage(1, appended.cover()), prepared.warning());
     }
 
     /**
@@ -220,13 +219,21 @@ public class TripPictureCommands extends PhotoUploadBean {
             this(added, lowResolution, refusal, false);
         }
 
-        /** What the manager is told, matching a single upload's "Cover picture added." */
+        /** What the manager is told: the same words a single upload uses ({@link #addedMessage(int, boolean)}). */
         public String addedMessage() {
-            if (added == 1) {
-                return cover ? "Cover picture added." : "Picture added.";
-            }
-            return added + " pictures added" + (cover ? "; the first is the cover." : ".");
+            return TripPictureCommands.addedMessage(added, cover);
         }
+    }
+
+    /**
+     * What a manager is told when pictures were added, however they arrived (one upload, or a batch from the
+     * albums): one place for the words, so the same action never reads two ways.
+     */
+    static String addedMessage(final int added, final boolean cover) {
+        if (added == 1) {
+            return cover ? "Cover picture added." : "Picture added.";
+        }
+        return added + " pictures added" + (cover ? "; the first is the cover." : ".");
     }
 
     /**

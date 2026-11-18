@@ -75,7 +75,7 @@ public class SharedSiteOrgChoicesTest {
     public void anOptedOutOrgStaysPickableButSaysSo() throws Exception {
         final Organization acme = DAO.getInstance()
                 .getOrganization(Organization.Id.from(FakeData.ACME_ORG_ID), Cached.NO).orElseThrow();
-        acme.setAllowSharedSites(Boolean.FALSE);
+        acme.setSharedSitesAllowed(false);
         Assert.assertTrue(DAO.getInstance().saveOrganization(acme));
         try {
             final String label = SharedSiteOrgChoices.choices().stream()
@@ -86,7 +86,7 @@ public class SharedSiteOrgChoicesTest {
         } finally {
             final Organization restore = DAO.getInstance()
                     .getOrganization(Organization.Id.from(FakeData.ACME_ORG_ID), Cached.NO).orElseThrow();
-            restore.setAllowSharedSites(null);
+            restore.setSharedSitesAllowed(true);
             Assert.assertTrue(DAO.getInstance().saveOrganization(restore));
         }
         Assert.assertTrue(SharedSiteOrgChoices.choices().stream()

@@ -30,12 +30,15 @@ public class MediaResourceTest extends ResourceTestSupport {
     private static final Person.Id USER = Person.Id.from("media-user");
 
     private MediaCommands media;
+    private org.paulsens.trip.action.TripCommands trips;
     private MediaResource resource;
 
     @BeforeMethod
     public void bindBeans() {
         media = bindMock(MediaCommands.class);
         bindMock(PersonCommands.class);
+        // The album gate asks who may READ the trip (canReadTrip), which asks who manages someone on it.
+        trips = bindMock(org.paulsens.trip.action.TripCommands.class);
         resource = resource(new MediaResource());
     }
 
@@ -212,6 +215,128 @@ public class MediaResourceTest extends ResourceTestSupport {
         trip.setOpenToPublic(false);
         Assert.assertTrue(org.paulsens.trip.dynamo.DAO.getInstance().saveTrip(trip));
         return trip;
+    }
+
+    /**
+     * On the product's own host the API lists every organization, so "publicly listed on this site" is true of
+     * any open trip. The album of another organization's open trip is browsable there only where the trip may
+     * cross organizations at all (ListingScope.albumAcrossOrgs, the consent half of the open listing's rule):
+     * not when its organization turned Shared sites off, unless the caller belongs to that organization.
+     */
+    @Test
+    public void onTheProductHostAnOptedOutOrgsAlbumIsNotBrowsableByStrangers() throws Exception {
+        signedInAs(USER);
+        final org.paulsens.trip.model.Organization quiet = org.paulsens.trip.model.Organization.builder()
+                .name("Quiet album org " + System.nanoTime()).build();
+        quiet.setSharedSitesAllowed(false);
+        Assert.assertTrue(org.paulsens.trip.dynamo.DAO.getInstance().saveOrganization(quiet));
+        final org.paulsens.trip.model.Organization open = org.paulsens.trip.model.Organization.builder()
+                .name("Open album org " + System.nanoTime()).build();
+        Assert.assertTrue(org.paulsens.trip.dynamo.DAO.getInstance().saveOrganization(open));
+        final String quietSlot = "tripChat-" + publicAlbumTrip(quiet.getId().getValue()).getId();
+        final String openSlot = "tripChat-" + publicAlbumTrip(open.getId().getValue()).getId();
+        final org.paulsens.trip.site.SiteContext product =
+                org.paulsens.trip.site.SiteContext.marketing("unitetrip.com").forApiClient();
+
+        final Person stranger = new Person();
+        stranger.setId(USER);
+        Mockito.when(bean(PersonCommands.class).getPerson(USER)).thenReturn(stranger);
+        Assert.assertFalse(onSite(product, () -> resource.mayBrowseSlot(quietSlot)),
+                "a stranger must not browse the album of an organization that keeps off shared surfaces");
+        Assert.assertTrue(onSite(product, () -> resource.mayBrowseSlot(openSlot)),
+                "an organization that allows it: its open trip's album is public there too");
+
+        final Person member = new Person();
+        member.setId(USER);
+        member.setOrgIds(List.of(quiet.getId()));
+        Mockito.when(bean(PersonCommands.class).getPerson(USER)).thenReturn(member);
+        Assert.assertTrue(onSite(product, () -> resource(new MediaResource()).mayBrowseSlot(quietSlot)),
+                "the organization's own member still browses it");
+    }
+
+    /**
+     * The album is decided on the organization's consent, not on the trip's dates: an open trip that ended
+     * yesterday keeps its album on the product host (it is when the album fills, and the website shows it too),
+     * where Discover's "not ended" clause once closed it to everyone off the roster.
+     */
+    @Test
+    public void onTheProductHostAnEndedOpenTripsAlbumStaysBrowsable() throws Exception {
+        signedInAs(USER);
+        final org.paulsens.trip.model.Organization open = org.paulsens.trip.model.Organization.builder()
+                .name("Ended album org " + System.nanoTime()).build();
+        Assert.assertTrue(org.paulsens.trip.dynamo.DAO.getInstance().saveOrganization(open));
+        final org.paulsens.trip.model.Organization quiet = org.paulsens.trip.model.Organization.builder()
+                .name("Ended quiet org " + System.nanoTime()).build();
+        quiet.setSharedSitesAllowed(false);
+        Assert.assertTrue(org.paulsens.trip.dynamo.DAO.getInstance().saveOrganization(quiet));
+        final org.paulsens.trip.model.Trip ended = endedPublicAlbumTrip(open.getId().getValue());
+        final org.paulsens.trip.model.Trip endedQuiet = endedPublicAlbumTrip(quiet.getId().getValue());
+        final org.paulsens.trip.site.SiteContext product =
+                org.paulsens.trip.site.SiteContext.marketing("unitetrip.com").forApiClient();
+        final Person stranger = new Person();
+        stranger.setId(USER);
+        Mockito.when(bean(PersonCommands.class).getPerson(USER)).thenReturn(stranger);
+
+        Assert.assertFalse(org.paulsens.trip.site.ListingScope.discoverableNow(ended), "ended: off the listing");
+        Assert.assertTrue(onSite(product, () -> resource.mayBrowseSlot("tripChat-" + ended.getId())),
+                "an ended open trip's album stays browsable where its organization allows shared surfaces");
+        Assert.assertFalse(onSite(product, () -> resource.mayBrowseSlot("tripChat-" + endedQuiet.getId())),
+                "ending a trip must not open the album of an organization that keeps off them");
+    }
+
+    /**
+     * The open listing's own-right exception holds for the album too: someone who may READ the trip (here a
+     * parent managing a traveler on its roster, with no seat and no membership of their own) browses its album
+     * even where its organization turned Shared sites off.
+     */
+    @Test
+    public void whoeverMayReadTheTripBrowsesItsAlbumOnTheProductHost() throws Exception {
+        signedInAs(USER);
+        final org.paulsens.trip.model.Organization quiet = org.paulsens.trip.model.Organization.builder()
+                .name("Managed album org " + System.nanoTime()).build();
+        quiet.setSharedSitesAllowed(false);
+        Assert.assertTrue(org.paulsens.trip.dynamo.DAO.getInstance().saveOrganization(quiet));
+        final org.paulsens.trip.model.Trip trip = publicAlbumTrip(quiet.getId().getValue());
+        final String slot = "tripChat-" + trip.getId();
+        final org.paulsens.trip.site.SiteContext product =
+                org.paulsens.trip.site.SiteContext.marketing("unitetrip.com").forApiClient();
+        final Person parent = new Person();
+        parent.setId(USER);
+        Mockito.when(bean(PersonCommands.class).getPerson(USER)).thenReturn(parent);
+
+        Assert.assertFalse(onSite(product, () -> resource.mayBrowseSlot(slot)), "a stranger: refused");
+
+        Mockito.when(trips.managesSomeoneOn(Mockito.any(), Mockito.eq(USER))).thenReturn(true);
+        Assert.assertTrue(onSite(product, () -> resource(new MediaResource()).mayBrowseSlot(slot)),
+                "managing a traveler on the trip is a right to read it, and so its album");
+    }
+
+    private static org.paulsens.trip.model.Trip publicAlbumTrip(final String orgId) throws java.io.IOException {
+        final org.paulsens.trip.model.Trip trip = org.paulsens.trip.model.Trip.builder()
+                .id(java.util.UUID.randomUUID().toString()).title("Public album").build();
+        trip.setOrgId(orgId);
+        trip.setOpenToPublic(true);
+        Assert.assertTrue(org.paulsens.trip.dynamo.DAO.getInstance().saveTrip(trip));
+        return trip;
+    }
+
+    /** {@link #publicAlbumTrip} for a trip that ended yesterday. */
+    private static org.paulsens.trip.model.Trip endedPublicAlbumTrip(final String orgId)
+            throws java.io.IOException {
+        final LocalDateTime yesterday = LocalDateTime.now().minusDays(1);
+        final org.paulsens.trip.model.Trip trip = org.paulsens.trip.model.Trip.builder()
+                .id(java.util.UUID.randomUUID().toString()).title("Ended public album")
+                .startDate(yesterday.minusDays(7)).endDate(yesterday).build();
+        trip.setOrgId(orgId);
+        trip.setOpenToPublic(true);
+        Assert.assertTrue(org.paulsens.trip.dynamo.DAO.getInstance().saveTrip(trip));
+        return trip;
+    }
+
+    private static boolean onSite(final org.paulsens.trip.site.SiteContext site,
+            final ScopedValue.CallableOp<Boolean, RuntimeException> body) {
+        return ScopedValue.where(org.paulsens.trip.audit.RequestContext.SCOPE,
+                org.paulsens.trip.audit.RequestContext.of(null, null, site)).call(body);
     }
 
     @Test

@@ -824,6 +824,19 @@ public final class KnownSettings {
                     + "Play badge linking here; blank leaves the badge off, which is how it stays until the Play "
                     + "listing is live.").withHttpUrl();
 
+    // --- discover (the apps' signed-out browse, medjugorje#155) ---
+
+    public static final SettingDef DISCOVER_RATE_LIMIT = new SettingDef(
+            "discover.rate.limit", Config.Type.INT, "120", "Discover requests per address",
+            "How many Discover requests (the apps' signed-out trip list and search) one network address may "
+                    + "make in the window below before it is asked to slow down. Generous on purpose: a whole "
+                    + "mobile carrier or an office can share one address.");
+
+    public static final SettingDef DISCOVER_RATE_WINDOW_SECONDS = new SettingDef(
+            "discover.rate.windowSeconds", Config.Type.INT, "60", "...within this many seconds",
+            "The window the limit above is counted over. Changing it starts a fresh count rather than "
+                    + "reinterpreting the one in progress.");
+
     public static final String EMAIL_ADDRESSES_SECTION = "Email addresses";
 
     /** The org-site branding section: every def in it is org-only and read by {@code BrandCommands}. */
@@ -930,6 +943,11 @@ public final class KnownSettings {
                     "Store links for the \"Get the app\" badges on the support page. Set each one when that "
                             + "listing goes live; nothing else reads them.",
                     List.of(APPS_APP_STORE_URL, APPS_PLAY_STORE_URL)),
+            new SettingSection("Discover",
+                    "The apps' signed-out trip list and search, open to anyone. What it lists is decided by "
+                            + "each trip's \"Show on homepage\" and its organization's \"Shared sites\" "
+                            + "checkbox, not here; these only limit how fast one address may ask.",
+                    List.of(DISCOVER_RATE_LIMIT, DISCOVER_RATE_WINDOW_SECONDS)),
             new SettingSection("Finance",
                     "The trip budget and expense report. An organization sets its own treasurer on its "
                             + "Configuration page; the value here applies to organizations that have not.",

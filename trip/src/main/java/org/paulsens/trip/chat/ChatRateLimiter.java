@@ -3,8 +3,6 @@ package org.paulsens.trip.chat;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
 import lombok.Value;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.ConfigCommands;
@@ -12,6 +10,7 @@ import org.paulsens.trip.audit.Audit;
 import org.paulsens.trip.audit.AuditEventBuilder;
 import org.paulsens.trip.cache.CacheClient;
 import org.paulsens.trip.cache.CacheKeys;
+import org.paulsens.trip.cache.WindowCounter;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
@@ -28,7 +27,7 @@ import org.paulsens.trip.model.chat.ChatSettings;
  * tasks and cannot be reset by constructing a new instance. That matters twice over: the bean is rebuilt per
  * request on the REST edge, and a second ECS task would otherwise get its own private idea of who is misbehaving.
  *
- * <p>The single exception is {@link #FALLBACK_BUCKETS}, used only when the cache is unreachable. It is
+ * <p>The single exception is {@link #COUNTER}'s fallback, used only when the cache is unreachable. It is
  * unavoidably process-local — with no shared counter there is nowhere else to count — and it is {@code static} so
  * that at least it survives instance churn. Treat its numbers as a ceiling, not a measurement.
  *
@@ -42,10 +41,11 @@ import org.paulsens.trip.model.chat.ChatSettings;
 public class ChatRateLimiter {
 
     /**
-     * Degraded-mode ceiling, used only when the cache returns empty. Static so instance churn does not hand a
-     * sender a fresh allowance on every request; still per-task, which is the honest limit of a local fallback.
+     * The window counter, with its degraded-mode ceiling used only when the cache returns empty. Static so instance
+     * churn does not hand a sender a fresh allowance on every request; its fallback is unbounded because a
+     * sender's keys are their person and channel, which they cannot mint at will.
      */
-    private static final ConcurrentHashMap<String, AtomicInteger> FALLBACK_BUCKETS = new ConcurrentHashMap<>();
+    private static final WindowCounter COUNTER = new WindowCounter(0);
 
     private final CacheClient cacheClient;
     private final ConfigCommands config;
@@ -74,7 +74,7 @@ public class ChatRateLimiter {
      * cannot reset a limit in production), it would otherwise carry counts between test methods.
      */
     static void clearFallbackBucketsForTest() {
-        FALLBACK_BUCKETS.clear();
+        COUNTER.clearForTest();
     }
 
     /** Test constructor: pins the site-wide tier so a case does not depend on the config table. */
@@ -192,10 +192,7 @@ public class ChatRateLimiter {
      * index is in the key, so an expired window is simply a key nobody reads again).
      */
     private long count(final String key, final int windowSeconds) {
-        final Duration ttl = Duration.ofSeconds(Math.max(1L, windowSeconds * 2L));
-        return cacheClient.increment(key, 1, ttl)
-                .orElseGet(() -> (long) FALLBACK_BUCKETS
-                        .computeIfAbsent(key, k -> new AtomicInteger(0)).incrementAndGet());
+        return COUNTER.count(cacheClient, key, windowSeconds);
     }
 
     private Decision onLimitHit(
@@ -262,7 +259,7 @@ public class ChatRateLimiter {
         // threshold, so each one escalates a tier and the ladder jumps to its maximum within a few messages
         // instead of requiring a fresh set of offences per step.
         cacheClient.removeKey(hitsKey);
-        FALLBACK_BUCKETS.remove(hitsKey);
+        COUNTER.forget(hitsKey);
         final int tier = nextTier(channelId, person);
         final int[] ladder = autoMuteLadder();
         final int minutes = ladder[Math.min(tier, ladder.length) - 1];

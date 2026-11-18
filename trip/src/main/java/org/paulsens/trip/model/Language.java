@@ -1,6 +1,7 @@
 package org.paulsens.trip.model;
 
 import java.util.Locale;
+import java.util.Optional;
 
 /**
  * The language a pilgrimage is conducted in. Serialized by name -- never rename a constant without a data
@@ -21,6 +22,20 @@ public enum Language {
         this.displayName = displayName;
         this.locale = locale;
         this.sectionHeading = sectionHeading;
+    }
+
+    /**
+     * The constant a stored {@link #name()} names, or empty for null and for a name this build does not know (a
+     * row written by a newer build). The one by-name lookup for code that holds the language as text, so a new
+     * constant reaches it with no second list of names to keep.
+     */
+    public static Optional<Language> named(final String name) {
+        for (final Language language : values()) {
+            if (language.name().equals(name)) {
+                return Optional.of(language);
+            }
+        }
+        return Optional.empty();
     }
 
     public String getDisplayName() {

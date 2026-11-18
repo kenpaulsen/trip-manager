@@ -303,19 +303,25 @@ public class TripCommands {
     }
 
     /**
-     * The place fields as they may be stored: a trimmed destination (blank is none), a real ISO country code or
-     * none, and only the tags the platform list offers ({@link TripTags#sanitize}), so every write path agrees.
+     * The place fields as they may be stored: a trimmed destination (blank is none), real ISO country codes only
+     * (each once, in the order given), and only the tags the platform list offers ({@link TripTags#sanitize}), so
+     * every write path agrees.
      */
     static void normalizePlace(final Trip trip, final List<TripTags.Tag> offered) {
         final String destination = trip.getDestination();
         trip.setDestination(destination == null || destination.isBlank() ? null : destination.trim());
-        trip.setCountry(IsoCountries.normalize(trip.getCountry()));
+        trip.setCountries(IsoCountries.normalizeAll(trip.getCountries()));
         trip.setTags(TripTags.sanitize(trip.getTags(), offered));
     }
 
-    /** The countries the editor's Country menu offers, sorted by name. */
+    /** The countries the editor's Countries menu offers, sorted by name. */
     public List<IsoCountries.Country> getCountries() {
         return IsoCountries.all();
+    }
+
+    /** The Countries filter's extra search names, as JSON keyed by shown name ({@link IsoCountries#aliasesOf}). */
+    public String getCountryAliasesJson() {
+        return IsoCountries.aliasesByNameJson();
     }
 
     /** The tags the editor's Tags menu offers, in the platform list's order. */
@@ -1456,19 +1462,17 @@ public class TripCommands {
         return kind != null && TripKind.CONFERENCE.name().equalsIgnoreCase(kind.trim());
     }
 
-    private static Language languageOf(final Trip trip) {
+    /**
+     * The language a trip is listed under: its own, and English for a trip that stored none (the site default),
+     * so no trip drops out of every language section. Public because the apps' listings fold the same way.
+     */
+    public static Language languageOf(final Trip trip) {
         return trip.getLanguage() == null ? Language.English : trip.getLanguage();
     }
 
+    /** A stored or requested language name, English for none or one this build does not know. */
     private static Language parseLanguage(final String language) {
-        if (language == null || language.isBlank()) {
-            return Language.English;
-        }
-        try {
-            return Language.valueOf(language.trim());
-        } catch (final IllegalArgumentException ex) {
-            return Language.English;
-        }
+        return Language.named(language == null ? null : language.trim()).orElse(Language.English);
     }
 
     /**

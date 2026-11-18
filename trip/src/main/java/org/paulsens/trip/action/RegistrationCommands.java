@@ -1086,13 +1086,25 @@ public class RegistrationCommands {
         return result;
     }
 
-    /** Whether the viewer has any registration on this trip -- drives the chip's registered styling. */
+    /**
+     * Whether the viewer has any registration on this trip, pending or confirmed: the LINK rule the Trips menu
+     * ({@code TripCommands.publicTripUrl}) and the trip cards both follow, so one visitor's card and menu entry
+     * always go to the same place. What a card SAYS (Pending or Registered) is {@code TripCardCommands.stateOf}.
+     */
     public boolean isChipRegistered(final String tripId, final Person.Id userId) {
         if (userId == null || tripId == null) {
             return false;
         }
-        final Registration registration = getRegistration(tripId, userId);
-        return registration != null && registration.getStatus() != Registration.Status.NOT_REGISTERED;
+        return statusOf(getRegistration(tripId, userId)) != Registration.Status.NOT_REGISTERED;
+    }
+
+    /**
+     * A looked-up registration's status, NOT_REGISTERED for none or a row with no status: the one fold every
+     * reader of "the viewer's standing on a trip" uses ({@link #isChipRegistered}, the trip cards).
+     */
+    public static Registration.Status statusOf(final Registration registration) {
+        return registration == null || registration.getStatus() == null ? Registration.Status.NOT_REGISTERED
+                : registration.getStatus();
     }
 
     public Registration getRegistration(final String tripId, final Person.Id userId) {

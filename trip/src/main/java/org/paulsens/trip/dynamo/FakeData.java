@@ -949,6 +949,10 @@ public final class FakeData {
                 // Beta also answers on a tier-2 custom domain: the webtests map it to loopback, so the
                 // custom-host routing and its canonical links are exercised as well as the subdomain.
                 org.setCustomDomain(BETA_CUSTOM_DOMAIN);
+                // And it keeps its content off the shared sites, which since medjugorje#155 also keeps it out
+                // of Discover: the local organization that must never be listed there. It has no trip of its
+                // own (the browser tests rely on that), so a test that proves the absence adds one.
+                org.setSharedSitesAllowed(false);
             }
             final boolean saved = DAO.getInstance().saveOrganization(org);
             if (!saved) {
@@ -1394,9 +1398,12 @@ public final class FakeData {
      * Seven public trips with real pictures, places and tags, so the listing cards, the trip page's gallery and the
      * apps have something to show locally: a nine-picture trip, a long title, a trip with NO picture (the fallback
      * cover), one that has started (Closed) and one whose two places are taken (Full, with the registrations
-     * {@link #addPicturedTripRegistrations} files). Three are CFPW's: org-less with the CFPW provider, like the
-     * landing seeds beside them, so the shared site lists them the same way. Four are Acme's, so an org site lists
-     * its own. Beta deliberately gets none: the browser tests rely on Beta's site having no trip at all. Every
+     * {@link #addPicturedTripRegistrations} files). Three are CFPW's, owned by the CFPW organization (they were
+     * org-less until medjugorje#155): Discover lists only a trip whose organization allows it, so with Acme's four
+     * local mode has two organizations to discover, while the landing seeds beside them stay org-less, the legacy
+     * shape Discover must NOT list. The shared site lists them as before: CFPW has no site of its own. Four are
+     * Acme's, so an org site lists its own. Beta deliberately gets none: the browser tests rely on Beta's site
+     * having no trip at all. Every
      * CFPW one starts well after the seeds above: the countdown cards and the tests that count the next CFPW trip
      * are theirs. The existing Holy Angels Demo gains a cover too, so the next departure the shared site features
      * is a pictured trip.
@@ -1404,16 +1411,19 @@ public final class FakeData {
     private static void addPicturedTrips(final List<Trip> trips) {
         trips.stream().filter(trip -> PUB_EN_1_TRIP_ID.equals(trip.getId())).findFirst()
                 .ifPresent(FakeData::pictureHolyAngelsDemo);
-        trips.add(pictured(PIC_MEDJUGORJE_TRIP_ID, "Medjugorje Pilgrimage 2026", null, "CFPW", 150, 159,
+        trips.add(pictured(PIC_MEDJUGORJE_TRIP_ID, "Medjugorje Pilgrimage 2026", CFPW_ORG_ID, "CFPW", 150, 159,
                 "Medjugorje, Bosnia and Herzegovina", "BA", "$3,290 from Portland", 40, List.of("pilgrimage"),
                 "apparition-hill-sunset", "st-james", "valley", "outdoor-altar", "candles", "stone-church",
                 "monastery", "sheep", "evening-hill"));
         trips.add(pictured(PIC_DAYTRIPS_TRIP_ID,
-                "Tihaljina, Siroki Brijeg and Mostar: Day Trips from Medjugorje for Returning Pilgrims", null,
-                "CFPW", 200, 208, "Medjugorje, Bosnia and Herzegovina", "BA", "$2,650 from Seattle", 30,
+                "Tihaljina, Siroki Brijeg and Mostar: Day Trips from Medjugorje for Returning Pilgrims",
+                CFPW_ORG_ID, "CFPW", 200, 208, "Medjugorje, Bosnia and Herzegovina", "BA", "$2,650 from Seattle", 30,
                 List.of("pilgrimage", "tour"), "monastery", "stone-church"));
-        trips.add(pictured(PIC_FATIMA_TRIP_ID, "Fatima and Lourdes Retreat", null, "CFPW", 230, 240,
-                "Fatima, Portugal", "PT", null, 40, List.of("retreat")));
+        final Trip fatima = pictured(PIC_FATIMA_TRIP_ID, "Fatima and Lourdes Retreat", CFPW_ORG_ID, "CFPW", 230, 240,
+                "Fatima, Portugal and Lourdes, France", "PT", null, 40, List.of("retreat"));
+        // The local trip that crosses a border (2026-11-17): a listing must find it under either country.
+        fatima.setCountries(List.of("PT", "FR"));
+        trips.add(fatima);
         trips.add(pictured(PIC_SURFCUP_TRIP_ID, "Surf Cup Showcase - San Diego", ACME_ORG_ID, "Acme Inc", -1, 2,
                 "Del Mar, California", "US", "$690 per player", null, List.of("youth"), "surf-cup",
                 "soccer-warmup"));

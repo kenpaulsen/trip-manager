@@ -255,4 +255,33 @@ public class SessionRecoveryFilterTest {
         Assert.assertTrue(seen.get().apiClient());
         Assert.assertFalse(seen.get().reachesEverything(), "the shared host reaches no more for the app");
     }
+
+    /**
+     * A sessionless path (Discover) is served as nobody: the stored session is never loaded, even when the browser
+     * sent a cookie for one, and a bearer token is never resolved. The host's site still binds, so an
+     * organization's own host can narrow what it lists.
+     */
+    @Test
+    public void aSessionlessPathLoadsNoSessionAndResolvesNoToken() throws Exception {
+        final SessionRecoveryFilter filter = new SessionRecoveryFilter();
+        final jakarta.servlet.http.HttpServletRequest req = requestWithSession("signed-in@x.org");
+        org.mockito.Mockito.when(req.getServerName()).thenReturn("localhost");
+        org.mockito.Mockito.when(req.getRequestURI()).thenReturn("/api/discover/trips");
+        org.mockito.Mockito.when(req.getHeader("Authorization")).thenReturn("Bearer not-even-looked-at");
+        final java.util.concurrent.atomic.AtomicReference<org.paulsens.trip.audit.RequestContext> seen =
+                new java.util.concurrent.atomic.AtomicReference<>();
+
+        filter.doFilter(req, org.mockito.Mockito.mock(jakarta.servlet.http.HttpServletResponse.class),
+                (rq, rs) -> seen.set(org.paulsens.trip.audit.RequestContext.SCOPE.get()));
+
+        org.mockito.Mockito.verify(req, org.mockito.Mockito.never()).getSession(false);
+        org.mockito.Mockito.verify(req, org.mockito.Mockito.never()).getSession();
+        org.mockito.Mockito.verify(req, org.mockito.Mockito.never()).getSession(true);
+        org.mockito.Mockito.verify(req, org.mockito.Mockito.never()).getHeader("Authorization");
+        org.mockito.Mockito.verify(req, org.mockito.Mockito.never())
+                .setAttribute(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any());
+        Assert.assertNotNull(seen.get(), "the chain still runs, inside a bound request context");
+        Assert.assertFalse(seen.get().actor().isKnown(), "nobody: the session's person is not the actor here");
+        Assert.assertTrue(seen.get().site().apiClient(), "the site binds as for any API request");
+    }
 }

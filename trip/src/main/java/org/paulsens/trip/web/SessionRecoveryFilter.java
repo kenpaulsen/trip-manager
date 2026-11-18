@@ -79,8 +79,13 @@ public class SessionRecoveryFilter implements Filter {
             writeNoSuchSite(res);
             return;
         }
+        // A sessionless path (Discover) is served as nobody: its session, if the browser sent a cookie for one,
+        // is never loaded, and no bearer token is resolved. The site still binds, so an organization's own host
+        // narrows what it lists.
+        final boolean sessionless = request instanceof HttpServletRequest req && SessionlessPaths.matches(req);
         // getSession(false): neither resolving identity nor repairing the session may CREATE one.
-        final HttpSession session = (request instanceof HttpServletRequest req) ? req.getSession(false) : null;
+        final HttpSession session =
+                (!sessionless && request instanceof HttpServletRequest req) ? req.getSession(false) : null;
         try {
             // Force the stored attributes to decode HERE, inside the guarded scope. The Valkey-backed
             // session loads lazily on the first getAttribute, and on a page that never touches the session
@@ -95,7 +100,7 @@ public class SessionRecoveryFilter implements Filter {
             // RequestContext, and an actor bound before token resolution would audit every token request as
             // UNKNOWN (docs/api-tokens.md). Non-API requests and absent headers cost one null check.
             final TokenPrincipal principal =
-                    (request instanceof HttpServletRequest http) ? BearerTokens.resolve(http) : null;
+                    (!sessionless && request instanceof HttpServletRequest http) ? BearerTokens.resolve(http) : null;
             // Bind the request identity for the whole chain (this is the outermost filter). call(), not
             // run(): doFilter throws checked exceptions -- tunneled through one carrier type because call()
             // infers a single throws clause. A bearer request binds the principal's SCOPE-CAPPED role

@@ -45,6 +45,8 @@ public final class ApiErrors {
     public static final String CSRF = ChatErrors.CSRF;
     public static final String NOT_ACCEPTABLE = ChatErrors.NOT_ACCEPTABLE;
     public static final String INTERNAL = ChatErrors.INTERNAL;
+    /** 429: the caller sent too many requests; the response's {@code Retry-After} says when to try again. */
+    public static final String RATE_LIMITED = ChatErrors.RATE_LIMITED;
     /** 409 from a check-in: the person already has a stamp, which is never overwritten ({@code docs/checkin.md}). */
     public static final String ALREADY_CHECKED_IN = "ALREADY_CHECKED_IN";
     /** 409 from a check-in: the registration is not CONFIRMED (pending approval, or cancelled). */

@@ -99,6 +99,16 @@ public class TripCommandsTest {
         TripCommands.normalizePlace(staleCopy, TripTags.current());
         assertNull(staleCopy.getDestination(), "Blank is none");
         assertNull(staleCopy.getCountry(), "Not a country is none");
+
+        // Several countries (2026-11-17): real codes only, each once, upper case, in the order given.
+        staleCopy.setCountries(List.of("pt", "Narnia", "FR", "PT", " "));
+        TripCommands.normalizePlace(staleCopy, TripTags.current());
+        assertEquals(staleCopy.getCountries(), List.of("PT", "FR"));
+        assertEquals(staleCopy.getCountry(), "PT", "The first is the one an older reader sees");
+        assertTrue(asSiteAdmin().saveTrip(staleCopy));
+        assertEquals(org.paulsens.trip.dynamo.DAO.getInstance()
+                .getTrip(trip.getId(), org.paulsens.trip.cache.Cached.NO).orElseThrow().getCountries(),
+                List.of("PT", "FR"), "and both are stored");
     }
 
     private static TripCommands asSiteAdmin() {

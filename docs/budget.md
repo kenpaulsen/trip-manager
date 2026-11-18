@@ -193,14 +193,13 @@ follows is refused.
 
 ## Tests
 
-Unit (`trip/`): `TripBudgetTest`, `BudgetLineTest`, `BudgetLodgingLineTest` (normalization, builder parity,
-Jackson), `BudgetMathTest` (both oracles, PER_ROOM shares, missing schedules, extras per basis, HALF_UP,
-nobody counted, payee grouping and the bracketed fallback, on-site vs other items, percent chains and their
-refusals, the basic ground budget ceiling and estimate), `BudgetDAOTest`, `BudgetCommandsTest` (gate matrix, pre-fills, `pickOffer`,
-the oracles on the page rows, refusals, caps, moves, deletes, a deleted option, percent lines, off-site lines,
-and cloning within one organization only), `BudgetResourceTest`, plus
-cases in `AuditCommandsTest`, `TripDeleteCommandsTest`, `ModelSerializationTest`,
-`SerializationCompatibilityTest` and `ApiSurfaceTest`.
+Unit (`trip/`): `TripBudgetTest`, `BudgetLineTest`, `BudgetLodgingLineTest` (normalization, builder parity, Jackson),
+`BudgetMathTest` (both oracles, PER_ROOM shares, missing schedules, extras per basis, HALF_UP, nobody counted, payee
+grouping and the bracketed fallback, on-site vs other items, percent chains and their refusals, the basic ground budget
+ceiling and estimate), `BudgetDAOTest`, `BudgetCommandsTest` (gate matrix, pre-fills, `pickOffer`, the oracles on the
+page rows, refusals, caps, moves, deletes, a deleted option, percent lines, off-site lines, and cloning within one
+organization only), `BudgetResourceTest`, plus cases in `AuditCommandsTest`, `TripDeleteCommandsTest`,
+`ModelSerializationTest`, `SerializationCompatibilityTest` and `ApiSurfaceTest`.
 
 Browser (`medjugorje/webtest`): `TripBudgetPwIT` (both oracles rendered in the new summary, the print view,
 a percent line set in the dialog and following its base, a line paid before the trip under Other Payments, the clone

@@ -1,5 +1,7 @@
 package org.paulsens.trip.model;
 
+import java.util.Optional;
+
 /**
  * What kind of event a {@link Trip} is. A conference is a trip, not a separate entity: it reuses the trip's
  * roles, registration, payments, reports, chat and lodging. The kind changes only copy and a few defaults
@@ -18,6 +20,19 @@ public enum TripKind {
         this.displayValue = displayValue;
         this.registerLabel = registerLabel;
         this.peopleNoun = peopleNoun;
+    }
+
+    /**
+     * The constant a stored {@link #name()} names, or empty for null and for a name this build does not know (a
+     * row written by a newer build), as {@code Language.named} does for languages.
+     */
+    public static Optional<TripKind> named(final String name) {
+        for (final TripKind kind : values()) {
+            if (kind.name().equals(name)) {
+                return Optional.of(kind);
+            }
+        }
+        return Optional.empty();
     }
 
     public String getDisplayValue() {

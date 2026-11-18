@@ -300,7 +300,7 @@ public class OrgCommands {
         if (!saveOrgOrWarn(org)) {
             return false;
         }
-        audit(current, org, "Organization '" + org.getName() + "' edited");
+        audit(current, org, OrgEditAudit.message(stored, org));
         return true;
     }
 
@@ -1812,8 +1812,7 @@ public class OrgCommands {
             }
         }
         if (allowShared != null) {
-            // Stored as null when allowed (the default every existing row already has), false when not.
-            fresh.setAllowSharedSites(allowShared ? null : Boolean.FALSE);
+            fresh.setSharedSitesAllowed(allowShared);
         }
         if (registerTarget != null) {
             final SharedSiteRegisterTarget target = SharedSiteRegisterTarget.from(registerTarget);

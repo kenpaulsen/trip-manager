@@ -24,7 +24,8 @@ public class ApiSurfaceTest {
     private static final List<Class<?>> RESOURCES = List.of(
             AccountResource.class, AuditResource.class, AuthResource.class, BlocksResource.class, BudgetResource.class,
             ChatAdminResource.class, ChatInviteResource.class, ChatResource.class,
-            ConfigResource.class, DeployResource.class, ExpenseReportResource.class, FamilyResource.class,
+            ConfigResource.class, DeployResource.class, DiscoverResource.class, ExpenseReportResource.class,
+            FamilyResource.class,
             LodgingResource.class, MailResource.class,
             MediaResource.class, OrgWaiversResource.class,
             PasskeyResource.class, PaymentsResource.class, PeopleResource.class, PrivilegesResource.class,
@@ -65,9 +66,11 @@ public class ApiSurfaceTest {
         // deliberate exceptions, because ways IN have to work without a session; they bind per-method instead.
         for (final Class<?> resource : RESOURCES) {
             if (resource == AuthResource.class || resource == PasskeyResource.class
-                    || resource == StripeWebhookResource.class) {
+                    || resource == StripeWebhookResource.class || resource == DiscoverResource.class) {
                 // The webhook's caller is Stripe's server: no session exists; its authority is the HMAC
                 // signature over the body, verified against the config's stored secret (see the class).
+                // Discover is open ON PURPOSE (medjugorje#155): it answers callers with no account, with a
+                // public shape only; theDiscoverResourceIsOpenAndReadOnly pins what "open" may mean there.
                 continue;
             }
             Assert.assertNotNull(resource.getAnnotation(TripApi.class),
@@ -85,6 +88,28 @@ public class ApiSurfaceTest {
         Assert.assertEquals(endpoints, List.of("receive"), "the webhook resource must stay a single POST");
         Assert.assertNotNull(StripeWebhookResource.class.getDeclaredMethods()[0]);
         Assert.assertNull(StripeWebhookResource.class.getAnnotation(TripApi.class));
+    }
+
+    /**
+     * The one resource that answers anyone across organizations may only ever READ: every endpoint is a GET, no
+     * method anywhere on it is bound to the auth filter (a half-open resource would be a puzzle), and its root is
+     * the path the session filters stand aside for ({@code web/SessionlessPaths}).
+     */
+    @Test
+    public void theDiscoverResourceIsOpenAndReadOnly() {
+        Assert.assertNull(DiscoverResource.class.getAnnotation(TripApi.class));
+        Assert.assertEquals(DiscoverResource.class.getAnnotation(Path.class).value(), "discover/trips");
+        final List<Method> endpoints = Arrays.stream(DiscoverResource.class.getDeclaredMethods())
+                .filter(method -> method.getAnnotation(GET.class) != null || isWrite(method)
+                        || method.getAnnotation(Path.class) != null)
+                .toList();
+        Assert.assertEquals(endpoints.stream().map(Method::getName).sorted().toList(), List.of("get", "list"));
+        for (final Method endpoint : endpoints) {
+            Assert.assertNotNull(endpoint.getAnnotation(GET.class),
+                    endpoint.getName() + " must be a GET");
+            Assert.assertFalse(isWrite(endpoint), endpoint.getName() + " must not write");
+            Assert.assertNull(endpoint.getAnnotation(TripApi.class), endpoint.getName() + " must stay open");
+        }
     }
 
     @Test

@@ -47,7 +47,6 @@ import org.paulsens.trip.api.dto.RegChoiceDto;
 import org.paulsens.trip.api.dto.RegOptionDto;
 import org.paulsens.trip.api.dto.SharedItineraryDto;
 import org.paulsens.trip.api.dto.TripDto;
-import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.LocalMode;
 import org.paulsens.trip.cache.Cached;
@@ -66,6 +65,7 @@ import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.RegistrationOption;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripKind;
+import org.paulsens.trip.site.ListingScope;
 import org.paulsens.trip.site.SiteContext;
 import org.paulsens.trip.site.SiteUrls;
 import org.paulsens.trip.model.TripEvent;
@@ -144,13 +144,33 @@ public class TripsResource extends BaseResource {
         // host the list is further that org's alone -- the site boundary holds for API clients too.
         final SiteContext site = SiteContext.current();
         final Set<String> own = listing ? ownAndManaged(me) : Set.of();
+        // The open listing on the product's own host reaches every organization, so there it is narrowed to what
+        // this caller may be shown across organizations (listedAcrossOrgs).
+        final boolean acrossOrgs = listing && site.reachesEverything();
+        final Set<String> myOrgs = acrossOrgs ? orgIdsOf(me) : Set.of();
         // The offered tag list is the same for every row of one listing: read and parsed once, not per trip.
         final List<TripTags.Tag> offered = TripTags.current();
         return ok(found.stream()
                 .filter(trip -> site.admits(trip.getOrgId()))
                 .filter(trip -> listing || canReadTrip(trip))
+                .filter(trip -> !acrossOrgs || listedAcrossOrgs(trip, myOrgs))
                 .map(trip -> listing ? openListingDto(trip, own, offered) : listingDto(trip, offered))
                 .toList());
+    }
+
+    /**
+     * Whether an {@code open} trip is listed for this caller on the product's own host, the one host whose API
+     * reaches every organization ({@code SiteContext.reachesEverything}). Until 2026-11 that host listed EVERY
+     * public trip to any signed-in account, including those of an organization that had turned Shared sites off
+     * (medjugorje#155); the apps happened to narrow the list to the person's organizations, the server did not.
+     * Now a trip is kept only when it may cross organizations by Discover's own rule, or it is not crossing one
+     * for this caller: a trip of an organization they belong to, or a legacy trip with no organization at all,
+     * which has no tenancy to keep and lists as it always did ({@link ListingScope#listedAcrossOrgs}, the rule
+     * the album gate's {@code albumAcrossOrgs} is the sibling of); or a trip they may read anyway
+     * ({@link #canReadTrip}: on its roster, managing someone on it, holding a role on it, a site admin).
+     */
+    private boolean listedAcrossOrgs(final Trip trip, final Set<String> myOrgs) {
+        return canReadTrip(trip) || ListingScope.listedAcrossOrgs(trip, myOrgs);
     }
 
     private TripDto listingDto(final Trip trip, final List<TripTags.Tag> offered) {
@@ -197,10 +217,7 @@ public class TripsResource extends BaseResource {
     }
 
     private TripPictureDto pictureDto(final TripPictureCommands pictures, final TripPicture pic) {
-        return new TripPictureDto(pic.getKey(), absoluteUrl(pictures.url(pic)),
-                absoluteUrl(pictures.url(pic, TripPicture.WIDTHS.get(0))),
-                absoluteUrl(pictures.url(pic, TripPicture.WIDTHS.get(1))),
-                pic.getAlt(), pic.getWidth(), pic.getHeight(), pic.getPlaceholder());
+        return TripPictureDto.of(pic, width -> absoluteUrl(pictures.url(pic, width)));
     }
 
     /**
@@ -244,9 +261,7 @@ public class TripsResource extends BaseResource {
     /** {@link #detailsUrl(Trip)} on explicit facts (the testable half). */
     static String detailsUrl(final Trip trip, final boolean local,
             final UnaryOperator<String> requestAbsolute, final ConfigCommands config) {
-        final String path = "/trip/tripPage.jsf?trip=" + trip.getId();
-        return local ? requestAbsolute.apply(path)
-                : SiteUrls.baseUrlForTrip(trip, KnownSettings.REG_MAIL_BASE_URL, config) + path;
+        return SiteUrls.tripPageUrl(trip, local, requestAbsolute, config);
     }
 
     /**
@@ -882,9 +897,8 @@ public class TripsResource extends BaseResource {
                 dto.estimatedPrice(), dto.director(), dto.localGuide(), dto.facilitators(), dto.flyerUrl(),
                 dto.nonHostedTripUrl(), dto.nonHostedRegNumber(), dto.regOptions(), dto.people(),
                 eventDtos(trip, me), dto.kind(), dto.paymentConfig(), dto.page(), detailsUrl(trip),
-                pictureDtos(trip), dto.destination(), dto.country(), dto.tags(), null)
-                .withFallbackPicture(fallbackPictureOf(trip)), trip,
-                TripTags.current());
+                pictureDtos(trip), dto.destination(), dto.country(), dto.tags(), null, fallbackPictureOf(trip),
+                dto.countries()), trip, TripTags.current());
     }
 
     private static List<TripEventDto> eventDtos(final Trip trip, final Person.Id viewer) {
@@ -1252,7 +1266,11 @@ public class TripsResource extends BaseResource {
         if (body.destination() != null) {
             trip.setDestination(body.destination());
         }
-        if (body.country() != null) {
+        // The list is the authority; a body with only the one country is a client from before trips could have
+        // several, and sets that one.
+        if (body.countries() != null) {
+            trip.setCountries(body.countries());
+        } else if (body.country() != null) {
             trip.setCountry(body.country());
         }
         if (body.tags() != null) {

@@ -120,12 +120,12 @@ A site has more content pages than its home page. A **named page** is a lower-ca
 | marketing host (the platform org's site) | `page:unitetrip-home` | `page:org:{platform uuid}:{name}` |
 | placeholder marketing host (no platform org yet) | `page:unitetrip-home` | `page:unitetrip:{name}` |
 
-The platform org's named pages are its Site Pages (Pricing, Why UniteTrip; issue medjugorje#41), keyed like any
-org's so the Site Pages admin page seeds and deletes them where the page host reads them; only its HOME keeps the
-fixed marketing key. So every site has its OWN copy of a named page, never the shared site's. `OrgPageBootstrap.orgOf` recognizes
-every `page:org:{uuid}:{name}` key and `isMarketingPageKey` every marketing one, so an org-scoped
-`contentAdmin` edits all of its org's pages and the platform org's editor all of the marketing host's,
-through the unchanged `canEdit`/`mayEdit` rules.
+The platform org's named pages are its Site Pages (Pricing, Why UniteTrip; issue medjugorje#41), keyed like any org's so
+the Site Pages admin page seeds and deletes them where the page host reads them; only its HOME keeps the fixed marketing
+key. So every site has its OWN copy of a named page, never the shared site's. `OrgPageBootstrap.orgOf` recognizes every
+`page:org:{uuid}:{name}` key and `isMarketingPageKey` every marketing one, so an org-scoped `contentAdmin` edits all of
+its org's pages and the platform org's editor all of the marketing host's, through the unchanged `canEdit`/`mayEdit`
+rules.
 
 **Everything is a Site Page on an org site** (owner decision 2026-11-13, issue medjugorje#124). An org site's
 named pages exist only as `Organization.sitePages` entries, served by `page.xhtml` (`/page.jsf?name={name}`)
@@ -479,12 +479,12 @@ in a panel at the side of the page, and the item is drawn IN the page, where it 
 then asked for the preview to follow the form, field by field. It is `WEB-INF/contentDialog.xhtml` plus
 `resources/trip-js/contentDrawer.js`; the look is `trip.css`, `.contentDrawer`.
 
-- **Still one `p:dialog`** (`contentDlg`, not modal, pinned to the window's edge by CSS; `fitViewport` stays on, as for every dialog with fields), so
-  every opener, `update=":form:contentDlg"` and `PF('contentDlg')` are unchanged. Its heading says what is
-  happening (`content.drawerTitle`: Add a section / Add an item / Edit section / Edit item). `#form:dlgState`
-  carries scalars for the script: the step, the working item's id, kind and newness, the target section, the
-  page, the insertion point. `onShow` fires after every re-render; a command that hides an already re-rendered
-  dialog (Cancel) gets no `onHide` and calls `tripDrawer.hidden()` itself.
+- **Still one `p:dialog`** (`contentDlg`, not modal, pinned to the window's edge by CSS; `fitViewport` stays on, as for
+  every dialog with fields), so every opener, `update=":form:contentDlg"` and `PF('contentDlg')` are unchanged. Its
+  heading says what is happening (`content.drawerTitle`: Add a section / Add an item / Edit section / Edit item).
+  `#form:dlgState` carries scalars for the script: the step, the working item's id, kind and newness, the target
+  section, the page, the insertion point. `onShow` fires after every re-render; a command that hides an already
+  re-rendered dialog (Cancel) gets no `onHide` and calls `tripDrawer.hidden()` itself.
 - **No mask, so the page is locked by hand while a form is open.** The modal dialog's mask used to keep an editor
   away from every other opener; the drawer has none, and each opener re-renders it for another item, dropping what
   was typed without a word. While the form step is shown, `lockPage` makes the page's openers (`.contentEditBtn`,

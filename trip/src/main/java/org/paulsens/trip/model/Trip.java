@@ -167,9 +167,28 @@ public final class Trip implements Serializable {
     /** Where the trip goes, as people say it ("Medjugorje, Bosnia and Herzegovina"); free text, may be null. */
     @JsonProperty("destination")
     private String destination;
-    /** The destination's country as an ISO 3166-1 alpha-2 code ({@code BA}); null when not set. */
+    /**
+     * The FIRST of {@link #countries}, kept as a field of its own: every trip stored before a trip could name
+     * several countries (2026-11-17) holds only this one code, and a reader older than that date (a server on the
+     * previous build during a deploy, an app already shipped) still looks for it. So an old row folds into
+     * {@link #countries} when it is read ({@link #setCountry}), a new row still carries its first country here
+     * ({@link #setCountries}), and no stored row has to be rewritten. {@code countries} is the authority; nothing
+     * may treat the two as independent.
+     */
     @JsonProperty("country")
+    @Getter(AccessLevel.NONE)
+    @Setter(AccessLevel.NONE)
     private String country;
+    /**
+     * The countries the trip visits, as ISO 3166-1 alpha-2 codes ({@code BA}, {@code HR}), in the order they were
+     * given; none when not set. A trip may cross borders (Fatima and Lourdes, a Medjugorje trip that lands in
+     * Croatia), and a listing filters by ANY of them. Read through the lazy getter; written only through
+     * {@link #setCountries} or {@link #setCountry}, which keep {@link #country} in step.
+     */
+    @JsonProperty("countries")
+    @Getter(AccessLevel.NONE)
+    @Setter(AccessLevel.NONE)
+    private List<String> countries;
     /**
      * The trip's tags, as ids from the platform's fixed list ({@code KnownSettings.TRIP_TAGS}, read through
      * {@code TripTags}). Read through the lazy getter; absent on older trips, which reads as none.
@@ -652,6 +671,41 @@ public final class Trip implements Serializable {
         return getPictures().stream().filter(pic -> key.equals(pic.getKey())).findAny().orElse(null);
     }
 
+    /** The trip's countries, in order; empty, never null, for a trip with none. */
+    public List<String> getCountries() {
+        if (countries == null) {
+            countries = new ArrayList<>();
+        }
+        return countries;
+    }
+
+    /** Replaces the countries; the first becomes {@link #getCountry()} for readers that know only one. */
+    public void setCountries(final List<String> countries) {
+        this.countries = (countries == null) ? new ArrayList<>() : new ArrayList<>(countries);
+        this.country = this.countries.isEmpty() ? null : this.countries.getFirst();
+    }
+
+    /** The first country, or null for none: what a reader that knows only one country is given. */
+    public String getCountry() {
+        return country;
+    }
+
+    /**
+     * Sets the trip's ONE country, as every writer did before a trip could have several: a blank code clears them
+     * all, any other becomes the only one. Except when the list already starts with this code, which is how a row
+     * that stores both fields arrives ({@code countries} read first, then its own first entry as {@code country}):
+     * the rest of the list must survive that.
+     */
+    public void setCountry(final String country) {
+        if (country == null || country.isBlank()) {
+            setCountries(null);
+        } else if (!getCountries().isEmpty() && country.equals(getCountries().getFirst())) {
+            this.country = country;
+        } else {
+            setCountries(List.of(country));
+        }
+    }
+
     public List<String> getTags() {
         if (tags == null) {
             tags = new ArrayList<>();
@@ -782,6 +836,16 @@ public final class Trip implements Serializable {
         return startDate.getMonth().getDisplayName(TextStyle.SHORT, locale);
     }
 
+    /**
+     * This trip's language as a BCP 47 tag ("en", "es"): English for a trip that stored none, the site default. The
+     * one mapping from a trip's language to the code a page puts in {@code lang} and hands to its scripts, so no page
+     * spells out a second "Spanish means es".
+     */
+    @JsonIgnore
+    public String getLanguageTag() {
+        return (language == null ? Language.English : language).getLocale().getLanguage();
+    }
+
     @JsonIgnore
     public String getTripDateRange() {
         final Locale locale = Util.getLocale(FacesContext.getCurrentInstance());
@@ -837,6 +901,8 @@ public final class Trip implements Serializable {
         private List<TripWaiver> waivers = new ArrayList<>();
         private List<TripPicture> pictures = new ArrayList<>();
         private List<String> tags = new ArrayList<>();
+        private String country;
+        private List<String> countries = new ArrayList<>();
 
         public TripBuilder id(final String id) {
             this.id = (id == null) ? UUID.randomUUID().toString() : id;
@@ -890,6 +956,19 @@ public final class Trip implements Serializable {
         }
         public TripBuilder tags(final List<String> tags) {
             this.tags = (tags == null) ? new ArrayList<>() : new ArrayList<>(tags);
+            return this;
+        }
+        /** One country, as {@link Trip#setCountry}: the built trip's list holds it alone. */
+        public TripBuilder country(final String country) {
+            final boolean none = country == null || country.isBlank();
+            this.country = none ? null : country;
+            this.countries = none ? new ArrayList<>() : new ArrayList<>(List.of(country));
+            return this;
+        }
+        /** Several countries, as {@link Trip#setCountries}: the first is also the built trip's one country. */
+        public TripBuilder countries(final List<String> countries) {
+            this.countries = (countries == null) ? new ArrayList<>() : new ArrayList<>(countries);
+            this.country = this.countries.isEmpty() ? null : this.countries.getFirst();
             return this;
         }
     }

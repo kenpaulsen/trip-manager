@@ -174,7 +174,13 @@ public class MediaResource extends BaseResource {
     /**
      * A chat slot is one trip's album: a non-admin may browse it only as that trip's member, or when the
      * trip is publicly listed on the SITE this request is for -- a signed-in traveller of one org must not
-     * enumerate another org's album by trip id. Library slots are site-scoped per item by the commands.
+     * enumerate another org's album by trip id. On the product's own host, whose API lists every organization,
+     * "publicly listed" also means {@code ListingScope.albumAcrossOrgs}: before 2026-11-17 the album of an open
+     * trip was browsable there by any signed-in account, even when its organization had turned Shared sites off.
+     * That rule asks for the organization's consent and nothing about dates, so an album stays open after its
+     * trip ends, as it does on the website. "Member" is anyone who may read the trip ({@code canReadTrip}: its
+     * roster, a role on it, managing someone on it), the open listing's own exception.
+     * Library slots are site-scoped per item by the commands.
      */
     boolean mayBrowseSlot(final String slot) {
         final String tripId = ChatPhotos.tripOfSlot(slot);
@@ -186,10 +192,15 @@ public class MediaResource extends BaseResource {
             return false;
         }
         final Person.Id me = personId();
-        if (me != null && trip.getPeople() != null && trip.getPeople().contains(me)) {
+        if (me != null && trip.getPeople() != null && canReadTrip(trip)) {
             return true;
         }
-        return Boolean.TRUE.equals(trip.getOpenToPublic()) && ListingScope.forSite().listsSiteWide(trip.getOrgId());
+        if (!Boolean.TRUE.equals(trip.getOpenToPublic()) || !ListingScope.forSite().listsSiteWide(trip.getOrgId())) {
+            return false;
+        }
+        // On the product's own host the site lists every organization, so the album of another organization's
+        // open trip is browsable only where that organization lets its trips cross organizations at all.
+        return !SiteContext.current().reachesEverything() || ListingScope.albumAcrossOrgs(trip, orgIdsOf(me));
     }
 
     /**

@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 import org.mockito.Mockito;
 import org.paulsens.trip.action.PersonCommands;
+import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
 import org.testng.Assert;
 import org.testng.annotations.BeforeMethod;
@@ -85,6 +86,62 @@ public class OrgsResourceTest extends ResourceTestSupport {
         Assert.assertNotNull(id);
         // The one expected refusal: the name is taken now.
         assertError(resource.create(CSRF_OK, Map.of("name", name)), 409, ApiErrors.CONFLICT);
+    }
+
+    /**
+     * The profile's "Shared sites" checkbox over REST (the demo seed's way to stand up an organization Discover
+     * must not list): the organization's admins and site admins only, stored as the page stores it.
+     */
+    @Test
+    public void sharedSitesIsWrittenByTheOrgsAdminsOnly() {
+        signedInAsSiteAdmin(ME);
+        final String orgId = createOrg("Shared Sites Org " + System.nanoTime());
+        final Organization.Id id = Organization.Id.from(orgId);
+        final Person.Id orgAdmin = somebody("OrgAdmin");
+        final Person.Id member = somebody("Member");
+        assertOk(resource.setAdmin(orgId, orgAdmin.getValue(), CSRF_OK, Map.of("admin", true)));
+        assertOk(resource.addMember(orgId, member.getValue(), CSRF_OK));
+
+        Assert.assertNull(stored(id).getAllowSharedSites(), "never touched: it reads as allowed");
+
+        Response response = resource.saveProfile(orgId, CSRF_OK, Map.of("allowsSharedSites", false));
+        assertOk(response);
+        Assert.assertEquals(response.getEntity(), Map.of("allowsSharedSites", false));
+        Assert.assertEquals(stored(id).getAllowSharedSites(), Boolean.FALSE);
+        Assert.assertFalse(stored(id).allowsSharedSites());
+
+        assertOk(resource.saveProfile(orgId, CSRF_OK, Map.of("allowsSharedSites", true)));
+        Assert.assertNull(stored(id).getAllowSharedSites(), "allowed is stored as the null default, as the page does");
+
+        assertError(resource.saveProfile(orgId, null, Map.of("allowsSharedSites", false)), 403, ApiErrors.CSRF);
+        assertError(resource.saveProfile(orgId, CSRF_OK, Map.of("allowsSharedSites", "no")), 400,
+                ApiErrors.VALIDATION_FAILED);
+        assertError(resource.saveProfile("no-such-org", CSRF_OK, Map.of("allowsSharedSites", false)), 404,
+                ApiErrors.NOT_FOUND);
+        // The field is the organization's consent to being listed across organizations, and the only one this
+        // write takes: a body that does not carry it under the name every READ uses must fail, never answer 200
+        // having stored nothing. "allowSharedSites" is the stored attribute's name, the likeliest misspelling.
+        assertError(resource.saveProfile(orgId, CSRF_OK, Map.of("allowSharedSites", false)), 400,
+                ApiErrors.VALIDATION_FAILED);
+        assertError(resource.saveProfile(orgId, CSRF_OK, Map.of()), 400, ApiErrors.VALIDATION_FAILED);
+        assertError(resource.saveProfile(orgId, CSRF_OK, null), 400, ApiErrors.VALIDATION_FAILED);
+        Assert.assertTrue(stored(id).allowsSharedSites(), "none of the refusals wrote anything");
+
+        // The organization's own admin may; a plain member may not.
+        signedInAs(orgAdmin);
+        resource = resource(new OrgsResource());
+        assertOk(resource.saveProfile(orgId, CSRF_OK, Map.of("allowsSharedSites", false)));
+        Assert.assertFalse(stored(id).allowsSharedSites());
+        signedInAs(member);
+        resource = resource(new OrgsResource());
+        assertError(resource.saveProfile(orgId, CSRF_OK, Map.of("allowsSharedSites", true)), 403,
+                ApiErrors.FORBIDDEN);
+        Assert.assertFalse(stored(id).allowsSharedSites(), "a member's write changed nothing");
+    }
+
+    private static Organization stored(final Organization.Id id) {
+        return org.paulsens.trip.dynamo.DAO.getInstance()
+                .getOrganization(id, org.paulsens.trip.cache.Cached.NO).orElseThrow();
     }
 
     @Test

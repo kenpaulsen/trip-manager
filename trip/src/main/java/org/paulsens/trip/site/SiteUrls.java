@@ -5,6 +5,7 @@ import java.net.URISyntaxException;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.function.Function;
+import java.util.function.UnaryOperator;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.ConfigCommands;
 import org.paulsens.trip.cache.Cached;
@@ -85,6 +86,25 @@ public final class SiteUrls {
         final String orgId = (trip == null) ? null : trip.getOrgId();
         return appLinkBaseUrl(orgOf(orgId, id -> DAO.getInstance().getOrganization(id, Cached.YES)), siteSetting,
                 config);
+    }
+
+    /** A trip's embedded page, site-relative and followed by the trip's id (docs/conference.md "The embed"). */
+    public static final String TRIP_PAGE_PATH = "/trip/tripPage.jsf?trip=";
+
+    /**
+     * The address of a trip's embedded page as an API response carries it ({@code TripDto.detailsUrl}, Discover's
+     * {@code detailsUrl}): on the site of the ORGANIZATION that owns the trip ({@link #baseUrlForTrip} over the
+     * link-base setting), never on the host the API was called on, where the page may not be served at all
+     * (2026-11-08). In local mode the link-base setting names the production site, so the path is handed to
+     * {@code onRequestHost} instead: a resource makes it absolute on its request, a caller with no request passes
+     * the identity and finishes it later. The ONE spelling of the rule, so the signed-in trip and its Discover
+     * card can never open different pages.
+     */
+    public static String tripPageUrl(final Trip trip, final boolean local, final UnaryOperator<String> onRequestHost,
+            final ConfigCommands config) {
+        final String path = TRIP_PAGE_PATH + trip.getId();
+        return local ? onRequestHost.apply(path)
+                : baseUrlForTrip(trip, KnownSettings.REG_MAIL_BASE_URL, config) + path;
     }
 
     /**

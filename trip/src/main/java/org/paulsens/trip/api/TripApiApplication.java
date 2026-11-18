@@ -32,6 +32,7 @@ public class TripApiApplication extends Application {
                 ChatInviteResource.class,
                 ConfigResource.class,
                 DeployResource.class,
+                DiscoverResource.class,
                 FamilyResource.class,
                 LodgingResource.class,
                 MailResource.class,

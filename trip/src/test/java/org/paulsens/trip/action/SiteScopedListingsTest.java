@@ -91,7 +91,7 @@ public class SiteScopedListingsTest {
                 "with Acme picked, the shared site lists what Acme's own site lists");
         // The org side of the gate: an org that opted out never appears, whatever the site picked.
         final Organization acme = DAO.getInstance().getOrganization(ACME, Cached.NO).orElseThrow();
-        acme.setAllowSharedSites(Boolean.FALSE);
+        acme.setSharedSitesAllowed(false);
         Assert.assertTrue(DAO.getInstance().saveOrganization(acme));
         try {
             Assert.assertTrue(trips.getPublicTripsFor(listingCurating(FakeData.ACME_ORG_ID)).stream()
@@ -99,7 +99,7 @@ public class SiteScopedListingsTest {
                     "opted out: nothing of Acme's on the shared site even when picked");
         } finally {
             final Organization restore = DAO.getInstance().getOrganization(ACME, Cached.NO).orElseThrow();
-            restore.setAllowSharedSites(null);
+            restore.setSharedSitesAllowed(true);
             Assert.assertTrue(DAO.getInstance().saveOrganization(restore));
         }
     }

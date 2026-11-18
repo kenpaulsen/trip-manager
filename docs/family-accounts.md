@@ -139,18 +139,17 @@ Guard rails:
 
 ## Acting-for (the switcher)
 
-`PersonCommands.getSubject(idParam)`: explicit `?id=` (page auth still gates it) → the sticky session
-selection `actingFor` (validated on every read; stale entries self-clear) → the signed-in user. The
-topbar "Viewing: X" chip is both the indicator and the switcher: rendered for family MANAGERS in a
-family of 2+ (2026-08-12: non-managers get no chip — acting-for is a manager power, `actFor` refuses
-non-managed targets, and a switcher that never switches reads as broken; refusals also growl now),
-showing the current subject (your own name when unswitched), and clicking it drops down the member
-list (the Freya `topbar-item` menu behavior), filtered to members the viewer can act for. **Identity never changes** — `userId`, the
-audit actor, chat authorship and payments stay the signed-in user, which is what separates this from
-the admin View As swap. `payByCard` stashes the chosen subject in `sessionScope.payFor` because the
-PayPal return URL carries no query string. Switching the acting-for subject clears the in-flight flow
-keys (`payFor`, the pending-upload and bg-cutout tokens) so an abandoned payment target or staged
-upload can never attach to the next member.
+`PersonCommands.getSubject(idParam)`: explicit `?id=` (page auth still gates it) → the sticky session selection
+`actingFor` (validated on every read; stale entries self-clear) → the signed-in user. The topbar "Viewing: X" chip is
+both the indicator and the switcher: rendered for family MANAGERS in a family of 2+ (2026-08-12: non-managers get no
+chip — acting-for is a manager power, `actFor` refuses non-managed targets, and a switcher that never switches reads as
+broken; refusals also growl now), showing the current subject (your own name when unswitched), and clicking it drops
+down the member list (the Freya `topbar-item` menu behavior), filtered to members the viewer can act for. **Identity
+never changes** — `userId`, the audit actor, chat authorship and payments stay the signed-in user, which is what
+separates this from the admin View As swap. `payByCard` stashes the chosen subject in `sessionScope.payFor` because the
+PayPal return URL carries no query string. Switching the acting-for subject clears the in-flight flow keys (`payFor`,
+the pending-upload and bg-cutout tokens) so an abandoned payment target or staged upload can never attach to the next
+member.
 
 **Chat while switched (2026-10-10).** A post made while "Viewing: Lucy" is still authored by Ken -- the
 membership row, mute, rate limit, staged photos and adminship are all Ken's -- but carries
@@ -204,27 +203,24 @@ reserved underscore keys (`OPT_REGISTERED_BY`, `OPT_PARTY` — the mir2026 conve
 daily-digest answers are parked on the registration before saving (approval applies them, unchanged).
 Per-person approval is the only status — no party-level status, by decision.
 
-**One merged view (2026-08-11).** The old single-traveler page (dynamic option components, its own
-Register/Save button) is GONE: `joinTrip` always renders the "Who's going?" party view — ANY member
-of a 2+ family without `?id=` sees the whole household listed (2026-08-11: the old manager-only
-listing gate hid a member's own family from them); every `?id=` deep link stays a party of one. WHO
-may actually be registered is gated per row: the checkbox is enabled only when
-`RegistrationCommands.canRegister(traveler)` — self, a managed user, or a site admin — the SAME
-method `registerParty`/`saveResponseEdits` enforce on save, so the UI can never enable what the
-write refuses (site admins were added to both sides together). Non-registrable rows show a
-"(a family manager can register them)" hint. The option questions render as the app-wide
-property-sheet (hand-written `td.propSheetLabel`/`td.propSheetValue` rows — a `ui:repeat` is one
-child to `p:panelGrid`, so the grid cannot pair label/value cells across repeated rows). A traveler already ON the trip roster bypasses `canJoin`
-in `registerParty` (people are added to rosters by hand; filing their row afterwards must keep
-working — the old single page never checked `canJoin`). An already-registered traveler keeps their
-row: a checked-but-disabled checkbox for visual consistency (nobody unregisters themselves here),
-collapsed by default, expanding on a row click; while `reg.allowEdits` (KnownSettings, default ON)
-permits, their option answers — and, while still Pending, the parked digest choice — stay editable,
-saved by the same submit through `saveResponseEdits`: config-gated, applied onto the freshly-read
-STORED row (never the draft object wholesale — its status can be behind an admin's approval), only
-the form's own fields, no-op submits write nothing. "Add New Family Member(s)" (a
-`process="@form"` button, bottom-left of the fieldset) is the path into family registration for
-everyone, replacing the old famHint banner.
+**One merged view (2026-08-11).** The old single-traveler page (dynamic option components, its own Register/Save button)
+is GONE: `joinTrip` always renders the "Who's going?" party view — ANY member of a 2+ family without `?id=` sees the
+whole household listed (2026-08-11: the old manager-only listing gate hid a member's own family from them); every `?id=`
+deep link stays a party of one. WHO may actually be registered is gated per row: the checkbox is enabled only when
+`RegistrationCommands.canRegister(traveler)` — self, a managed user, or a site admin — the SAME method
+`registerParty`/`saveResponseEdits` enforce on save, so the UI can never enable what the write refuses (site admins were
+added to both sides together). Non-registrable rows show a "(a family manager can register them)" hint. The option
+questions render as the app-wide property-sheet (hand-written `td.propSheetLabel`/`td.propSheetValue` rows — a
+`ui:repeat` is one child to `p:panelGrid`, so the grid cannot pair label/value cells across repeated rows). A traveler
+already ON the trip roster bypasses `canJoin` in `registerParty` (people are added to rosters by hand; filing their row
+afterwards must keep working — the old single page never checked `canJoin`). An already-registered traveler keeps their
+row: a checked-but-disabled checkbox for visual consistency (nobody unregisters themselves here), collapsed by default,
+expanding on a row click; while `reg.allowEdits` (KnownSettings, default ON) permits, their option answers — and, while
+still Pending, the parked digest choice — stay editable, saved by the same submit through `saveResponseEdits`:
+config-gated, applied onto the freshly-read STORED row (never the draft object wholesale — its status can be behind an
+admin's approval), only the form's own fields, no-op submits write nothing. "Add New Family Member(s)" (a
+`process="@form"` button, bottom-left of the fieldset) is the path into family registration for everyone, replacing the
+old famHint banner.
 
 **The session draft (2026-08-10).** The form's working copy — per-member `Registration` (typed option
 answers), selection, digest choice — is a `RegistrationDraft` held in SESSION under

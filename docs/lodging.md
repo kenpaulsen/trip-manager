@@ -126,15 +126,15 @@ on my trip", `#{hotel}` answers "what does my hotel look like in September", whi
 organizations. The night arithmetic both need is in `RoomAvailability`, a package-private static helper that
 touches no DAO, so either bean may call it inside a render loop without owning the other.
 
-**Blocks are a refusal, not a warning.** `RoomAvailability.blockProblem` names the block ("Room 401 is not
-available Sep 23 – Sep 25: another group. Change the block on the hotel's Availability tab first.") and
-`assignRoom`, `place`, `createReservations`, `updateReservation` and `splitStay` all check it ahead of the
-capacity warning (through `LodgingCommands.roomProblem`, which runs the one-option-per-room check right after
-it; see "One lodging option per room per night"). This is deliberately unlike over-capacity, which is the warning `force` overrides:
-capacity is OUR call to overrule -- three people in a double is a decision an admin may make -- but a room
-another group is sleeping in is not ours to hand out, so there is no "Block anyway". A blocked empty room
-gets the CSS state `rs-blocked` rather than `rs-empty` (it is not ours to fill); a room both blocked and
-slept in reads `rs-over`, because somebody has to move and that is the same urgency.
+**Blocks are a refusal, not a warning.** `RoomAvailability.blockProblem` names the block ("Room 401 is not available Sep
+23 – Sep 25: another group. Change the block on the hotel's Availability tab first.") and `assignRoom`, `place`,
+`createReservations`, `updateReservation` and `splitStay` all check it ahead of the capacity warning (through
+`LodgingCommands.roomProblem`, which runs the one-option-per-room check right after it; see "One lodging option per room
+per night"). This is deliberately unlike over-capacity, which is the warning `force` overrides: capacity is OUR call to
+overrule -- three people in a double is a decision an admin may make -- but a room another group is sleeping in is not
+ours to hand out, so there is no "Block anyway". A blocked empty room gets the CSS state `rs-blocked` rather than
+`rs-empty` (it is not ours to fill); a room both blocked and slept in reads `rs-over`, because somebody has to move and
+that is the same urgency.
 
 **A refusal that keeps a modal dialog open must be shown INSIDE that dialog.** A growl cannot serve one:
 PrimeFaces gives the growl the modal overlay's own z-index (1007) and the dialog a higher one (1008), so the
@@ -275,11 +275,11 @@ calendar's day detail) both ask it; neither names a guest.
 
 ### Hotel operators see trip titles, dates and guest names at their hotel (the tenancy extension)
 
-**Owner decision 2026-10-25:** a Hotel Operator may see, for stays at THEIR hotel across every organization,
-the trip's title and dates, the NAMES of the guests staying there, and the hotel's own COST figures (cost
-schedule, cost extras, cost concessions). What never crosses: a participant's
-price, a bill, or a price concession; those are the trip's business. This is the SECOND deliberate extension of the "accommodations are global" exception (the first
-was the Availability calendar, counts and dates only), and the two are the whole list.
+**Owner decision 2026-10-25:** a Hotel Operator may see, for stays at THEIR hotel across every organization, the trip's
+title and dates, the NAMES of the guests staying there, and the hotel's own COST figures (cost schedule, cost extras,
+cost concessions). What never crosses: a participant's price, a bill, or a price concession; those are the trip's
+business. This is the SECOND deliberate extension of the "accommodations are global" exception (the first was the
+Availability calendar, counts and dates only), and the two are the whole list.
 
 Why names: the operator rooms these people and bills the organization for them. A hotel that cannot see who
 is in room 105 cannot run a hotel, and the anonymous "another trip · 2 people" chip that is right for a
@@ -434,30 +434,27 @@ new row without `nightlyPriceCents` would price it at $0 and soft-delete every b
 is [migrations/lodging-price-cost.md](migrations/lodging-price-cost.md). `ReservationOfferTest` holds the
 fold cases; `ReservationOffer.ser` was regenerated.
 
-**Concessions (`model/Concession`).** A discount on ONE stay, applied AFTER the per-night sum on the side it
-sits in. Kinds: `PERCENT` (`percentBps`, half-up), `PER_NIGHT` and `TOTAL` (`amountCents`), `COMPLIMENTARY`.
-`PERCENT` and `COMPLIMENTARY` apply to each person's line (`netCents`, clamped to `[0, gross]` so a discount
-never becomes a credit); `PER_NIGHT` and `TOTAL` are RESERVATION-level amounts, split with
-`MoneyMath.splitEvenly` over the id-sorted occupants and taken off each line, floor zero. A `Line` now
-carries `grossCents` and `concessionCents` beside the net `amountCents` (the 6-arg constructor survives for
-the pre-split tests). Owner decision 3: a price concession REDUCES the bill IN PLACE -- still one row per
-person per stay, and `describe` appends `", " + concession.label()` so the note names it; fully
-complimentary nets to zero, and zero writes no row, so "complimentary = no row" costs the biller nothing new.
-The label NEVER carries the reason: a bill note is compared byte-for-byte on every recompute, so a reason
-edit would rewrite every row, and a reason may be internal ("hotel comped the guide"). Every un-concessioned
-note is byte-identical to the pre-split wording (`describe` reads the schedule where it read the offer, and
-appends nothing without a concession), so the deploy rewrote ZERO bill rows -- the deploy check is a
-recompute on a seeded trip reporting `written 0`, and
-`LodgingPricingTest.everyUnconcessionedDescriptionIsByteIdenticalToThePreSplitWording` is the regression
-guard. A cost concession lives on the same reservation (`costConcession`), reduces the invoice line the same
-way, is granted by the hotel's operator (or an internal admin) and is the one concession an operator may
-see; the price concession is internal-only. The two dialogs are under "Pages" (since 2026-10-26 both open from the trip's Reservations tab, an Add/Edit
-button in each discount column); the bean seam is `LodgingConcessions`, whose `preview` re-derives the
+**Concessions (`model/Concession`).** A discount on ONE stay, applied AFTER the per-night sum on the side it sits in.
+Kinds: `PERCENT` (`percentBps`, half-up), `PER_NIGHT` and `TOTAL` (`amountCents`), `COMPLIMENTARY`. `PERCENT` and
+`COMPLIMENTARY` apply to each person's line (`netCents`, clamped to `[0, gross]` so a discount never becomes a credit);
+`PER_NIGHT` and `TOTAL` are RESERVATION-level amounts, split with `MoneyMath.splitEvenly` over the id-sorted occupants
+and taken off each line, floor zero. A `Line` now carries `grossCents` and `concessionCents` beside the net
+`amountCents` (the 6-arg constructor survives for the pre-split tests). Owner decision 3: a price concession REDUCES the
+bill IN PLACE -- still one row per person per stay, and `describe` appends `", " + concession.label()` so the note names
+it; fully complimentary nets to zero, and zero writes no row, so "complimentary = no row" costs the biller nothing new.
+The label NEVER carries the reason: a bill note is compared byte-for-byte on every recompute, so a reason edit would
+rewrite every row, and a reason may be internal ("hotel comped the guide"). Every un-concessioned note is byte-identical
+to the pre-split wording (`describe` reads the schedule where it read the offer, and appends nothing without a
+concession), so the deploy rewrote ZERO bill rows -- the deploy check is a recompute on a seeded trip reporting `written
+0`, and `LodgingPricingTest.everyUnconcessionedDescriptionIsByteIdenticalToThePreSplitWording` is the regression guard.
+A cost concession lives on the same reservation (`costConcession`), reduces the invoice line the same way, is granted by
+the hotel's operator (or an internal admin) and is the one concession an operator may see; the price concession is
+internal-only. The two dialogs are under "Pages" (since 2026-10-26 both open from the trip's Reservations tab, an
+Add/Edit button in each discount column); the bean seam is `LodgingConcessions`, whose `preview` re-derives the
 participant's new bill on the price side and, on the cost side, "Hotel cost for this stay: $300.00 -> $270.00"
-(`LodgingConcessions.NO_COST`, "Hotel cost is not set for this option.", when the option has no cost), and
-which `#{lodging.concessionFormFor/setConcession/concessionPreview}` delegate to, so
-the write funnels through `persistReservation` and gets the reservation dialog's audit line and automatic
-bill recompute.
+(`LodgingConcessions.NO_COST`, "Hotel cost is not set for this option.", when the option has no cost), and which
+`#{lodging.concessionFormFor/setConcession/concessionPreview}` delegate to, so the write funnels through
+`persistReservation` and gets the reservation dialog's audit line and automatic bill recompute.
 
 **Cost extras (`model/CostExtra`, `pay/CostExtras`).** Taxes, fees and coupons the hotel adds on the cost
 side (owner decision 4; Room Invoice only). Each has a `Basis` -- `PER_PERSON_NIGHT` (x
@@ -1036,20 +1033,19 @@ is, like `HotelCommands`, a new bean with a new question.
 
 ## Tests
 
-`LodgingPricingTest` (the worked-example table), `LodgingBillerTest`, `LodgingCommandsTest` (gates,
-discovery, contact, offers, reservations, board, the overlap guard, the split, cancel), `LodgingDAOTest`,
-`LodgingResourceTest` (the webtests' fixture door, `api/LodgingResource`, manage-gated),
-`LodgingUploadCommandsTest`, `LodgingViewsTest`, `RoomAssignmentTest`, plus the new
-`HotelCommandsTest` (blocks, the calendar, and above all that the answer spans TRIPS while naming nobody),
-`RoomAvailabilityTest` (the shared night arithmetic, away from any DAO), `RoomBlockTest` (`[start, end)`
-like every other stay in the app) and `InMemoryIndexTest` (the fake's sparse secondary index, through the
-one index that uses it: a fake answering nothing would make the cross-trip view untestable, and one
-answering the WRONG partition would be worse); browser tests `LodgingAdminPwIT`, `TripLodgingPwIT` (which
-covers "+ Another stay" and "stay 1 of 2"), `HotelCalendarPwIT` (the month's numbers and its block pill, a day opened room by room with no guest named,
-the dates holding for a browser pinned west of UTC,
-and the block table's edit and removal redrawing the calendar), `RoomBlockPwIT` (a blocked room refuses every way in, says who
-has it, and frees at once when a manager lifts the block from the room dialog), `RoomAssignOverCapacityPwIT`,
-`RoomBoardListsPwIT`, `ItineraryLodgingPwIT`, `RoomsPagePwIT`, `OrgScopedPrivsPwIT`.
+`LodgingPricingTest` (the worked-example table), `LodgingBillerTest`, `LodgingCommandsTest` (gates, discovery, contact,
+offers, reservations, board, the overlap guard, the split, cancel), `LodgingDAOTest`, `LodgingResourceTest` (the
+webtests' fixture door, `api/LodgingResource`, manage-gated), `LodgingUploadCommandsTest`, `LodgingViewsTest`,
+`RoomAssignmentTest`, plus the new `HotelCommandsTest` (blocks, the calendar, and above all that the answer spans TRIPS
+while naming nobody), `RoomAvailabilityTest` (the shared night arithmetic, away from any DAO), `RoomBlockTest` (`[start,
+end)` like every other stay in the app) and `InMemoryIndexTest` (the fake's sparse secondary index, through the one
+index that uses it: a fake answering nothing would make the cross-trip view untestable, and one answering the WRONG
+partition would be worse); browser tests `LodgingAdminPwIT`, `TripLodgingPwIT` (which covers "+ Another stay" and "stay
+1 of 2"), `HotelCalendarPwIT` (the month's numbers and its block pill, a day opened room by room with no guest named,
+the dates holding for a browser pinned west of UTC, and the block table's edit and removal redrawing the calendar),
+`RoomBlockPwIT` (a blocked room refuses every way in, says who has it, and frees at once when a manager lifts the block
+from the room dialog), `RoomAssignOverCapacityPwIT`, `RoomBoardListsPwIT`, `ItineraryLodgingPwIT`, `RoomsPagePwIT`,
+`OrgScopedPrivsPwIT`.
 
 The 2026-10-25 round added `LodgingAccessCommandsTest` (the per-trip access object: in-play hotels, the
 operator intersection, the memo, the naming rule), the converted hotel-manager cases in `LodgingCommandsTest`

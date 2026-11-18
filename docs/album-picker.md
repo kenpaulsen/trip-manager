@@ -86,15 +86,15 @@ every album listing reads the media table ONCE (`albumRows`), however many trips
 - **Trip pictures** (`tripPictures`): `TripPictureCommands.addFromAlbum` cuts each pick at a POSITION
   (`PhotoProcessor.processPictureAt`: the largest 3:2 region, slid to two fractions of the room it has) and appends
   the whole batch in one read-modify-write. See `docs/trip-pictures.md`.
-- **The media library** (`library`, `url`): `AlbumLibrary` (`#{albumLibrary}`) re-encodes the photo whole as a JPEG
-  no wider than 2400 pixels (a fresh encode, so no camera or GPS metadata rides along), stores it under the owner's
-  `album-photos/` folder (`org/{orgId}/album-photos/{number}.jpg`; no prefix on a shared site) and records an
-  ordinary library row titled "Album photo" and described "Copied from a trip album": never the album row's title
-  (the caption the sender typed for the trip's members) or description (who shared it, in which trip's chat), because
-  a library row is public. An admin may rename it; the audit line keeps the source key. Who may: this site's media admins, an editor of its content (`contentAdmin` here) or an
-  admin of its organization (`mayAdd`). The `url` use hands the copy's address back (`albumUrl`), made absolute in
-  local mode because a picture field takes only a full web address. Local mode has no bucket: the copies sit in a
-  capped in-memory store behind `web/AlbumLibraryServlet` at `/album-library/*`
+- **The media library** (`library`, `url`): `AlbumLibrary` (`#{albumLibrary}`) re-encodes the photo whole as a JPEG no
+  wider than 2400 pixels (a fresh encode, so no camera or GPS metadata rides along), stores it under the owner's
+  `album-photos/` folder (`org/{orgId}/album-photos/{number}.jpg`; no prefix on a shared site) and records an ordinary
+  library row titled "Album photo" and described "Copied from a trip album": never the album row's title (the caption
+  the sender typed for the trip's members) or description (who shared it, in which trip's chat), because a library row
+  is public. An admin may rename it; the audit line keeps the source key. Who may: this site's media admins, an editor
+  of its content (`contentAdmin` here) or an admin of its organization (`mayAdd`). The `url` use hands the copy's
+  address back (`albumUrl`), made absolute in local mode because a picture field takes only a full web address. Local
+  mode has no bucket: the copies sit in a capped in-memory store behind `web/AlbumLibraryServlet` at `/album-library/*`
   (`MediaCommands.localServedPath`), the trip stylesheets' arrangement.
 
 ## A chat reference

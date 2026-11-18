@@ -163,6 +163,12 @@ public class TripCardCommandsTest {
         Assert.assertEquals(TripCardCommands.State.REGISTERED.getLabel(), "Registered");
         Assert.assertEquals(TripCardCommands.State.PENDING.getLabel(), "Pending");
         Assert.assertEquals(TripCardCommands.State.FULL.getStyle(), "full");
+        // A check only once confirmed, a clock while it waits: a check reads as accepted.
+        Assert.assertEquals(TripCardCommands.State.REGISTERED.getIcon(), "pi pi-check");
+        Assert.assertEquals(TripCardCommands.State.PENDING.getIcon(), "pi pi-clock");
+        Assert.assertEquals(TripCardCommands.State.REGISTER.getIcon(), "");
+        Assert.assertEquals(TripCardCommands.State.FULL.getIcon(), "");
+        Assert.assertEquals(TripCardCommands.State.CLOSED.getIcon(), "");
 
         Assert.assertEquals(TripCardCommands.stateOf(TripPageCommands.Phase.OPEN), TripCardCommands.State.REGISTER);
         Assert.assertEquals(TripCardCommands.stateOf(TripPageCommands.Phase.CLOSED), TripCardCommands.State.CLOSED);

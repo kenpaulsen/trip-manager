@@ -79,6 +79,19 @@ public class TripCardCommands {
         public String getStyle() {
             return name().toLowerCase(Locale.ROOT);
         }
+
+        /**
+         * The chip's icon classes, "" for none: a check only once a registration is confirmed, a clock while one
+         * waits for approval (a check reads as accepted). Here, beside the label and the style, so a new state
+         * gets its icon where it gets its words.
+         */
+        public String getIcon() {
+            return switch (this) {
+                case REGISTERED -> "pi pi-check";
+                case PENDING -> "pi pi-clock";
+                case REGISTER, FULL, CLOSED -> "";
+            };
+        }
     }
 
     /** One trip as a listing card. Request-scoped by use: never stored in a view or a session. */
@@ -185,17 +198,12 @@ public class TripCardCommands {
                 ? null : trip.getProvider();
         // ONE registration lookup per card (an uncached read): the link and the state both turn on it.
         final Registration.Status status = viewer == null ? Registration.Status.NOT_REGISTERED
-                : statusOf(registrations.get().getRegistration(trip.getId(), viewer));
+                : RegistrationCommands.statusOf(registrations.get().getRegistration(trip.getId(), viewer));
         final boolean registered = status != Registration.Status.NOT_REGISTERED;
         return new Card(trip, trips.get().publicTripUrlFor(trip, registered), stateOf(trip, status), cover,
                 cover == null ? null : pics.url(cover, CARD_MAX_WIDTH),
                 cover == null ? null : pics.srcsetUpTo(cover, CARD_MAX_WIDTH),
                 cover == null ? fallbackOf(trip) : null, orgName, featured);
-    }
-
-    private static Registration.Status statusOf(final Registration registration) {
-        return registration == null || registration.getStatus() == null ? Registration.Status.NOT_REGISTERED
-                : registration.getStatus();
     }
 
     private State stateOf(final Trip trip, final Registration.Status status) {

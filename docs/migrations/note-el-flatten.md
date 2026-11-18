@@ -7,10 +7,10 @@ so the itinerary pages can stop evaluating notes as EL (medjugorje#116) without 
 
 Until 2026-11 four pages (`trip/itinerary.xhtml`, `itinerary-print.xhtml`, `itinerary-badge.xhtml`,
 `admin/tripEvents.xhtml`) wrote every private note through `tripUtil.evalEL`, so any `#{...}` in a note ran on the
-server with the full Faces EL context: static calls on `java.lang` included. A note is written by a trip manager in
-the itinerary's note dialog, and by any trip member for their own note over `PUT /api/trips/{tripId}/events/{eventId}/note`,
-so that was code execution for any trip member. The pages now write the note as stored, cleaned by the note
-allowlist (`RichTextHtml.cleanNote`, on save and on every read), and `evalEL` is gone.
+server with the full Faces EL context: static calls on `java.lang` included. A note is written by a trip manager in the
+itinerary's note dialog, and by any trip member for their own note over `PUT /api/trips/{tripId}/events/{eventId}/note`,
+so that was code execution for any trip member. The pages now write the note as stored, cleaned by the note allowlist
+(`RichTextHtml.cleanNote`, on save and on every read), and `evalEL` is gone.
 
 Managers relied on the evaluation for one thing: each traveler's room, pasted into a LODGING event's notes as
 `#{reg.getRoomPDV(theTrip.id, person.id).content}`. A read-only scan of production on 2026-11-16 found that
@@ -54,12 +54,12 @@ cd ../medjugorje
 ./scripts/flatten-note-el.sh apply  --out ~/note-el-flatten --apply
 ```
 
-The run's own cache is off (every read and write goes straight to DynamoDB). After an apply or a rollback the
-script invalidates the running app's `trip_event` and `trip` caches through `trip/scripts/lib/cache-invalidate.sh`
-when `TRIP_APP_URL` and `TRIP_ADMIN_EMAIL` are set; otherwise it says to press **Clear caches** on the admin
-Settings page, and the itineraries keep showing the old notes until that is done. If an apply or a rollback exits 1
-(an error part way), the script does not invalidate; if `applied.json` lists rows, press **Clear caches**. The `cdk-deploy` profile signs in
-through SSO, so the script (through the shared `scripts/java-cli.sh`) hands the Java process the profile's
+The run's own cache is off (every read and write goes straight to DynamoDB). After an apply or a rollback the script
+invalidates the running app's `trip_event` and `trip` caches through `trip/scripts/lib/cache-invalidate.sh` when
+`TRIP_APP_URL` and `TRIP_ADMIN_EMAIL` are set; otherwise it says to press **Clear caches** on the admin Settings page,
+and the itineraries keep showing the old notes until that is done. If an apply or a rollback exits 1 (an error part
+way), the script does not invalidate; if `applied.json` lists rows, press **Clear caches**. The `cdk-deploy` profile
+signs in through SSO, so the script (through the shared `scripts/java-cli.sh`) hands the Java process the profile's
 exported credentials; run `aws sso login --profile cdk-deploy` first if they have expired.
 
 ## Verify

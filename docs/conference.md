@@ -229,16 +229,16 @@ as everywhere.
   this block's.
 
 Both types have one optional "Event" property (blank: the page's own trip; a pick: show it on an org's home page);
-`TripPageCommands.tripFor` resolves explicit pick, then the page key, then the host page's `theTripId` (a section
-inside a container), never a trip the site does not reach. `ProgrammaticContentTemplate.fitsTripPage()` keeps the
-one type that can only list OTHER trips (`pilgrimages`) off a trip page's Add dialog. `photo-albums` fits: it carries
-the same optional "Event" property, and on a conference's page (or with an event picked) `MediaCommands.getHomeAlbumsFor`
-answers that ONE event's album from its chat photos, whatever its age or photo count, so a conference page shows its
-own pictures; anywhere else it is the recent trips' albums as before. The album cards' CSS and the photo-viewer glue
-moved out of `homePage.xhtml` into `resources/css/albums.css` and `resources/trip-js/albums.js`, which both hosts
-load (the glue reads the page's facts off `#albumsGlue`). The `#{tripPage}` bean
-(`TripPageCommands`) reads only cached DAO lookups and memoizes per request: this is the anonymous render path
-(`RenderPathCacheTest` covers the page's sections and templates).
+`TripPageCommands.tripFor` resolves explicit pick, then the page key, then the host page's `theTripId` (a section inside
+a container), never a trip the site does not reach. `ProgrammaticContentTemplate.fitsTripPage()` keeps the one type that
+can only list OTHER trips (`pilgrimages`) off a trip page's Add dialog. `photo-albums` fits: it carries the same
+optional "Event" property, and on a conference's page (or with an event picked) `MediaCommands.getHomeAlbumsFor` answers
+that ONE event's album from its chat photos, whatever its age or photo count, so a conference page shows its own
+pictures; anywhere else it is the recent trips' albums as before. The album cards' CSS and the photo-viewer glue moved
+out of `homePage.xhtml` into `resources/css/albums.css` and `resources/trip-js/albums.js`, which both hosts load (the
+glue reads the page's facts off `#albumsGlue`). The `#{tripPage}` bean (`TripPageCommands`) reads only cached DAO
+lookups and memoizes per request: this is the anonymous render path (`RenderPathCacheTest` covers the page's sections
+and templates).
 
 **Countdowns** moved from an inline script in `mainTemplate`'s classic layout to `resources/trip-js/countdown.js`,
 loaded once by `template.xhtml`, so the registration block counts down on either layout.
@@ -285,67 +285,65 @@ organization's"):
   the `rootStyle` ui:param. An image also sets `--layout-full-bg:transparent`, so the full-width layout's own ground
   (`.layoutFull` in `site.css`) no longer hides a background image, the org's or the trip's.
 - `showTitle` (null = no: the hero carries it) and `showNav` (null = yes: the strip of section links).
-- `stylesheetUrl`: a CSS file in the trip's organization's media library, loaded by this page alone. The field rules
-  are `TripPageOptions.problems()`; the library rule is `TripPageCommands.pageProblems` (`MediaCommands.libraryItemFor`
-  must resolve the URL to an item of that org with `text/css`), because any other URL would let a trip manager load
-  arbitrary CSS into the org's site, which is its content admins' call. Rules belong under `.contentItem` (every
-  section's wrapper) so the menu and the dialogs are never restyled. **The live editor** (2026-11, `TripStylesheets`,
-  `#{tripStylesheets}`; `WEB-INF/stylesheetEditorDialog.xhtml`) sits ON the trip's details page as a floating,
-  non-modal dialog (`tripPageBody.xhtml` hosts it for a signed-in site view, never the embed): the edit toolbar's
-  **Styles** button, or the Trip Page dialog's "Open the style editor" link (`?styles=true` loads the sheet the trip
-  links, `?styles=new` the starter; `prepare`), opens it over the real page, and every keystroke is written into a
-  `<style id="tripLiveCss">` on the page, so it restyles as the designer types; while the sheet being edited is the
-  one the page links, the page's own `<link data-trip-stylesheet>` is switched off so a removed rule disappears too,
-  and Close puts the page back. **Save stores the stylesheet only** (`saveOnly`: create, or save in place with the
-  title change as the rename; a new sheet is then the one being edited); linking a sheet to the trip stays the Trip
-  Page dialog's menu, so a designer may work on a sheet without touching the trip (the dialog says so when the saved
-  sheet is not the linked one). Who edits: site admins, the org's admins and its `mediaAdmin` holders (`canEdit` =
-  `canManageOrg` or `canViewOrgMedia`); a trip manager only picks. ONE media item per stylesheet, `text/css`,
-  under `org/{orgId}/stylesheets/{slug}.css` (`slugOf` the title, `-2`, `-3` on a collision); Save overwrites the
-  SAME key (every trip's stored URL keeps working), bumps the row's `rev` so the rendered `<link>` carries `?r=N`
+- `stylesheetUrl`: a CSS file in the trip's organization's media library, loaded by this page alone. The field rules are
+  `TripPageOptions.problems()`; the library rule is `TripPageCommands.pageProblems` (`MediaCommands.libraryItemFor` must
+  resolve the URL to an item of that org with `text/css`), because any other URL would let a trip manager load arbitrary
+  CSS into the org's site, which is its content admins' call. Rules belong under `.contentItem` (every section's
+  wrapper) so the menu and the dialogs are never restyled. **The live editor** (2026-11, `TripStylesheets`,
+  `#{tripStylesheets}`; `WEB-INF/stylesheetEditorDialog.xhtml`) sits ON the trip's details page as a floating, non-modal
+  dialog (`tripPageBody.xhtml` hosts it for a signed-in site view, never the embed): the edit toolbar's **Styles**
+  button, or the Trip Page dialog's "Open the style editor" link (`?styles=true` loads the sheet the trip links,
+  `?styles=new` the starter; `prepare`), opens it over the real page, and every keystroke is written into a `<style
+  id="tripLiveCss">` on the page, so it restyles as the designer types; while the sheet being edited is the one the page
+  links, the page's own `<link data-trip-stylesheet>` is switched off so a removed rule disappears too, and Close puts
+  the page back. **Save stores the stylesheet only** (`saveOnly`: create, or save in place with the title change as the
+  rename; a new sheet is then the one being edited); linking a sheet to the trip stays the Trip Page dialog's menu, so a
+  designer may work on a sheet without touching the trip (the dialog says so when the saved sheet is not the linked
+  one). Who edits: site admins, the org's admins and its `mediaAdmin` holders (`canEdit` = `canManageOrg` or
+  `canViewOrgMedia`); a trip manager only picks. ONE media item per stylesheet, `text/css`, under
+  `org/{orgId}/stylesheets/{slug}.css` (`slugOf` the title, `-2`, `-3` on a collision); Save overwrites the SAME key
+  (every trip's stored URL keeps working), bumps the row's `rev` so the rendered `<link>` carries `?r=N`
   (`TripPageCommands.lookOf` appends `MediaItem.getCacheBuster()` from the CACHED listing,
-  `MediaCommands.cachedLibraryItemFor`; the stored value stays bare and `libraryItemFor` ignores a query suffix),
-  and invalidates the CDN path once (`invalidateCdn`; CloudFront's cache key ignores query strings). The editor
-  opens and saves in place ANY `text/css` library item stored in its organization's own folder as a `.css` file
-  (`TripStylesheets.isOrgStylesheet`), not only the ones it created: the conference import's page stylesheets live
-  under `org/{orgId}/conferences/...` (2026-11-07). Text only, at most 256 KB, no control characters and no
-  `</style` (`TripStylesheets.check`; a lone `<` is legal CSS: inline SVG data URLs, comments), and the embed
-  links rather than inlines any sheet that holds `</style`. The editor is `pe:codeMirror` in CSS mode; `completeMethod`
-  (`complete`, Ctrl+Space) and the "Classes on this page" list (`classReport`: every `class` the page's rendered
-  sections and typed rich text reference, tagged custom / hook / styled through `content/CssClassScan`) point a
-  designer at the classes the page really uses; its plus drops an empty `.contentItem .name {}` at the cursor.
-  Color tools (issue #26, 2026-11-15), all client-side on `resources/trip-js/themeTools.js` (`window.tripTheme`):
-  **Preview as** draws the page in any palette, light or dark, by swapping the theme and layout `<link>`s and the
-  wrapper's `layout-topbar-*`/`layout-menu-*` classes (the names come from `ThemePalettes.json()`, i.e. the
-  server's own naming; the trip's org's OWN palettes follow the stock ones, their entries carrying the `--ct-*`
-  values the preview sets; only this browser sees it and Close resets it); **Theme colors** inserts a `var()` from
-  `ThemeColors` (the ONE catalog of author-facing colors, which the guide's table also renders) at the cursor; a
-  swatch precedes every color in the CSS (CodeMirror bookmarks, a `var()` one painting with the var itself); and
-  **Readability** audits text contrast (WCAG AA, composited backgrounds, text over a picture reported as
-  unmeasurable) in every palette and mode combination (the 18 stock ones and the org's own), with a cell per combination that previews it and lists
-  the failures. Text in the palette's own `--text-color-secondary` is reported apart: the platform default's
-  light value is a known 2.1:1 the owner chose to keep. `ThemeContrastPwIT` runs the same audit in CI. A
-  new stylesheet starts as `resources/css/trip-page-starter.css` (every hook as a commented empty rule); the
-  designer guide is `admin/help/stylesheet.xhtml` (stateless, in the anonymous sweep). Local mode has no bucket:
-  the bytes live in a `LocalObjectStore` served by `web/StylesheetServlet` at `/trip-stylesheets/{key}`, which is
-  what `MediaCommands.getUrl` answers for a stylesheet key when no media host is configured (`FakeData` seeds one
-  sample row for CFPW). The editor's state is viewScope scalars (`cssOpen`, `cssItemId`, `cssTitle`, `cssText`); a
-  JSF `required` on its title would silently fail the page's other postbacks (one form), so `saveOnly` refuses a
-  blank title instead.
+  `MediaCommands.cachedLibraryItemFor`; the stored value stays bare and `libraryItemFor` ignores a query suffix), and
+  invalidates the CDN path once (`invalidateCdn`; CloudFront's cache key ignores query strings). The editor opens and
+  saves in place ANY `text/css` library item stored in its organization's own folder as a `.css` file
+  (`TripStylesheets.isOrgStylesheet`), not only the ones it created: the conference import's page stylesheets live under
+  `org/{orgId}/conferences/...` (2026-11-07). Text only, at most 256 KB, no control characters and no `</style`
+  (`TripStylesheets.check`; a lone `<` is legal CSS: inline SVG data URLs, comments), and the embed links rather than
+  inlines any sheet that holds `</style`. The editor is `pe:codeMirror` in CSS mode; `completeMethod` (`complete`,
+  Ctrl+Space) and the "Classes on this page" list (`classReport`: every `class` the page's rendered sections and typed
+  rich text reference, tagged custom / hook / styled through `content/CssClassScan`) point a designer at the classes the
+  page really uses; its plus drops an empty `.contentItem .name {}` at the cursor. Color tools (issue #26, 2026-11-15),
+  all client-side on `resources/trip-js/themeTools.js` (`window.tripTheme`): **Preview as** draws the page in any
+  palette, light or dark, by swapping the theme and layout `<link>`s and the wrapper's `layout-topbar-*`/`layout-menu-*`
+  classes (the names come from `ThemePalettes.json()`, i.e. the server's own naming; the trip's org's OWN palettes
+  follow the stock ones, their entries carrying the `--ct-*` values the preview sets; only this browser sees it and
+  Close resets it); **Theme colors** inserts a `var()` from `ThemeColors` (the ONE catalog of author-facing colors,
+  which the guide's table also renders) at the cursor; a swatch precedes every color in the CSS (CodeMirror bookmarks, a
+  `var()` one painting with the var itself); and **Readability** audits text contrast (WCAG AA, composited backgrounds,
+  text over a picture reported as unmeasurable) in every palette and mode combination (the 18 stock ones and the org's
+  own), with a cell per combination that previews it and lists the failures. Text in the palette's own
+  `--text-color-secondary` is reported apart: the platform default's light value is a known 2.1:1 the owner chose to
+  keep. `ThemeContrastPwIT` runs the same audit in CI. A new stylesheet starts as `resources/css/trip-page-starter.css`
+  (every hook as a commented empty rule); the designer guide is `admin/help/stylesheet.xhtml` (stateless, in the
+  anonymous sweep). Local mode has no bucket: the bytes live in a `LocalObjectStore` served by `web/StylesheetServlet`
+  at `/trip-stylesheets/{key}`, which is what `MediaCommands.getUrl` answers for a stylesheet key when no media host is
+  configured (`FakeData` seeds one sample row for CFPW). The editor's state is viewScope scalars (`cssOpen`,
+  `cssItemId`, `cssTitle`, `cssText`); a JSF `required` on its title would silently fail the page's other postbacks (one
+  form), so `saveOnly` refuses a blank title instead.
 
-Edited on the trip editor's "Trip Page" dialog (`WEB-INF/tripPageDialog.xhtml`, the trip's managers, every kind,
-hidden while a trip is being created; binds into the `TripEditDrafts` draft, Done refuses with growls and stays open on `pageOk`, Save
-persists; the page's edit-mode toolbar links there as "Page settings"), and on the API as `TripDto.page`
+Edited on the trip editor's "Trip Page" dialog (`WEB-INF/tripPageDialog.xhtml`, the trip's managers, every kind, hidden
+while a trip is being created; binds into the `TripEditDrafts` draft, Done refuses with growls and stays open on
+`pageOk`, Save persists; the page's edit-mode toolbar links there as "Page settings"), and on the API as `TripDto.page`
 (`TripPageOptionsDto`, absent = leave alone, `""` = back to the org's, 400 `VALIDATION_FAILED` on a problem, read back
-by managers only). `TripCommands.saveTrip` refuses the same problems, since a dialog closed with its X skips Done.
-The dialog's two library pick lists (background image, stylesheet) have a search box and label each file "title
-(file name)" (`MediaCommands.pickLabel`), and a "Selected file" line under each names the choice by its path in the
-library (`MediaCommands.describeChoice`: no protocol, host or organization folder; any other URL as its host and path,
-marked as not in the library). A media URL is too long for its field, so its file name was never in view, and a
-stylesheet's title is a description (2026-11-09). A
-styles template (an org-scoped STANDARD template holding a `<link rel="stylesheet">`, `content-templates.md`) remains
-possible for a single section. Fonts loaded from the media CDN need a CORS policy (`MediaStack`), which it does not
-have yet; Google Fonts load fine.
+by managers only). `TripCommands.saveTrip` refuses the same problems, since a dialog closed with its X skips Done. The
+dialog's two library pick lists (background image, stylesheet) have a search box and label each file "title (file name)"
+(`MediaCommands.pickLabel`), and a "Selected file" line under each names the choice by its path in the library
+(`MediaCommands.describeChoice`: no protocol, host or organization folder; any other URL as its host and path, marked as
+not in the library). A media URL is too long for its field, so its file name was never in view, and a stylesheet's title
+is a description (2026-11-09). A styles template (an org-scoped STANDARD template holding a `<link rel="stylesheet">`,
+`content-templates.md`) remains possible for a single section. Fonts loaded from the media CDN need a CORS policy
+(`MediaStack`), which it does not have yet; Google Fonts load fine.
 
 **Wide content.** An imported description is often wider than a phone. `site.css` keeps it inside the window:
 `.grid > .col{min-width:0}` (primeflex's flex column otherwise grows to its widest content), and pictures, iframes and

@@ -17,17 +17,32 @@ and the trip page's hero and gallery (both below). The apps follow in issue 155.
 - `TripPicture` `{key, alt, width, height, placeholder}`: a plain `Serializable` POJO (the `BadgeImage` rule: Kryo
   rebuilds without constructors). `key` is a STEM; the three renditions are `{stem}-480.jpg`, `{stem}-960.jpg` and
   `{stem}-1920.jpg` (`TripPicture.WIDTHS`, `keyAt`). `width`/`height` are the largest rendition's.
-- `Trip.destination` (free text), `Trip.country` (ISO 3166-1 alpha-2, `IsoCountries`), `Trip.tags` (ids: each
-  label's lowercase slug, `TripTags.idOf`, so a capitalization fix in the setting orphans nothing).
+- `Trip.destination` (free text), `Trip.countries` (ISO 3166-1 alpha-2 codes, `IsoCountries`), `Trip.tags` (ids:
+  each label's lowercase slug, `TripTags.idOf`, so a capitalization fix in the setting orphans nothing).
+- **A trip may visit several countries (2026-11-17, owner).** `Trip.countries` is an ordered list and the AUTHORITY.
+  `Trip.country`, the one code every trip stored before that date holds, is kept as its FIRST entry, in step both ways
+  (`setCountries` writes it, `setCountry` folds an old row into a list of one), so no stored row is rewritten, an older
+  server reading a new row still finds a country, and apps already shipped keep reading `TripDto.country`. Never read or
+  write the two independently. `normalizePlace` keeps real codes only, each once, in the order given. The editor's
+  Countries row is a filterable `p:selectCheckboxMenu`, so from the page the order is the menu's (by English name); the
+  API keeps the caller's order. A trip has NO "main" country (owner, 2026-11-17), so nothing treats the first as more
+  important than the rest: Discover filters by ANY of them, counts a trip under EACH, and its country order sorts by the
+  alphabetically first name (`DiscoverIndex.Entry.countryKey`). One consequence of keeping the old field: during a
+  deploy's overlap, a server on the previous build that saves a multi-country trip writes back only the first country.
+- Country SEARCH also matches the English names people type that the JDK does not spell ("Turkey", "UK",
+  "Ivory Coast"; owner, 2026-11-17), and reads `&` as "and": `IsoCountries.aliasesOf` is the one list, used by
+  the editor's Countries filter (`trip-js/countryFilter.js`, reading it from `trip.countryAliasesJson`), by
+  Discover's `q` and by both apps' Discover search, which keep copies of it. Shown names never change.
 - Every field is nullable, lazy lists read empty, so no migration: every older trip reads as no pictures, no place.
 
 ## Storage
 
-- Key `tripPictures/{tripId}/{millis}-{width}.jpg` in the managed-media bucket, CDN-served, public by URL, cached
-  for a day. `{millis}` is the clock's, pushed forward by one when two uploads would share a millisecond
-  (`TripPictureCommands.nextStamp`), so parallel uploads to one trip never share a key. NOT under `org/{orgId}/...` as the issue first said: that prefix is the org media library's own
-  namespace (its media admins can write any key there), and a trip can move to another organization, so a key there
-  could be overwritten by the wrong tenant. `tripPictures/` is reserved (`MediaCommands.isReservedKey`).
+- Key `tripPictures/{tripId}/{millis}-{width}.jpg` in the managed-media bucket, CDN-served, public by URL, cached for a
+  day. `{millis}` is the clock's, pushed forward by one when two uploads would share a millisecond
+  (`TripPictureCommands.nextStamp`), so parallel uploads to one trip never share a key. NOT under `org/{orgId}/...` as
+  the issue first said: that prefix is the org media library's own namespace (its media admins can write any key there),
+  and a trip can move to another organization, so a key there could be overwritten by the wrong tenant. `tripPictures/`
+  is reserved (`MediaCommands.isReservedKey`).
 - `PhotoProcessor.processPicture`: decode inside `DecodeBudget`, apply EXIF orientation, cut to 3:2 (the crop is
   shrunk to that shape, never stretched; no crop takes the largest centered region), then one JPEG per width.
   Nothing is enlarged: a cut narrower than 1920 is stored at its own width, with a warning below 1600x1067. Every
@@ -106,14 +121,15 @@ which keeps a picture's fade-in (opacity is not movement) and swaps a gallery pi
   `200%`), and keeps that lead as the visitor scrolls, so a phone's first scroll does not meet empty cards and a
   long listing is never fetched whole. The list is memoized per request (`RequestMemo`), and a signed-in viewer's
   registration is looked up once per card.
-- **Links are screened.** An external trip's stored URL reaches a link only through `TripCommands.externalUrlOf`
-  (a web address starting with http:// or https://, else the card links to the trip's own page), and the flyer only
-  through `flyerUrlOf` (the same, or a path on this site). The screen is by SCHEME (`TripCommands.webAddress`), not
-  by `java.net.URI`'s grammar: a browser opens an address with a space or a `|` in it, and such values are stored. A save refuses anything else when the link is being CHANGED (`linkProblems`; REST answers
-  400): the value is typed by a trip manager and a `javascript:` URL in an href would run as whoever clicks it, on
-  a listing organizations share. An unchanged stored value is never judged, since every save of a trip (a paid
-  checkout's roster write, an approval) passes the same gate and reading is already screened; nor is any link when
-  the pre-read of the stored row failed (`TripCommands.preRead`).
+- **Links are screened.** An external trip's stored URL reaches a link only through `TripCommands.externalUrlOf` (a web
+  address starting with http:// or https://, else the card links to the trip's own page), and the flyer only through
+  `flyerUrlOf` (the same, or a path on this site). The screen is by SCHEME (`TripCommands.webAddress`), not by
+  `java.net.URI`'s grammar: a browser opens an address with a space or a `|` in it, and such values are stored. A save
+  refuses anything else when the link is being CHANGED (`linkProblems`; REST answers 400): the value is typed by a trip
+  manager and a `javascript:` URL in an href would run as whoever clicks it, on a listing organizations share. An
+  unchanged stored value is never judged, since every save of a trip (a paid checkout's roster write, an approval)
+  passes the same gate and reading is already screened; nor is any link when the pre-read of the stored row failed
+  (`TripCommands.preRead`).
 - **State:** the viewer's own registration first: Registered (with a check) once it is confirmed, Pending (a clock,
   a neutral chip) while it waits for approval, as the old listing's chip said (owner, 2026-11-17: showing a
   pending registration as Registered was a regression). Without one, the trip page's own
@@ -168,8 +184,9 @@ the files here; they are the owner's own photographs (`demo/trip-pictures/README
 
 ## Tests
 
-`TripPictureCommandsTest`, `AlbumPhotoSourceTest`, `TripPictureServletTest`, `PhotoProcessorPictureTest`, `TripTagsTest`,
-`IsoCountriesTest`, `TripCommandsTest.aSaveKeepsTheStoredPicturesAndNormalizesThePlace`, the picture tests in
-`TripsResourceTest`, `TripCardCommandsTest`, `DemoTripPicturesTest`; browser (medjugorje webtest):
+`TripPictureCommandsTest`, `AlbumPhotoSourceTest`, `TripPictureServletTest`, `PhotoProcessorPictureTest`,
+`TripTagsTest`, `IsoCountriesTest`, `TripCommandsTest.aSaveKeepsTheStoredPicturesAndNormalizesThePlace`, the picture
+tests in `TripsResourceTest`, `TripCardCommandsTest`, `DemoTripPicturesTest`; browser (medjugorje webtest):
 `TripPicturesPwIT` (the editor dialog), `AlbumPickerPwIT` (Choose from Albums: own-organization albums only, the
-held-back photo, several picks, a moved cut) and `TripCardsPwIT` (the cards, org isolation, the phone layout, the gallery).
+held-back photo, several picks, a moved cut) and `TripCardsPwIT` (the cards, org isolation, the phone layout, the
+gallery).

@@ -20,6 +20,7 @@ import org.paulsens.trip.action.BrandColors;
 import org.paulsens.trip.action.BrandCommands;
 import org.paulsens.trip.action.EditorColors;
 import org.paulsens.trip.action.OrgCommands;
+import org.paulsens.trip.action.OrgSharedSites;
 import org.paulsens.trip.action.SiteCommands;
 import org.paulsens.trip.api.dto.OrgBrandingDto;
 import org.paulsens.trip.api.dto.OrgDirectoryEntryDto;
@@ -33,7 +34,8 @@ import org.paulsens.trip.model.Person;
  * (profile edits, privileges, processors, removal) stays on the org-admin pages, whose gates and confirm
  * flows are the product surface for those decisions. Every mutation delegates its authorization to
  * {@code OrgCommands} — create is site-admin only, the rest require {@code canManageOrg} — so the page
- * rule and the REST rule are one rule.
+ * rule and the REST rule are one rule. The one profile field with a write here is "Shared sites"
+ * ({@link #saveProfile}), because the demo seed has no browser to tick it with.
  *
  * <p>The two reads exist for the native clients, whose tenancy is a HOST: the server scopes trips, money
  * and chat by the request host, so a client has to learn which org subdomains its person belongs to
@@ -164,6 +166,49 @@ public class OrgsResource extends BaseResource {
                     "An organization with that name already exists (or the save failed).");
         }
         return ok(Map.of("id", org.getId().getValue(), "name", org.getName()));
+    }
+
+    /**
+     * The one profile field a script needs to write: {@code {"allowsSharedSites": true|false}}, the profile
+     * page's "Shared sites" checkbox, behind the page's own gate (this organization's admins, and site admins;
+     * {@code OrgCommands.saveOrganization} enforces it again). Added 2026-11 so the demo seed can stand up an
+     * organization that Discover must NOT list (medjugorje#155); every other profile field stays on the page.
+     * The field is spelled as every read spells it ({@code OrgSummaryDto.allowsSharedSites}), and it is REQUIRED:
+     * it is the organization's consent to being listed across organizations, so a body that names it wrongly
+     * must fail loudly rather than answer 200 and store nothing. Anything but a boolean is refused.
+     */
+    @PUT
+    @Path("{orgId}/profile")
+    @Consumes({V1, MediaType.APPLICATION_JSON})
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response saveProfile(
+            @PathParam("orgId") final String orgId,
+            @HeaderParam(CSRF_HEADER) final String csrf,
+            final Map<String, Object> body) {
+        if (csrfMissing(csrf)) {
+            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+        }
+        final OrgCommands orgs = new OrgCommands(this::caller);
+        final Organization org = orgs.findOrganization(orgId);
+        if (org == null) {
+            return error(404, ApiErrors.NOT_FOUND, "No such organization.");
+        }
+        if (!orgs.canManageOrg(orgId)) {
+            return error(403, ApiErrors.FORBIDDEN, "Only this organization's admins can edit its profile.");
+        }
+        final Object flag = body == null ? null : body.get("allowsSharedSites");
+        if (!(flag instanceof Boolean allow)) {
+            return error(400, ApiErrors.VALIDATION_FAILED, "allowsSharedSites (true/false) is required.");
+        }
+        final OrgSharedSites.Outcome outcome = OrgSharedSites.save(orgs, orgId, allow);
+        if (outcome == OrgSharedSites.Outcome.NOT_FOUND) {
+            return error(404, ApiErrors.NOT_FOUND, "No such organization.");
+        }
+        if (outcome == OrgSharedSites.Outcome.FAILED) {
+            return error(500, ApiErrors.STORE_FAILED, "The organization could not be saved.");
+        }
+        // The value just written, not a re-read: a read straight after a write can still see the old row.
+        return ok(Map.of("allowsSharedSites", allow));
     }
 
     /** Adds an EXISTING person to the org — an access change, so org admins only (the bean enforces). */

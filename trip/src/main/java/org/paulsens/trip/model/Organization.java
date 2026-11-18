@@ -144,11 +144,22 @@ public final class Organization implements Serializable {
     private LocalDateTime sitePagesSeededAt;
 
     /**
-     * The org side of the double gate on SHARED sites: whether this org's public content (trips, albums)
-     * may appear on a shared site's sections at all. {@code null} = allow (the default; the site side's own
-     * pick list is already opt-in), {@code false} = never, whatever a shared site's curation says. Org-admin
-     * controlled -- it is the org's content. Has no effect on the org's OWN site. Setter-populated, outside
-     * the 8-arg creator like {@link #paymentDefaults}.
+     * The organization's consent to its public content (trips, albums) being shown ANYWHERE but its own site.
+     * Three things read it, all through {@link #allowsSharedSites()}:
+     * <ul>
+     *   <li>shared sites: the org side of their double gate (the site side's own pick list is opt-in);</li>
+     *   <li>Discover, the apps' list of public trips for anyone, signed in or not, which has NO site-side pick
+     *       list: this flag and each trip's "Show on homepage" are all that decide it
+     *       ({@code ListingScope.discoverable}, {@code docs/discover-tenancy-review.md});</li>
+     *   <li>the product host's signed-in open listing and album gate ({@code ListingScope.listedAcrossOrgs},
+     *       {@code albumAcrossOrgs}).</li>
+     * </ul>
+     * {@code null} = allow (the default, and what every row nobody touched holds), {@code false} = never. No
+     * writer stores {@code true}, so the row cannot tell "chose yes" from "never asked"; write it only through
+     * {@link #setSharedSitesAllowed}. Changing what null means changes what anonymous Discover lists across
+     * organizations: an owner decision (2026-11-17), not a default to tidy. Org-admin controlled, it is the
+     * org's content. Has no effect on the org's OWN site. Setter-populated, outside the 8-arg creator like
+     * {@link #paymentDefaults}.
      */
     private Boolean allowSharedSites;
 
@@ -239,10 +250,23 @@ public final class Organization implements Serializable {
         return PLATFORM_SLUG.equals(slug);
     }
 
-    /** Whether shared sites may show this org's content -- see {@link #allowSharedSites}; null reads as allow. */
+    /**
+     * Whether shared sites, Discover and the product host's listings may show this org's public content -- see
+     * {@link #allowSharedSites}; null reads as allow.
+     */
     @JsonIgnore
     public boolean allowsSharedSites() {
         return !Boolean.FALSE.equals(allowSharedSites);
+    }
+
+    /**
+     * THE write of {@link #allowSharedSites}, for the Profile tab and the REST profile alike: stored as null when
+     * allowed (what every untouched row already holds), false when not. One home for the storage rule, so the
+     * two writers cannot come to store the same choice differently.
+     */
+    @JsonIgnore
+    public void setSharedSitesAllowed(final boolean allowed) {
+        this.allowSharedSites = allowed ? null : Boolean.FALSE;
     }
 
     /** The resolved {@link #sharedSiteRegisterTarget}: null or unknown reads as the detail page. */

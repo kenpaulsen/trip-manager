@@ -14,12 +14,15 @@ import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 import org.paulsens.trip.action.Caller;
 import org.paulsens.trip.action.PersonCommands;
 import org.paulsens.trip.action.ProfilePhotos;
 import org.paulsens.trip.action.TripCommands;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.media.PhotoProcessor;
+import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.security.BearerTokens;
@@ -215,6 +218,17 @@ public abstract class BaseResource {
         }
         final Person person = Beans.get(PersonCommands.class).getPerson(id);
         return (person == null || !id.equals(person.getId())) ? null : person;
+    }
+
+    /**
+     * The ids of the organizations this person belongs to, as a trip spells its owner; none for nobody or an
+     * unknown person. What {@code ListingScope.listedAcrossOrgs} and {@code albumAcrossOrgs} are asked with on
+     * the product's own host.
+     */
+    protected static Set<String> orgIdsOf(final Person.Id personId) {
+        final Person person = findPerson(personId);
+        return person == null ? Set.of()
+                : person.getOrgIds().stream().map(Organization.Id::getValue).collect(Collectors.toSet());
     }
 
     /** The subject of a person-scoped read or write: {@code ?personId=} when given, else the caller. */

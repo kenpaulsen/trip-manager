@@ -147,4 +147,24 @@ public class OrganizationTest {
         assertTrue(legacy.getSettingsOverrides().isEmpty());
         assertNull(legacy.settingOverride("site.org.name"));
     }
+
+    /**
+     * The one write of the Shared sites choice: allowed is stored as null (what every untouched row holds), not
+     * allowed as false, and the write is not a JSON property of its own (the stored field is).
+     */
+    @Test
+    public void sharedSitesIsStoredAsNullWhenAllowedAndFalseWhenNot() throws Exception {
+        final Organization org = new Organization();
+        assertTrue(org.allowsSharedSites(), "never set reads as allowed");
+        org.setSharedSitesAllowed(false);
+        assertEquals(org.getAllowSharedSites(), Boolean.FALSE);
+        assertFalse(org.allowsSharedSites());
+        final String stored = MAPPER.writeValueAsString(org);
+        assertFalse(stored.contains("sharedSitesAllowed"), stored);
+        assertFalse(MAPPER.readValue(stored, Organization.class).allowsSharedSites(), "the choice survives the row");
+
+        org.setSharedSitesAllowed(true);
+        assertNull(org.getAllowSharedSites(), "allowed is the absent value, never a stored true");
+        assertTrue(org.allowsSharedSites());
+    }
 }

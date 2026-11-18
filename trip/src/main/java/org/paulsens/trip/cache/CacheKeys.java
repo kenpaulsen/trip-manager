@@ -222,6 +222,23 @@ public final class CacheKeys {
                 + winIndex;
     }
 
+    /**
+     * Rate-limit counters for the endpoints that answer anyone ({@code PublicRateLimiter}). Deliberately outside
+     * the entity {@link #FORMAT_VERSION} namespace: "clear all caches" drops that namespace, and must not hand
+     * every address a fresh allowance while it does.
+     */
+    public static final String PUBLIC_RATE_PREFIX = "pub:v1:rl:";
+
+    /**
+     * One address's counter for one public surface in one window. As with {@link #chatRateLimitKey}, the window
+     * length is part of the key, so changing the setting starts a fresh count instead of colliding with a live one.
+     */
+    public static String publicRateLimitKey(final String surface, final String client, final int windowSeconds,
+            final long epochSec) {
+        final long winIndex = windowSeconds <= 0 ? 0L : epochSec / windowSeconds;
+        return PUBLIC_RATE_PREFIX + surface + ":" + client + ":" + windowSeconds + ":" + winIndex;
+    }
+
     public static String chatSlowModeKey(final String channelId, final String personId) {
         return CHAT_FORMAT_VERSION + "slow:" + channelId + ":" + personId;
     }

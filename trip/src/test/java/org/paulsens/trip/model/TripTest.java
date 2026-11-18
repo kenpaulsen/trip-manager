@@ -124,6 +124,64 @@ public class TripTest {
                 "The builder treats null as empty, like every other list here");
     }
 
+    /**
+     * A trip may visit several countries (2026-11-17). The list is the authority; the one {@code country} every
+     * older row and reader knows is its first entry, kept in step both ways, so no stored row needs rewriting.
+     */
+    @Test
+    void aTripMayVisitSeveralCountriesAndTheFirstIsItsOneCountry() throws Exception {
+        final ObjectMapper mapper = DAO.getInstance().getMapper();
+        final Trip trip = Trip.builder().build();
+        assertTrue(trip.getCountries().isEmpty(), "A new trip names no country: empty, not null");
+        assertNull(trip.getCountry());
+
+        final List<String> mine = new ArrayList<>(List.of("PT", "FR"));
+        trip.setCountries(mine);
+        mine.clear();
+        assertEquals(trip.getCountries(), List.of("PT", "FR"), "The setter copies, in the order given");
+        assertEquals(trip.getCountry(), "PT", "The first is the one country an older reader is given");
+
+        final String json = mapper.writeValueAsString(trip);
+        assertTrue(json.contains("\"country\":\"PT\""), "Stored beside the list, for a reader that knows one: " + json);
+        assertTrue(json.contains("\"countries\":[\"PT\",\"FR\"]"), json);
+        final Trip reread = mapper.readValue(json, Trip.class);
+        assertEquals(reread.getCountries(), List.of("PT", "FR"), "Both survive the stored JSON");
+        assertEquals(reread.getCountry(), "PT");
+
+        // Whichever of the two properties a row lists first, the list is not cut down to its own first entry.
+        final Trip listFirst = mapper.readValue(
+                "{\"id\":\"t1\",\"countries\":[\"BA\",\"HR\"],\"country\":\"BA\"}", Trip.class);
+        assertEquals(listFirst.getCountries(), List.of("BA", "HR"));
+
+        // A row from before the list existed holds one code: it reads as a list of one, with nothing rewritten.
+        final Trip legacy = mapper.readValue("{\"id\":\"t2\",\"country\":\"IT\"}", Trip.class);
+        assertEquals(legacy.getCountries(), List.of("IT"));
+        assertEquals(legacy.getCountry(), "IT");
+        final Trip none = mapper.readValue("{\"id\":\"t3\"}", Trip.class);
+        assertTrue(none.getCountries().isEmpty());
+        assertNull(none.getCountry());
+
+        // The one-country setter is what every writer used before: it names the ONLY country, or none.
+        trip.setCountry("ES");
+        assertEquals(trip.getCountries(), List.of("ES"), "One country replaces the list");
+        trip.setCountries(List.of("BA", "HR"));
+        trip.setCountry("BA");
+        assertEquals(trip.getCountries(), List.of("BA", "HR"), "Naming the first again keeps the rest");
+        trip.setCountry(" ");
+        assertTrue(trip.getCountries().isEmpty(), "Blank clears them all");
+        assertNull(trip.getCountry());
+        trip.setCountries(null);
+        assertTrue(trip.getCountries().isEmpty(), "A null list reads as empty");
+
+        assertEquals(Trip.builder().country("BA").build().getCountries(), List.of("BA"), "The builder, one country");
+        assertEquals(Trip.builder().countries(List.of("PT", "FR")).build().getCountry(), "PT", "and several");
+        assertTrue(Trip.builder().country(null).build().getCountries().isEmpty());
+        assertNull(Trip.builder().countries(null).build().getCountry());
+        assertEquals(Trip.builder().id("same").startDate(LocalDateTime.MIN).endDate(LocalDateTime.MAX).country("BA")
+                .build(), Trip.builder().id("same").startDate(LocalDateTime.MIN).endDate(LocalDateTime.MAX)
+                .countries(List.of("BA")).build(), "Either way in, the two fields agree, so the trips are equal");
+    }
+
     @Test
     void newTripHasId() {
         final Trip trip = Trip.builder().build();
@@ -299,6 +357,19 @@ public class TripTest {
         final String serialized = mapper.writeValueAsString(before);
         final Trip after = mapper.readValue(serialized, Trip.class);
         assertEquals(after, before);
+    }
+
+
+    /** The one language-to-code mapping a page uses (lang, data-lang, the countdown's words). */
+    @Test
+    public void theLanguageTagIsTheTripsOwnAndEnglishWhenUnset() {
+        final Trip trip = Trip.builder().build();
+        trip.setLanguage(null);
+        assertEquals(trip.getLanguageTag(), "en", "no language is the site default");
+        trip.setLanguage(Language.Spanish);
+        assertEquals(trip.getLanguageTag(), "es");
+        trip.setLanguage(Language.English);
+        assertEquals(trip.getLanguageTag(), "en");
     }
 
     private String getMonthString(final LocalDateTime date) {

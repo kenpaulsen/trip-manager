@@ -76,48 +76,44 @@ the person. The roster and the REST `roster` endpoint stay member-only.
 - **REST**: `PersonDto.redactedFor(AccessLevel)`, the single choke point. The DTO carries `privacy`
   (visible to SELF/MANAGER/SITE_ADMIN only, who may also PUT it; the merge is per-knob,
   absent-means-unchanged, garbage ignored). `PersonDtoRedactionTest` pins the matrix.
-- **Pages**: `PrivacyView.of(viewer, subject, adminView)` (`#{people.privacyView(person, adminBool)}`)
-  answers `SHOW | MASK | HIDE` per field group; `adminView` is the page's own privilege verdict.
-  `PrivacyViewTest` pins the page matrix. Every masked value goes through ONE template,
-  `WEB-INF/privacyMask.xhtml` (`ui:decorate`, the value as its body, one `verdict` param): SHOW renders the
-  body; HIDE, or no verdict at all, renders nothing; MASK renders the body inside a hidden span next to a
-  `privMaskedText` placeholder, and the placeholder's click adds `privRevealed` to the wrapper in the browser
-  (`trip.css` swaps which one shows). The wrapper is a span, so masked values sit inline. A masked inplace
-  editor is always rendered, so Save submits its value unchanged unless it was revealed and edited.
-  An EMPTY value on a read-only display renders UNMASKED, so nobody is offered a "private value" that
-  reveals nothing, and "nothing on file" stays distinct from HIDE, which is "withheld from you": an empty
-  read-only value reads "Not given" (a disabled editor's `emptyLabel`, or the host's own text on the profile's
-  read-only email and Manage People's compare grid), never an empty cell. The value is empty, so nothing
-  private reaches the page. The rule lives in the template: a read-only host passes the optional `blank` param, its own emptiness test for what the
-  body shows (`#{empty person.cell}`; trip Contacts' "City, State" is blank only when both are), and the
-  template then renders a MASK's body with no placeholder and no `privMasked` class. Every read-only mask
-  passes it: trip Contacts, People, Org People, the admin person page (Notes too), Manage People's person 2
-  column and the profile's read-only email. An editor the viewer can use leaves it unset and keeps its mask, so staff can
-  still reveal and fill an empty field. An editor that is DISABLED for some viewers is read-only for them, so
-  it passes `blank` conditioned on the same right as its `disabled=`, with the same polarity: every profile
-  inplace is disabled for a trip's staff (they may read the profile, not save it), so each passes
-  `#{not viewScope.canSaveProfile and empty person.tsa}` and they read "Not given"; Manage People's person 1
-  email passes `#{not requestScope.p1MayChangeEmail and empty person1.email}`.
-  `PrivacyMaskPolicyIT` scans every page for the three shapes (read-only: `blank`; usable editor: none;
-  disabled editor: `blank` naming the editor's right) and proves the scan both ways on hand-written masks.
-  (The param is not called `empty`, which is an EL operator.)
-  `WEB-INF/privacyRevealAll.xhtml` is a "Show private values" link that reveals every mask in its scope: the
-  nearest `privScope` element, else its fieldset (the profile's Address, Travel Info and Contact Info; Manage
-  People's two-person compare grid carries `privScope` and the link in its header). It takes no params and is
-  always rendered (a link, never a value), and `trip.css` shows it only while the scope holds a `privMasked`
-  span not yet `privRevealed`: whether to offer it is derived from the masks actually rendered, never from a
-  second, hand-kept copy of each field's verdict or emptiness test on the host, so a scope with no MASK
-  verdict or only empty values offers no link and the link goes away once everything in its scope is open.
-  A list item cannot be masked: Manage People's person pickers put an email or cell in the label only where the verdict is not HIDE
-  (`PersonCommands.adminPickerLabel`).
+- **Pages**: `PrivacyView.of(viewer, subject, adminView)` (`#{people.privacyView(person, adminBool)}`) answers `SHOW |
+  MASK | HIDE` per field group; `adminView` is the page's own privilege verdict. `PrivacyViewTest` pins the page matrix.
+  Every masked value goes through ONE template, `WEB-INF/privacyMask.xhtml` (`ui:decorate`, the value as its body, one
+  `verdict` param): SHOW renders the body; HIDE, or no verdict at all, renders nothing; MASK renders the body inside a
+  hidden span next to a `privMaskedText` placeholder, and the placeholder's click adds `privRevealed` to the wrapper in
+  the browser (`trip.css` swaps which one shows). The wrapper is a span, so masked values sit inline. A masked inplace
+  editor is always rendered, so Save submits its value unchanged unless it was revealed and edited. An EMPTY value on a
+  read-only display renders UNMASKED, so nobody is offered a "private value" that reveals nothing, and "nothing on file"
+  stays distinct from HIDE, which is "withheld from you": an empty read-only value reads "Not given" (a disabled
+  editor's `emptyLabel`, or the host's own text on the profile's read-only email and Manage People's compare grid),
+  never an empty cell. The value is empty, so nothing private reaches the page. The rule lives in the template: a
+  read-only host passes the optional `blank` param, its own emptiness test for what the body shows (`#{empty
+  person.cell}`; trip Contacts' "City, State" is blank only when both are), and the template then renders a MASK's body
+  with no placeholder and no `privMasked` class. Every read-only mask passes it: trip Contacts, People, Org People, the
+  admin person page (Notes too), Manage People's person 2 column and the profile's read-only email. An editor the viewer
+  can use leaves it unset and keeps its mask, so staff can still reveal and fill an empty field. An editor that is
+  DISABLED for some viewers is read-only for them, so it passes `blank` conditioned on the same right as its
+  `disabled=`, with the same polarity: every profile inplace is disabled for a trip's staff (they may read the profile,
+  not save it), so each passes `#{not viewScope.canSaveProfile and empty person.tsa}` and they read "Not given"; Manage
+  People's person 1 email passes `#{not requestScope.p1MayChangeEmail and empty person1.email}`. `PrivacyMaskPolicyIT`
+  scans every page for the three shapes (read-only: `blank`; usable editor: none; disabled editor: `blank` naming the
+  editor's right) and proves the scan both ways on hand-written masks. (The param is not called `empty`, which is an EL
+  operator.) `WEB-INF/privacyRevealAll.xhtml` is a "Show private values" link that reveals every mask in its scope: the
+  nearest `privScope` element, else its fieldset (the profile's Address, Travel Info and Contact Info; Manage People's
+  two-person compare grid carries `privScope` and the link in its header). It takes no params and is always rendered (a
+  link, never a value), and `trip.css` shows it only while the scope holds a `privMasked` span not yet `privRevealed`:
+  whether to offer it is derived from the masks actually rendered, never from a second, hand-kept copy of each field's
+  verdict or emptiness test on the host, so a scope with no MASK verdict or only empty values offers no link and the
+  link goes away once everything in its scope is open. A list item cannot be masked: Manage People's person pickers put
+  an email or cell in the label only where the verdict is not HIDE (`PersonCommands.adminPickerLabel`).
 - **Derived leaks handled in Java**: chat roster name-collision labels never use a private email
-  (`ChatCommands.labelFor` falls to the id rung); the "via manager" contact fallback skips managers whose
-  own email is private (`PersonCommands.primaryManagerOf`); gravatars are suppressed for viewers who may
-  not see the email at all (the gravatar URL is a hash OF the address, fetched by the viewer's browser);
-  they get initials or an icon avatar instead. A MASK viewer may see the address, so a gravatar may use it while it is
-  masked (owner decision 2026-11-13; the profile page's own gravatar is shown that way). People SEARCHES look at cell and email only where the viewer may see
-  them (`PersonMatch.Reach`, `PrivacyView.searchReach`), since a row that stays as digits are typed would
-  reveal a hidden number one digit at a time.
+  (`ChatCommands.labelFor` falls to the id rung); the "via manager" contact fallback skips managers whose own email is
+  private (`PersonCommands.primaryManagerOf`); gravatars are suppressed for viewers who may not see the email at all
+  (the gravatar URL is a hash OF the address, fetched by the viewer's browser); they get initials or an icon avatar
+  instead. A MASK viewer may see the address, so a gravatar may use it while it is masked (owner decision 2026-11-13;
+  the profile page's own gravatar is shown that way). People SEARCHES look at cell and email only where the viewer may
+  see them (`PersonMatch.Reach`, `PrivacyView.searchReach`), since a row that stays as digits are typed would reveal a
+  hidden number one digit at a time.
 
 ## Surfaces touched
 

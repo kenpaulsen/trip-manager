@@ -16,64 +16,63 @@ storage/staging/album), `photoChat` (PhotoChatCommands -- per-photo comment thre
 MAIL-kind templates are runtime-editable email copy rendered by `MailCommands.sendManagedTemplate`, tokens filled by
 Java only), `family` (FamilyCommands -- family accounts; the create-and-link security boundary, see
 `docs/family-accounts.md`), `support` (SupportChatCommands -- the support:main channel; requests post without
-membership), `orgPages` (SitePageCommands -- an org site's own pages and menu links, `admin/orgPages.xhtml`, `page.xhtml`), `org` (OrgCommands -- organizations, THE tenancy boundary: membership, org-scoped privileges + the per-org
-allow-list, processor configs, the payment-config ladder; see `docs/org-admin.md` and `docs/payments.md` before
+membership), `orgPages` (SitePageCommands -- an org site's own pages and menu links, `admin/orgPages.xhtml`,
+`page.xhtml`), `org` (OrgCommands -- organizations, THE tenancy boundary: membership, org-scoped privileges + the
+per-org allow-list, processor configs, the payment-config ladder; see `docs/org-admin.md` and `docs/payments.md` before
 touching), `payment` (PaymentCommands -- the whole payment flow in Java: quote/start/complete/cancel + reconciliation +
 paymentsAdmin sandbox; see `docs/payments.md`), `site` (SiteCommands -- the request's resolved `SiteContext`: shared /
 org / marketing host, its page key, org name, org-site URLs; the ONLY sanctioned window onto which site a request is for
 -- never copy its answers into session or view scope; see `docs/org-admin.md` "Organization sites"), `brand`
 (BrandCommands -- the org site's look: theme/layout names, logo or wordmark, favicon, footer, contact card, donate link,
 analytics id, ALL from the org's own org-only Branding settings; neutral/null on every other host so shared pages keep
-their literal chrome, except `pageAnalyticsId`, the shared hosts' id from the site's own row; see
-`docs/org-admin.md` "Branding"), `brandingUpload` (BrandingUploadCommands -- the Appearance
-page's four image uploads through the shared crop dialog, ONE bean carrying the `BrandingRole` chosen when the dialog
-opens) and `brandingPhotos` (BrandingPhotos -- their versioned `org/{orgId}/branding/{role}-{version}.{ext}` store,
-whose KEPT previous versions are what makes a replaced image recoverable; see `docs/org-admin.md` "Uploading the four
-images"), `lodging` (LodgingCommands -- accommodations, room types, rooms, floor maps, offers, reservations, the
-room-assignment board, lodging bills, the itinerary rows; see `docs/lodging.md` before touching), `budget`
-(BudgetCommands -- the trip's planning budget: typed inputs, shared and per-person lines, lodging lines reading the
-trip's options live, the page's rows and the dashboard headline; edit = tripMgr/tripFinAdmin, view adds tripFinView and
-the global viewFinances; arithmetic in `pay/BudgetMath`; see `docs/budget.md`; both gates live in `TripFinanceGate`,
-shared with the expense report), `expenses` (ExpenseCommands -- the trip's shared expense report: details, currencies,
-expenses matched to budget lines, the submit stamp, budget vs actual, payments recorded behind the narrower settle gate
-(site admin or `tripFinAdmin` only, `TripFinanceGate.canSettle`); arithmetic in `pay/ExpenseMath`; the PDF
-(`ExpenseReportPdf`, receipts appended) and the email to the org's treasurer (`finance.treasurer.email`) through
-`MailCommands.sendWithAttachment`, the ONE send that carries a file (raw MIME over SES `SendRawEmail`); both money PDFs
-draw with `action/PdfSheet` and download from `web/TripMoneyPdfServlet`; see `docs/expense-report.md`),
-`expenseReceipts` (ExpenseReceipts -- the report's receipts, images or PDFs, in the media bucket under
-`receipts/{tripId}/` and slot `receipts-{tripId}`, served ONLY by `web/ExpenseReceiptServlet` at
-`/expense-receipts/{id}` behind the report's view gate: never a CDN URL, fenced out of every media listing, and the CDN
-denied the prefix by `MediaStack`), `lodgingAccess` (LodgingAccessCommands -- the lodging gates' bodies, re-exposed by
-`#{lodging.can*}`, and `forTrip(tripId)`: ONE per-request `LodgingAccess` -- `internal`, `operatorAccIds`,
-`allowedAccIds`, `canAssign`, `operatorHere` -- that `trip/lodging.xhtml` and `roomInvoice.xhtml` keep as
-`requestScope.access`; also `mayNameTrip`, the one naming rule for cross-trip reads), `hotel` (HotelCommands -- the same
-hotel seen from its own side: the nights its rooms are blocked and how full it is across EVERY trip staying there,
-counts and dates but never a guest's name in the calendar; plus `tripRows`, the Trips tab's rows for the hotel's
-OPERATORS alone, which DO name the guests at their hotel across orgs -- the documented tenancy extension; same doc),
-`tripPictures` (TripPictureCommands -- a trip's cover and gallery: the editor's Pictures dialog and the REST picture
-endpoints; `docs/trip-pictures.md`), `AlbumPhotoSource` (no EL name: trip albums as a source of
-pictures, which albums and photos "Choose from Albums" offers per scope, reached only through `albumChooser`), `albumChooser` (AlbumChooser -- the one album dialog's
-dispatcher: a named use decides the bean and the scope), `albumLibrary` (AlbumLibrary -- album photos copied into the
-media library; all three `docs/album-picker.md`), `tripCards` (TripCardCommands -- the Trip Listings section's picture cards: link,
-one registration state, cover or fallback, the featured next departure; same doc) and
-`lodgingUpload` (LodgingUploadCommands -- hotel photos, room-type photos and floor plans through the shared crop dialog
-into slot `lodging-{accId}`), `ratePlans` (RatePlanCommands -- hotel rate plans and their write-through link to offers:
-a plan is the hotel's COST side only (`canEditCost` is its one gate), `savePlan` fans the cost out to every linked
-option and never recomputes a bill, `attach(AttachForm)` on the trip side creates the option WITH its own participant
-price, `detach` cuts it loose; see `docs/lodging.md` "Rate plans"), `waiver` (WaiverCommands -- trip documents: an org's
-versioned library, a trip's pinned versions with the re-sign decision, the two-box signature, the `WAIVERS_REQUIRED`
-registration gate and the signed-copy PDF; see `docs/waivers.md`), `reminder` (ReminderCommands -- a trip's
-Communications page: scheduled messages that are drafts until a facilitator approves the exact wording and date,
-the one-pass `review`, the test send, the sender and the sent history; `ReminderSender` is the single path to a
-mailbox and `reminder/ReminderScheduler` the daily run; see `docs/reminders.md`), `mailMerge` (MailMerge -- the
-mail merge's send, preview and rules: `{{field}}` substitution through `MergeText`/`MergeValues`, never EL; the
-`emailAdmin` bounds are `OrgCommands`' own),
-`checkin` (CheckinCommands -- tickets, staff
-check-in, counts, the trip-bound balance, batch badges and the export rows; see `docs/checkin.md`), `tripStylesheets`
-(TripStylesheets -- a trip page's own stylesheets: one `text/css` library item each under `org/{orgId}/stylesheets/`,
-saved in place with a `rev` bump and a CDN invalidation, gated to the org's admins and media admins, with the "Classes
-on this page" report and the CodeMirror completion; local bytes served by `web/StylesheetServlet`; see
-`docs/conference.md` "Look and feel"), `deploy`, `json`, `tripUtil`.
+their literal chrome, except `pageAnalyticsId`, the shared hosts' id from the site's own row; see `docs/org-admin.md`
+"Branding"), `brandingUpload` (BrandingUploadCommands -- the Appearance page's four image uploads through the shared
+crop dialog, ONE bean carrying the `BrandingRole` chosen when the dialog opens) and `brandingPhotos` (BrandingPhotos --
+their versioned `org/{orgId}/branding/{role}-{version}.{ext}` store, whose KEPT previous versions are what makes a
+replaced image recoverable; see `docs/org-admin.md` "Uploading the four images"), `lodging` (LodgingCommands --
+accommodations, room types, rooms, floor maps, offers, reservations, the room-assignment board, lodging bills, the
+itinerary rows; see `docs/lodging.md` before touching), `budget` (BudgetCommands -- the trip's planning budget: typed
+inputs, shared and per-person lines, lodging lines reading the trip's options live, the page's rows and the dashboard
+headline; edit = tripMgr/tripFinAdmin, view adds tripFinView and the global viewFinances; arithmetic in
+`pay/BudgetMath`; see `docs/budget.md`; both gates live in `TripFinanceGate`, shared with the expense report),
+`expenses` (ExpenseCommands -- the trip's shared expense report: details, currencies, expenses matched to budget lines,
+the submit stamp, budget vs actual, payments recorded behind the narrower settle gate (site admin or `tripFinAdmin`
+only, `TripFinanceGate.canSettle`); arithmetic in `pay/ExpenseMath`; the PDF (`ExpenseReportPdf`, receipts appended) and
+the email to the org's treasurer (`finance.treasurer.email`) through `MailCommands.sendWithAttachment`, the ONE send
+that carries a file (raw MIME over SES `SendRawEmail`); both money PDFs draw with `action/PdfSheet` and download from
+`web/TripMoneyPdfServlet`; see `docs/expense-report.md`), `expenseReceipts` (ExpenseReceipts -- the report's receipts,
+images or PDFs, in the media bucket under `receipts/{tripId}/` and slot `receipts-{tripId}`, served ONLY by
+`web/ExpenseReceiptServlet` at `/expense-receipts/{id}` behind the report's view gate: never a CDN URL, fenced out of
+every media listing, and the CDN denied the prefix by `MediaStack`), `lodgingAccess` (LodgingAccessCommands -- the
+lodging gates' bodies, re-exposed by `#{lodging.can*}`, and `forTrip(tripId)`: ONE per-request `LodgingAccess` --
+`internal`, `operatorAccIds`, `allowedAccIds`, `canAssign`, `operatorHere` -- that `trip/lodging.xhtml` and
+`roomInvoice.xhtml` keep as `requestScope.access`; also `mayNameTrip`, the one naming rule for cross-trip reads),
+`hotel` (HotelCommands -- the same hotel seen from its own side: the nights its rooms are blocked and how full it is
+across EVERY trip staying there, counts and dates but never a guest's name in the calendar; plus `tripRows`, the Trips
+tab's rows for the hotel's OPERATORS alone, which DO name the guests at their hotel across orgs -- the documented
+tenancy extension; same doc), `tripPictures` (TripPictureCommands -- a trip's cover and gallery: the editor's Pictures
+dialog and the REST picture endpoints; `docs/trip-pictures.md`), `AlbumPhotoSource` (no EL name: trip albums as a source
+of pictures, which albums and photos "Choose from Albums" offers per scope, reached only through `albumChooser`),
+`albumChooser` (AlbumChooser -- the one album dialog's dispatcher: a named use decides the bean and the scope),
+`albumLibrary` (AlbumLibrary -- album photos copied into the media library; all three `docs/album-picker.md`),
+`tripCards` (TripCardCommands -- the Trip Listings section's picture cards: link, one registration state, cover or
+fallback, the featured next departure; same doc) and `lodgingUpload` (LodgingUploadCommands -- hotel photos, room-type
+photos and floor plans through the shared crop dialog into slot `lodging-{accId}`), `ratePlans` (RatePlanCommands --
+hotel rate plans and their write-through link to offers: a plan is the hotel's COST side only (`canEditCost` is its one
+gate), `savePlan` fans the cost out to every linked option and never recomputes a bill, `attach(AttachForm)` on the trip
+side creates the option WITH its own participant price, `detach` cuts it loose; see `docs/lodging.md` "Rate plans"),
+`waiver` (WaiverCommands -- trip documents: an org's versioned library, a trip's pinned versions with the re-sign
+decision, the two-box signature, the `WAIVERS_REQUIRED` registration gate and the signed-copy PDF; see
+`docs/waivers.md`), `reminder` (ReminderCommands -- a trip's Communications page: scheduled messages that are drafts
+until a facilitator approves the exact wording and date, the one-pass `review`, the test send, the sender and the sent
+history; `ReminderSender` is the single path to a mailbox and `reminder/ReminderScheduler` the daily run; see
+`docs/reminders.md`), `mailMerge` (MailMerge -- the mail merge's send, preview and rules: `{{field}}` substitution
+through `MergeText`/`MergeValues`, never EL; the `emailAdmin` bounds are `OrgCommands`' own), `checkin` (CheckinCommands
+-- tickets, staff check-in, counts, the trip-bound balance, batch badges and the export rows; see `docs/checkin.md`),
+`tripStylesheets` (TripStylesheets -- a trip page's own stylesheets: one `text/css` library item each under
+`org/{orgId}/stylesheets/`, saved in place with a `rev` bump and a CDN invalidation, gated to the org's admins and media
+admins, with the "Classes on this page" report and the CodeMirror completion; local bytes served by
+`web/StylesheetServlet`; see `docs/conference.md` "Look and feel"), `deploy`, `json`, `tripUtil`.
 
 Rules for these beans: `CLAUDE.md` ("Rules that apply everywhere") and `.claude/rules/page-state.md`.
 

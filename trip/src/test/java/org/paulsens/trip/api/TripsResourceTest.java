@@ -21,6 +21,8 @@ import org.paulsens.trip.model.TripPicture;
 import org.paulsens.trip.api.dto.TripDto;
 import org.paulsens.trip.api.dto.TripEventDto;
 import org.paulsens.trip.api.dto.TripPaymentConfigDto;
+import org.paulsens.trip.audit.RequestContext;
+import org.paulsens.trip.site.SiteContext;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.FeesPaidBy;
 import org.paulsens.trip.model.Organization;
@@ -1415,6 +1417,154 @@ public class TripsResourceTest extends ResourceTestSupport {
                 "a trip I am on still carries its roster");
     }
 
+    // ------------------------------------------------------------------ several countries (2026-11-17)
+
+    /** A body carrying only the place fields: {@code country} as older clients send it, {@code countries} as new. */
+    private static TripDto placeBody(final String country, final List<String> countries) {
+        return new TripDto(null, null, null, null, false, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null, null, country, null, null, null,
+                countries);
+    }
+
+    /** A trip in two countries reads back with both, in order, and with the first where older clients look. */
+    @Test
+    public void aTripInSeveralCountriesCarriesThemAllAndTheFirstAsCountry() {
+        signedInAs(ME);
+        picturesAtLocalhost();
+        final Trip trip = trip(TRIP_ID, ME);
+        trip.setCountries(List.of("PT", "FR"));
+        tripExists(trip);
+        Mockito.when(trips.getTripsForUser(ME)).thenReturn(List.of(trip));
+
+        final TripDto one = (TripDto) resource.get(TRIP_ID, null).getEntity();
+        Assert.assertEquals(one.countries(), List.of("PT", "FR"));
+        Assert.assertEquals(one.country(), "PT");
+        Assert.assertEquals(one.redactedFor(false, false).countries(), one.countries());
+        Assert.assertEquals(one.withPeople(List.of()).countries(), one.countries());
+        Assert.assertEquals(one.withDetailsUrl("u").withPictures(List.of()).withFallbackPicture("f")
+                .withTags(List.of(), List.of()).countries(), one.countries(), "every copy keeps the list");
+
+        final TripDto row = (TripDto) ((List<?>) resource.list("mine", 50, null).getEntity()).getFirst();
+        Assert.assertEquals(row.countries(), List.of("PT", "FR"), "a listing carries them too");
+
+        final Trip nowhere = trip(TRIP_ID, ME);
+        tripExists(nowhere);
+        final TripDto none = (TripDto) resource(new TripsResource()).get(TRIP_ID, null).getEntity();
+        Assert.assertEquals(none.countries(), List.of(), "none is an empty list, not an absent field");
+        Assert.assertNull(none.country());
+    }
+
+    /** On a write the list wins; a body with only {@code country} is an older client naming the one country. */
+    @Test
+    public void aWriteTakesCountriesAndStillTakesTheOneCountryOfAnOlderClient() {
+        signedInAsSiteAdmin(ME);
+        final Trip existing = trip(TRIP_ID, ME);
+        existing.setOrgId("org-1");
+        existing.setCountries(List.of("BA", "HR"));
+        tripExists(existing);
+        Mockito.when(trips.saveTrip(ArgumentMatchers.eq(existing), ArgumentMatchers.any())).thenReturn(true);
+        bindMock(org.paulsens.trip.action.OrgCommands.class);
+
+        assertOk(resource.update(TRIP_ID, CSRF_OK, placeBody(null, null)));
+        Assert.assertEquals(existing.getCountries(), List.of("BA", "HR"), "absent means unchanged");
+
+        assertOk(resource.update(TRIP_ID, CSRF_OK, placeBody(null, List.of("PT", "FR", "ES"))));
+        Assert.assertEquals(existing.getCountries(), List.of("PT", "FR", "ES"));
+        Assert.assertEquals(existing.getCountry(), "PT");
+
+        assertOk(resource.update(TRIP_ID, CSRF_OK, placeBody("IT", null)));
+        Assert.assertEquals(existing.getCountries(), List.of("IT"), "one country, from a client that knows only one");
+
+        assertOk(resource.update(TRIP_ID, CSRF_OK, placeBody("IT", List.of("BA", "HR"))));
+        Assert.assertEquals(existing.getCountries(), List.of("BA", "HR"), "both sent: the list is the authority");
+
+        assertOk(resource.update(TRIP_ID, CSRF_OK, placeBody(null, List.of())));
+        Assert.assertEquals(existing.getCountries(), List.of(), "an empty list clears them");
+        Assert.assertNull(existing.getCountry());
+    }
+
+    // ------------------------------------------------------------------ open, on the host that reaches everything
+
+    /** A public, upcoming trip of {@code orgId} that ME is not on. */
+    private static Trip openTripOf(final String id, final String orgId) {
+        final Trip trip = trip(id, OTHER);
+        trip.setOpenToPublic(true);
+        trip.setOrgId(orgId);
+        return trip;
+    }
+
+    /** An organization of this test's own (the seeds may have been cleared by a suite-mate), allowing or not. */
+    private static String orgAllowingSharedSites(final boolean allows) throws IOException {
+        final Organization org = Organization.builder().name("Open listing org " + System.nanoTime()).build();
+        org.setSharedSitesAllowed(allows);
+        Assert.assertTrue(DAO.getInstance().saveOrganization(org));
+        return org.getId().getValue();
+    }
+
+    private List<String> openIdsOn(final SiteContext site) {
+        final Response listed = ScopedValue.where(RequestContext.SCOPE, RequestContext.of(null, null, site))
+                .call(() -> resource(new TripsResource()).list("open", 50, null));
+        assertOk(listed);
+        return ((List<?>) listed.getEntity()).stream().map(dto -> ((TripDto) dto).id()).toList();
+    }
+
+    /**
+     * The leak medjugorje#155 closes: on the product's own host the open listing reached EVERY organization's
+     * public trips for any signed-in account, including an organization that had turned Shared sites off. Now a
+     * stranger to that organization is not shown its trips there; Discover's rule decides what crosses.
+     */
+    @Test
+    public void onTheMarketingHostOpenListsAcrossOrgsOnlyWhatDiscoverWould() throws IOException {
+        signedInAs(ME);
+        final Person me = new Person();
+        me.setId(ME);
+        Mockito.when(people.getPerson(ME)).thenReturn(me);
+        final Trip optedOut = openTripOf("open-beta", orgAllowingSharedSites(false));
+        final Trip allowed = openTripOf("open-acme", orgAllowingSharedSites(true));
+        final Trip orgless = openTripOf("open-legacy", null);
+        final Trip unknownOrg = openTripOf("open-orphan", "0d9c8b7a-6f5e-4d3c-8b2a-1f0e9d8c7b6a");
+        Mockito.when(trips.getPublicTrips()).thenReturn(List.of(optedOut, allowed, orgless, unknownOrg));
+        final SiteContext marketing = SiteContext.marketing("unitetrip.com").forApiClient();
+
+        Assert.assertEquals(openIdsOn(marketing), List.of("open-acme", "open-legacy"),
+                "one organization turned Shared sites off, and one nobody can read consents to nothing; a legacy "
+                        + "trip with no organization lists as it always did");
+
+        // The same list off that host is untouched: an organization's own site and the shared sites are already
+        // narrowed by what getPublicTrips lists there.
+        Assert.assertEquals(openIdsOn(SiteContext.shared("visitqueenofpeace.com").forApiClient()),
+                List.of("open-beta", "open-acme", "open-legacy", "open-orphan"));
+    }
+
+    /** What is not crossing an organization for THIS caller stays: their own organization's trips, and their own. */
+    @Test
+    public void onTheMarketingHostAMemberStillSeesTheirOwnOrgsOpenTrips() throws IOException {
+        signedInAs(ME);
+        final String optedOutOrg = orgAllowingSharedSites(false);
+        final Person me = new Person();
+        me.setId(ME);
+        me.setOrgIds(List.of(Organization.Id.from(optedOutOrg)));
+        Mockito.when(people.getPerson(ME)).thenReturn(me);
+        final Trip mine = trip("open-on-roster", ME);
+        mine.setOpenToPublic(true);
+        mine.setOrgId("0d9c8b7a-6f5e-4d3c-8b2a-1f0e9d8c7b6a");
+        Mockito.when(trips.getPublicTrips()).thenReturn(List.of(openTripOf("open-beta", optedOutOrg), mine));
+        final SiteContext marketing = SiteContext.marketing("unitetrip.com").forApiClient();
+
+        Assert.assertEquals(openIdsOn(marketing), List.of("open-beta", "open-on-roster"),
+                "a member of the opted-out organization, and a traveler on a trip, are not strangers to them");
+    }
+
+    /** A site administrator reads every trip anyway, so the narrowing takes nothing from them. */
+    @Test
+    public void onTheMarketingHostASiteAdminStillSeesEveryOpenTrip() throws IOException {
+        signedInAsSiteAdmin(ME);
+        Mockito.when(trips.getPublicTrips()).thenReturn(
+                List.of(openTripOf("open-beta", orgAllowingSharedSites(false))));
+
+        Assert.assertEquals(openIdsOn(SiteContext.marketing("unitetrip.com").forApiClient()), List.of("open-beta"));
+    }
+
     @Test
     public void theProducedTypeIsTheTripsMediaType() {
         Assert.assertEquals(new TripsResource().versionedType(), ApiMediaTypes.TRIPS_V1);
@@ -1660,6 +1810,7 @@ public class TripsResourceTest extends ResourceTestSupport {
         Assert.assertEquals(cover.placeholder(), "#112233");
         Assert.assertEquals(one.destination(), "Medjugorje, Bosnia and Herzegovina");
         Assert.assertEquals(one.country(), "BA");
+        Assert.assertEquals(one.countries(), List.of("BA"), "the list is the authority; one country is a list of one");
         Assert.assertEquals(one.tags(), List.of("retreat"));
         Assert.assertEquals(one.tagLabels(), List.of("Retreat"), "Labels as the setting spells them, beside the ids");
         Assert.assertEquals(trip.getTags(), List.of("retreat", "dropped"), "A read never changes what is stored");
@@ -1669,6 +1820,7 @@ public class TripsResourceTest extends ResourceTestSupport {
         final TripDto row = (TripDto) ((List<?>) resource.list("mine", 50, null).getEntity()).getFirst();
         Assert.assertEquals(row.pictures(), one.pictures(), "A listing carries them too");
         Assert.assertEquals(row.withoutEvents().country(), "BA");
+        Assert.assertEquals(row.withoutEvents().countries(), List.of("BA"));
         Assert.assertEquals(row.tagLabels(), List.of("Retreat"), "A listing carries the labels too");
 
         trip.getPictures().clear();

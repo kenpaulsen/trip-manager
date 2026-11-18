@@ -49,7 +49,9 @@ public class RememberMeFilter implements Filter {
             chain.doFilter(request, response);
             return;
         }
-        if (signedIn(req) || !hasCookie(req)) {
+        // Sessionless paths first, before the session is even looked at: a remember-me cookie on a public,
+        // cacheable request must not become a new session and two Set-Cookie headers (SessionlessPaths).
+        if (SessionlessPaths.matches(req) || signedIn(req) || !hasCookie(req)) {
             chain.doFilter(request, response);
             return;
         }

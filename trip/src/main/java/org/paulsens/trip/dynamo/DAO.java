@@ -74,6 +74,7 @@ import org.paulsens.trip.model.chat.ChatReactionSummary;
 import org.paulsens.trip.model.chat.PhotoChatMeta;
 import org.paulsens.trip.security.PasswordHasher;
 import org.paulsens.trip.security.Pepper;
+import org.paulsens.trip.site.DiscoverIndex;
 import org.paulsens.trip.site.SiteIndex;
 
 @Slf4j
@@ -311,6 +312,9 @@ public final class DAO {
             // Slug assignments are ONLINE tier changes: the host->org index must see this save now, not at
             // its next timed refresh. Here (not in the command layer) so scripts and REST get it too.
             SiteIndex.getInstance().refresh();
+            // An organization's name, logo and Shared sites choice all show in Discover: turning Shared sites
+            // off must take its trips out on the next request here, not at the next timed rebuild.
+            DiscoverIndex.getInstance().invalidate();
         }
         return saved;
     }
@@ -532,7 +536,13 @@ public final class DAO {
 
     // Trips
     public Boolean saveTrip(final Trip trip) throws IOException {
-        return tripDao.saveTrip(trip);
+        final Boolean saved = tripDao.saveTrip(trip);
+        if (Boolean.TRUE.equals(saved)) {
+            // Here (not in the command layer) so every writer is covered: a trip taken off its homepage must
+            // leave Discover on the next request. Only a mark; the rebuild is lazy (see DiscoverIndex).
+            DiscoverIndex.getInstance().invalidate();
+        }
+        return saved;
     }
     public Optional<Trip> getTrip(final String id, final Cached cached) {
         return NearCacheContext.call(cached, () -> tripDao.getTrip(id));
@@ -551,7 +561,9 @@ public final class DAO {
     }
     /** Hard delete. Orchestrated by {@code TripDeleteCommands} -- dependent rows must already be gone. */
     public Boolean deleteTrip(final Trip trip) {
-        return tripDao.deleteTrip(trip);
+        final Boolean deleted = tripDao.deleteTrip(trip);
+        DiscoverIndex.getInstance().invalidate();
+        return deleted;
     }
 
     // Trip Events
@@ -1042,6 +1054,9 @@ public final class DAO {
      */
     public List<String> invalidate(final CacheScope scope) {
         final List<String> prefixes = clearScope(scope);
+        // Discover holds trips, organizations and settings already mapped: whatever was just made visible
+        // may be in it, and marking it stale costs nothing when it was not.
+        DiscoverIndex.getInstance().invalidate();
         CacheInvalidation.broadcast(cacheClient, prefixes);
         return prefixes;
     }

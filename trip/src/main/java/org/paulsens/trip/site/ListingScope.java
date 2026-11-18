@@ -1,5 +1,8 @@
 package org.paulsens.trip.site;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -12,6 +15,7 @@ import org.paulsens.trip.content.OrgPageBootstrap;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.Organization;
+import org.paulsens.trip.model.Trip;
 
 /**
  * THE rule for whether an organization's public content (a trip, an album) is listed on the site a request
@@ -81,6 +85,93 @@ public final class ListingScope {
         return forSite().reaches(ownerOrgId);
     }
 
+    /**
+     * THE rule for Discover, the one listing that crosses organizations on purpose (medjugorje#155): the apps'
+     * signed-out browse and search, and the marketing host's open-trips list. A trip is discoverable when it is
+     * shown on its homepage ({@code openToPublic}), it belongs to an organization that exists and still allows
+     * shared sites ({@link Organization#allowsSharedSites()}; a value nobody ever set counts as allowed, as the
+     * checkbox shows it), and it has not ended: its end date, else its start date, is {@code today} or later.
+     *
+     * <p>A trip with no organization (a legacy row) or one naming an organization that cannot be read is NOT
+     * discoverable: there is no organization to consent, to name on the card, or to join. That is the reverse
+     * of {@link #shows}, where org-less content keeps listing on the shared sites it always listed on. A trip
+     * with no dates at all is not discoverable either: it can be neither sorted nor called upcoming.
+     *
+     * <p>Static and pure on purpose: it never asks which site the request is for
+     * ({@code SiteContext.reachesEverything()} above all), so no host can widen it. A caller on an
+     * organization's own host narrows the answer further with {@code SiteContext.admits}.
+     */
+    public static boolean discoverable(final Trip trip, final Optional<Organization> owner, final LocalDate today) {
+        if (today == null || !sharedAcrossOrgs(trip, owner)) {
+            return false;
+        }
+        final LocalDateTime last = trip.getEndDate() != null ? trip.getEndDate() : trip.getStartDate();
+        return last != null && !last.toLocalDate().isBefore(today);
+    }
+
+    /**
+     * The CONSENT half of {@link #discoverable}, with no word about dates: the trip is shown on its homepage and
+     * its own organization exists and allows shared sites. What a public thing that OUTLIVES the trip asks (its
+     * album, which fills as the trip ends): "not ended" is a rule about a list of upcoming trips, and letting it
+     * decide the album too closed every open trip's album on the product's own host the day after the trip.
+     */
+    public static boolean sharedAcrossOrgs(final Trip trip, final Optional<Organization> owner) {
+        if (trip == null || !Boolean.TRUE.equals(trip.getOpenToPublic())) {
+            return false;
+        }
+        final String orgId = trip.getOrgId();
+        if (orgId == null || orgId.isBlank() || owner == null || owner.isEmpty()) {
+            return false;
+        }
+        final Organization org = owner.get();
+        // The org handed in must be the trip's own: another organization's consent is not this one's.
+        return org.getId() != null && orgId.equals(org.getId().getValue()) && org.allowsSharedSites();
+    }
+
+    /** {@link #discoverable} today, against the cached organization read every public listing uses. */
+    public static boolean discoverableNow(final Trip trip) {
+        return hasOrg(trip) && discoverable(trip, cachedOrg(Organization.Id.from(trip.getOrgId())), LocalDate.now());
+    }
+
+    /** {@link #sharedAcrossOrgs} against the cached organization read every public listing uses. */
+    public static boolean sharedAcrossOrgsNow(final Trip trip) {
+        return hasOrg(trip) && sharedAcrossOrgs(trip, cachedOrg(Organization.Id.from(trip.getOrgId())));
+    }
+
+    private static boolean hasOrg(final Trip trip) {
+        return trip != null && trip.getOrgId() != null && !trip.getOrgId().isBlank();
+    }
+
+    /**
+     * THE rule for a signed-in caller on the product's own host ({@code SiteContext.reachesEverything()}), where
+     * {@link #shows} admits every organization: whether {@code trip}'s entry in the OPEN LISTING may be shown to
+     * a caller who belongs to {@code callerOrgIds}. It may when it is not crossing an organization for them (a
+     * legacy trip with none, or a trip of an organization they belong to), or when the trip may cross
+     * organizations for anyone ({@link #discoverable}). A caller's own right to read the trip (its roster, a role
+     * on it) is the resource's to add on top.
+     *
+     * <p>This and {@link #albumAcrossOrgs} are the two reads on that host, side by side so they cannot drift
+     * apart: before 2026-11-17 each trusted the app to narrow, and an organization that had turned Shared sites
+     * off was still handed to strangers there.
+     */
+    public static boolean listedAcrossOrgs(final Trip trip, final Collection<String> callerOrgIds) {
+        return !crossesAnOrgFor(trip, callerOrgIds) || discoverableNow(trip);
+    }
+
+    /**
+     * {@link #listedAcrossOrgs} for the trip's public ALBUM: the same question with the consent half of the rule
+     * only ({@link #sharedAcrossOrgs}). A listing of trips to join drops a trip that has ended; its album does
+     * not close that day, it is when the album fills.
+     */
+    public static boolean albumAcrossOrgs(final Trip trip, final Collection<String> callerOrgIds) {
+        return !crossesAnOrgFor(trip, callerOrgIds) || sharedAcrossOrgsNow(trip);
+    }
+
+    /** Whether showing {@code trip} to a member of {@code callerOrgIds} crosses an organization at all. */
+    private static boolean crossesAnOrgFor(final Trip trip, final Collection<String> callerOrgIds) {
+        return hasOrg(trip) && !callerOrgIds.contains(trip.getOrgId());
+    }
+
     /** The stored comma-separated org ids as a list; null/blank = no list (the MULTI_CHOICE stored form). */
     public static List<String> parseIds(final String stored) {
         return ContentInstance.splitList(stored);
@@ -89,9 +180,11 @@ public final class ListingScope {
     /** Whether content owned by {@code ownerOrgId} (null = org-less legacy content) lists on this site. */
     public boolean shows(final String ownerOrgId) {
         if (site.reachesEverything()) {
-            // The app on the product's own host: an open trip lists whatever the shared-site curation says,
-            // because the person's own organizations, not the marketing page's picks, decide what they see
-            // (the client narrows the listing to those organizations).
+            // The app on the product's own host: the marketing page's curation does not decide what a person
+            // sees there, so this answers true for EVERY organization. It deliberately does not narrow: what
+            // a caller may be shown across organizations depends on who the caller is, which a site cannot
+            // know. Every API read on that host must therefore also ask listedAcrossOrgs (TripsResource's
+            // open listing, MediaResource's album gate); the clients are not trusted to narrow.
             return true;
         }
         if (site.isOrg()) {

@@ -1,15 +1,20 @@
 package org.paulsens.trip.site;
 
+import java.io.IOException;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import org.paulsens.trip.audit.RequestContext;
 import org.paulsens.trip.content.V2PageBootstrap;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.Organization;
+import org.paulsens.trip.model.Trip;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
@@ -215,5 +220,203 @@ public class ListingScopeTest {
         Assert.assertTrue(ListingScope.forSite(List.of(FakeData.ACME_ORG_ID)).shows(FakeData.ACME_ORG_ID),
                 "the shared site lists Acme once a site admin picks it (Acme allows shared sites)");
         Assert.assertFalse(ListingScope.forSite().shows("not-a-real-org-id"));
+    }
+
+    // ------------------------------------------------------------------ discoverable (medjugorje#155)
+
+    private static final LocalDate TODAY = LocalDate.of(2026, 11, 17);
+
+    /** A public trip of {@code orgId} running from {@code startInDays} to {@code endInDays} after TODAY. */
+    private static Trip publicTrip(final String orgId, final int startInDays, final int endInDays) {
+        final Trip trip = Trip.builder()
+                .openToPublic(true)
+                .startDate(TODAY.plusDays(startInDays).atTime(9, 0))
+                .endDate(TODAY.plusDays(endInDays).atTime(18, 0))
+                .build();
+        trip.setOrgId(orgId);
+        return trip;
+    }
+
+    private Optional<Organization> ownerOf(final Trip trip) {
+        return Optional.ofNullable(orgs.get(trip.getOrgId()));
+    }
+
+    private boolean discoverable(final Trip trip) {
+        return ListingScope.discoverable(trip, ownerOf(trip), TODAY);
+    }
+
+    /** The rule's three conditions, each alone able to refuse: shown on the homepage, an org that allows, not ended. */
+    @Test
+    public void discoverNeedsAPublicTripAnAllowingOrgAndAFutureEnd() {
+        Assert.assertTrue(discoverable(publicTrip(HOSTED, 30, 40)), "public, the org allows, upcoming");
+        Assert.assertTrue(discoverable(publicTrip(SHARED_ONLY, 30, 40)), "an org with no site of its own too");
+
+        final Trip unlisted = publicTrip(HOSTED, 30, 40);
+        unlisted.setOpenToPublic(false);
+        Assert.assertFalse(discoverable(unlisted), "Show on homepage off");
+        final Trip neverSet = publicTrip(HOSTED, 30, 40);
+        neverSet.setOpenToPublic(null);
+        Assert.assertFalse(discoverable(neverSet), "a row with no openToPublic at all was never made public");
+
+        Assert.assertFalse(discoverable(publicTrip(OPTED_OUT, 30, 40)), "the org turned Shared sites off");
+        Assert.assertFalse(discoverable(publicTrip(HOSTED, -20, -1)), "ended yesterday");
+    }
+
+    /** Owner decision 2026-11-17: a Shared sites value nobody ever touched counts as ON, as the checkbox shows it. */
+    @Test
+    public void aNeverTouchedSharedSitesValueCountsAsOn() {
+        Assert.assertNull(orgs.get(HOSTED).getAllowSharedSites(), "the fixture: never set");
+        Assert.assertTrue(discoverable(publicTrip(HOSTED, 30, 40)));
+        final Organization explicit = org(HOSTED, "acme", Boolean.TRUE);
+        Assert.assertTrue(ListingScope.discoverable(publicTrip(HOSTED, 30, 40), Optional.of(explicit), TODAY));
+    }
+
+    /**
+     * No organization (a legacy row), an organization that cannot be read, and somebody else's organization all
+     * refuse: there is nobody to consent, to name or to join. The reverse of {@code shows}, which keeps org-less
+     * content on the shared sites.
+     */
+    @Test
+    public void aTripWithNoOrgOrAnUnknownOrgIsNotDiscoverable() {
+        Assert.assertFalse(discoverable(publicTrip(null, 30, 40)), "no org");
+        Assert.assertFalse(discoverable(publicTrip(" ", 30, 40)), "a blank org id is no org");
+        Assert.assertFalse(discoverable(publicTrip(UNKNOWN, 30, 40)), "an org id no organization answers to");
+        Assert.assertFalse(ListingScope.discoverable(publicTrip(UNKNOWN, 30, 40), null, TODAY), "no lookup result");
+        Assert.assertFalse(ListingScope.discoverable(publicTrip(OPTED_OUT, 30, 40),
+                Optional.of(orgs.get(HOSTED)), TODAY), "another org's consent is not this one's");
+        Assert.assertFalse(ListingScope.discoverable(publicTrip(null, 30, 40),
+                Optional.of(orgs.get(HOSTED)), TODAY), "an org handed in does not give an org-less trip one");
+    }
+
+    /** "Not ended" is by DATE: a trip is listed through its last day, and by its start when it has no end. */
+    @Test
+    public void aTripIsDiscoverableThroughItsLastDay() {
+        Assert.assertTrue(discoverable(publicTrip(HOSTED, -5, 0)), "under way, ending today");
+        Assert.assertTrue(discoverable(publicTrip(HOSTED, -5, 3)), "under way");
+        Assert.assertFalse(discoverable(publicTrip(HOSTED, -5, -1)), "ended yesterday");
+
+        final Trip noEnd = publicTrip(HOSTED, 0, 0);
+        noEnd.setEndDate(null);
+        Assert.assertTrue(discoverable(noEnd), "no end date: its start stands in, and that is today");
+        noEnd.setStartDate(TODAY.minusDays(1).atTime(9, 0));
+        Assert.assertFalse(discoverable(noEnd), "no end date and it started yesterday");
+        noEnd.setStartDate(null);
+        Assert.assertFalse(discoverable(noEnd), "no dates at all: neither upcoming nor sortable");
+
+        Assert.assertFalse(ListingScope.discoverable(null, Optional.of(orgs.get(HOSTED)), TODAY), "no trip");
+        Assert.assertFalse(ListingScope.discoverable(publicTrip(HOSTED, 30, 40), ownerOf(publicTrip(HOSTED, 1, 2)),
+                null), "no day to compare with");
+    }
+
+    /**
+     * The rule never asks which site the request is for: bound to the one host that reaches everything, an
+     * opted-out organization's trip is still refused.
+     */
+    @Test
+    public void noHostWidensTheRule() throws Exception {
+        final SiteContext everything = SiteContext.marketing("unitetrip.com").forApiClient();
+        Assert.assertTrue(everything.reachesEverything(), "the fixture: the app on the product's own host");
+        final Trip optedOut = publicTrip(OPTED_OUT, 30, 40);
+        final Boolean listed = ScopedValue.where(RequestContext.SCOPE, RequestContext.of(null, null, everything))
+                .call(() -> discoverable(optedOut));
+        Assert.assertFalse(listed);
+    }
+
+    /** The consent half alone: everything {@code discoverable} asks except the dates. */
+    @Test
+    public void sharedAcrossOrgsIsDiscoverableWithoutItsDates() {
+        Assert.assertTrue(ListingScope.sharedAcrossOrgs(publicTrip(HOSTED, -20, -1), ownerOf(publicTrip(HOSTED, 1, 2))),
+                "ended yesterday: still shared");
+        final Trip undated = publicTrip(HOSTED, 1, 2);
+        undated.setStartDate(null);
+        undated.setEndDate(null);
+        Assert.assertTrue(ListingScope.sharedAcrossOrgs(undated, ownerOf(undated)), "no dates at all");
+
+        final Trip unlisted = publicTrip(HOSTED, 30, 40);
+        unlisted.setOpenToPublic(false);
+        Assert.assertFalse(ListingScope.sharedAcrossOrgs(unlisted, ownerOf(unlisted)), "Show on homepage off");
+        final Trip optedOut = publicTrip(OPTED_OUT, -20, -1);
+        Assert.assertFalse(ListingScope.sharedAcrossOrgs(optedOut, ownerOf(optedOut)), "Shared sites off");
+        Assert.assertFalse(ListingScope.sharedAcrossOrgs(publicTrip(null, 1, 2), Optional.empty()), "no org");
+        Assert.assertFalse(ListingScope.sharedAcrossOrgs(publicTrip(UNKNOWN, 1, 2), null), "no lookup result");
+        Assert.assertFalse(
+                ListingScope.sharedAcrossOrgs(publicTrip(OPTED_OUT, 1, 2), ownerOf(publicTrip(HOSTED, 1, 2))),
+                "another organization's consent is not this one's");
+        Assert.assertFalse(ListingScope.sharedAcrossOrgs(null, ownerOf(publicTrip(HOSTED, 1, 2))), "no trip");
+    }
+
+    /** The album's rule on the product host differs from the listing's in exactly one thing: an ended trip. */
+    @Test
+    public void anEndedTripLeavesTheListingButKeepsItsAlbumAcrossOrgs() throws IOException {
+        final LocalDateTime ended = LocalDateTime.now().minusDays(1);
+        final Trip over = Trip.builder().openToPublic(true).startDate(ended.minusDays(5)).endDate(ended).build();
+        over.setOrgId(savedOrg(null));
+        final Trip overOptedOut =
+                Trip.builder().openToPublic(true).startDate(ended.minusDays(5)).endDate(ended).build();
+        final String optedOutOrg = savedOrg(Boolean.FALSE);
+        overOptedOut.setOrgId(optedOutOrg);
+        final Trip orgless = Trip.builder().openToPublic(true).startDate(ended.minusDays(5)).endDate(ended).build();
+
+        Assert.assertFalse(ListingScope.listedAcrossOrgs(over, Set.of()), "the listing drops an ended trip");
+        Assert.assertTrue(ListingScope.albumAcrossOrgs(over, Set.of()), "its album stays");
+        Assert.assertTrue(ListingScope.sharedAcrossOrgsNow(over));
+        Assert.assertFalse(ListingScope.albumAcrossOrgs(overOptedOut, Set.of()), "never without the org's consent");
+        Assert.assertFalse(ListingScope.sharedAcrossOrgsNow(overOptedOut));
+        Assert.assertTrue(ListingScope.albumAcrossOrgs(overOptedOut, Set.of(optedOutOrg)), "its own member");
+        Assert.assertTrue(ListingScope.albumAcrossOrgs(orgless, Set.of()), "a legacy trip crosses no org");
+        Assert.assertFalse(ListingScope.sharedAcrossOrgsNow(orgless));
+        Assert.assertFalse(ListingScope.sharedAcrossOrgsNow(null));
+    }
+
+    /** The request-path form reads the cached organization (this test's own two, one of them opted out). */
+    @Test
+    public void discoverableNowReadsTheCachedOrganization() throws IOException {
+        final LocalDateTime soon = LocalDateTime.now().plusDays(10);
+        final Trip allowed = Trip.builder().openToPublic(true).startDate(soon).endDate(soon.plusDays(5)).build();
+        allowed.setOrgId(savedOrg(null));
+        final Trip optedOut = Trip.builder().openToPublic(true).startDate(soon).endDate(soon.plusDays(5)).build();
+        optedOut.setOrgId(savedOrg(Boolean.FALSE));
+        final Trip orgless = Trip.builder().openToPublic(true).startDate(soon).endDate(soon.plusDays(5)).build();
+        final Trip blankOrg = Trip.builder().openToPublic(true).startDate(soon).endDate(soon.plusDays(5)).build();
+        blankOrg.setOrgId(" ");
+
+        Assert.assertTrue(ListingScope.discoverableNow(allowed));
+        Assert.assertFalse(ListingScope.discoverableNow(optedOut), "its organization keeps off shared surfaces");
+        Assert.assertFalse(ListingScope.discoverableNow(orgless));
+        Assert.assertFalse(ListingScope.discoverableNow(blankOrg));
+        Assert.assertFalse(ListingScope.discoverableNow(null));
+    }
+
+    /**
+     * The one rule every signed-in read on the product's own host asks: a trip crosses to a caller when it is not
+     * crossing an organization for them (no organization, or one of theirs) or when Discover would list it.
+     */
+    @Test
+    public void onTheProductHostATripCrossesOnlyToItsOwnOrgsMembersUnlessDiscoverable() throws IOException {
+        final LocalDateTime soon = LocalDateTime.now().plusDays(10);
+        final String optedOutOrg = savedOrg(Boolean.FALSE);
+        final Trip optedOut = Trip.builder().openToPublic(true).startDate(soon).endDate(soon.plusDays(5)).build();
+        optedOut.setOrgId(optedOutOrg);
+        final Trip allowed = Trip.builder().openToPublic(true).startDate(soon).endDate(soon.plusDays(5)).build();
+        allowed.setOrgId(savedOrg(null));
+        final Trip orgless = Trip.builder().openToPublic(true).startDate(soon).endDate(soon.plusDays(5)).build();
+        final Trip ended = Trip.builder().openToPublic(true).startDate(soon.minusDays(40))
+                .endDate(soon.minusDays(30)).build();
+        ended.setOrgId(allowed.getOrgId());
+
+        Assert.assertFalse(ListingScope.listedAcrossOrgs(optedOut, List.of()), "a stranger to an opted-out org");
+        Assert.assertFalse(ListingScope.listedAcrossOrgs(optedOut, List.of("some-other-org")));
+        Assert.assertTrue(ListingScope.listedAcrossOrgs(optedOut, List.of(optedOutOrg)), "its own member");
+        Assert.assertTrue(ListingScope.listedAcrossOrgs(allowed, List.of()), "discoverable: anyone");
+        Assert.assertTrue(ListingScope.listedAcrossOrgs(orgless, List.of()), "no organization: no tenancy to keep");
+        Assert.assertFalse(ListingScope.listedAcrossOrgs(ended, List.of()), "ended: not discoverable any more");
+        Assert.assertTrue(ListingScope.listedAcrossOrgs(ended, List.of(allowed.getOrgId())), "but still its members'");
+    }
+
+    private static String savedOrg(final Boolean allowShared) throws IOException {
+        final Organization org = Organization.builder().name("Listing scope org " + System.nanoTime()).build();
+        org.setAllowSharedSites(allowShared);
+        Assert.assertTrue(DAO.getInstance().saveOrganization(org));
+        return org.getId().getValue();
     }
 }

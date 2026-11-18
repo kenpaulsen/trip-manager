@@ -309,16 +309,15 @@ that needs tokens OFF writes "false" and restores "true" -- a blank falls to the
 
 ### The native client (UniteTrip, 2026-09)
 
-The first bearer client is the UniteTrip iOS app (`../UniteTrip`, private). It holds NO session cookie —
-every request is a bearer, so the CSRF sentinel never applies to it — asks for `admin` scope and stores
-whichever scope the grant says (the server downgrades to `member`; its older 403-then-retry fallback is
-still in the app and now never fires), and refreshes on the first 401 with single-flight coordination (ten concurrent 401s
-are one refresh, which is what the 30 s rotation grace exists for). The endpoints added for it (raw-body
-photo uploads, the trip roster, the family resource, party registration, org summaries with branding,
-media URL bases) are ordinary `@TripApi` resources: the session path serves them too. The one resource that
-is not `@TripApi` (`PhotoChatResource`, whose reads are anonymous) recognises bearer callers through
-`BaseResource.personId`, which consults the edge-resolved principal before the session — the first native
-build got a 401 on a photo comment for exactly that gap.
+The first bearer client is the UniteTrip iOS app (`../UniteTrip`, private). It holds NO session cookie — every request
+is a bearer, so the CSRF sentinel never applies to it — asks for `admin` scope and stores whichever scope the grant says
+(the server downgrades to `member`; its older 403-then-retry fallback is still in the app and now never fires), and
+refreshes on the first 401 with single-flight coordination (ten concurrent 401s are one refresh, which is what the 30 s
+rotation grace exists for). The endpoints added for it (raw-body photo uploads, the trip roster, the family resource,
+party registration, org summaries with branding, media URL bases) are ordinary `@TripApi` resources: the session path
+serves them too. The one resource that is not `@TripApi` (`PhotoChatResource`, whose reads are anonymous) recognises
+bearer callers through `BaseResource.personId`, which consults the edge-resolved principal before the session — the
+first native build got a 401 on a photo comment for exactly that gap.
 
 ## Performance & cost
 
@@ -345,9 +344,9 @@ already exist. No new infrastructure.
   the lazy migration, and the scans all run in the ordinary local-mode suite.
 - The audit-attribution regression test is non-negotiable: a token-authenticated mutation writes an actor
   with email AND id.
-- Against the local container (tokens seeded on):
-  `curl -s -X POST localhost:8080/api/auth/token -H 'Content-Type: application/json' -d '{"email":"user2","password":"user","scope":"member"}'`
-  answers a grant; after `enable-api-tokens.sh --off` it is the 404 the client renders as "tokens are not enabled".
+- Against the local container (tokens seeded on): `curl -s -X POST localhost:8080/api/auth/token -H 'Content-Type:
+  application/json' -d '{"email":"user2","password":"user","scope":"member"}'` answers a grant; after
+  `enable-api-tokens.sh --off` it is the 404 the client renders as "tokens are not enabled".
 
 ## Implementation phases
 

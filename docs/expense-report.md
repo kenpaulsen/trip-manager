@@ -125,12 +125,13 @@ expenses, 20 currencies, 40 receipts per expense, 60 at report level, 100 paymen
 
 ## PDF and email
 
-- **PDF** (`action/ExpenseReportPdf`, drawn with the shared `action/PdfSheet`): the page's own `ExpensePage`,
-  section for section (details, currencies, budget, expenses with a Paid column (the row's chip) and a Receipts
-  column naming R1, R2..., the payments, totals with the settled split and what is still due, a signature line). "Download PDF" is the report alone; "PDF with receipts" appends them: an index (number, what
-  it is for, file, "image" / "PDF, n pages" / "missing"), then each image on a page of its own under its number
-  and each receipt PDF's own pages with its number stamped across the top of the first. An unreadable or
-  missing receipt is listed, never fatal; a character the font lacks prints as "?".
+- **PDF** (`action/ExpenseReportPdf`, drawn with the shared `action/PdfSheet`): the page's own `ExpensePage`, section
+  for section (details, currencies, budget, expenses with a Paid column (the row's chip) and a Receipts column naming
+  R1, R2..., the payments, totals with the settled split and what is still due, a signature line). "Download PDF" is the
+  report alone; "PDF with receipts" appends them: an index (number, what it is for, file, "image" / "PDF, n pages" /
+  "missing"), then each image on a page of its own under its number and each receipt PDF's own pages with its number
+  stamped across the top of the first. An unreadable or missing receipt is listed, never fatal; a character the font
+  lacks prints as "?".
 - **Download:** `web/TripMoneyPdfServlet`, `GET /reports/expense-report?trip=[&receipts=true]` (and
   `/reports/budget?trip=` for the budget), the report's view gate; not signed in goes to login, anyone else is
   404. Never a `.pdf` URL (`PdfRedirectFilter`). REST: `GET /api/expenses/trips/{id}/pdf[?receipts=true]`.
@@ -159,19 +160,18 @@ trip manager, usually the one being reimbursed, cannot mark their own report pai
 
 ## The page (`admin/reports/expenses.xhtml`, private repo)
 
-Reached from the dashboard card (`toExpenses`, its number `expenseHeadline`: "$55,560.95 spent" or "No expenses
-yet") and from the Budget page (`toExpenses`); back with `reportsDone`, across with `toBudget`, and a print view
-(`?print=true`) that edits nothing and ends with the sheet's signature line. Sections: warnings; Report (status
-chip, trip dates, the submit line, then the fields for an editor or their values for anyone else; Save details,
-Submit / Submit again, Withdraw submission); Cash advanced (the worksheet: a numbered table `#`, Type, Date,
-From / to, Amount, USD, Note with a Total advanced row `exAdvanced`; an Add `p:menuButton` whose five items open
-`advanceDlg` already set to that kind; Edit / Delete by `advanceId`); Currencies; Budget (budget vs actual, with Not in budget and
-totals); Expenses (Edit / Up / Down / Delete in `WEB-INF/expenseLineActions.xhtml`, and a Receipts button per
-expense, and a Paid column with the row's chip: "Org paid", "Reimbursed" or "Paid Oct 20"); Payments (the
-table, Record payment / Edit / Delete for a finance admin); Report receipts; the totals card (total spent; paid by
-organization, already reimbursed and not yet reimbursed when any expense was settled outside; cash advanced (red
-when the worksheet nets negative); the due line; payments recorded and the Still due / Settled line once there
-are payments; the payment instructions).
+Reached from the dashboard card (`toExpenses`, its number `expenseHeadline`: "$55,560.95 spent" or "No expenses yet")
+and from the Budget page (`toExpenses`); back with `reportsDone`, across with `toBudget`, and a print view
+(`?print=true`) that edits nothing and ends with the sheet's signature line. Sections: warnings; Report (status chip,
+trip dates, the submit line, then the fields for an editor or their values for anyone else; Save details, Submit /
+Submit again, Withdraw submission); Cash advanced (the worksheet: a numbered table `#`, Type, Date, From / to, Amount,
+USD, Note with a Total advanced row `exAdvanced`; an Add `p:menuButton` whose five items open `advanceDlg` already set
+to that kind; Edit / Delete by `advanceId`); Currencies; Budget (budget vs actual, with Not in budget and totals);
+Expenses (Edit / Up / Down / Delete in `WEB-INF/expenseLineActions.xhtml`, and a Receipts button per expense, and a Paid
+column with the row's chip: "Org paid", "Reimbursed" or "Paid Oct 20"); Payments (the table, Record payment / Edit /
+Delete for a finance admin); Report receipts; the totals card (total spent; paid by organization, already reimbursed and
+not yet reimbursed when any expense was settled outside; cash advanced (red when the worksheet nets negative); the due
+line; payments recorded and the Still due / Settled line once there are payments; the payment instructions).
 
 The advance dialog (`advanceDlg`) shows the kind's help text and question (`typeHelp`, `partyLabel`): a text
 answer for Cash advance (prefilled with the organization), Credit applied and Money returned (prefilled with the
@@ -223,13 +223,12 @@ reason; an unknown trip is 404.
 ## Tests
 
 Unit (`trip/`): `TripExpenseReportTest`, `ExpenseLineTest`, `CurrencyRateTest`, `ExpenseMathTest` (the oracle in
-`pay/ExpenseOracle`), `ExpenseReportDAOTest`, `ExpenseCommandsTest` (gates, the oracle on the page rows, every
-refusal, a currency from the dialog, budget vs actual for all three kinds of budget line, submit, paid statuses,
-payments either way and with no expense, the settle gate),
-`ExpenseReceiptsTest` (both renditions, PDFs, refusals, rollbacks, the S3 branch), `ExpenseReceiptServletTest`,
-`ExpenseReportResourceTest`, `MoneyFormsTest`, `ExpensePaymentTest`, `ExpenseReportPdfTest`, plus cases in `AuditCommandsTest`, `MediaTenancyTest`,
-`MediaCommandsPresignTest`, `MediaResourceTest`, `ModelSerializationTest`, `SerializationCompatibilityTest`,
-`ApiSurfaceTest`.
+`pay/ExpenseOracle`), `ExpenseReportDAOTest`, `ExpenseCommandsTest` (gates, the oracle on the page rows, every refusal,
+a currency from the dialog, budget vs actual for all three kinds of budget line, submit, paid statuses, payments either
+way and with no expense, the settle gate), `ExpenseReceiptsTest` (both renditions, PDFs, refusals, rollbacks, the S3
+branch), `ExpenseReceiptServletTest`, `ExpenseReportResourceTest`, `MoneyFormsTest`, `ExpensePaymentTest`,
+`ExpenseReportPdfTest`, plus cases in `AuditCommandsTest`, `MediaTenancyTest`, `MediaCommandsPresignTest`,
+`MediaResourceTest`, `ModelSerializationTest`, `SerializationCompatibilityTest`, `ApiSurfaceTest`.
 
 Browser (`medjugorje/webtest`): `ExpenseReportPwIT` (the oracle and the print view, a currency from the dialog
 then fine-tuned, a matched expense moving its budget line, row commands by identity, receipts uploaded on an
