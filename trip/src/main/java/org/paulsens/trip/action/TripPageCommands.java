@@ -25,6 +25,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.cache.Cached;
+import org.paulsens.trip.checkout.CheckoutValidator;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.content.EmbedStyles;
 import org.paulsens.trip.theme.ThemeResources;
@@ -252,24 +253,20 @@ public class TripPageCommands {
     }
 
     /**
-     * The phase at {@code now}. The start edge is an instant, as checkout refuses (the countdown's calendar day is
-     * {@code started}'s business). Priced checkout's window ({@code CheckoutConfig.opensAt}/{@code closesAt})
-     * counts only while checkout is on (the free form ignores a window left stored on a trip with checkout off)
-     * and never for an external trip, whose registration happens on another site: nothing else enforces it.
-     * Without the window, Discover, the trip cards and the page's block said "open" while the form refused.
+     * The phase at {@code now}, from checkout's own window rule ({@link CheckoutValidator#windowAt}), so the form and
+     * the phase share their edges: the start is an instant (the countdown's calendar day is {@code started}'s
+     * business). Priced checkout's window ({@code CheckoutConfig.opensAt}/{@code closesAt}) counts only while
+     * checkout is on (the free form ignores a window left stored on a trip with checkout off) and never for an
+     * external trip, whose registration happens on another site: nothing else enforces it. Without the window,
+     * Discover, the trip cards and the page's block said "open" while the form refused.
      */
     private static Phase phaseOf(final Trip trip, final Integer seatsLeft, final LocalDateTime now) {
-        if (trip.getStartDate() != null && !trip.getStartDate().isAfter(now)) {
+        final CheckoutValidator.Window window = CheckoutValidator.windowAt(trip, now);
+        if (window == CheckoutValidator.Window.STARTED) {
             return Phase.CLOSED;
         }
-        if (!trip.isExternal() && trip.getCheckout().isOn()) {
-            final LocalDateTime opensAt = trip.getCheckout().getOpensAt();
-            if (opensAt != null && now.isBefore(opensAt)) {
-                return Phase.NOT_OPEN;
-            }
-            if (!trip.getCheckout().isOpenAt(now)) {
-                return Phase.CLOSED;
-            }
+        if (!trip.isExternal() && trip.getCheckout().isOn() && window != CheckoutValidator.Window.OPEN) {
+            return window == CheckoutValidator.Window.NOT_OPEN ? Phase.NOT_OPEN : Phase.CLOSED;
         }
         return (seatsLeft != null && seatsLeft == 0) ? Phase.FULL : Phase.OPEN;
     }

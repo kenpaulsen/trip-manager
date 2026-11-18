@@ -167,6 +167,12 @@ public class DiscoverTripDtoAllowListTest {
 
     private static DiscoverTripMapper mapperWith(final String storedLogo, final String uploadedLogo,
             final boolean local) {
+        return mapperWith(storedLogo, uploadedLogo, local, TripPageCommands.Phase.FULL, null);
+    }
+
+    /** As above, with the registration block's phase and opening day as {@code TripPageCommands} would say. */
+    private static DiscoverTripMapper mapperWith(final String storedLogo, final String uploadedLogo,
+            final boolean local, final TripPageCommands.Phase phase, final LocalDate opensOn) {
         final TripPictureCommands pictures = Mockito.mock(TripPictureCommands.class);
         Mockito.when(pictures.url(ArgumentMatchers.any(TripPicture.class), ArgumentMatchers.anyInt()))
                 .thenAnswer(call -> "/trip-pictures/" + call.<TripPicture>getArgument(0).keyAt(call.getArgument(1)));
@@ -181,7 +187,7 @@ public class DiscoverTripDtoAllowListTest {
         final TripPageCommands pages = Mockito.mock(TripPageCommands.class);
         // The registration block knows the counts; only its phase may cross.
         Mockito.when(pages.registrationInfo(ArgumentMatchers.any())).thenReturn(new TripPageCommands.RegistrationInfo(
-                TripPageCommands.Phase.FULL, false, null, 454_545, 464_646, 474_747,
+                phase, false, opensOn, 454_545, 464_646, 474_747,
                 List.of(new TripPageCommands.PriceGroup(SECRET + " priced question", List.of(SECRET + " choice"))),
                 SECRET + " fallback", "2026-12-17", "/trip/joinTrip.jsf?trip=" + SECRET, SECRET + " label"));
         return new DiscoverTripMapper(TripTags.parse("Pilgrimage, Retreat, Tour"), pictures, brand, photos, pages,
@@ -306,6 +312,23 @@ public class DiscoverTripDtoAllowListTest {
             Assert.assertNull(other.registrationOpens(), phase.name());
             Assert.assertFalse(json(other).contains("registrationOpens"), phase.name());
         }
+    }
+
+    /**
+     * The live path: {@code map} takes the phase AND the opening day from the trip's one registration block, so a
+     * not-open trip crosses with its day (the apps show "Opens Dec 1" from it), not a bare {@code notOpen}.
+     */
+    @Test
+    public void mapCarriesTheBlocksOpeningDay() throws Exception {
+        final LocalDate day = LocalDate.of(2027, 3, 1);
+        final DiscoverTripDto dto = mapperWith(null, null, true, TripPageCommands.Phase.NOT_OPEN, day)
+                .map(tripWithSentinels(), org());
+
+        Assert.assertEquals(dto.registration(), "notOpen");
+        Assert.assertEquals(dto.registrationOpens(), day);
+        Assert.assertFalse(json(dto).contains(SECRET), "still nothing private: " + json(dto));
+        Assert.assertNull(mapperWith(null, null, true).map(tripWithSentinels(), org()).registrationOpens(),
+                "a full trip has no opening day");
     }
 
     /** An organization with no abbreviation, or a blank one, sends none: absent from the JSON, never "" or null. */

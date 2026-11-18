@@ -14,11 +14,7 @@ import java.util.Set;
  * Apple's {@code apple-app-site-association} (universal links) and Android's {@code assetlinks.json} (app
  * links). Both say "links on this host to these paths belong to this app", which is what lets a chat invite
  * link open the UniteTrip app instead of the browser when the app is installed. Which paths is the overlay's
- * file to say, so the browser test that reads the served files ({@code WellKnownFilesPwIT}) is where they are
- * pinned. A trip's pages ({@code /trip/tripPage.jsf?trip=}, {@code /trip/tripDetails.jsf?trip=},
- * medjugorje#155) join Apple's list only once the iOS release that handles them is live on the App Store: the
- * file applies to every installed version, and an older app drops a link it cannot route
- * ({@code docs/chat-invites.md}).
+ * file to say: {@code WellKnownFilesPwIT} pins them, and {@code docs/chat-invites.md} says which and why.
  *
  * <p>A servlet rather than two static files at the webapp root, for two reasons. Apple's file has no
  * extension, so the default servlet would send it without a content type, and Apple's fetcher wants

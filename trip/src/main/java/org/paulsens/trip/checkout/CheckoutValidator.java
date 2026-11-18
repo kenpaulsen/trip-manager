@@ -90,20 +90,45 @@ public final class CheckoutValidator {
         return null;
     }
 
+    /** Where a trip's registration window stands, in the order checkout refuses: started first. */
+    public enum Window {
+        /** Within the window (or no window), and the trip has not started. */
+        OPEN,
+        /** The trip has started (its start instant has come): nobody registers any more. */
+        STARTED,
+        /** Before {@code CheckoutConfig.opensAt}. */
+        NOT_OPEN,
+        /** From {@code CheckoutConfig.closesAt} on. */
+        CLOSED
+    }
+
+    /**
+     * THE registration-window rule, at its edges: started from the start instant itself, not open before
+     * {@code opensAt}, closed from {@code closesAt} itself ({@link CheckoutConfig#isOpenAt}). Checkout's refusal
+     * ({@link #problems}) and the public phase every page and Discover show ({@code TripPageCommands}) both read
+     * it, so the form and what is said about the trip cannot disagree; whether the window applies at all (checkout
+     * on, a hosted trip) is each caller's question.
+     */
+    public static Window windowAt(final Trip trip, final LocalDateTime now) {
+        if (trip.getStartDate() != null && !now.isBefore(trip.getStartDate())) {
+            return Window.STARTED;
+        }
+        final CheckoutConfig policy = trip.getCheckout();
+        if (policy.getOpensAt() != null && now.isBefore(policy.getOpensAt())) {
+            return Window.NOT_OPEN;
+        }
+        return policy.isOpenAt(now) ? Window.OPEN : Window.CLOSED;
+    }
+
     /** Why registration is closed at {@code now}, or null while it is open. */
     private static String closedMessage(final Trip trip, final LocalDateTime now) {
         final String name = (trip.getTitle() == null || trip.getTitle().isBlank()) ? "this trip" : trip.getTitle();
-        final CheckoutConfig policy = trip.getCheckout();
-        if (trip.getStartDate() != null && !now.isBefore(trip.getStartDate())) {
-            return "Registration for " + name + " closed when it started.";
-        }
-        if (policy.getOpensAt() != null && now.isBefore(policy.getOpensAt())) {
-            return "Registration for " + name + " has not opened yet.";
-        }
-        if (!policy.isOpenAt(now)) {
-            return "Registration for " + name + " is closed.";
-        }
-        return null;
+        return switch (windowAt(trip, now)) {
+            case STARTED -> "Registration for " + name + " closed when it started.";
+            case NOT_OPEN -> "Registration for " + name + " has not opened yet.";
+            case CLOSED -> "Registration for " + name + " is closed.";
+            case OPEN -> null;
+        };
     }
 
     /** The question's required-answer, known-choice and attestation problems (each choice id once). */

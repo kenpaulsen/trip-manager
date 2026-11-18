@@ -75,6 +75,33 @@ public class CheckoutValidatorTest {
                 "Registration for this trip is closed.");
     }
 
+    /**
+     * The one window rule the form and the public phase share ({@code TripPageCommands} reads it too), at each
+     * edge: started from the start instant, not open until the opening instant, closed from the closing instant.
+     */
+    @Test
+    public void theWindowRuleAtItsEdges() {
+        final Trip trip = trip();
+        final LocalDateTime opens = BEFORE.plusDays(1);
+        final LocalDateTime closes = BEFORE.plusDays(2);
+        trip.getCheckout().setOpensAt(opens);
+        trip.getCheckout().setClosesAt(closes);
+        assertEquals(CheckoutValidator.windowAt(trip, opens.minusSeconds(1)), CheckoutValidator.Window.NOT_OPEN);
+        assertEquals(CheckoutValidator.windowAt(trip, opens), CheckoutValidator.Window.OPEN);
+        assertEquals(CheckoutValidator.windowAt(trip, closes.minusSeconds(1)), CheckoutValidator.Window.OPEN);
+        assertEquals(CheckoutValidator.windowAt(trip, closes), CheckoutValidator.Window.CLOSED);
+        assertEquals(CheckoutValidator.windowAt(trip, START.minusSeconds(1)), CheckoutValidator.Window.CLOSED);
+        assertEquals(CheckoutValidator.windowAt(trip, START), CheckoutValidator.Window.STARTED, "started first");
+        trip.getCheckout().setOpensAt(START.plusDays(1));
+        trip.getCheckout().setClosesAt(null);
+        assertEquals(CheckoutValidator.windowAt(trip, START), CheckoutValidator.Window.STARTED,
+                "a start before the window opens is still a start");
+        trip.setStartDate(null);
+        trip.getCheckout().setOpensAt(null);
+        assertEquals(CheckoutValidator.windowAt(trip, START.plusYears(1)), CheckoutValidator.Window.OPEN,
+                "no start and no window: always open");
+    }
+
     @Test
     public void aShownRequiredQuestionMustBeAnswered() {
         final CheckoutProblem missing = problem(CheckoutProblem.ANSWERS_REQUIRED, GoldenTrip.ADMISSION,
