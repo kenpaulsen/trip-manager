@@ -22,10 +22,13 @@ public class ContentSecurityPolicyTest {
     }
 
     @Test
-    public void scriptsComeFromUsStripeAndTheAnalyticsTagOnly() {
+    public void scriptsComeFromUsStripeTheAnalyticsTagAndFlickrOnly() {
         final String policy = ContentSecurityPolicy.build(MEDIA, "/csp-report");
         Assert.assertTrue(policy.contains("script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com"
-                + " https://*.js.stripe.com https://www.googletagmanager.com;"), policy);
+                + " https://*.js.stripe.com https://www.googletagmanager.com https://embedr.flickr.com"
+                + " https://widgets.flickr.com;"), policy);
+        // The two named Flickr hosts, never the whole of Flickr.
+        Assert.assertFalse(policy.contains("*.flickr.com"), policy);
         // The CDN serves images, stylesheets, fonts and PDFs; it must never be a script source.
         Assert.assertFalse(policy.contains("script-src 'self' 'unsafe-inline' 'unsafe-eval' " + MEDIA), policy);
     }
@@ -71,6 +74,13 @@ public class ContentSecurityPolicyTest {
         Assert.assertTrue(policy.contains("style-src 'self' 'unsafe-inline' https:; img-src"), policy);
         Assert.assertTrue(policy.contains("object-src 'self'; media-src 'self' blob: https:; worker-src"), policy);
         Assert.assertFalse(policy.contains("null"), policy);
+    }
+
+    @Test
+    public void workersComeFromUsOrABlob() {
+        // sw.js, plus the worker primefaces-extensions.js starts from a blob: URL on the trip details page.
+        final String policy = ContentSecurityPolicy.build(MEDIA, "/csp-report");
+        Assert.assertTrue(policy.contains("worker-src 'self' blob:;"), policy);
     }
 
     @Test

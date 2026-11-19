@@ -42,10 +42,11 @@ public final class ContentSecurityPolicy {
         // answers with a redirect to the approval URL) must name both PayPal hosts.
         policy.add("form-action 'self' https://www.paypal.com https://www.sandbox.paypal.com");
         // Mojarra and PrimeFaces render inline scripts and on* handlers, and both evaluate the scripts an ajax
-        // partial response carries (unsafe-eval). Stripe.js (plus its performance sub-origins) and the
-        // analytics tag are the only foreign scripts a page loads.
+        // partial response carries (unsafe-eval). The foreign scripts a page loads are Stripe.js (plus its
+        // performance sub-origins), the analytics tag, and the Flickr album embed on the old microsite trip pages
+        // (embedr's loader on embedr.flickr.com pulls its widget from widgets.flickr.com).
         policy.add("script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://*.js.stripe.com"
-                + " https://www.googletagmanager.com");
+                + " https://www.googletagmanager.com https://embedr.flickr.com https://widgets.flickr.com");
         // PrimeFaces writes style attributes everywhere (unsafe-inline). A trip page's own stylesheets are media
         // library rows the CDN serves in production, and a designer's sheet @imports a font service (the mir
         // summerfest page pulls League Spartan and Playfair Display from Google Fonts), so any https stylesheet
@@ -70,8 +71,9 @@ public final class ContentSecurityPolicy {
         policy.add(withOrigin("object-src 'self'", mediaOrigin));
         // Pasted audio or video the same way; blob: for the check-in camera stream.
         policy.add("media-src 'self' blob: https:");
-        // sw.js (Web Push) and /manifest.jsf.
-        policy.add("worker-src 'self'");
+        // sw.js (Web Push), plus a worker primefaces-extensions.js starts from a blob: URL on the trip details
+        // page (the report-only reports showed it in Chrome and Safari, on every org's site).
+        policy.add("worker-src 'self' blob:");
         policy.add("manifest-src 'self'");
         // Both reporting mechanisms: report-uri is what every browser still honours, report-to is where Chrome
         // is going. They point at the same servlet (CspReportServlet).
