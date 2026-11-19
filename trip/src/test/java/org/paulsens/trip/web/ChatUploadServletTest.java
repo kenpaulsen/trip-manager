@@ -51,10 +51,8 @@ public class ChatUploadServletTest {
             }
         };
         Mockito.when(resp.getOutputStream()).thenReturn(sink);
-        Mockito.doAnswer(call -> {
-            status.set(call.getArgument(0));
-            return null;
-        }).when(resp).sendError(ArgumentMatchers.anyInt());
+        Mockito.doAnswer(call -> status.getAndSet(call.getArgument(0)))
+                .when(resp).sendError(ArgumentMatchers.anyInt());
     }
 
     @Test

@@ -23,6 +23,15 @@ public class RequestMemoTest {
     }
 
     @Test
+    public void aPutReplacesTheAnswerAndIsANoOpWithNoMap() {
+        final Map<String, Object> request = new HashMap<>();
+        Assert.assertEquals(RequestMemo.get(request, "k", () -> "read"), "read");
+        RequestMemo.put(request, "k", "written");
+        Assert.assertEquals(RequestMemo.get(request, "k", () -> "read again"), "written");
+        RequestMemo.put(null, "k", "nowhere");
+    }
+
+    @Test
     public void outsideARequestEveryCallComputes() {
         final AtomicInteger calls = new AtomicInteger();
         RequestMemo.get("k", calls::incrementAndGet);

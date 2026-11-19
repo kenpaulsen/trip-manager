@@ -211,8 +211,9 @@ public class TripCommands {
             PageFeedback.warn("Not saved", String.join(" ", pricing));
             return false;
         }
-        // ONE advisory pre-read of the stored row, for the two checks below that compare against it. A read that
-        // FAILED judges nothing: the links cannot be told from what is stored, and the save must survive it.
+        // ONE uncached pre-read of the stored row answers every comparison below: the links, the roster, "is this
+        // a new trip" and the stored pictures (a cached row can trail a picture upload). A read that FAILED judges
+        // no link and counts as an existing trip that keeps the pictures as sent; the save must survive it.
         final PreRead before = preRead(trip.getId());
         final Trip stored = before.stored();
         final List<String> links = before.readable() ? linkProblems(trip, stored) : List.of();
@@ -226,14 +227,14 @@ public class TripCommands {
             PageFeedback.warn("Not saved", String.join(" ", page));
             return false;
         }
-        final boolean brandNew = isBrandNew(trip);
+        final boolean brandNew = before.readable() && stored == null;
         boolean result;
         // Read the roster BEFORE the write, so anyone dropped in this edit can be taken off the chat too. Done
         // here rather than at each Remove button because there are several ways off a trip and they must all
         // agree: a chat still listing people who are no longer on the trip is the wrong answer everywhere.
         final List<Person.Id> removed = peopleRemovedBy(trip, stored);
         syncProviderFromOrg(trip);
-        keepStoredPictures(trip);
+        keepStoredPictures(trip, stored);
         normalizePlace(trip, TripTags.current());
         try {
             result = DAO.getInstance().saveTrip(sortTripPeople(trip));
@@ -289,17 +290,13 @@ public class TripCommands {
      * A trip's pictures are written ONLY by {@link TripPictureCommands}, straight onto the stored row; every other
      * save keeps what is stored. Without this, the trip editor's working copy (taken when the page opened) or a
      * REST body would put back the list as it was before an upload or a delete made since, silently dropping a
-     * picture whose objects still exist or reviving one whose objects are gone. A brand-new trip has none to keep.
+     * picture whose objects still exist or reviving one whose objects are gone. A brand-new trip (or an unreadable
+     * row: {@code stored} null) has none to keep, so the caller's list is saved.
      */
-    static void keepStoredPictures(final Trip trip) {
-        final Optional<Trip> stored;
-        try {
-            stored = DAO.getInstance().getTrip(trip.getId(), Cached.NO);
-        } catch (final RuntimeException ex) {
-            log.warn("Could not read trip {} to keep its pictures; saving the caller's list", trip.getId(), ex);
-            return;
+    static void keepStoredPictures(final Trip trip, final Trip stored) {
+        if (stored != null) {
+            trip.setPictures(stored.getPictures());
         }
-        stored.ifPresent(row -> trip.setPictures(row.getPictures()));
     }
 
     /**
@@ -1422,16 +1419,6 @@ public class TripCommands {
         return trip != null && orgSource.get().canCreateConferenceFor(trip.getOrgId());
     }
 
-    /** Whether no row exists for this trip yet (the create paths); an unreadable store counts as existing. */
-    private static boolean isBrandNew(final Trip trip) {
-        try {
-            return DAO.getInstance().getTrip(trip.getId(), Cached.NO).isEmpty();
-        } catch (final RuntimeException ex) {
-            log.warn("Could not read trip {} to tell whether it is new", trip.getId(), ex);
-            return false;
-        }
-    }
-
     /**
      * Whether saving {@code trip} may change whether it is a conference: always when it does not (the stored kind
      * and the new one agree, or neither is a conference), else only for {@code canCreateConferenceFor}. The stored
@@ -1856,18 +1843,20 @@ public class TripCommands {
     }
 
     /**
-     * The advisory read before a save. "No such row" and "the read failed" are different answers: the first is a
-     * new trip, whose links are all judged; the second judges nothing, like {@link #isBrandNew}'s "an unreadable
-     * store counts as existing". Package-private so a test can make the read fail.
+     * The read of the stored row before a save, uncached because a cached row can trail a picture upload. "No such
+     * row" and "the read failed" are different answers: the first is a new trip, whose links are all judged; the
+     * second judges no link and counts as an existing trip that keeps the pictures as sent. Package-private so a
+     * test can make the read fail.
      */
     PreRead preRead(final String tripId) {
         if (tripId == null) {
             return new PreRead(null, true);
         }
         try {
-            return new PreRead(DAO.getInstance().getTrip(tripId, Cached.YES).orElse(null), true);
+            return new PreRead(DAO.getInstance().getTrip(tripId, Cached.NO).orElse(null), true);
         } catch (final RuntimeException ex) {
-            log.warn("Could not read trip {} before saving it; its links are not judged", tripId, ex);
+            log.warn("Could not read trip {} before saving it; its links are not judged and it keeps the pictures"
+                    + " as sent", tripId, ex);
             return new PreRead(null, false);
         }
     }

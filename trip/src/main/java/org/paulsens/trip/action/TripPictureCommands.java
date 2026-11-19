@@ -1,12 +1,10 @@
 package org.paulsens.trip.action;
 
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.faces.context.FacesContext;
 import jakarta.inject.Inject;
 import jakarta.inject.Named;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -40,7 +38,7 @@ import org.primefaces.model.ResponsiveOption;
  * {@link PhotoUploadBean}) AND the REST edge's implementation: every write takes the {@link Caller} explicitly and
  * answers a {@link PictureResult}, and the dialog's methods are thin wrappers that growl it.
  *
- * <p><b>Storage.</b> Each picture is cut to {@value #ASPECT_LABEL} and stored as three JPEGs
+ * <p><b>Storage.</b> Each picture is cut to 3:2 ({@link #ASPECT}) and stored as three JPEGs
  * ({@link TripPicture#WIDTHS}) under {@code tripPictures/{tripId}/{version}-{width}.jpg} in the managed-media bucket,
  * CDN-served and public by URL like badge and profile pictures. Not under the organization's {@code org/} prefix,
  * although the issue first named one: that prefix is the org media library's own namespace, writable by its media
@@ -79,9 +77,6 @@ public class TripPictureCommands extends PhotoUploadBean {
 
     /** The one shape every picture is cut to (width / height), which every card and the dialog's cropper use. */
     public static final double ASPECT = 1.5d;
-
-    /** {@link #ASPECT} as people say it, for the page's cropper hint and the docs. */
-    static final String ASPECT_LABEL = "3:2";
 
     /** Below this the 1920 rendition is upscaled by the browser: a warning, never a refusal. */
     static final int MIN_GOOD_WIDTH = 1600;
@@ -131,8 +126,13 @@ public class TripPictureCommands extends PhotoUploadBean {
     @Inject
     private MediaCommands media;
 
-    /** How a write turned out; {@code warning} rides along with a success (a small picture is stored anyway). */
-    public record PictureResult(Status status, String message, TripPicture picture, String warning) {
+    /**
+     * How a write turned out; {@code warning} rides along with a success (a small picture is stored anyway), and
+     * {@code pictures} is the trip's list exactly as that write saved it (empty on a refusal), so a caller answers
+     * from it instead of re-reading a row that may still be stale in the cache.
+     */
+    public record PictureResult(Status status, String message, TripPicture picture, String warning,
+            List<TripPicture> pictures) {
 
         /** What the REST edge maps to an HTTP status. */
         public enum Status { OK, NOT_FOUND, FORBIDDEN, LIMIT, INVALID, FAILED }
@@ -141,12 +141,13 @@ public class TripPictureCommands extends PhotoUploadBean {
             return status == Status.OK;
         }
 
-        static PictureResult ok(final TripPicture picture, final String message, final String warning) {
-            return new PictureResult(Status.OK, message, picture, warning);
+        static PictureResult ok(final TripPicture picture, final String message, final String warning,
+                final Trip saved) {
+            return new PictureResult(Status.OK, message, picture, warning, List.copyOf(saved.getPictures()));
         }
 
         static PictureResult fail(final Status status, final String message) {
-            return new PictureResult(status, message, null, null);
+            return new PictureResult(status, message, null, null, List.of());
         }
     }
 
@@ -169,9 +170,12 @@ public class TripPictureCommands extends PhotoUploadBean {
         return mayEdit(caller(), trip);
     }
 
-    /** Seam: whether the caller administers the trip's organization ({@link AlbumPhotoSource#adminsOrg}). */
+    /**
+     * Seam: whether the caller manages the trip's organization, asked of {@link OrgCommands#canManageOrg} as every
+     * other trip-side gate does, so a change to who manages an org reaches the pictures too.
+     */
     protected boolean isOrgAdmin(final Caller caller, final String orgId) {
-        return AlbumPhotoSource.adminsOrg(caller, orgId);
+        return new OrgCommands(() -> caller).canManageOrg(orgId);
     }
 
     // ------------------------------------------------------------------ the writes, caller explicit
@@ -205,7 +209,7 @@ public class TripPictureCommands extends PhotoUploadBean {
             removeAll(picture);
             return appended.refusal();
         }
-        return PictureResult.ok(picture, addedMessage(1, appended.cover()), prepared.warning());
+        return PictureResult.ok(picture, addedMessage(1, appended.cover()), prepared.warning(), appended.saved());
     }
 
     /**
@@ -352,9 +356,9 @@ public class TripPictureCommands extends PhotoUploadBean {
 
     /**
      * How an append went: the pictures the row now names (in order), whether the first of them became the cover,
-     * and why any others were left out (null when none were).
+     * why any others were left out (null when none were), and the trip as saved (null when nothing was).
      */
-    private record Appended(List<TripPicture> kept, boolean cover, PictureResult refusal) {
+    private record Appended(List<TripPicture> kept, boolean cover, PictureResult refusal, Trip saved) {
     }
 
     /**
@@ -365,7 +369,7 @@ public class TripPictureCommands extends PhotoUploadBean {
         final Optional<Trip> found = readStored(tripId);
         final PictureResult refusal = earlyRefusal(caller, found);
         if (refusal != null) {
-            return new Appended(List.of(), false, refusal);
+            return new Appended(List.of(), false, refusal, null);
         }
         final Trip trip = found.get();
         final boolean cover = trip.getPictures().isEmpty();
@@ -374,10 +378,10 @@ public class TripPictureCommands extends PhotoUploadBean {
         trip.getPictures().addAll(kept);
         if (!save(trip)) {
             return new Appended(List.of(), false, PictureResult.fail(PictureResult.Status.FAILED,
-                    "Not saved: the trip could not be updated with the new picture. Try again."));
+                    "Not saved: the trip could not be updated with the new picture. Try again."), null);
         }
         kept.forEach(picture -> audit("Trip picture added", caller, trip, picture.getKey()));
-        return new Appended(kept, cover, kept.size() < pictures.size() ? limitReached() : null);
+        return new Appended(kept, cover, kept.size() < pictures.size() ? limitReached() : null, trip);
     }
 
     /** Permanently removes one picture: off the stored row first (the publish), then out of the store and the CDN. */
@@ -402,7 +406,7 @@ public class TripPictureCommands extends PhotoUploadBean {
                     "Not saved: the trip could not be updated. The picture was not removed.");
         }
         audit("Trip picture removed", caller, trip, key);
-        return PictureResult.ok(picture, "Picture removed.", null);
+        return PictureResult.ok(picture, "Picture removed.", null, trip);
     }
 
     /**
@@ -430,7 +434,8 @@ public class TripPictureCommands extends PhotoUploadBean {
                     "Not saved: the trip could not be updated. The pictures were not reordered.");
         }
         audit("Trip picture moved to position " + (position + 1), caller, trip, key);
-        return PictureResult.ok(picture, position == 0 ? "Cover picture changed." : "Picture moved.", null);
+        return PictureResult.ok(picture, position == 0 ? "Cover picture changed." : "Picture moved.", null,
+                trip);
     }
 
     /** Sets one picture's description (its alt text); blank clears it, so the trip's title is read instead. */
@@ -452,7 +457,7 @@ public class TripPictureCommands extends PhotoUploadBean {
                     "Not saved: the trip could not be updated. The description was not changed.");
         }
         audit("Trip picture described", caller, trip, key);
-        return PictureResult.ok(picture, "Description saved.", null);
+        return PictureResult.ok(picture, "Description saved.", null, trip);
     }
 
     /** One per-picture write's subject, read once: the trip and its picture, or why the write is refused. */
@@ -692,14 +697,8 @@ public class TripPictureCommands extends PhotoUploadBean {
         if (tripId == null) {
             return List.of();
         }
-        final Map<Object, Object> memo = requestMemo();
-        final Object known = memo.get(MEMO_PREFIX + tripId);
-        if (known instanceof List<?> list) {
-            return list.stream().map(TripPicture.class::cast).toList();
-        }
-        final List<TripPicture> stored = readStored(tripId).map(Trip::getPictures).orElse(List.of());
-        memo.put(MEMO_PREFIX + tripId, stored);
-        return stored;
+        return RequestMemo.get(requestMemo(), MEMO_PREFIX + tripId,
+                () -> readStored(tripId).map(Trip::getPictures).orElse(List.of()));
     }
 
     /** Whether the trip already has {@link Trip#MAX_PICTURES}, which disables the dialog's Add button. */
@@ -945,17 +944,16 @@ public class TripPictureCommands extends PhotoUploadBean {
         if (!saveStored(trip)) {
             return false;
         }
-        requestMemo().put(MEMO_PREFIX + trip.getId(), List.copyOf(trip.getPictures()));
+        RequestMemo.put(requestMemo(), MEMO_PREFIX + trip.getId(), List.copyOf(trip.getPictures()));
         return true;
     }
 
     /**
-     * Seam: a map that lives for this request, for {@link #picturesOf}'s memo: the FacesContext's attributes on a
-     * page, a throwaway map anywhere else (the REST edge, tests), where nothing asks twice.
+     * Seam: {@link #picturesOf}'s memo map, the Faces request map ({@link RequestMemo}); null off a page (the REST
+     * edge), where nothing asks twice and every read computes.
      */
-    protected Map<Object, Object> requestMemo() {
-        final FacesContext ctx = FacesContext.getCurrentInstance();
-        return ctx == null ? new HashMap<>() : ctx.getAttributes();
+    protected Map<String, Object> requestMemo() {
+        return RequestMemo.facesRequestMap();
     }
 
     private void audit(final String what, final Caller caller, final Trip trip, final String key) {

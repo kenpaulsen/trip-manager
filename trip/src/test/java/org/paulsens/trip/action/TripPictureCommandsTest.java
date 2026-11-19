@@ -48,7 +48,7 @@ public class TripPictureCommandsTest {
     private final Map<String, String> session = new HashMap<>();
     private final Map<String, Object> viewMap = new HashMap<>();
     private final Map<String, Object> params = new HashMap<>();
-    private final Map<Object, Object> memo = new HashMap<>();
+    private final Map<String, Object> memo = new HashMap<>();
     private final List<Boolean> outcomes = new ArrayList<>();
     private final List<Trip> saves = new ArrayList<>();
     /** The album photos the fake source offers, by media id; a null value is a photo that cannot be read. */
@@ -123,7 +123,7 @@ public class TripPictureCommandsTest {
         }
 
         @Override
-        protected Map<Object, Object> requestMemo() {
+        protected Map<String, Object> requestMemo() {
             return memo;
         }
 
@@ -436,6 +436,8 @@ public class TripPictureCommandsTest {
         final TripPictureCommands.PictureResult cover = bean.move(caller, TRIP_ID, third, 0);
         Assert.assertEquals(cover.message(), "Cover picture changed.");
         Assert.assertEquals(keys(), List.of(third, first, second));
+        Assert.assertEquals(cover.pictures().stream().map(TripPicture::getKey).toList(), keys(),
+                "The result carries the list exactly as saved");
         Assert.assertEquals(bean.move(caller, TRIP_ID, third, 99).message(), "Picture moved.", "Clamped");
         Assert.assertEquals(keys(), List.of(first, second, third));
 
@@ -612,7 +614,7 @@ public class TripPictureCommandsTest {
         Assert.assertTrue(real.readStored(null).isEmpty());
         Assert.assertTrue(real.readStored(" ").isEmpty());
         Assert.assertTrue(real.readStored("no-such-trip").isEmpty());
-        Assert.assertTrue(real.requestMemo().isEmpty(), "Off a page the memo is a throwaway map");
+        Assert.assertNull(real.requestMemo(), "Off a page there is no memo map");
         Assert.assertNull(real.targetId(), "No view, no target");
         real.viewRemove(TripPictureCommands.ALT_VIEW_KEY);
         Assert.assertNull(real.getAlbumScope(), "No open trip: no albums to list");

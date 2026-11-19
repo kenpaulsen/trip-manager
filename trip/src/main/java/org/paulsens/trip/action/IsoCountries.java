@@ -2,6 +2,7 @@ package org.paulsens.trip.action;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.text.Collator;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -72,7 +73,8 @@ public final class IsoCountries {
 
     private static final List<Country> ALL = CODES.stream()
             .map(code -> new Country(code, Locale.of("", code).getDisplayCountry(Locale.US), aliasesOf(code)))
-            .sorted(Comparator.comparing(Country::name))
+            // A Collator, not String order: "\u00c5land Islands" (AX) sorts by code unit after every ASCII name.
+            .sorted(Comparator.comparing(Country::name, Collator.getInstance(Locale.US)))
             .toList();
 
     private static final ObjectMapper JSON = new ObjectMapper();

@@ -42,6 +42,8 @@ public class TripPictureServlet extends HttpServlet {
         }
         resp.setContentType("image/jpeg");
         resp.setContentLength(bytes.get().length);
+        // public, unlike the badge and lodging servlets' private: a trip picture is a cover anonymous visitors
+        // see (Discover, the listing), and the production CDN caches it shared, which local mode mirrors.
         resp.setHeader("Cache-Control", "public, max-age=3600");
         resp.getOutputStream().write(bytes.get());
     }

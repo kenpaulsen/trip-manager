@@ -407,7 +407,8 @@ public class AlbumPhotoSourceTest {
                 "An organization's scope lists an album exactly when its trip is that organization's");
         Assert.assertFalse(real.isOrgAdmin(siteAdmin, null), "No organization has no admins");
         Assert.assertFalse(real.isOrgAdmin(TestCallers.person(Person.Id.newInstance()), FakeData.CFPW_ORG_ID));
-        Assert.assertFalse(real.isOrgAdmin(siteAdmin, "00000000-0000-4000-8000-000000000000"),
+        Assert.assertFalse(real.isOrgAdmin(TestCallers.person(Person.Id.newInstance()),
+                "00000000-0000-4000-8000-000000000000"),
                 "An organization that does not exist has no admins either");
         Assert.assertTrue(real.albumsOf(scope(FakeData.PUB_PAST_3D_TRIP_ID)).isEmpty(),
                 "Off a page there is nobody signed in, so nothing is listed");

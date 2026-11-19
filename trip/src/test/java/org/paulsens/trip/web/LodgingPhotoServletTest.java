@@ -5,6 +5,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.ByteArrayOutputStream;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.mockito.Mockito;
 import org.paulsens.trip.action.LodgingUploadCommands;
 import org.testng.Assert;
@@ -34,11 +35,8 @@ public class LodgingPhotoServletTest {
         Mockito.when(req.getPathInfo()).thenReturn(path);
         final HttpServletResponse resp = Mockito.mock(HttpServletResponse.class);
         final ByteArrayOutputStream body = new ByteArrayOutputStream();
-        final int[] status = {200};
-        Mockito.doAnswer(call -> {
-            status[0] = call.getArgument(0);
-            return null;
-        }).when(resp).sendError(Mockito.anyInt());
+        final AtomicInteger status = new AtomicInteger(200);
+        Mockito.doAnswer(call -> status.getAndSet(call.getArgument(0))).when(resp).sendError(Mockito.anyInt());
         Mockito.when(resp.getOutputStream()).thenReturn(new ServletOutputStream() {
             @Override
             public boolean isReady() {
@@ -55,9 +53,9 @@ public class LodgingPhotoServletTest {
             }
         });
         servlet.doGet(req, resp);
-        if (status[0] == 200) {
+        if (status.get() == 200) {
             Assert.assertEquals(body.size(), 3);
         }
-        return status[0];
+        return status.get();
     }
 }

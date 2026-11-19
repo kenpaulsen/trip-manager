@@ -8,11 +8,13 @@ import java.util.List;
 import java.util.ArrayList;
 import java.util.Map;
 import java.util.Set;
+import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripEvent;
+import org.paulsens.trip.model.TripPicture;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
@@ -447,5 +449,47 @@ public class TripCommandsTest {
         assertNull(asSiteAdmin().preRead("no-such-trip-" + System.nanoTime()).stored(), "Absent is not unreadable");
         assertTrue(asSiteAdmin().preRead("no-such-trip-" + System.nanoTime()).readable());
         assertTrue(asSiteAdmin().preRead(null).readable(), "No id yet: a new trip, all links judged");
+    }
+
+    /**
+     * The stored pictures come from the pre-read, never from the caller's copy, which may predate an upload; when
+     * that read fails, the trip counts as existing and keeps the pictures the caller sent.
+     */
+    @Test
+    public void aSaveKeepsThePicturesOfThePreReadAndTheCallersWhenItFails() throws java.io.IOException {
+        final org.paulsens.trip.dynamo.DAO dao = org.paulsens.trip.dynamo.DAO.getInstance();
+        final Trip trip = Trip.builder().title("Fresh pictures " + java.util.UUID.randomUUID()).build();
+        final TripPicture stored = new TripPicture("tripPictures/fresh/1", null, 960, 640, "#102030");
+        final TripPicture sent = new TripPicture("tripPictures/fresh/sent", null, 960, 640, "#203040");
+        trip.getPictures().add(stored);
+        assertTrue(dao.saveTrip(trip));
+
+        final Trip copy = dao.getTrip(trip.getId(), Cached.NO).orElseThrow();
+        copy.getPictures().clear();
+        copy.getPictures().add(sent);
+        assertTrue(withPreRead(true).saveTrip(copy));
+        assertEquals(dao.getTrip(trip.getId(), Cached.NO).orElseThrow().getPictures(), List.of(stored),
+                "The stored row's pictures, not the caller's");
+
+        copy.getPictures().clear();
+        copy.getPictures().add(sent);
+        // A legacy trip (a description, no seeded page): only a brand-new one seeds its page on save.
+        copy.setDescription("A legacy description");
+        copy.setPageSeededAt(null);
+        assertTrue(withPreRead(false).saveTrip(copy));
+        final Trip after = dao.getTrip(trip.getId(), Cached.NO).orElseThrow();
+        assertEquals(after.getPictures(), List.of(sent), "An unreadable pre-read keeps the pictures as sent");
+        assertNull(after.getPageSeededAt(), "An unreadable pre-read counts as an existing trip, not a new one");
+    }
+
+    /** A site-admin TripCommands whose pre-read is the real one, or unreadable when {@code readable} is false. */
+    private TripCommands withPreRead(final boolean readable) {
+        return new TripCommands(() -> new OrgCommands(() -> new Caller(Person.Id.from("admin"), true,
+                org.paulsens.trip.audit.AuditActor.system(), new PrivilegeCommands()))) {
+            @Override
+            PreRead preRead(final String id) {
+                return readable ? super.preRead(id) : new PreRead(null, false);
+            }
+        };
     }
 }

@@ -11,8 +11,9 @@ import java.util.function.Supplier;
  *
  * <p>What it is not: a cache. The map dies with the request, so a value never outlives a write by more than the
  * request that made it, and a write within the same request is invisible to a key already answered; a caller
- * that must see its own write either reads fresh or {@link #forget forgets} the key. Outside a Faces request (a
- * REST call, a background thread, a unit test without a context) there is no map and every call computes.
+ * that must see its own write reads fresh, {@link #forget forgets} the key, or {@link #put puts} the value it
+ * saved. Outside a Faces request (a REST call, a background thread, a unit test without a context) there is no
+ * map and every call computes.
  */
 final class RequestMemo {
 
@@ -46,6 +47,16 @@ final class RequestMemo {
         final T value = compute.get();
         map.put(key, value);
         return value;
+    }
+
+    /**
+     * Memoizes {@code value} under {@code key}, replacing any earlier answer: a write that already holds what the
+     * rest of the request must see, so a later {@link #get} need not read it back; a no-op with no map.
+     */
+    static void put(final Map<String, Object> map, final String key, final Object value) {
+        if (map != null) {
+            map.put(key, value);
+        }
     }
 
     /** Drops one memoized key (after a write the rest of the request must see); a no-op with no map. */

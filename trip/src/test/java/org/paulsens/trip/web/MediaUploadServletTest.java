@@ -67,10 +67,8 @@ public class MediaUploadServletTest {
             }
         };
         Mockito.when(resp.getOutputStream()).thenReturn(sink);
-        Mockito.doAnswer(inv -> {
-            status.set(inv.getArgument(0));
-            return null;
-        }).when(resp).setStatus(ArgumentMatchers.anyInt());
+        Mockito.doAnswer(call -> status.getAndSet(call.getArgument(0)))
+                .when(resp).setStatus(ArgumentMatchers.anyInt());
         Mockito.when(req.getHeader(MediaUploadServlet.CSRF_HEADER)).thenReturn("1");
         Mockito.when(req.getParameter("slot")).thenReturn("home-docs");
         Mockito.when(req.getParameter("title")).thenReturn("A Title");

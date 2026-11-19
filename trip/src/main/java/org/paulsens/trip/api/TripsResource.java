@@ -212,8 +212,11 @@ public class TripsResource extends BaseResource {
         if (trip.getPictures().isEmpty()) {
             return List.of();
         }
-        final TripPictureCommands pictures = Beans.get(TripPictureCommands.class);
-        return trip.getPictures().stream().map(pic -> pictureDto(pictures, pic)).toList();
+        return pictureDtos(Beans.get(TripPictureCommands.class), trip.getPictures());
+    }
+
+    private List<TripPictureDto> pictureDtos(final TripPictureCommands pictures, final List<TripPicture> list) {
+        return list.stream().map(pic -> pictureDto(pictures, pic)).toList();
     }
 
     private TripPictureDto pictureDto(final TripPictureCommands pictures, final TripPicture pic) {
@@ -1386,8 +1389,8 @@ public class TripsResource extends BaseResource {
         if (!result.isOk()) {
             return pictureError(result);
         }
-        final Trip trip = findTrip(tripId);
-        return ok(trip == null ? List.of() : pictureDtos(trip));
+        // The list the write saved, not a re-read: right after a write the cached row can still be the old order.
+        return ok(pictureDtos(pictures, result.pictures()));
     }
 
     private Response pictureResponse(final TripPictureCommands pictures,

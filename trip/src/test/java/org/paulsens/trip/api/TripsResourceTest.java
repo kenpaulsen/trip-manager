@@ -1421,9 +1421,15 @@ public class TripsResourceTest extends ResourceTestSupport {
 
     /** A body carrying only the place fields: {@code country} as older clients send it, {@code countries} as new. */
     private static TripDto placeBody(final String country, final List<String> countries) {
+        return placeBody(null, country, null, countries);
+    }
+
+    /** A body carrying only the place fields: destination, country, tags and countries; null means absent. */
+    private static TripDto placeBody(final String destination, final String country, final List<String> tags,
+            final List<String> countries) {
         return new TripDto(null, null, null, null, false, null, null, null, null, null, null, null, null, null, null,
-                null, null, null, null, null, null, null, null, null, null, null, null, country, null, null, null,
-                countries);
+                null, null, null, null, null, null, null, null, null, null, null, destination, country, tags, null,
+                null, countries);
     }
 
     /** A trip in two countries reads back with both, in order, and with the first where older clients look. */
@@ -1481,6 +1487,32 @@ public class TripsResourceTest extends ResourceTestSupport {
         assertOk(resource.update(TRIP_ID, CSRF_OK, placeBody(null, List.of())));
         Assert.assertEquals(existing.getCountries(), List.of(), "an empty list clears them");
         Assert.assertNull(existing.getCountry());
+    }
+
+    /**
+     * A write copies destination and tags from the body; absent leaves them alone. The values reach saveTrip as
+     * sent: trimming and dropping an unknown tag are saveTrip's (TripCommandsTest), not the REST edge's.
+     */
+    @Test
+    public void aWriteTakesDestinationAndTagsAndLeavesThemAloneWhenAbsent() {
+        signedInAsSiteAdmin(ME);
+        final Trip existing = trip(TRIP_ID, ME);
+        existing.setOrgId("org-1");
+        existing.setDestination("Fatima");
+        existing.setTags(List.of("retreat"));
+        tripExists(existing);
+        Mockito.when(trips.saveTrip(ArgumentMatchers.eq(existing), ArgumentMatchers.any())).thenReturn(true);
+        bindMock(org.paulsens.trip.action.OrgCommands.class);
+
+        assertOk(resource.update(TRIP_ID, CSRF_OK, placeBody(null, null)));
+        Assert.assertEquals(existing.getDestination(), "Fatima", "absent means unchanged");
+        Assert.assertEquals(existing.getTags(), List.of("retreat"), "absent means unchanged");
+
+        assertOk(resource.update(TRIP_ID, CSRF_OK, placeBody(" Medjugorje ", null, List.of("tour", "retreat"), null)));
+        Mockito.verify(trips, Mockito.atLeastOnce()).saveTrip(ArgumentMatchers.same(existing),
+                ArgumentMatchers.any());
+        Assert.assertEquals(existing.getDestination(), " Medjugorje ");
+        Assert.assertEquals(existing.getTags(), List.of("tour", "retreat"));
     }
 
     // ------------------------------------------------------------------ open, on the host that reaches everything
@@ -1884,7 +1916,7 @@ public class TripsResourceTest extends ResourceTestSupport {
     }
 
     private static TripPictureCommands.PictureResult result(final TripPictureCommands.PictureResult.Status status) {
-        return new TripPictureCommands.PictureResult(status, status.name(), null, null);
+        return new TripPictureCommands.PictureResult(status, status.name(), null, null, List.of());
     }
 
     @Test
@@ -1919,7 +1951,7 @@ public class TripsResourceTest extends ResourceTestSupport {
                 ArgumentMatchers.eq(new org.paulsens.trip.media.PhotoProcessor.CropRect(1, 2, 30, 20)),
                 ArgumentMatchers.eq("Hill")))
                 .thenReturn(new TripPictureCommands.PictureResult(TripPictureCommands.PictureResult.Status.OK,
-                        "Cover picture added.", added, "Low resolution"));
+                        "Cover picture added.", added, "Low resolution", List.of(added)));
         final Response ok = resource.addPicture(TRIP_ID, CSRF_OK, (long) bytes.length, "Hill", 1, 2, 30, 20,
                 bodyOf(bytes));
         assertOk(ok);
@@ -1954,7 +1986,7 @@ public class TripsResourceTest extends ResourceTestSupport {
         final String key = "tripPictures/trip-1/9";
         final TripPicture pic = new TripPicture(key, null, 1920, 1280, "#000000");
         final TripPictureCommands.PictureResult ok = new TripPictureCommands.PictureResult(
-                TripPictureCommands.PictureResult.Status.OK, "done", pic, null);
+                TripPictureCommands.PictureResult.Status.OK, "done", pic, null, List.of(pic));
 
         assertError(resource.removePicture(TRIP_ID, key, null), 403, ApiErrors.CSRF);
         Mockito.when(pictures.remove(ArgumentMatchers.any(), ArgumentMatchers.eq(TRIP_ID), ArgumentMatchers.eq(key)))
@@ -1968,9 +2000,8 @@ public class TripsResourceTest extends ResourceTestSupport {
         assertError(resource.changePicture(TRIP_ID, CSRF_OK, Map.of("key", key, "position", "first")), 400,
                 ApiErrors.VALIDATION_FAILED);
 
-        final Trip trip = trip(TRIP_ID, ME);
-        trip.getPictures().add(pic);
-        tripExists(trip);
+        // The stored row (what a cached re-read would answer) has no picture: the answer is the saved list.
+        tripExists(trip(TRIP_ID, ME));
         Mockito.when(pictures.describe(ArgumentMatchers.any(), ArgumentMatchers.eq(TRIP_ID), ArgumentMatchers.eq(key),
                 ArgumentMatchers.any())).thenReturn(ok);
         Mockito.when(pictures.move(ArgumentMatchers.any(), ArgumentMatchers.eq(TRIP_ID), ArgumentMatchers.eq(key),
@@ -1981,7 +2012,7 @@ public class TripsResourceTest extends ResourceTestSupport {
         both.put("position", 0);
         final Response changed = resource.changePicture(TRIP_ID, CSRF_OK, both);
         assertOk(changed);
-        Assert.assertEquals(((List<?>) changed.getEntity()).size(), 1, "Answers the pictures in their new order");
+        Assert.assertEquals(((List<?>) changed.getEntity()).size(), 1, "Answers the saved list, not a re-read");
         Mockito.verify(pictures).describe(ArgumentMatchers.any(), ArgumentMatchers.eq(TRIP_ID),
                 ArgumentMatchers.eq(key), ArgumentMatchers.isNull());
         assertOk(resource.changePicture(TRIP_ID, CSRF_OK, Map.of("key", key, "alt", "Text")));

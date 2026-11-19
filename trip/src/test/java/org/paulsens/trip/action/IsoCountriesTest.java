@@ -1,5 +1,7 @@
 package org.paulsens.trip.action;
 
+import java.text.Collator;
+import java.util.Locale;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
@@ -29,9 +31,15 @@ public class IsoCountriesTest {
         Assert.assertTrue(IsoCountries.all().size() > 240, "Every ISO alpha-2 country");
         Assert.assertTrue(IsoCountries.all().stream().anyMatch(c -> "US".equals(c.code())
                 && "United States".equals(c.name())));
+        final Collator collator = Collator.getInstance(Locale.US);
         for (int i = 1; i < IsoCountries.all().size(); i++) {
-            Assert.assertTrue(IsoCountries.all().get(i - 1).name().compareTo(IsoCountries.all().get(i).name()) <= 0);
+            Assert.assertTrue(collator.compare(IsoCountries.all().get(i - 1).name(),
+                    IsoCountries.all().get(i).name()) <= 0);
         }
+        Assert.assertNotEquals(IsoCountries.all().getLast().code(), "AX",
+                "An accented first letter sorts with its base letter, not after Zimbabwe");
+        Assert.assertTrue(IsoCountries.all().stream().limit(10).anyMatch(c -> "AX".equals(c.code())),
+                "\u00c5land Islands is among the A's");
     }
 
     /** The owner's list (2026-11-17), spot-checked: search names beside the shown one, which does not change. */

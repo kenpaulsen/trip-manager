@@ -14,7 +14,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.MediaItem;
-import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.site.ListingScope;
 
@@ -330,21 +329,13 @@ public class AlbumPhotoSource {
 
     // ------------------------------------------------------------------ seams
 
-    /** Seam: whether the caller administers this organization ({@link #adminsOrg}). */
-    protected boolean isOrgAdmin(final Caller caller, final String orgId) {
-        return adminsOrg(caller, orgId);
-    }
-
     /**
-     * Whether the caller administers this organization; none (or a blank id) has no admins. The one implementation
-     * the album rules, the media library and the trip pictures all ask, through their own seams.
+     * Seam: whether the caller administers this organization, asked of {@link OrgCommands#canManageOrg} like every
+     * other org gate (the album rules and, through it, the media library). Its site-admin shortcut changes no
+     * answer here: both gates let a site admin in earlier, through {@link Caller#has}.
      */
-    static boolean adminsOrg(final Caller caller, final String orgId) {
-        if (orgId == null || orgId.isBlank()) {
-            return false;
-        }
-        final Optional<Organization> org = DAO.getInstance().getOrganization(Organization.Id.from(orgId), Cached.YES);
-        return org.isPresent() && org.get().isAdmin(caller.personId());
+    protected boolean isOrgAdmin(final Caller caller, final String orgId) {
+        return new OrgCommands(() -> caller).canManageOrg(orgId);
     }
 
     /** Seam: whether the site this request came to serves that organization's trips. */
