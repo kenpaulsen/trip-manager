@@ -56,7 +56,7 @@ public class PushSender {
 
     public PushSender() {
         this(PushDevices.getInstance(), new ConfigCommands(), () -> DAO.getInstance().getCacheClient(),
-                PushRuntime::gatewayFor, PushSender::unreadChats, Instant::now);
+                PushRuntime::gatewayFor, PushSender::unreadMessages, Instant::now);
     }
 
     /** Test seam. */
@@ -189,10 +189,9 @@ public class PushSender {
         }
     }
 
-    /** The app badge: unread chats, the same answer the chats list draws its dots from. */
-    static int unreadChats(final Person.Id person) {
-        return (int) ChatCommands.getChatCommands().myChats(person).stream()
-                .filter(ChatCommands.ChatSummary::unread)
-                .count();
+    /** The app badge: unread messages from others across every chat, the number the apps' Chats tab shows. */
+    static int unreadMessages(final Person.Id person) {
+        final ChatCommands chat = ChatCommands.getChatCommands();
+        return chat.myChats(person).stream().mapToInt(summary -> chat.unreadCount(summary, person)).sum();
     }
 }

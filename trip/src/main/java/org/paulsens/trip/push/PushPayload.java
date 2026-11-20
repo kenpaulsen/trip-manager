@@ -47,7 +47,7 @@ public class PushPayload {
     String imageUrl;
     /** Web only: the notification icon (the org's logo or the site logo), absolute. */
     String iconUrl;
-    /** iOS only, set by the sender: unread chats. Null leaves the badge alone. */
+    /** iOS only, set by the sender: unread messages across every chat. Null leaves the badge alone. */
     Integer badge;
     /** {@code apns-collapse-id}: a later push with the same id replaces this one. */
     String collapseId;

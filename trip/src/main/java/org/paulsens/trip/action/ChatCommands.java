@@ -1570,6 +1570,12 @@ public class ChatCommands {
         return cursor == null || cursor.getEpochMilli() < activity;
     }
 
+    /** Unread messages from others in one of {@link #myChats}' chats, at most 100 ("99+"); 0 when caught up. */
+    public int unreadCount(final ChatSummary summary, final Person.Id me) {
+        return summary.unread() ? ChatUnreadCounter.count(dao(), summary.channel(), tripOf(summary.channel()), me,
+                Instant.now()) : 0;
+    }
+
     /** Unread state for the trip tab, addressed by trip id so the XHTML needs no person id. */
     public boolean isUnreadForCurrentUser(final String tripId) {
         return hasUnread(tripId, currentUserId());

@@ -48,8 +48,10 @@ public class ChatAdminResourceTest extends ResourceTestSupport {
     public void myChannelsFlattensToSummariesWithoutChannelSettings() {
         final ChatChannel channel = Mockito.mock(ChatChannel.class);
         Mockito.when(channel.getId()).thenReturn(ChatChannel.Id.forTrip("trip-1"));
-        Mockito.when(chat.myChats(ME)).thenReturn(List.of(
-                new ChatCommands.ChatSummary(channel, "Rome 2027", 1_723_000_000_000L, true, false)));
+        final ChatCommands.ChatSummary summary =
+                new ChatCommands.ChatSummary(channel, "Rome 2027", 1_723_000_000_000L, true, false);
+        Mockito.when(chat.myChats(ME)).thenReturn(List.of(summary));
+        Mockito.when(chat.unreadCount(summary, ME)).thenReturn(4);
 
         final Response response = resource.myChannels();
 
@@ -59,8 +61,9 @@ public class ChatAdminResourceTest extends ResourceTestSupport {
         Assert.assertEquals(entry.get("channelId"), "trip:trip-1");
         Assert.assertEquals(entry.get("tripTitle"), "Rome 2027");
         Assert.assertEquals(entry.get("unread"), true);
-        // The flattened form is EXACTLY these four keys; a fifth would be channel settings leaking.
-        Assert.assertEquals(entry.keySet().size(), 4, "Unexpected key in badge summary: " + entry.keySet());
+        Assert.assertEquals(entry.get("unreadCount"), 4);
+        // The flattened form is EXACTLY these five keys; a sixth would be channel settings leaking.
+        Assert.assertEquals(entry.keySet().size(), 5, "Unexpected key in badge summary: " + entry.keySet());
     }
 
     @Test

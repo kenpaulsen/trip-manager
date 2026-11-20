@@ -608,7 +608,9 @@ photos).
   shares with everyone, in last-name order; a caller in no organization gets an empty list. Shape, limits and
   the 429 brake are unchanged.
 
-See the plan and the backend docs; wired in the next phases. Chat: `GET /api/chat/my-channels` (`unread` is a boolean);
+See the plan and the backend docs; wired in the next phases. Chat: `GET /api/chat/my-channels` (`unread` is a
+boolean; `unreadCount`, 2026-11-20, is the number of other people's unread messages, at most 100, which the apps'
+badges show as "99+" above 99, and 0 when `unread` is false);
 `/api/chat/channels/trip:{tripId}/messages?since&before&order=newest&wait≤25&limit&rver&mver`; `POST messages` with
 `Content-Type: application/vnd.trip.chat.v1+json` `{body, clientMessageId, replyTo, attachments[{key,title,hidden}],
 onBehalfOf?}`. `onBehalfOf` (2026-10-10) is a family manager acting as a member: the message is still authored by the
@@ -758,7 +760,7 @@ APNs payload the app parses (`PushPayload`): `aps` (`alert{title,subtitle,body}`
 fallback, opened in the browser), `channelId`, `messageId`, and `image` (https JPEG on `files.visitqueenofpeace.com` or
 `*.unitetrip.com`, only with `mutable-content: 1`; the notification service extension attaches it). A
 background push is `{"aps":{"content-available":1}}` alone: the app refreshes channels and trips and sets
-the icon badge to the number of chats with unread messages.
+the icon badge to the total unread messages (the sum of `unreadCount`).
 
 FCM (Android) is data-only: the same keys as strings (`kind`, `title`, `subtitle`, `body`, `threadId`, `link`,
 `url`, `channelId`, `messageId`, `image`, `badge`, `passive`), the silent refresh being `{kind: "silent"}` alone;

@@ -965,6 +965,30 @@ public class ChatDAO {
     }
 
     /**
+     * Raw rows after {@code after} (exclusive), oldest first, <b>unfiltered</b>, for the unread count. Read-only on
+     * purpose: unlike {@link #getMessagesSince} it never refills the hot buffer, because an unread count is not a
+     * reader's poll, and rows it pulled from DynamoDB would sit in the buffer with a gap above them that
+     * {@link #bufferCoversCursor} cannot see, so another reader's poll would skip the gap (review of the count).
+     */
+    protected List<ChatMessage> rawMessagesAfter(
+            final ChatChannel.Id channelId, final ChatMessage.Id after, final int limit) {
+        if (channelId == null || after == null) {
+            return List.of();
+        }
+        final String cId = channelId.getValue();
+        final int capped = limit <= 0 ? 200 : Math.min(limit, 200);
+        if (bufferCoversCursor(cId, after.getEpochMilli())) {
+            final List<String> ids = cacheClient.getRangeByScore(CacheKeys.chatLogKey(cId),
+                    after.getEpochMilli() + 1, Double.POSITIVE_INFINITY, false, capped);
+            final List<ChatMessage> msgs = loadBodies(cId, ids);
+            if (msgs.size() == ids.size()) {
+                return msgs;
+            }
+        }
+        return queryMessages(cId, after.getValue(), null, true, capped);
+    }
+
+    /**
      * A newest-first page of raw rows, <b>unfiltered</b> by visibility — plumbing, not display. Exists for
      * photo-channel parent resolution, which must find the message that carried a photo even when the trip
      * channel's history settings would hide it from the resolving reader.

@@ -222,7 +222,7 @@ public class PushSenderTest {
     @Test
     public void theDefaultWiringCountsUnreadChatsForTheBadge() {
         Assert.assertSame(PushSender.getInstance(), PushSender.getInstance());
-        Assert.assertEquals(PushSender.unreadChats(Person.Id.from("nobody-" + System.nanoTime())), 0);
+        Assert.assertEquals(PushSender.unreadMessages(Person.Id.from("nobody-" + System.nanoTime())), 0);
         Assert.assertNotNull(new PushSender());
     }
 }
