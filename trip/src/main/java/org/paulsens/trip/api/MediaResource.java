@@ -11,9 +11,12 @@ import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
-import org.paulsens.trip.action.ChatCommands;
+import org.paulsens.trip.action.ChatAlbumAccess;
 import org.paulsens.trip.action.ChatPhotos;
 import org.paulsens.trip.action.ExpenseReceipts;
 import org.paulsens.trip.action.MediaCommands;
@@ -25,7 +28,6 @@ import org.paulsens.trip.media.UploadType;
 import org.paulsens.trip.model.MediaItem;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
-import org.paulsens.trip.model.chat.ChatChannel;
 import org.paulsens.trip.site.ListingScope;
 import org.paulsens.trip.site.SiteContext;
 
@@ -105,9 +107,11 @@ public class MediaResource extends BaseResource {
      * items only -- so a mobile client can build the same home sections the site shows. A trip's own
      * members get its whole chat album, hidden rows included, as the website's trip media page shows them:
      * "hidden" means kept off the PUBLIC site, and the uploader must be able to find the photo to change
-     * their mind. So does anyone who may read the trip's chat (an invited guest off the roster, perhaps of
-     * another organization; owner decision 2026-11-19): the album is filled only from that chat, so they have
-     * already seen every photo in it there.
+     * their mind. Someone the album admits only because they read the trip's chat (an invited guest off the
+     * roster, perhaps of another organization; owner decision 2026-11-19, "Match the chat") gets exactly the
+     * rows the chat shows them, hidden ones included ({@code ChatAlbumAccess}: not before
+     * they joined when the channel hides history from new members, not past its retention), plus, when the trip
+     * is listed here, the public rows anyone may browse.
      *
      * <p>An administrator's listing is still a TENANT's listing. A library slot is a shared name
      * ({@code home-docs} exists on every site), so the admin gets this site's items in it, hidden included
@@ -129,15 +133,42 @@ public class MediaResource extends BaseResource {
         final boolean admin = ChatPhotos.isChatSlot(slot) ? (!member && managesSlotAlbum(slot)) : mediaAdminHere();
         // A receipt slot is no one's to browse here, admins included: receipts go out only through the
         // expense report's own gated servlet. Same answer as an unknown slot.
-        if (ExpenseReceipts.isReceiptSlot(slot) || (!admin && !member && !mayBrowseSlot(slot))) {
-            // Same answer as an unknown slot: a slot name is guessable (tripChat-{tripId}), and "exists but
-            // not yours" would confirm another tenant's trip.
-            return error(404, ApiErrors.NOT_FOUND, "No such slot.");
+        final List<MediaItem> rows = ExpenseReceipts.isReceiptSlot(slot) ? null
+                : (admin || member) ? media.getDiscoverableInSlot(slot) : rowsForNonMember(media, slot);
+        return rows == null ? error(404, ApiErrors.NOT_FOUND, "No such slot.")
+                : ok(rows.stream().map(item -> toDto(media, item)).toList());
+    }
+
+    /**
+     * What a caller who neither is on the trip nor manages its album gets: the public rows when the album is
+     * listed here, the rows the chat shows them when they read it, both in album order. Neither: null, which
+     * is the same 404 as an unknown slot (a slot name is guessable, and "exists but not yours" would confirm
+     * another tenant's trip).
+     */
+    private List<MediaItem> rowsForNonMember(final MediaCommands media, final String slot) {
+        final List<MediaItem> throughChat = rowsThroughChat(media, slot);
+        final boolean browses = mayBrowseSlot(slot);
+        if (throughChat == null && !browses) {
+            return null;
         }
-        final boolean everything = admin || member;
-        return ok((everything ? media.getDiscoverableInSlot(slot) : media.getVisibleInSlot(slot, 0)).stream()
-                .map(item -> toDto(media, item))
-                .toList());
+        if (throughChat == null) {
+            return media.getVisibleInSlot(slot, 0);
+        }
+        if (!browses) {
+            return throughChat;
+        }
+        final Set<String> seen = throughChat.stream().map(MediaItem::getId).collect(Collectors.toSet());
+        return media.getDiscoverableInSlot(slot).stream()
+                .filter(item -> seen.contains(item.getId()) || !item.getHidden())
+                .toList();
+    }
+
+    /** The album rows the trip's chat shows the caller, or null when it is no chat slot or they do not read it. */
+    private List<MediaItem> rowsThroughChat(final MediaCommands media, final String slot) {
+        final String tripId = ChatPhotos.tripOfSlot(slot);
+        final Person.Id me = personId();
+        return tripId == null || me == null ? null
+                : new ChatAlbumAccess().visibleThroughChat(tripId, me, () -> media.getDiscoverableInSlot(slot));
     }
 
     /**
@@ -165,10 +196,9 @@ public class MediaResource extends BaseResource {
     }
 
     /**
-     * Whether the caller is on the roster of the trip a chat slot names, or may read that trip's chat; false for
-     * any other slot. The chat half is the chat's own read gate ({@code ChatCommands.canRead}, i.e.
-     * {@code readDenial}): a joined invite guest passes, and someone who left or was removed from the chat, or a
-     * chat that is turned off, gets no more than before. Asked only of someone off the roster.
+     * Whether the caller is on the roster of the trip a chat slot names; false for any other slot. A reader of
+     * the trip's chat who is not on its roster is NOT a member here: they get the chat's rows
+     * ({@link #rowsThroughChat}), not the whole album.
      */
     boolean isMemberOfSlotTrip(final String slot) {
         final String tripId = ChatPhotos.tripOfSlot(slot);
@@ -176,18 +206,8 @@ public class MediaResource extends BaseResource {
             return false;
         }
         final Person.Id me = personId();
-        if (me == null) {
-            return false;
-        }
-        final boolean onRoster = DAO.getInstance().getTrip(tripId, Cached.YES)
+        return me != null && DAO.getInstance().getTrip(tripId, Cached.YES)
                 .map(trip -> trip.getPeople() != null && trip.getPeople().contains(me)).orElse(false);
-        return onRoster || readsTripChat(tripId, me);
-    }
-
-    private static boolean readsTripChat(final String tripId, final Person.Id me) {
-        final ChatCommands chat = ChatCommands.getChatCommands();
-        final ChatChannel channel = chat.getChannel(tripId);
-        return channel != null && chat.canRead(channel, me);
     }
 
     /**
@@ -482,9 +502,10 @@ public class MediaResource extends BaseResource {
 
     /**
      * Both URLs carry the item's cache buster: a rotated picture keeps its key, so only the query moves. Also the
-     * shape of an album photo the chat's album sources answer ({@code ChatResource.albumPhotos}).
+     * shape of an album photo the chat's album sources answer ({@code ChatResource.albumPhotos}), and the start of
+     * Discover's public album photo ({@code DiscoverTripMapper.publicAlbum}).
      */
-    static MediaItemDto toDto(final MediaCommands media, final MediaItem item) {
+    public static MediaItemDto toDto(final MediaCommands media, final MediaItem item) {
         if (item == null) {
             return null;
         }

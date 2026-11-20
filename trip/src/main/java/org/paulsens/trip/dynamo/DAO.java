@@ -74,6 +74,7 @@ import org.paulsens.trip.model.chat.ChatReactionSummary;
 import org.paulsens.trip.model.chat.PhotoChatMeta;
 import org.paulsens.trip.security.PasswordHasher;
 import org.paulsens.trip.security.Pepper;
+import org.paulsens.trip.action.ChatPhotos;
 import org.paulsens.trip.site.DiscoverIndex;
 import org.paulsens.trip.site.SiteIndex;
 
@@ -753,11 +754,15 @@ public final class DAO {
     public List<MediaItem> getMediaInSlot(final String slot, final Cached cached) {
         return NearCacheContext.call(cached, () -> mediaDao.getMediaInSlot(slot));
     }
-    // Each media write marks Discover stale: it holds each listed trip's public album, and a photo hidden or
+    // A chat-album write marks Discover stale: it holds each listed trip's public album, and a photo hidden or
     // removed there must leave Discover on the next request (see DiscoverIndex). Only a mark; the rebuild is lazy.
+    // Library, receipt and profile rows are no album's, so their saves leave the index alone; a delete names only
+    // a row id, and deletes are rare, so every one marks it.
     public Boolean saveMedia(final MediaItem item) {
         final Boolean saved = mediaDao.saveMedia(item);
-        DiscoverIndex.getInstance().invalidate();
+        if (item != null && ChatPhotos.isChatSlot(item.getSlot())) {
+            DiscoverIndex.getInstance().invalidate();
+        }
         return saved;
     }
     public Boolean deleteMedia(final String id) {

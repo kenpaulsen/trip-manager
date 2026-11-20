@@ -91,7 +91,7 @@ public class DiscoverIndexTest {
     }
 
     private List<String> listedIds() {
-        return index.current().entries().stream().map(entry -> entry.trip().id()).sorted().toList();
+        return index.current().upcoming().stream().map(entry -> entry.trip().id()).sorted().toList();
     }
 
     // ------------------------------------------------------------------ what is listed

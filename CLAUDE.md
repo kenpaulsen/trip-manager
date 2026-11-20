@@ -142,7 +142,7 @@ caveat, is `.claude/rules/dependencies.md` (it loads with any `pom.xml`).
 | `../chat-design.md` (workspace root) | chat behavior: several decisions deliberately reverse the obvious |
 | `push-notifications.md` | `push/`, the `pushMode` field, the three event hooks |
 | `api-tokens.md` | `TripAuthFilter`, `AuthResource`, anything that mints or validates a credential |
-| `discover-tenancy-review.md` (required) | Discover (`DiscoverResource`, `DiscoverTripDto`, `DiscoverIndex`, `ListingScope.discoverable`), the one read across organizations; any endpoint that answers without a sign-in |
+| `discover-tenancy-review.md` (required) | Discover (`DiscoverResource`, `DiscoverTripDto`, `DiscoverIndex`, `ListingScope.discoverable` / `discoverableEnded`, the public album `DiscoverTripMapper.publicAlbum`), the one read across organizations; any endpoint that answers without a sign-in; a chat guest's album (`ChatAlbumAccess`) |
 | `api-contract.md` | the wire contract both native apps are written against |
 | `security-headers.md` | adding a foreign script, frame, font or style source to any page |
 | `migrations/` | one-time data migrations (`conference-import.md` holds the owner's rules) |

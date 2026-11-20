@@ -5,17 +5,22 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.UUID;
 import org.mockito.ArgumentCaptor;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
 import org.paulsens.trip.audit.AuditActor;
+import org.paulsens.trip.audit.RequestContext;
 import org.paulsens.trip.cache.InMemoryCacheClient;
 import org.paulsens.trip.chat.ChatRateLimiter;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.media.UploadRateLimiter;
+import org.paulsens.trip.model.MediaItem;
+import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.chat.ChatMessage;
+import org.paulsens.trip.site.SiteContext;
 import org.paulsens.trip.util.RandomData;
 import org.testng.Assert;
 import org.testng.annotations.BeforeMethod;
@@ -153,6 +158,47 @@ public class ModerationCommandsTest {
                 ModerationCommands.REFUSED_NOT_FOUND);
         Assert.assertEquals(moderation.report(ModerationCommands.ReportTarget.photo(" "), "x",
                 callerFor(reporter)).code(), ModerationCommands.REFUSED_NOT_FOUND);
+    }
+
+    /**
+     * A signed-in person who is on no trip reports a photo they see in a listed trip's PUBLIC album (Discover's
+     * "View photos", 2026-11-19): accepted on the product's host and on the organization's own, through the same
+     * gate and the same allowance as every report. A hidden photo of that album is the same miss as no photo.
+     */
+    @Test
+    public void aStrangerReportsAPhotoOfAListedTripsPublicAlbum() throws IOException {
+        final String orgId = UUID.randomUUID().toString();
+        final Trip listed = Trip.builder().id(UUID.randomUUID().toString()).title("Listed, ended")
+                .openToPublic(true).startDate(LocalDateTime.now().minusDays(20))
+                .endDate(LocalDateTime.now().minusDays(10)).people(new ArrayList<>(List.of(author.getId()))).build();
+        listed.setOrgId(orgId);
+        Assert.assertTrue(DAO.getInstance().saveTrip(listed));
+        final String visible = "chat/" + listed.getId() + "/visible.jpg";
+        final String hidden = "chat/" + listed.getId() + "/hidden.jpg";
+        for (final String key : List.of(visible, hidden)) {
+            Assert.assertTrue(DAO.getInstance().saveMedia(new MediaItem(UUID.randomUUID().toString(), key, "t", "d",
+                    "image/jpeg", 9L, ChatPhotos.slotFor(listed.getId()), 0, LocalDateTime.now(), "who", null,
+                    hidden.equals(key))));
+        }
+        final Person stranger = saved("Stranger");
+        final ModerationCommands real = new ModerationCommands(new ConfigCommands(), () -> mail,
+                () -> new MailAddressCommands(new ConfigCommands()), () -> chat,
+                () -> new PhotoChatCommands(new ChatRateLimiter(new InMemoryCacheClient())), limiter);
+
+        final SiteContext product = SiteContext.marketing("unitetrip.com").forApiClient();
+        final SiteContext orgHost = SiteContext.org(Organization.Id.from(orgId), "listed", "listed.unitetrip.com")
+                .forApiClient();
+        for (final SiteContext site : List.of(product, orgHost)) {
+            final ModerationCommands.ReportOutcome outcome = ScopedValue
+                    .where(RequestContext.SCOPE, RequestContext.of(null, null, site))
+                    .call(() -> real.report(ModerationCommands.ReportTarget.photo(visible), "Offensive",
+                            callerFor(stranger)));
+            Assert.assertTrue(outcome.ok(), site + ": " + outcome.message());
+        }
+        Assert.assertEquals(real.report(ModerationCommands.ReportTarget.photo(hidden), "x", callerFor(stranger))
+                .code(), ModerationCommands.REFUSED_NOT_FOUND, "a hidden photo: the same miss as no photo");
+        Assert.assertEquals(real.report(ModerationCommands.ReportTarget.photo(visible), "3", callerFor(stranger))
+                .code(), ModerationCommands.REFUSED_RATE_LIMITED, "the same allowance as every report");
     }
 
     @Test

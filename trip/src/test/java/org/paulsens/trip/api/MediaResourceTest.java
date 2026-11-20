@@ -339,49 +339,106 @@ public class MediaResourceTest extends ResourceTestSupport {
                 org.paulsens.trip.audit.RequestContext.of(null, null, site)).call(body);
     }
 
+    /** An album row of a chat photo uploaded {@code minutesAgo} minutes ago (negative: still to come). */
+    private static MediaItem chatRow(final String tripId, final String id, final long minutesAgo,
+            final boolean hidden) {
+        return new MediaItem(id, "chat/" + tripId + "/" + id + ".jpg", id, "desc", "image/jpeg", 9L,
+                "tripChat-" + tripId, 0, LocalDateTime.now().minusMinutes(minutesAgo), "who", null, hidden);
+    }
+
+    private static List<String> idsOf(final Response response) {
+        return ((List<?>) response.getEntity()).stream().map(item -> ((MediaItemDto) item).id()).toList();
+    }
+
     /**
-     * A chat member who is NOT on the roster (an invited guest, perhaps of another organization) gets the whole
-     * album as a roster member does, hidden rows included: the album is filled only from the chat they read
-     * (owner decision 2026-11-19). The chat's own read gate decides, so a guest removed from the chat, or one
-     * who left it, gets no more than any other non-member.
+     * A chat member who is NOT on the roster (an invited guest, perhaps of another organization) gets the album
+     * rows the CHAT shows them, hidden ones included (owner decision 2026-11-19, "Match the chat"). With the
+     * channel's defaults that is the whole album; someone who left or was removed gets no more than any other
+     * non-member, and a plain JOINED row (no guest marker) is bookkeeping, never a grant.
      */
     @Test
-    public void aChatGuestOffTheRosterGetsTheWholeAlbumUntilTheyLeaveOrAreRemoved() throws Exception {
+    public void aChatGuestOffTheRosterGetsTheAlbumTheChatShowsThem() throws Exception {
         signedInAs(USER);
         final org.paulsens.trip.dynamo.DAO dao = org.paulsens.trip.dynamo.DAO.getInstance();
         org.paulsens.trip.dynamo.FakeData.addFakeData();
         final org.paulsens.trip.model.Trip trip = albumTrip(org.paulsens.trip.dynamo.FakeData.CFPW_ORG_ID);
         final String slot = "tripChat-" + trip.getId();
-        Mockito.when(media.getDiscoverableInSlot(slot))
-                .thenReturn(List.of(item("m-guest", "chat/" + trip.getId() + "/a.jpg", true)));
-        Assert.assertFalse(resource.isMemberOfSlotTrip(slot), "no channel yet: nobody's chat");
+        Mockito.when(media.getDiscoverableInSlot(slot)).thenReturn(List.of(
+                chatRow(trip.getId(), "old-hidden", 60 * 48, true), chatRow(trip.getId(), "new", -1, false)));
         assertError(resource.inSlot(slot), 404, ApiErrors.NOT_FOUND);
 
         final org.paulsens.trip.model.chat.ChatChannel channel = new org.paulsens.trip.action.ChatCommands()
                 .ensureChannel(trip.getId(), AuditActor.system());
-        Assert.assertFalse(resource.isMemberOfSlotTrip(slot), "a channel alone admits nobody");
+        assertError(resource.inSlot(slot), 404, ApiErrors.NOT_FOUND);
         final org.paulsens.trip.model.chat.ChatMembership guest = org.paulsens.trip.model.chat.ChatMembership
                 .guestJoining(channel.getId(), USER, java.time.Instant.now(), "sel");
         Assert.assertTrue(dao.saveChatMembership(guest));
 
-        Assert.assertTrue(resource.isMemberOfSlotTrip(slot), "a joined guest reads the chat");
-        final Response whole = resource.inSlot(slot);
-        assertOk(whole);
-        Assert.assertEquals(((List<?>) whole.getEntity()).size(), 1, "the hidden row too, as for the roster");
-        Mockito.verify(media, Mockito.never()).getVisibleInSlot(ArgumentMatchers.eq(slot), ArgumentMatchers.anyInt());
+        Assert.assertFalse(resource.isMemberOfSlotTrip(slot), "a guest is not on the roster");
+        Assert.assertEquals(idsOf(resource.inSlot(slot)), List.of("old-hidden", "new"),
+                "the default chat shows a guest its whole history: the hidden row too");
 
         Assert.assertTrue(dao.saveChatMembership(guest.withLeft(java.time.Instant.now(), "left")));
-        Assert.assertFalse(resource.isMemberOfSlotTrip(slot), "a guest who left is a non-member again");
         assertError(resource.inSlot(slot), 404, ApiErrors.NOT_FOUND);
-
         Assert.assertTrue(dao.saveChatMembership(guest.withRemoved(java.time.Instant.now(), "spam", "admin")));
-        Assert.assertFalse(resource.isMemberOfSlotTrip(slot), "a removed guest likewise");
         assertError(resource.inSlot(slot), 404, ApiErrors.NOT_FOUND);
-
-        // A plain JOINED row (no guest marker) is bookkeeping, never a grant: chat's own rule, reused here.
         Assert.assertTrue(dao.saveChatMembership(org.paulsens.trip.model.chat.ChatMembership.joining(
                 channel.getId(), USER, java.time.Instant.now())));
-        Assert.assertFalse(resource.isMemberOfSlotTrip(slot));
+        assertError(resource.inSlot(slot), 404, ApiErrors.NOT_FOUND);
+    }
+
+    /** With full history for new members off, a guest sees no photo sent before they joined. */
+    @Test
+    public void aGuestSeesNoPhotoFromBeforeTheyJoinedWhenTheChatHidesHistory() throws Exception {
+        final org.paulsens.trip.model.Trip trip = guestOfChat(settings -> settings.fullHistoryForNewMembers(false));
+        Mockito.when(media.getDiscoverableInSlot("tripChat-" + trip.getId())).thenReturn(List.of(
+                chatRow(trip.getId(), "before", 60, true), chatRow(trip.getId(), "after-hidden", -1, true)));
+
+        Assert.assertEquals(idsOf(resource.inSlot("tripChat-" + trip.getId())), List.of("after-hidden"),
+                "the chat hides what came before they joined; what came after shows, hidden or not");
+    }
+
+    /** A photo whose message the channel's retention has expired is gone from a guest's album too. */
+    @Test
+    public void aGuestSeesNoPhotoPastTheChatsRetention() throws Exception {
+        final org.paulsens.trip.model.Trip trip = guestOfChat(settings -> settings.retentionSeconds(3_600L));
+        Mockito.when(media.getDiscoverableInSlot("tripChat-" + trip.getId())).thenReturn(List.of(
+                chatRow(trip.getId(), "expired", 60 * 24, false), chatRow(trip.getId(), "recent", 5, true)));
+
+        Assert.assertEquals(idsOf(resource.inSlot("tripChat-" + trip.getId())), List.of("recent"));
+    }
+
+    /**
+     * A listed trip's guest gets the chat's rows AND the public ones anyone signed in may browse, in album order:
+     * the chat narrows what the album adds for them, never what the public already sees.
+     */
+    @Test
+    public void aListedTripsGuestAlsoGetsThePublicRows() throws Exception {
+        final org.paulsens.trip.model.Trip trip = guestOfChat(settings -> settings.fullHistoryForNewMembers(false));
+        trip.setOpenToPublic(true);
+        Assert.assertTrue(org.paulsens.trip.dynamo.DAO.getInstance().saveTrip(trip));
+        Mockito.when(media.getDiscoverableInSlot("tripChat-" + trip.getId())).thenReturn(List.of(
+                chatRow(trip.getId(), "before-public", 60, false), chatRow(trip.getId(), "before-hidden", 50, true),
+                chatRow(trip.getId(), "after-hidden", -1, true)));
+
+        Assert.assertEquals(idsOf(resource.inSlot("tripChat-" + trip.getId())),
+                List.of("before-public", "after-hidden"));
+    }
+
+    /** A CFPW trip USER is not on, whose chat has these settings and admits USER as a guest joined now. */
+    private org.paulsens.trip.model.Trip guestOfChat(final java.util.function.UnaryOperator<
+            org.paulsens.trip.model.chat.ChatSettings.ChatSettingsBuilder> settings) throws Exception {
+        signedInAs(USER);
+        final org.paulsens.trip.dynamo.DAO dao = org.paulsens.trip.dynamo.DAO.getInstance();
+        org.paulsens.trip.dynamo.FakeData.addFakeData();
+        final org.paulsens.trip.model.Trip trip = albumTrip(org.paulsens.trip.dynamo.FakeData.CFPW_ORG_ID);
+        final org.paulsens.trip.model.chat.ChatChannel channel = new org.paulsens.trip.action.ChatCommands()
+                .ensureChannel(trip.getId(), AuditActor.system());
+        Assert.assertTrue(dao.saveChatChannel(channel.withSettings(
+                settings.apply(channel.getSettings().toBuilder()).build())));
+        Assert.assertTrue(dao.saveChatMembership(org.paulsens.trip.model.chat.ChatMembership.guestJoining(
+                channel.getId(), USER, java.time.Instant.now(), "sel")));
+        return trip;
     }
 
     @Test

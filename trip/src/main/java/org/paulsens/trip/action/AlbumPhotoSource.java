@@ -265,6 +265,11 @@ public class AlbumPhotoSource {
      * already manages the whole album ({@link MediaCommands#managesAlbum}: a media admin, globally or of the
      * trip's organization); or an admin of the trip's organization, whose trips these are (owner, 2026-11-17: an
      * organization's branding and library pick from all of its albums).
+     *
+     * <p>A chat guest is deliberately NOT admitted here, although {@link ChatAlbumAccess} lets them READ the
+     * album's rows that their chat shows them (owner, 2026-11-19). The two questions differ on purpose: reading
+     * shows someone only photos the chat already showed them, while PICKING re-shares a photo into another
+     * message, organization site or library, the album owner's call (owner, 2026-11-17). Do not merge the rules.
      */
     public boolean mayOpen(final Caller caller, final Trip trip) {
         if (caller == null || !caller.isAuthenticated() || trip == null || trip.getId() == null) {

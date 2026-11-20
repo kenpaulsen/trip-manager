@@ -165,16 +165,16 @@ public final class DiscoverIndex {
     }
 
     /**
-     * The listed trips at one moment, in no particular order: {@code entries} the upcoming ones, {@code ended}
+     * The listed trips at one moment, in no particular order: {@code upcoming} the ones not ended, {@code ended}
      * the ones listed but for having ended, and {@code byId} both. {@code fingerprint} changes exactly when what
      * they would say changes, so an unchanged rebuild keeps every {@code ETag} it has handed out.
      */
-    public record Snapshot(List<Entry> entries, List<Entry> ended, Map<String, Entry> byId, String fingerprint,
+    public record Snapshot(List<Entry> upcoming, List<Entry> ended, Map<String, Entry> byId, String fingerprint,
             long staleAt) {
 
         /** The upcoming list, or with {@code past} the ended one. */
         public List<Entry> list(final boolean past) {
-            return past ? ended : entries;
+            return past ? ended : upcoming;
         }
 
         /**
@@ -238,7 +238,7 @@ public final class DiscoverIndex {
         generation.incrementAndGet();
         final Snapshot snap = snapshot;
         if (snap != null) {
-            snapshot = new Snapshot(snap.entries(), snap.ended(), snap.byId(), snap.fingerprint(), 0L);
+            snapshot = new Snapshot(snap.upcoming(), snap.ended(), snap.byId(), snap.fingerprint(), 0L);
         }
     }
 
@@ -291,7 +291,7 @@ public final class DiscoverIndex {
             return fresh;
         } catch (final RuntimeException ex) {
             log.warn("Discover index rebuild failed; serving the previous snapshot", ex);
-            final Snapshot fallback = new Snapshot(snap != null ? snap.entries() : List.of(),
+            final Snapshot fallback = new Snapshot(snap != null ? snap.upcoming() : List.of(),
                     snap != null ? snap.ended() : List.of(), snap != null ? snap.byId() : Map.of(),
                     snap != null ? snap.fingerprint() : "",
                     clock.get() + FAILURE_RETRY.toMillis());

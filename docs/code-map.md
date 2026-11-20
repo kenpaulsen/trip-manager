@@ -11,10 +11,11 @@ root.
 `audit`, `auditView`, `config` (ConfigCommands -- admin Settings page), `media`, `reports` (ReportCommands -- the trip
 report pages' scalar rows; see `docs/reports.md`), `profilePhotos`, `chatPhotos` (ChatPhotos -- chat photo
 storage/staging/album), `photoChat` (PhotoChatCommands -- per-photo comment threads/reactions; see
-`docs/photo-comments.md` before touching), `content` (ContentCommands -- template-driven page sections) and
-`contentTemplate` (TemplateCommands -- the template manager; see `docs/content-templates.md` before touching either --
-MAIL-kind templates are runtime-editable email copy rendered by `MailCommands.sendManagedTemplate`, tokens filled by
-Java only), `family` (FamilyCommands -- family accounts; the create-and-link security boundary, see
+`docs/photo-comments.md` before touching), `chatAlbum` (ChatAlbumAccess -- a trip's chat album as a reader admitted only
+through the chat sees it, the trip photos page's guest door), `content` (ContentCommands -- template-driven page
+sections) and `contentTemplate` (TemplateCommands -- the template manager; see `docs/content-templates.md` before
+touching either -- MAIL-kind templates are runtime-editable email copy rendered by `MailCommands.sendManagedTemplate`,
+tokens filled by Java only), `family` (FamilyCommands -- family accounts; the create-and-link security boundary, see
 `docs/family-accounts.md`), `support` (SupportChatCommands -- the support:main channel; requests post without
 membership), `orgPages` (SitePageCommands -- an org site's own pages and menu links, `admin/orgPages.xhtml`,
 `page.xhtml`), `org` (OrgCommands -- organizations, THE tenancy boundary: membership, org-scoped privileges + the

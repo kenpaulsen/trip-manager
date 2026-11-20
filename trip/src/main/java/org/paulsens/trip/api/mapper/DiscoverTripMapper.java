@@ -19,6 +19,7 @@ import org.paulsens.trip.action.TripPageCommands;
 import org.paulsens.trip.action.TripPictureCommands;
 import org.paulsens.trip.action.TripTags;
 import org.paulsens.trip.api.Beans;
+import org.paulsens.trip.api.MediaResource;
 import org.paulsens.trip.api.dto.DiscoverTripDto;
 import org.paulsens.trip.api.dto.MediaItemDto;
 import org.paulsens.trip.api.dto.TripPictureDto;
@@ -144,10 +145,13 @@ public final class DiscoverTripMapper {
     }
 
     private static MediaItemDto publicPhoto(final MediaCommands media, final MediaItem item) {
-        return new MediaItemDto(item.getId(), item.getS3Key(), blankToNull(media.photoCaption(item)), null,
-                item.getContentType(), item.getSize(), item.getSlot(), item.getPosition(), item.getUploaded(), null,
-                false, media.getUrl(item) + item.getCacheBuster(),
-                item.getRev(), media.publicUrl(item.getDisplayKey()) + item.getCacheBuster());
+        return narrowed(MediaResource.toDto(media, item), blankToNull(media.photoCaption(item)));
+    }
+
+    /** The media API's shape of a photo, minus who took it: the caption for its title, no attribution. */
+    private static MediaItemDto narrowed(final MediaItemDto dto, final String caption) {
+        return new MediaItemDto(dto.id(), dto.key(), caption, null, dto.contentType(), dto.size(), dto.slot(),
+                dto.position(), dto.uploaded(), null, false, dto.url(), dto.rev(), dto.thumbUrl());
     }
 
     /** The public album for each listed trip, on the running application's media bean: one per rebuild. */

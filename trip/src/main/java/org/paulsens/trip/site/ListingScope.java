@@ -105,8 +105,8 @@ public final class ListingScope {
         if (today == null || !sharedAcrossOrgs(trip, owner)) {
             return false;
         }
-        final LocalDateTime last = trip.getEndDate() != null ? trip.getEndDate() : trip.getStartDate();
-        return last != null && !last.toLocalDate().isBefore(today);
+        final LocalDate last = lastDay(trip);
+        return last != null && !last.isBefore(today);
     }
 
     /**
@@ -121,8 +121,18 @@ public final class ListingScope {
         if (today == null || !sharedAcrossOrgs(trip, owner)) {
             return false;
         }
+        final LocalDate last = lastDay(trip);
+        return last != null && last.isBefore(today);
+    }
+
+    /**
+     * The trip's last day for both Discover lists: its end date, else its start date; null for an undated trip,
+     * which neither list takes. One method, so {@link #discoverable} and {@link #discoverableEnded} cannot drift
+     * into a trip that is in both lists or in neither.
+     */
+    private static LocalDate lastDay(final Trip trip) {
         final LocalDateTime last = trip.getEndDate() != null ? trip.getEndDate() : trip.getStartDate();
-        return last != null && last.toLocalDate().isBefore(today);
+        return last == null ? null : last.toLocalDate();
     }
 
     /**

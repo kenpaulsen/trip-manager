@@ -41,8 +41,11 @@ expenses (`getClasses()` is the authoritative list) +
 - `DiscoverResource` (`/api/discover/trips`, medjugorje#155) is the other one that is NOT `@TripApi`, and the only
   ANONYMOUS read that crosses organizations: GET only, sessionless (`web/SessionlessPaths` keeps the filters
   from touching a session there), rate-limited per address (`PublicRateLimiter`). It reads ONLY `DiscoverIndex`
-  (trips already passed through `ListingScope.discoverable` and mapped to the allow-list `DiscoverTripDto`),
-  never the DAO, a `Trip`, `TripMapper` or `personId()`. `docs/discover-tenancy-review.md` before any change.
+  (trips already passed through `ListingScope.discoverable`, or `ListingScope.discoverableEnded` for `when=past`,
+  mapped to the allow-list `DiscoverTripDto`, each with its public album: `MediaItemDto` rows narrowed by the
+  allow-list `DiscoverTripMapper.publicAlbum`, which drops `description` and `uploadedBy`), never the DAO, a
+  `Trip`, `TripMapper` or `personId()`. A field added to `MediaItemDto` must be decided in `publicAlbum` too.
+  `docs/discover-tenancy-review.md` before any change.
 - API authentication is dual: session cookie OR `Authorization: Bearer` (feature-gated by
   `api.token.enabled`, default off). Read `docs/api-tokens.md` before touching `TripAuthFilter`,
   `AuthResource`, `TokenService`, `RememberMeService`, `SelectorTokens`, the `auth_tokens` table, or

@@ -629,11 +629,14 @@ carries `rev` (0 when never) and `thumbUrl` (the small rendition, else the objec
 end in `?r={rev}` when `rev` > 0. For that, a trip's own members get the whole `tripChat-` album from `GET
 /api/media/slots/{slot}`, hidden rows included (the website's trip media page shows them too); other viewers still get
 the public filter. **A member of the trip's chat who is not on its roster** (2026-11-19: an invited chat guest, who
-may belong to another organization, or a family member the chat admits) gets the same whole album, hidden rows
-included: the album is filled only from that chat, where they already see every photo. "Member" is the chat's own
-read rule (the one `GET /api/chat/channels/trip:{tripId}` applies): someone who LEFT the chat, was REMOVED from it,
-or whose trip has chat turned off gets only what any other viewer gets (the public filter when the trip is listed
-on the site, else 404). So a chat menu's "Photos" can call this for every chat member.
+may belong to another organization, or a family member the chat admits) gets the album rows the CHAT shows them,
+hidden ones included ("Match the chat", owner): every row when the chat shows new members its full history (the
+default); with that setting off, only photos sent after they joined; never a photo whose message the chat's
+retention has expired. When the trip is also listed on the site they get the public rows on top, in album order.
+"Member" is the chat's own read rule (the one `GET /api/chat/channels/trip:{tripId}` applies): someone who LEFT
+the chat, was REMOVED from it, or whose trip has chat turned off gets only what any other viewer gets (the public
+filter when the trip is listed on the site, else 404). So a chat menu's "Photos" can call this for every chat
+member; the website's trip photos page admits them by the same rule.
 Media administrators (2026-11-12): the whole album, hidden rows included, also goes to whoever manages THAT album (a
 global media admin, the media editor of the trip's own organization, the trip's manager); a media
 editor of another organization is an ordinary viewer there (the public filter, or 404 when the trip is not listed on the
@@ -901,7 +904,13 @@ curl -s -H "$H" -X POST -H 'Content-Type: application/json' \
 Report (202 `{reported, id, response}` where `response` is "within 24 hours"; 404 when the reporter cannot see the
 content; 429 + `Retry-After` after 10 reports/hour): `POST /api/chat/channels/trip:{tripId}/messages/{msgId}/report`
 `{reason}`, `POST /api/photo-chat/comments/{msgId}/report?key=` `{reason}`, `POST /api/photo-chat/report?key=`
-`{reason}`. Sends and edits are refused with 400 `BLOCKED_CONTENT` when the body hits the site's blocked-words list.
+`{reason}`. Reporting a PHOTO (2026-11-19, Discover's "View photos") needs only that the caller is signed in and may see
+the photo: any photo that is not hidden (every row of a listed trip's public album, `GET
+/api/discover/trips/{id}/photos`, upcoming or ended), whether or not the caller is on the trip, on the home host
+(unitetrip.com) or the trip organization's own; a hidden photo is 404 to anyone the trip's photo threads do not admit.
+The app sends `POST /api/photo-chat/report?key={the photo's key}` with `{"reason": "..."}`, the CSRF header for a cookie
+session (a bearer token needs none), signed in: a signed-out caller is 401 `NOT_AUTHENTICATED`. Sends and edits are
+refused with 400 `BLOCKED_CONTENT` when the body hits the site's blocked-words list.
 
 Blocks (`/api/me/blocks`, media type `vnd.trip.blocks.v1`): `GET` → `{personIds}`; `PUT /{personId}` (404
 unknown, 400 self, 409 list full) and `DELETE /{personId}` (idempotent), both answering the whole list. The

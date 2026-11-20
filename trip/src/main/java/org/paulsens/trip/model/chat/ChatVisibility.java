@@ -39,10 +39,24 @@ public final class ChatVisibility implements Serializable {
             final ChatChannel channel,
             final Trip trip,
             final Instant now) {
-        if (msg == null || channel == null || now == null) {
+        return msg != null && isVisibleAt(msg.getSentAt(), member, channel, trip, now);
+    }
+
+    /**
+     * {@link #isVisible} for anything that appeared in the chat at {@code sentAt} without being a message row
+     * itself: a chat photo's album row ({@code MediaItem.uploaded}), which a reader admitted only through the
+     * chat may see exactly when the message that carried it would be visible to them.
+     */
+    public static boolean isVisibleAt(
+            final Instant sentAt,
+            final ChatMembership member,
+            final ChatChannel channel,
+            final Trip trip,
+            final Instant now) {
+        if (channel == null || now == null) {
             return false;
         }
-        final Instant expiry = effectiveExpiry(channel, trip, msg.getSentAt());
+        final Instant expiry = effectiveExpiry(channel, trip, sentAt);
         if (expiry != null && !expiry.isAfter(now)) {
             return false;
         }
@@ -51,7 +65,7 @@ public final class ChatVisibility implements Serializable {
             if (member == null || member.getJoinedAt() == null) {
                 return false;
             }
-            if (msg.getSentAt() != null && msg.getSentAt().isBefore(member.getJoinedAt())) {
+            if (sentAt != null && sentAt.isBefore(member.getJoinedAt())) {
                 return false;
             }
         }

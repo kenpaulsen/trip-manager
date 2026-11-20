@@ -138,11 +138,20 @@ write marks the index stale (`DAO.saveMedia`, `deleteMedia`, `clearMediaCache`),
 leaves the public album on the next request to that server; another server learns of it within the same bounds as
 a trip save ("Staleness" below).
 
-Separate from Discover, the same day: the signed-in album read `GET /api/media/slots/tripChat-{tripId}` gives the
-WHOLE album (hidden rows included) to anyone the trip's chat admits (`ChatCommands.canRead`), not only its roster:
-an invited chat guest, who may belong to another organization. That crosses an organization on the owner's
-decision, and only in what the guest already sees: the album is filled only from that chat. Someone who left or was
-removed from the chat is a non-member there again.
+Separate from Discover, the same day: the signed-in album read `GET /api/media/slots/tripChat-{tripId}`, and the
+website's trip photos page, admit anyone the trip's chat admits (`ChatCommands.canRead`), not only its roster: an
+invited chat guest, who may belong to another organization. That crosses an organization on the owner's decision,
+and only in what the guest already sees: "Match the chat" (`action/ChatAlbumAccess`), the rows whose message the
+chat shows them (`ChatVisibility.isVisibleAt`: nothing from before they joined when the channel hides history from
+new members, nothing past its retention), hidden ones included because the chat shows those too. Someone who left
+or was removed from the chat is a non-member there again. PICKING a photo from that album for a new message is a
+different, narrower rule (`AlbumPhotoSource.mayOpen`, which admits no chat guest): reading shows someone only what
+the chat already showed them, while picking re-shares a photo elsewhere, the album owner's call. The two differ on
+purpose.
+
+Also the same day: a signed-in person on no trip may REPORT a photo of a listed trip's public album
+(`POST /api/photo-chat/report`): that was already so for any photo that is not hidden ("comments follow the
+photo", `PhotoChatCommands.readDenialFor`), on any host, under the same per-person allowance as every report.
 
 ## The edges
 
