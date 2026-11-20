@@ -1023,11 +1023,12 @@ public class TransactionsCommands {
      */
     public void fileLedgerRow(final String tripId, final Transaction tx, final Collection<Transaction> tripRows,
             final Collection<Transaction> invoiceRows, final Collection<Transaction> userRows) {
-        switch (TripLedgerTotals.bucketOf(tripId, tx)) {
-            case TRIP -> tripRows.add(tx);
-            case INVOICE -> invoiceRows.add(tx);
-            case USER -> userRows.add(tx);
-        }
+        final Collection<Transaction> list = switch (TripLedgerTotals.bucketOf(tripId, tx)) {
+            case TRIP -> tripRows;
+            case INVOICE -> invoiceRows;
+            case USER -> userRows;
+        };
+        list.add(tx);
     }
 
     private static Collection<Transaction> orNone(final Collection<Transaction> rows) {
