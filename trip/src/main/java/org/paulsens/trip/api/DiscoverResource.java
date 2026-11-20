@@ -24,7 +24,8 @@ import org.paulsens.trip.web.SessionlessPaths;
 
 /**
  * Discover (medjugorje#155): the public trips of every organization that allows it, for ANYONE, signed in or
- * not. The apps' signed-out browse and search read here, and nothing else does.
+ * not. The apps' signed-out browse and search read here, and nothing else does: the upcoming list, the past
+ * list ({@code when=past}), one trip, and one trip's public album.
  *
  * <p><b>The one sanctioned read across organizations</b>, so it is built to be unable to say more than it
  * should rather than trusted to hold back ({@code docs/discover-tenancy-review.md}):
@@ -78,7 +79,8 @@ public class DiscoverResource extends BaseResource {
     /**
      * The listed trips, searched ({@code q}), filtered ({@code country}, {@code tag}, {@code language},
      * {@code kind}, {@code org}, {@code state}, {@code month}, each repeatable; {@code from}/{@code to}), ordered
-     * ({@code sort}) and paged ({@code limit}, {@code cursor}); {@code docs/api-contract.md} has the contract.
+     * ({@code sort}) and paged ({@code limit}, {@code cursor}), upcoming or ended ({@code when});
+     * {@code docs/api-contract.md} has the contract.
      */
     @GET
     @Produces({V1, MediaType.APPLICATION_JSON})
@@ -107,36 +109,72 @@ public class DiscoverResource extends BaseResource {
         if (matches(etag)) {
             return notModified(etag);
         }
-        final DiscoverSearch.Result found = DiscoverSearch.search(snapshot.entries().stream()
+        final DiscoverSearch.Result found = DiscoverSearch.search(snapshot.list(query.past()).stream()
                 .filter(entry -> site.admits(entry.trip().orgId())).toList(), query);
         return cacheable(new DiscoverListDto(found.items().stream().map(this::absolute).toList(), found.total(),
                 found.nextCursor(), found.facets()), etag);
     }
 
     /**
-     * One listed trip. A trip that is not listed (Shared sites off, off its homepage, ended, another
-     * organization's on this organization's host) answers exactly what a trip that never existed does: telling
-     * the two apart would confirm that an id is real.
+     * One listed trip, upcoming or ended (an ended trip is listed in {@code when=past}). A trip that is not
+     * listed (Shared sites off, off its homepage, another organization's on this organization's host) answers
+     * exactly what a trip that never existed does: telling the two apart would confirm that an id is real.
      */
     @GET
     @Path("{tripId}")
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response get(@PathParam("tripId") final String tripId) {
+        final Response refused = refusal();
+        if (refused != null) {
+            return refused;
+        }
+        final Optional<DiscoverIndex.Entry> listed = listed(tripId);
+        if (listed.isEmpty()) {
+            return error(404, ApiErrors.NOT_FOUND, NO_SUCH_TRIP);
+        }
+        final String etag = etagOf(listed.get().etag(), "", SiteContext.current());
+        return matches(etag) ? notModified(etag) : cacheable(absolute(listed.get().trip()), etag);
+    }
+
+    /**
+     * A listed trip's public album (2026-11-19): its chat photos a public page shows, hidden ones left out, in
+     * album order, in the media API's item shape narrowed by {@code DiscoverTripMapper.publicAlbum} (no uploader,
+     * no attribution line). Read from the index like everything else here, so an unlisted trip's album is the
+     * same 404 as its trip.
+     */
+    @GET
+    @Path("{tripId}/photos")
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response photos(@PathParam("tripId") final String tripId) {
+        final Response refused = refusal();
+        if (refused != null) {
+            return refused;
+        }
+        final Optional<DiscoverIndex.Entry> listed = listed(tripId);
+        if (listed.isEmpty()) {
+            return error(404, ApiErrors.NOT_FOUND, NO_SUCH_TRIP);
+        }
+        final String etag = etagOf(listed.get().photosEtag(), "photos", SiteContext.current());
+        return matches(etag) ? notModified(etag) : cacheable(listed.get().photos().stream()
+                .map(photo -> DiscoverTripMapper.absolute(photo, this::absoluteUrl)).toList(), etag);
+    }
+
+    /**
+     * The two refusals every single-trip read makes before it looks anything up: a request the sessionless rule
+     * did not recognize (a miss), and an address over its rate (429). Null when the request may go on.
+     */
+    private Response refusal() {
         if (!SessionlessPaths.matches(request)) {
             return error(404, ApiErrors.NOT_FOUND, NO_SUCH_TRIP);
         }
         final PublicRateLimiter.Decision allowance = limiter.check(request.getRemoteAddr(), Instant.now());
-        if (!allowance.allowed()) {
-            return tooMany(allowance);
-        }
+        return allowance.allowed() ? null : tooMany(allowance);
+    }
+
+    /** The listed trip with this id that this host may show; empty for every kind of miss alike. */
+    private Optional<DiscoverIndex.Entry> listed(final String tripId) {
         final SiteContext site = SiteContext.current();
-        final Optional<DiscoverIndex.Entry> listed = index.current().find(tripId)
-                .filter(entry -> site.admits(entry.trip().orgId()));
-        if (listed.isEmpty()) {
-            return error(404, ApiErrors.NOT_FOUND, NO_SUCH_TRIP);
-        }
-        final String etag = etagOf(listed.get().etag(), "", site);
-        return matches(etag) ? notModified(etag) : cacheable(absolute(listed.get().trip()), etag);
+        return index.current().find(tripId).filter(entry -> site.admits(entry.trip().orgId()));
     }
 
     private DiscoverTripDto absolute(final DiscoverTripDto trip) {

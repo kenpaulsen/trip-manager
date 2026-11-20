@@ -753,11 +753,17 @@ public final class DAO {
     public List<MediaItem> getMediaInSlot(final String slot, final Cached cached) {
         return NearCacheContext.call(cached, () -> mediaDao.getMediaInSlot(slot));
     }
+    // Each media write marks Discover stale: it holds each listed trip's public album, and a photo hidden or
+    // removed there must leave Discover on the next request (see DiscoverIndex). Only a mark; the rebuild is lazy.
     public Boolean saveMedia(final MediaItem item) {
-        return mediaDao.saveMedia(item);
+        final Boolean saved = mediaDao.saveMedia(item);
+        DiscoverIndex.getInstance().invalidate();
+        return saved;
     }
     public Boolean deleteMedia(final String id) {
-        return mediaDao.deleteMedia(id);
+        final Boolean deleted = mediaDao.deleteMedia(id);
+        DiscoverIndex.getInstance().invalidate();
+        return deleted;
     }
     /**
      * Drops the cached media inventory so the next read re-loads it from the table.
@@ -770,6 +776,7 @@ public final class DAO {
      */
     public void clearMediaCache() {
         mediaDao.clearCache();
+        DiscoverIndex.getInstance().invalidate();
     }
 
     // Content templates (see TemplateDAO). saveTemplate assigns the next version and trims history to retain.

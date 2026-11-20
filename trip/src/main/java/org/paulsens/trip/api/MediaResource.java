@@ -13,6 +13,7 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.action.ChatCommands;
 import org.paulsens.trip.action.ChatPhotos;
 import org.paulsens.trip.action.ExpenseReceipts;
 import org.paulsens.trip.action.MediaCommands;
@@ -24,6 +25,7 @@ import org.paulsens.trip.media.UploadType;
 import org.paulsens.trip.model.MediaItem;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
+import org.paulsens.trip.model.chat.ChatChannel;
 import org.paulsens.trip.site.ListingScope;
 import org.paulsens.trip.site.SiteContext;
 
@@ -103,7 +105,9 @@ public class MediaResource extends BaseResource {
      * items only -- so a mobile client can build the same home sections the site shows. A trip's own
      * members get its whole chat album, hidden rows included, as the website's trip media page shows them:
      * "hidden" means kept off the PUBLIC site, and the uploader must be able to find the photo to change
-     * their mind.
+     * their mind. So does anyone who may read the trip's chat (an invited guest off the roster, perhaps of
+     * another organization; owner decision 2026-11-19): the album is filled only from that chat, so they have
+     * already seen every photo in it there.
      *
      * <p>An administrator's listing is still a TENANT's listing. A library slot is a shared name
      * ({@code home-docs} exists on every site), so the admin gets this site's items in it, hidden included
@@ -160,15 +164,30 @@ public class MediaResource extends BaseResource {
         return site.isOrg() && privileges().has(ApiPrivileges.MEDIA_ADMIN, site.orgId().getValue());
     }
 
-    /** Whether the caller is on the roster of the trip a chat slot names; false for any other slot. */
+    /**
+     * Whether the caller is on the roster of the trip a chat slot names, or may read that trip's chat; false for
+     * any other slot. The chat half is the chat's own read gate ({@code ChatCommands.canRead}, i.e.
+     * {@code readDenial}): a joined invite guest passes, and someone who left or was removed from the chat, or a
+     * chat that is turned off, gets no more than before. Asked only of someone off the roster.
+     */
     boolean isMemberOfSlotTrip(final String slot) {
         final String tripId = ChatPhotos.tripOfSlot(slot);
         if (tripId == null) {
             return false;
         }
         final Person.Id me = personId();
-        return me != null && DAO.getInstance().getTrip(tripId, Cached.YES)
+        if (me == null) {
+            return false;
+        }
+        final boolean onRoster = DAO.getInstance().getTrip(tripId, Cached.YES)
                 .map(trip -> trip.getPeople() != null && trip.getPeople().contains(me)).orElse(false);
+        return onRoster || readsTripChat(tripId, me);
+    }
+
+    private static boolean readsTripChat(final String tripId, final Person.Id me) {
+        final ChatCommands chat = ChatCommands.getChatCommands();
+        final ChatChannel channel = chat.getChannel(tripId);
+        return channel != null && chat.canRead(channel, me);
     }
 
     /**

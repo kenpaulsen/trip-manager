@@ -1,7 +1,9 @@
 # Discover: tenancy review
 
 Discover (medjugorje#155) is the apps' signed-out trip list and search: `GET /api/discover/trips` and
-`GET /api/discover/trips/{id}` (`api/DiscoverResource`). It is **the one sanctioned ANONYMOUS read that
+`GET /api/discover/trips/{id}` (`api/DiscoverResource`), plus, since 2026-11-19, the past list
+(`?when=past`) and a listed trip's public album (`GET /api/discover/trips/{id}/photos`); see "Ended trips and
+the public album" below. It is **the one sanctioned ANONYMOUS read that
 crosses organizations**: it answers callers with no account. (One signed-in listing crosses them too, says
 more, and is accepted as such; see "The second crossing" below.) Organization is the tenancy boundary everywhere else
 (`docs/org-admin.md`), so this page records exactly what crosses, on whose say, and what holds it there. Read it
@@ -16,7 +18,7 @@ One method decides, `ListingScope.discoverable(trip, owner, today)`. A trip is l
 | "Show on homepage" is on (`Trip.openToPublic`) | the trip's managers | trip editor |
 | the trip belongs to an organization that can be read | (data) | `Trip.orgId` |
 | that organization's "Shared sites" is on (`Organization.allowsSharedSites()`) | the organization's admins | org Profile tab |
-| it has not ended: its end date, else its start date, is today or later | (time) | |
+| it has not ended: its end date, else its start date, is today or later (the past list, `when=past`, takes exactly the trips this row alone refuses; see below) | (time) | |
 
 Consequences that were decided, not defaulted:
 
@@ -62,6 +64,7 @@ holding a sentinel in every other field to prove none comes out.
 | `registration` | `open`, `full`, `closed` or `notOpen` (a priced checkout's window not open yet; `closed` also after it closes) | the card's Full / Closed / Opens chip, the registration block |
 | `registrationOpens` | the day a `notOpen` trip's window opens (`CheckoutConfig.opensAt`, day only), absent otherwise | the registration block ("Registration opens Monday, December 1") and the card chip ("Opens Dec 1") |
 | `registersOnWeb` | whether the trip registers on another site | the card links there instead of here |
+| `photoCount` | how many photos the public album below holds | the website's album of the trip (home page photo strip, `photoAlbums`) shows them all |
 | `countries` | `Trip.countries`, ISO codes | see below |
 | `tags`, `tagLabels` | the trip's tags still on the platform list | see below |
 
@@ -105,6 +108,42 @@ Search (`q`) reads only text derived from the DTO (`DiscoverIndex.Entry.of`): ti
 country's code and name, organization name, tag labels. A word cannot match on something a response would not
 show. Facets are counts of listed trips by those same public values.
 
+## Ended trips and the public album (owner-approved, 2026-11-19)
+
+For the apps' Discover "Past" filter and a "View photos" button on a Discover trip, the owner approved three
+widenings, each kept to what an organization's site already shows an anonymous visitor:
+
+- **An ended trip stays listed in a list of its own.** `ListingScope.discoverableEnded` is `discoverable` with
+  exactly one condition reversed: the trip HAS ended. Consent is unchanged (`sharedAcrossOrgs`: "Show on
+  homepage" on and the organization allows shared sites), so an opted-out organization's past trips are as absent
+  as its upcoming ones, and an org-less or undated trip is still never listed. Such a trip is in the `when=past`
+  list only, and readable by id (it was a 404). Precedent: the website shows ended trips' albums
+  (`ListingScope.albumAcrossOrgs` already dropped the dates for that reason, "The leak this change closed"), and
+  its trip pages stay up after a trip ends. The index reads the `DiscoverIndex.ENDED_WINDOW` (300) most recently
+  ended trips of the platform, so a trip older than those is no longer in the past list: a bound on the rebuild's
+  cost, not a rule.
+- **`photoCount`** on every `DiscoverTrip` (the table above).
+- **The public album**, `GET /api/discover/trips/{id}/photos`: the chat album rows a public page shows
+  (`MediaCommands.getVisibleInSlot`: hidden rows never), which is exactly what the website's anonymous album
+  shows. The rows are narrowed by `DiscoverTripMapper.publicAlbum`, an allow-list like the trip's: the row's
+  `description` ("Uploaded by NAME in the TRIP chat") and `uploadedBy` (a person id) are NOT sent, because the
+  anonymous album prints neither and Discover never says who travels; the title is the caption the album prints
+  (`MediaCommands.photoCaption`). `DiscoverTripDtoAllowListTest` pins that no uploader reaches the JSON.
+
+This second endpoint keeps the rule below that it "reads DiscoverIndex, never the DAO": the album is read when the
+index rebuilds (one cached slot read per LISTED trip, beside the registrations it already reads) and held in the
+entry, so a request still costs only the rate limiter's counter and a map lookup, an unlisted trip's album is the
+same 404 as the trip, and a host narrows it exactly as it narrows the trip (`SiteContext.admits`). Every media
+write marks the index stale (`DAO.saveMedia`, `deleteMedia`, `clearMediaCache`), so a photo hidden or removed
+leaves the public album on the next request to that server; another server learns of it within the same bounds as
+a trip save ("Staleness" below).
+
+Separate from Discover, the same day: the signed-in album read `GET /api/media/slots/tripChat-{tripId}` gives the
+WHOLE album (hidden rows included) to anyone the trip's chat admits (`ChatCommands.canRead`), not only its roster:
+an invited chat guest, who may belong to another organization. That crosses an organization on the owner's
+decision, and only in what the guest already sees: the album is filled only from that chat. Someone who left or was
+removed from the chat is a non-member there again.
+
 ## The edges
 
 - **No session, no cookie.** `web/SessionlessPaths` names `/api/discover/`, judged on the path the request is
@@ -115,9 +154,10 @@ show. Facets are counts of listed trips by those same public values.
   (browser tests) checks the real container: no `JSESSIONID`, with and without a remember-me cookie.
 - **GET only**, pinned by `ApiSurfaceTest`. Joining is the existing signed-in registration, which is where
   `OrgCommands.joinOnRegistration` writes the membership; browsing joins nothing.
-- **Rate limit** per client address (`api/PublicRateLimiter`, settings `discover.rate.limit` /
-  `discover.rate.windowSeconds`, default 120 per 60 s; IPv6 counted by /64). It fails open: a cache outage does
-  not take the list down. A refusal writes no audit row, so an anonymous script cannot fill the trail.
+- **Rate limit** per client address, one count for the list, a trip and its photos (`api/PublicRateLimiter`,
+  settings `discover.rate.limit` / `discover.rate.windowSeconds`, default 120 per 60 s; IPv6 counted by /64). It fails
+  open: a cache outage does not take the list down. A refusal writes no audit row, so an anonymous script cannot
+  fill the trail.
 - **Cost.** Every request, a 304 included, costs ONE shared-cache command: the rate limiter's counter increment
   (`PublicRateLimiter.check`), made before anything else so a refusal is cheap. After that a request reads
   `DiscoverIndex`'s in-JVM snapshot: no table, no scan, no further cache read. The snapshot is rebuilt when a
@@ -188,4 +228,5 @@ is a sanctioned crossing, for signed-in callers only, of exactly the fields name
 - A new field: add it to `DiscoverTripDto`, to the allow-list in `DiscoverTripDtoAllowListTest`, and to the
   table above with where it is already public. If it is not public anywhere, that is the owner's call.
 - A new filter or sort: it may read only `DiscoverIndex.Entry`, which is built from the DTO.
-- A second public endpoint: it reads `DiscoverIndex`, never the DAO, or it needs this review again.
+- A second public endpoint: it reads `DiscoverIndex`, never the DAO, or it needs this review again. (The album
+  endpoint, 2026-11-19, does: see "Ended trips and the public album".)

@@ -44,7 +44,7 @@ public class DiscoverSearchTest {
                 countries == null ? List.of() : List.of(countries.split(",")),
                 tags, tags.stream().map(DiscoverSearchTest::labelOf).toList(), kind, language, null, List.of(), orgId,
                 orgName, null, TREKS.equals(orgId) ? "https://cdn.example/treks-logo.png" : null,
-                "https://example.org/trip/tripPage.jsf?trip=" + id, registration, null, false);
+                "https://example.org/trip/tripPage.jsf?trip=" + id, registration, null, false, 0);
     }
 
     /** A tag's label as the setting would spell it: capitalized. */
@@ -212,10 +212,10 @@ public class DiscoverSearchTest {
     public void aMissingDateFallsBackToTheOther() {
         final DiscoverTripDto noEnd = new DiscoverTripDto("t-open-end", "Open End", LocalDate.parse("2027-05-01"),
                 null, null, List.of(), List.of(), List.of(), "PILGRIMAGE", "English", null, List.of(), PARISH,
-                "Parish", null, null, "u", "open", null, false);
+                "Parish", null, null, "u", "open", null, false, 0);
         final DiscoverTripDto noDates = new DiscoverTripDto("t-undated", "Undated", null, null, null, List.of(),
                 List.of(), List.of(), "PILGRIMAGE", "English", null, List.of(), PARISH, "Parish", null, null, "u",
-                "open", null, false);
+                "open", null, false, 0);
         final List<Entry> odd = entries(noEnd, noDates);
 
         Assert.assertEquals(ids(DiscoverSearch.search(odd, query("from", "2027-05-01", "to", "2027-05-01"))),
@@ -393,6 +393,30 @@ public class DiscoverSearchTest {
 
         assertRefused("cursor does not belong to this list.", "sort", "departure", "cursor", byTitle);
         Assert.assertEquals(ids("sort", "title", "limit", "1", "cursor", byTitle), List.of("t-nowhere"));
+    }
+
+    /** {@code when=past}: most recent departure first by default, and its cursors are its own. */
+    @Test
+    public void thePastListDefaultsToLatestFirstAndKeepsItsCursorsToItself() {
+        Assert.assertEquals(query("when", "past").sort(), DiscoverQuery.Sort.DEPARTURE_DESC);
+        Assert.assertTrue(query("when", "past").past());
+        Assert.assertEquals(query("when", "past", "sort", "title").sort(), DiscoverQuery.Sort.TITLE,
+                "a named order still wins");
+        Assert.assertEquals(query("when", "upcoming").sort(), DiscoverQuery.Sort.DEPARTURE);
+        Assert.assertFalse(query("when", "upcoming").past());
+        Assert.assertEquals(query("when", "upcoming"), DiscoverQuery.all(), "upcoming is the default list");
+        Assert.assertNotEquals(query("when", "past", "sort", "-departure"), query("sort", "-departure"),
+                "the same order on the other list is another question (another ETag)");
+
+        final List<String> latestFirst = ids(DiscoverSearch.search(ALL, query("when", "past")));
+        Assert.assertEquals(latestFirst, ids("sort", "-departure"), "the same entries, latest departure first");
+
+        final String past = DiscoverSearch.search(ALL, query("when", "past", "limit", "1")).nextCursor();
+        final String upcoming = DiscoverSearch.search(ALL, query("sort", "-departure", "limit", "1")).nextCursor();
+        Assert.assertEquals(ids("when", "past", "limit", "1", "cursor", past), latestFirst.subList(1, 2));
+        assertRefused("cursor does not belong to this list.", "sort", "-departure", "cursor", past);
+        assertRefused("cursor does not belong to this list.", "when", "past", "cursor", upcoming);
+        assertRefused("Unknown when; expected upcoming or past.", "when", "yesterday");
     }
 
     @Test

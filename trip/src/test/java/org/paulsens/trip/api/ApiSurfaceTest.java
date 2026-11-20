@@ -103,7 +103,8 @@ public class ApiSurfaceTest {
                 .filter(method -> method.getAnnotation(GET.class) != null || isWrite(method)
                         || method.getAnnotation(Path.class) != null)
                 .toList();
-        Assert.assertEquals(endpoints.stream().map(Method::getName).sorted().toList(), List.of("get", "list"));
+        Assert.assertEquals(endpoints.stream().map(Method::getName).sorted().toList(),
+                List.of("get", "list", "photos"));
         for (final Method endpoint : endpoints) {
             Assert.assertNotNull(endpoint.getAnnotation(GET.class),
                     endpoint.getName() + " must be a GET");

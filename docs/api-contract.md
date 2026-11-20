@@ -429,7 +429,9 @@ caller gets exactly the anonymous answer. Backend and the tenancy rules: `docs/d
 Call it on the home site (unitetrip.com); on an organization's own host it lists that organization's trips only.
 
 **Listed** = "Show on homepage" on AND the trip's organization has "Shared sites" on AND not ended (its last day
-is today or later). Everything else, including a trip that exists but is not listed, is a 404 here.
+is today or later). Everything else, including a trip that exists but is not listed, is a 404 here. **Ended**
+(2026-11-19) = listed in every respect except that its last day is before today: such a trip is in the past list
+(`when=past`) and answers `GET /api/discover/trips/{id}` and `.../photos`, but is never in the default list.
 
 `GET /api/discover/trips` → `{items:[DiscoverTrip], total, nextCursor?, facets}`
 
@@ -440,11 +442,12 @@ is today or later). Everything else, including a trip that exists but is not lis
 | `from` `to` | `yyyy-MM-dd`; keeps trips whose days overlap the range, edges included |
 | `sort` | `departure` (default, soonest first), `-departure`, `title`, `organization`, `country`, `language`; every order then runs by departure. `country` sorts a trip by the alphabetically first of its countries' English names, whatever order it lists them in; a trip with no country is last |
 | `limit` | page size, default 30, at most 100 (a larger value is served as 100) |
-| `cursor` | the previous page's `nextCursor`, opaque, valid only with the same `sort` |
+| `when` | (2026-11-19) `upcoming` (default; the same as leaving it out) = the listed trips that have not ended; `past` = the ENDED trips (above), and then the default `sort` is `-departure` (most recent first). Every other parameter applies to the past list exactly as to the upcoming one, facets included (counted over the past list). Any other value is 400 `BAD_REQUEST` |
+| `cursor` | the previous page's `nextCursor`, opaque, valid only with the same `sort` AND the same `when` (another is 400 `BAD_REQUEST`) |
 
 `DiscoverTrip` = `{id, title, startDate, endDate, destination?, countries[], tags[], tagLabels[], kind, language,
 priceText?, pictures[], orgId, orgName, orgAbbreviation?, orgLogoUrl?, detailsUrl, registration, registrationOpens?,
-registersOnWeb}`:
+registersOnWeb, photoCount}`:
 
 - `title` is the short title. `startDate`/`endDate` are LocalDates (`2026-12-17`), not the LocalDateTime
   `TripDto` sends.
@@ -468,6 +471,11 @@ registersOnWeb}`:
   day as stored), present only with `notOpen`. Say it as "Registration opens December 1" / chip "Opens Dec 1".
 - `registersOnWeb` true = registration happens on another website: hand the person to `detailsUrl` instead of
   registering in the app.
+- `photoCount` (int, 2026-11-19) = how many photos the trip's public album holds: the photos of its chat album
+  (`tripChat-{id}`) that a public page shows (not hidden; chat photos are images), i.e. the length of
+  `GET /api/discover/trips/{id}/photos`. Sent on the single trip AND on every list item (it is counted when the
+  server's listing snapshot is built, not per request, so the list costs nothing extra). Absent (an older
+  server) or 0 = no photos: offer no "View photos". An ended trip's `registration` reads `closed`.
 
 `total` counts every match, not the page. `nextCursor` is absent on the last page. `facets` =
 `{countries, tags, languages, kinds, organizations, months}`, each `[{value, label, count, logoUrl?}]`: `value` is
@@ -477,14 +485,26 @@ its own**, so the chips beside a chosen value keep their counts, and a value tha
 sent. A trip is counted once under EACH of its countries (and each of its tags), so those counts can add up to
 more than `total`. `months` are oldest first, the rest by count. Grouped views are the app grouping a sorted list.
 
-`GET /api/discover/trips/{id}` → one `DiscoverTrip`; 404 `NOT_FOUND` "No such trip." for an unlisted or unknown
-id, identically.
+`GET /api/discover/trips/{id}` → one `DiscoverTrip`, upcoming or ended (an ended listed trip answered 404 before
+2026-11-19); 404 `NOT_FOUND` "No such trip." for an unlisted or unknown id, identically.
+
+`GET /api/discover/trips/{id}/photos` (2026-11-19) → `[MediaItemDto]`, the trip's public album: the rows of its
+chat album (`tripChat-{id}`) a public page shows, hidden ones left out, in album order (what
+`GET /api/media/slots/tripChat-{id}` gives a signed-in non-member), for an upcoming or an ended listed trip; `[]`
+for a listed trip with none. Same rules as the rest of Discover: no sign-in, GET only, the same 404 for an
+unlisted or unknown id, the same rate limit count, the same caching headers (its own `ETag`). The items are
+`MediaItemDto` NARROWED for an anonymous caller: `description` (the "Uploaded by NAME in the TRIP chat" line) and
+`uploadedBy` are never sent; `title` is the caption the website prints (absent for a camera file name);
+`hidden` is always false; `url` and `thumbUrl` are absolute. Comments and reactions on a photo are the photo
+thread's (`GET /api/photo-chat/thread`, open to anonymous readers). A photo hidden or removed in the album
+leaves this list on the next request to that server.
 
 Headers: a 200 carries `Cache-Control: public, max-age=60` and a weak `ETag`; send it back as `If-None-Match`
 for a 304 with no body (the tag changes only when what is listed changes). `Vary: Accept` as everywhere. A
 change made on the website shows within about a minute. Errors: 400 `BAD_REQUEST` for a malformed parameter
-(a date, `month`, `sort`, `state`, `limit`, `cursor`); 429 `RATE_LIMITED` with `Retry-After` (seconds) when one
-network address exceeds the limit (default 120 requests a minute, shared by the list and the single trip).
+(a date, `month`, `sort`, `state`, `when`, `limit`, `cursor`); 429 `RATE_LIMITED` with `Retry-After` (seconds) when
+one network address exceeds the limit (default 120 requests a minute, shared by the list, the single trip and its
+photos).
 
 ```json
 {"items":[{"id":"9a04e6da-3d3d-4f93-a35f-54fd99925503","title":"Peru Family Adventure",
@@ -496,7 +516,7 @@ network address exceeds the limit (default 120 requests a minute, shared by the 
      "alt":"Cusco's main square","width":1920,"height":1280,"placeholder":"#7a6a58"}],
    "orgId":"a17c3b52-2e84-4d0b-9c66-08d94f2e6b73","orgName":"Acme Inc","orgAbbreviation":"Acme",
    "detailsUrl":"https://acme.unitetrip.com/trip/tripPage.jsf?trip=9a04e6da-3d3d-4f93-a35f-54fd99925503",
-   "registration":"open","registersOnWeb":false}],
+   "registration":"open","registersOnWeb":false,"photoCount":0}],
  "total":7,"nextCursor":"ZGVwYXJ0dXJlCgoyMDI3LTAxLTAxCjlhMDRlNmRh...",
  "facets":{"countries":[{"value":"PE","label":"Peru","count":2}],
    "tags":[{"value":"tour","label":"Tour","count":3}],
@@ -608,8 +628,14 @@ the query; the server invalidates the CDN path itself). `MediaItemDto` (the albu
 carries `rev` (0 when never) and `thumbUrl` (the small rendition, else the object), and its `url` and `thumbUrl` already
 end in `?r={rev}` when `rev` > 0. For that, a trip's own members get the whole `tripChat-` album from `GET
 /api/media/slots/{slot}`, hidden rows included (the website's trip media page shows them too); other viewers still get
-the public filter. Media administrators (2026-11-12): the whole album, hidden rows included, also goes to whoever
-manages THAT album (a global media admin, the media editor of the trip's own organization, the trip's manager); a media
+the public filter. **A member of the trip's chat who is not on its roster** (2026-11-19: an invited chat guest, who
+may belong to another organization, or a family member the chat admits) gets the same whole album, hidden rows
+included: the album is filled only from that chat, where they already see every photo. "Member" is the chat's own
+read rule (the one `GET /api/chat/channels/trip:{tripId}` applies): someone who LEFT the chat, was REMOVED from it,
+or whose trip has chat turned off gets only what any other viewer gets (the public filter when the trip is listed
+on the site, else 404). So a chat menu's "Photos" can call this for every chat member.
+Media administrators (2026-11-12): the whole album, hidden rows included, also goes to whoever manages THAT album (a
+global media admin, the media editor of the trip's own organization, the trip's manager); a media
 editor of another organization is an ordinary viewer there (the public filter, or 404 when the trip is not listed on the
 site). On the product's own host (unitetrip.com, where the API reaches every organization) "listed" means more: someone
 who may not read the trip (not on its roster, no role on it, managing nobody on it) and belongs to another organization
@@ -833,6 +859,9 @@ curl -s -H "$H" -X PUT -H 'Content-Type: application/json' -d '{"eventIds":[]}' 
 # Discover: no token, no cookie (medjugorje#155)
 curl -s 'http://localhost:8080/api/discover/trips?q=peru&sort=departure&limit=5' | jq '{total, titles: [.items[].title]}'
 curl -si http://localhost:8080/api/discover/trips | grep -i -E 'cache-control|etag|set-cookie'
+# past list and a public album (local mode seeds the ended "Assisi and Rome Retreat 2026", six public photos)
+curl -s 'http://localhost:8080/api/discover/trips?when=past' | jq '[.items[] | {title, photoCount}]'
+curl -s http://localhost:8080/api/discover/trips/c5a0f0b3-6f1e-4d1a-9a57-2f5d1b7e8a41/photos | jq 'length'
 # org host (bearer is host-independent; the trip list is host-filtered)
 curl -s --resolve acme.localhost:8080:127.0.0.1 -H "$H" http://acme.localhost:8080/api/trips
 # phase-3 endpoints

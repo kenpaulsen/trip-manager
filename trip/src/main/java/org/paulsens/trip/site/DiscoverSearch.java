@@ -87,7 +87,7 @@ public final class DiscoverSearch {
         final List<Entry> rest = query.cursor() == null ? matched
                 : matched.stream().filter(entry -> isAfter(entry, query.cursor(), query.sort())).toList();
         final List<Entry> page = rest.stream().limit(query.limit()).toList();
-        final String next = rest.size() > page.size() ? cursorAfter(page.getLast(), query.sort()) : null;
+        final String next = rest.size() > page.size() ? cursorAfter(page.getLast(), query) : null;
         return new Result(page.stream().map(Entry::trip).toList(), matched.size(), next, facetsOf(worded, query));
     }
 
@@ -248,7 +248,7 @@ public final class DiscoverSearch {
         return placeOrder(sort).compare(placeOf(entry, sort), cursor) > 0;
     }
 
-    private static String cursorAfter(final Entry last, final Sort sort) {
-        return DiscoverQuery.encodeCursor(sort, placeOf(last, sort));
+    private static String cursorAfter(final Entry last, final DiscoverQuery query) {
+        return query.encodeCursor(placeOf(last, query.sort()));
     }
 }

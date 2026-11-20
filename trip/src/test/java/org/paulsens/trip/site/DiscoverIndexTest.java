@@ -7,6 +7,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import org.paulsens.trip.action.TripPageCommands;
 import org.paulsens.trip.api.dto.DiscoverTripDto;
+import org.paulsens.trip.api.dto.MediaItemDto;
 import org.paulsens.trip.api.mapper.DiscoverTripMapper;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Trip;
@@ -109,7 +110,10 @@ public class DiscoverIndexTest {
 
         Assert.assertEquals(listedIds(), List.of("listed"));
         Assert.assertTrue(snapshot.find("listed").isPresent());
-        for (final String refused : List.of("org-opted-out", "off-homepage", "no-org", "unknown-org", "ended",
+        Assert.assertEquals(snapshot.ended().stream().map(entry -> entry.trip().id()).toList(), List.of("ended"),
+                "an ended trip is in the past list, not the upcoming one");
+        Assert.assertTrue(snapshot.find("ended").isPresent(), "and can be read by id");
+        for (final String refused : List.of("org-opted-out", "off-homepage", "no-org", "unknown-org",
                 "never-existed")) {
             Assert.assertTrue(snapshot.find(refused).isEmpty(), refused + " must be the same miss as no trip");
         }
@@ -162,6 +166,61 @@ public class DiscoverIndexTest {
         Assert.assertEquals(nowhere.trip().countries(), List.of(), "no country is an empty list, never null");
         Assert.assertEquals(nowhere.countryLabels(), List.of());
         Assert.assertNull(nowhere.countryKey());
+    }
+
+    // ------------------------------------------------------------------ the past list and the albums
+
+    /** The past list relaxes "not ended" and nothing else: an ended trip still needs every kind of consent. */
+    @Test
+    public void thePastListHoldsEndedTripsThatAreListedInEveryOtherRespect() {
+        trip("upcoming", "Upcoming", ALLOWING, true, 30);
+        trip("ended", "Ended", ALLOWING, true, -30);
+        trip("ended-yesterday", "Ended Yesterday", ALLOWING, true, -10);
+        trip("ended-quiet", "Ended Quiet", OPTED_OUT, true, -30);
+        trip("ended-private", "Ended Private", ALLOWING, false, -30);
+        trip("ended-orgless", "Ended Legacy", null, true, -30);
+        // Read twice (the active and the ended reads may overlap): still one entry.
+        trips.add(trips.get(1));
+
+        final DiscoverIndex.Snapshot snapshot = index.current();
+
+        Assert.assertEquals(snapshot.list(true).stream().map(entry -> entry.trip().id()).sorted().toList(),
+                List.of("ended", "ended-yesterday"));
+        Assert.assertEquals(snapshot.list(false).stream().map(entry -> entry.trip().id()).toList(),
+                List.of("upcoming"));
+        for (final String refused : List.of("ended-quiet", "ended-private", "ended-orgless")) {
+            Assert.assertTrue(snapshot.find(refused).isEmpty(), refused);
+        }
+    }
+
+    private static final MediaItemDto PHOTO = new MediaItemDto("p1", "chat/listed/a.jpg", null, null, "image/jpeg",
+            9L, "tripChat-listed", 0, null, null, false, "https://cdn.example/chat/listed/a.jpg", 0, null);
+
+    /** Two photos for "listed", a failure for "broken", none for anything else. */
+    private static List<MediaItemDto> albumOf(final String tripId) {
+        if ("broken".equals(tripId)) {
+            throw new IllegalStateException("the media table is down");
+        }
+        return "listed".equals(tripId) ? List.of(PHOTO, PHOTO) : List.of();
+    }
+
+    @Test
+    public void anEntryHoldsItsPublicAlbumAndCountsIt() {
+        final MediaItemDto photo = PHOTO;
+        index = DiscoverIndex.over(this::loadTrips, () -> List.copyOf(orgs), () -> DiscoverIndexTest::plainDto,
+                () -> DiscoverIndexTest::albumOf, () -> TODAY, now::get);
+        trip("listed", "Listed", ALLOWING, true, -30);
+        trip("bare", "Bare", ALLOWING, true, 30);
+        trip("broken", "Broken Album", ALLOWING, true, 31);
+
+        final DiscoverIndex.Entry listed = index.current().find("listed").orElseThrow();
+        Assert.assertEquals(listed.photos(), List.of(photo, photo));
+        Assert.assertEquals(listed.trip().photoCount(), 2);
+        Assert.assertEquals(listed.photosEtag().length(), 16);
+        Assert.assertEquals(index.current().find("bare").orElseThrow().trip().photoCount(), 0);
+        final DiscoverIndex.Entry broken = index.current().find("broken").orElseThrow();
+        Assert.assertEquals(broken.photos(), List.of(), "an album that cannot be read is empty, the trip stays");
+        Assert.assertNotEquals(listed.photosEtag(), broken.photosEtag());
     }
 
     // ------------------------------------------------------------------ when it rebuilds

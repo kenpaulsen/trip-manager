@@ -28,6 +28,7 @@ import org.paulsens.trip.content.MarketingPageBootstrap;
 import org.paulsens.trip.content.OrgPageBootstrap;
 import org.paulsens.trip.content.StarterTemplates;
 import org.paulsens.trip.model.chat.ChatChannel;
+import org.paulsens.trip.model.chat.ChatMembership;
 import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.ContentTemplate;
 import org.paulsens.trip.model.Language;
@@ -142,6 +143,7 @@ public final class FakeData {
             seedConferencePage();
             addFakeLodging();
             relaxChatLimitsForFakeTrips();
+            addEndedAlbumChatGuest();
         }
     }
 
@@ -386,6 +388,22 @@ public final class FakeData {
                     .sustainedLimit(MAX_CHAT_RATE_LIMIT)
                     .build()));
         }
+    }
+
+    /**
+     * Makes Matt (user6) an invited guest of the ended album trip's chat, off its roster: the guest row an invite
+     * redemption writes (guest-marked JOINED) plus the reverse row that lists the chat among his. Rewritten on
+     * every seed, since each one mints fresh person ids.
+     */
+    private static void addEndedAlbumChatGuest() {
+        final Person matt = DAO.getInstance().getPersonByEmail(localEmail("user6"), Cached.NO);
+        final ChatChannel channel = new ChatCommands().ensureChannel(ENDED_ALBUM_TRIP_ID, AuditActor.system());
+        if (matt == null || channel == null) {
+            return;
+        }
+        DAO.getInstance().saveChatMembership(ChatMembership.guestJoining(channel.getId(), matt.getId(),
+                Instant.now(), "fake-seed"));
+        DAO.getInstance().addGuestChatChannel(matt.getId(), channel.getId());
     }
 
     /**
@@ -1032,6 +1050,14 @@ public final class FakeData {
                     i == 12 ? Boolean.TRUE : null));
             seedPhotoBytes(chatPhotoKey(PUB_PAST_3D_TRIP_ID, i));
         }
+        // The ended album trip (Discover's past list): the last photo is hidden, so the public album shows the rest.
+        for (int i = 1; i <= ENDED_ALBUM_PHOTOS; i++) {
+            saveMedia(new MediaItem("fake-photo-assisi-" + i, chatPhotoKey(ENDED_ALBUM_TRIP_ID, i),
+                    "Assisi photo " + i, "Seeded album photo", "image/jpeg", 500_000L,
+                    "tripChat-" + ENDED_ALBUM_TRIP_ID, 0, now.minusDays(36).plusHours(i), "fake-seed", null,
+                    i == ENDED_ALBUM_PHOTOS ? Boolean.TRUE : null));
+            seedPhotoBytes(chatPhotoKey(ENDED_ALBUM_TRIP_ID, i));
+        }
         // Below the minimum: no album on the landing page.
         for (int i = 1; i <= 4; i++) {
             saveMedia(new MediaItem("fake-photo-f2-" + i, chatPhotoKey(FAKE2_TRIP_ID, i),
@@ -1393,6 +1419,16 @@ public final class FakeData {
     public static final String PIC_VEGAS_TRIP_ID = "09f94d8e-847e-476a-be29-a875a41e8619";
     public static final String PIC_PERU_TRIP_ID = "9a04e6da-3d3d-4f93-a35f-54fd99925503";
     public static final String PIC_TREK_TRIP_ID = "747ce2dd-7593-4964-8142-2c480f733ba1";
+    /**
+     * An ENDED CFPW trip that Discover still lists in its past list ({@code when=past}, 2026-11-19), with a public
+     * chat album (six visible photos and a hidden one: fewer than the landing page's ten, so it adds no home album)
+     * and an invited chat guest who is NOT on its roster: Matt (user6). Joe Smith (data, not a login) is its whole
+     * roster, so signing in as Matt exercises the guest's album (hidden photo included); signed out, the apps see
+     * the trip under Past with "View photos".
+     */
+    public static final String ENDED_ALBUM_TRIP_ID = "c5a0f0b3-6f1e-4d1a-9a57-2f5d1b7e8a41";
+    /** How many photos the ended album trip's chat album holds; the last one is hidden. */
+    static final int ENDED_ALBUM_PHOTOS = 7;
 
     /**
      * Seven public trips with real pictures, places and tags, so the listing cards, the trip page's gallery and the
@@ -1438,6 +1474,12 @@ public final class FakeData {
         trips.add(peru);
         trips.add(pictured(PIC_TREK_TRIP_ID, "Machu Picchu Trek 2027", ACME_ORG_ID, "Acme Inc", 110, 121,
                 "Cusco and the Inca Trail, Peru", "PE", "$3,410 from Portland", 2, List.of("tour"), "andes-train"));
+        final Trip assisi = pictured(ENDED_ALBUM_TRIP_ID, "Assisi and Rome Retreat 2026", CFPW_ORG_ID, "CFPW", -40,
+                -32, "Assisi and Rome, Italy", "IT", "$2,980 from Portland", null, List.of("retreat"), "stone-church",
+                "candles");
+        assisi.setPeople(new ArrayList<>(getFakePeople().stream().filter(person -> "u1".equals(person.getEmail()))
+                .map(Person::getId).toList()));
+        trips.add(assisi);
     }
 
     private static void pictureHolyAngelsDemo(final Trip trip) {

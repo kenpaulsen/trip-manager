@@ -66,7 +66,8 @@ public class DiscoverTripDtoAllowListTest {
         allowed.put(DiscoverFacetDto.class, List.of("value", "label", "count", "logoUrl"));
         allowed.put(DiscoverTripDto.class, List.of("id", "title", "startDate", "endDate", "destination", "countries",
                 "tags", "tagLabels", "kind", "language", "priceText", "pictures", "orgId", "orgName",
-                "orgAbbreviation", "orgLogoUrl", "detailsUrl", "registration", "registrationOpens", "registersOnWeb"));
+                "orgAbbreviation", "orgLogoUrl", "detailsUrl", "registration", "registrationOpens", "registersOnWeb",
+                "photoCount"));
         allowed.put(TripPictureDto.class,
                 List.of("key", "url", "url480", "url960", "alt", "width", "height", "placeholder"));
         return allowed;
@@ -390,8 +391,42 @@ public class DiscoverTripDtoAllowListTest {
                 absolute.endDate(), absolute.destination(), absolute.countries(), absolute.tags(), absolute.tagLabels(),
                 absolute.kind(), absolute.language(), absolute.priceText(), relative.pictures(), absolute.orgId(),
                 absolute.orgName(), absolute.orgAbbreviation(), relative.orgLogoUrl(), relative.detailsUrl(),
-                absolute.registration(), absolute.registrationOpens(), absolute.registersOnWeb()), relative,
+                absolute.registration(), absolute.registrationOpens(), absolute.registersOnWeb(),
+                absolute.photoCount()), relative,
                 "only the URLs differ");
         Assert.assertEquals(absolute.orgAbbreviation(), "HRP", "not a URL: carried as it is");
+    }
+
+    // ------------------------------------------------------------------ the public album
+
+    /**
+     * {@code GET /api/discover/trips/{id}/photos}: the album's visible rows in the media item shape, but never who
+     * uploaded a photo. A chat photo's description is "Uploaded by NAME in the TRIP chat" and its uploadedBy a
+     * person id; the website's anonymous album shows neither, only the caption.
+     */
+    @Test
+    public void thePublicAlbumSaysNothingAboutWhoTookAPhoto() throws Exception {
+        final org.paulsens.trip.action.MediaCommands media = Mockito.mock(org.paulsens.trip.action.MediaCommands.class);
+        final org.paulsens.trip.model.MediaItem photo = new org.paulsens.trip.model.MediaItem("p1",
+                "chat/T/a.jpg", "Sunset", SECRET + " uploaded by", "image/jpeg", 9L, "tripChat-T", 2,
+                LocalDateTime.of(2026, 8, 1, 12, 0), SECRET + "-person-id", "chat/T/a-small.jpg", null);
+        Mockito.when(media.getVisibleInSlot("tripChat-T", 0)).thenReturn(List.of(photo));
+        Mockito.when(media.photoCaption(photo)).thenReturn("Sunset");
+        Mockito.when(media.getUrl(photo)).thenReturn("https://cdn.example/chat/T/a.jpg");
+        Mockito.when(media.publicUrl("chat/T/a-small.jpg")).thenReturn("https://cdn.example/chat/T/a-small.jpg");
+
+        final List<org.paulsens.trip.api.dto.MediaItemDto> album = DiscoverTripMapper.publicAlbum(media, "T");
+
+        Assert.assertEquals(album.size(), 1);
+        final org.paulsens.trip.api.dto.MediaItemDto dto = album.get(0);
+        Assert.assertEquals(dto.title(), "Sunset", "the caption a public page prints");
+        Assert.assertEquals(dto.url(), "https://cdn.example/chat/T/a.jpg");
+        Assert.assertEquals(dto.thumbUrl(), "https://cdn.example/chat/T/a-small.jpg");
+        Assert.assertEquals(dto.position(), 2);
+        Assert.assertFalse(dto.hidden());
+        final String json = json(album);
+        Assert.assertFalse(json.contains(SECRET), "who uploaded it reached the public album: " + json);
+        Assert.assertFalse(json.contains("\"uploadedBy\""), json);
+        Assert.assertFalse(json.contains("\"description\""), json);
     }
 }

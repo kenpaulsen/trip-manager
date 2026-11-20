@@ -31,7 +31,7 @@ import java.util.TreeSet;
  */
 public record DiscoverQuery(List<String> tokens, SortedSet<String> countries, SortedSet<String> tags,
         SortedSet<String> languages, SortedSet<String> kinds, SortedSet<String> orgs, SortedSet<String> states,
-        SortedSet<String> months, LocalDate from, LocalDate to, Sort sort, int limit, Cursor cursor) {
+        SortedSet<String> months, LocalDate from, LocalDate to, Sort sort, When when, int limit, Cursor cursor) {
 
     /** A page when the caller names no size. */
     public static final int DEFAULT_LIMIT = 30;
@@ -79,6 +79,31 @@ public record DiscoverQuery(List<String> tokens, SortedSet<String> countries, So
     }
 
     /**
+     * Which list is asked for ({@code when}, 2026-11-19): the trips that have not ended (the default), or those
+     * listed but for having ended ({@code past}, most recent first unless a {@code sort} is named).
+     */
+    public enum When {
+        UPCOMING("upcoming"),
+        PAST("past");
+
+        private final String wire;
+
+        When(final String wire) {
+            this.wire = wire;
+        }
+
+        /** The {@code when} parameter's value for this list. */
+        public String wire() {
+            return wire;
+        }
+
+        static When parse(final String raw) {
+            return Arrays.stream(values()).filter(when -> when.wire.equals(raw)).findFirst()
+                    .orElseThrow(() -> new IllegalArgumentException("Unknown when; expected upcoming or past."));
+        }
+    }
+
+    /**
      * Where the previous page ended: the last trip's place in the order ({@code primary} is the order's own key,
      * empty for the departure orders) rather than a row number, so a trip that is listed or delisted between two
      * pages neither repeats nor hides one.
@@ -102,17 +127,38 @@ public record DiscoverQuery(List<String> tokens, SortedSet<String> countries, So
         if (from != null && to != null && to.isBefore(from)) {
             throw new IllegalArgumentException("to must not be before from.");
         }
-        final Sort sort = first(params, "sort") == null ? Sort.DEPARTURE : Sort.parse(first(params, "sort").trim());
+        final When when = first(params, "when") == null ? When.UPCOMING : When.parse(first(params, "when").trim());
+        final Sort fallback = when == When.PAST ? Sort.DEPARTURE_DESC : Sort.DEPARTURE;
+        final Sort sort = first(params, "sort") == null ? fallback : Sort.parse(first(params, "sort").trim());
         return new DiscoverQuery(tokens(first(params, "q")), values(params, "country"), values(params, "tag"),
                 values(params, "language"), values(params, "kind"), values(params, "org"), states(params),
-                months(params), from, to, sort, limit(first(params, "limit")), cursor(first(params, "cursor"), sort));
+                months(params), from, to, sort, when, limit(first(params, "limit")),
+                cursor(first(params, "cursor"), scopeOf(sort, when)));
     }
 
-    /** What a client sends as {@code cursor} to continue after a trip at this place in {@code sort}'s order. */
-    public static String encodeCursor(final Sort sort, final Cursor cursor) {
+    /** Whether this query asks for the past list. */
+    public boolean past() {
+        return when == When.PAST;
+    }
+
+    /**
+     * What a client sends as {@code cursor} to continue after a trip at this place in this query's order and
+     * list: a cursor is good only for the same {@code sort} and the same {@code when}.
+     */
+    public String encodeCursor(final Cursor cursor) {
         final String start = cursor.start() == null ? "" : cursor.start().toString();
-        final String plain = String.join(CURSOR_SEPARATOR, sort.wire(), cursor.primary(), start, cursor.id());
+        final String plain = String.join(CURSOR_SEPARATOR, scopeOf(sort, when), cursor.primary(), start,
+                cursor.id());
         return Base64.getUrlEncoder().withoutPadding().encodeToString(plain.getBytes(StandardCharsets.UTF_8));
+    }
+
+    /**
+     * The order and list a cursor belongs to, as its first line. The upcoming list's is the bare order, as every
+     * cursor was before {@code when} existed; the past list's carries a prefix, so the two never accept each
+     * other's cursors.
+     */
+    private static String scopeOf(final Sort sort, final When when) {
+        return when == When.PAST ? when.wire() + " " + sort.wire() : sort.wire();
     }
 
     /**
@@ -204,15 +250,18 @@ public record DiscoverQuery(List<String> tokens, SortedSet<String> countries, So
         }
     }
 
-    /** The cursor a page was continued with, or null for the first page; one minted for another order is refused. */
-    private static Cursor cursor(final String raw, final Sort sort) {
+    /**
+     * The cursor a page was continued with, or null for the first page; one minted for another order or list is
+     * refused.
+     */
+    private static Cursor cursor(final String raw, final String scope) {
         if (raw == null || raw.isBlank()) {
             return null;
         }
         try {
             final String plain = new String(Base64.getUrlDecoder().decode(raw.trim()), StandardCharsets.UTF_8);
             final String[] parts = plain.split(CURSOR_SEPARATOR, -1);
-            if (parts.length == 4 && sort.wire().equals(parts[0]) && !parts[3].isEmpty()) {
+            if (parts.length == 4 && scope.equals(parts[0]) && !parts[3].isEmpty()) {
                 return new Cursor(parts[1], parts[2].isEmpty() ? null : LocalDate.parse(parts[2]), parts[3]);
             }
         } catch (final IllegalArgumentException | DateTimeException ex) {

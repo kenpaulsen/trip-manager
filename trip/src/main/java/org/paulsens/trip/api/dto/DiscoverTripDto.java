@@ -28,7 +28,9 @@ import java.util.List;
  * {@code full}, {@code closed} or {@code notOpen}: the phase alone, never a count of seats or people.
  * {@code registrationOpens} is the day a {@code notOpen} trip's registration opens, and absent otherwise.
  * {@code registersOnWeb} is true for a trip whose registration happens on another website, so a client hands
- * the person to {@code detailsUrl} rather than to registration in the app.
+ * the person to {@code detailsUrl} rather than to registration in the app. {@code photoCount} is how many photos
+ * the trip's chat album shows the public (visible rows only; {@code GET /api/discover/trips/{id}/photos} lists
+ * them), 0 for none.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record DiscoverTripDto(
@@ -51,5 +53,13 @@ public record DiscoverTripDto(
         String detailsUrl,
         String registration,
         LocalDate registrationOpens,
-        boolean registersOnWeb) {
+        boolean registersOnWeb,
+        int photoCount) {
+
+    /** The same trip with its public album's size: counted by the index, after the mapper's allow-list. */
+    public DiscoverTripDto withPhotoCount(final int count) {
+        return new DiscoverTripDto(id, title, startDate, endDate, destination, countries, tags, tagLabels, kind,
+                language, priceText, pictures, orgId, orgName, orgAbbreviation, orgLogoUrl, detailsUrl, registration,
+                registrationOpens, registersOnWeb, count);
+    }
 }

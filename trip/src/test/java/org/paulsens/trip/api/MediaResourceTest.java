@@ -339,6 +339,51 @@ public class MediaResourceTest extends ResourceTestSupport {
                 org.paulsens.trip.audit.RequestContext.of(null, null, site)).call(body);
     }
 
+    /**
+     * A chat member who is NOT on the roster (an invited guest, perhaps of another organization) gets the whole
+     * album as a roster member does, hidden rows included: the album is filled only from the chat they read
+     * (owner decision 2026-11-19). The chat's own read gate decides, so a guest removed from the chat, or one
+     * who left it, gets no more than any other non-member.
+     */
+    @Test
+    public void aChatGuestOffTheRosterGetsTheWholeAlbumUntilTheyLeaveOrAreRemoved() throws Exception {
+        signedInAs(USER);
+        final org.paulsens.trip.dynamo.DAO dao = org.paulsens.trip.dynamo.DAO.getInstance();
+        org.paulsens.trip.dynamo.FakeData.addFakeData();
+        final org.paulsens.trip.model.Trip trip = albumTrip(org.paulsens.trip.dynamo.FakeData.CFPW_ORG_ID);
+        final String slot = "tripChat-" + trip.getId();
+        Mockito.when(media.getDiscoverableInSlot(slot))
+                .thenReturn(List.of(item("m-guest", "chat/" + trip.getId() + "/a.jpg", true)));
+        Assert.assertFalse(resource.isMemberOfSlotTrip(slot), "no channel yet: nobody's chat");
+        assertError(resource.inSlot(slot), 404, ApiErrors.NOT_FOUND);
+
+        final org.paulsens.trip.model.chat.ChatChannel channel = new org.paulsens.trip.action.ChatCommands()
+                .ensureChannel(trip.getId(), AuditActor.system());
+        Assert.assertFalse(resource.isMemberOfSlotTrip(slot), "a channel alone admits nobody");
+        final org.paulsens.trip.model.chat.ChatMembership guest = org.paulsens.trip.model.chat.ChatMembership
+                .guestJoining(channel.getId(), USER, java.time.Instant.now(), "sel");
+        Assert.assertTrue(dao.saveChatMembership(guest));
+
+        Assert.assertTrue(resource.isMemberOfSlotTrip(slot), "a joined guest reads the chat");
+        final Response whole = resource.inSlot(slot);
+        assertOk(whole);
+        Assert.assertEquals(((List<?>) whole.getEntity()).size(), 1, "the hidden row too, as for the roster");
+        Mockito.verify(media, Mockito.never()).getVisibleInSlot(ArgumentMatchers.eq(slot), ArgumentMatchers.anyInt());
+
+        Assert.assertTrue(dao.saveChatMembership(guest.withLeft(java.time.Instant.now(), "left")));
+        Assert.assertFalse(resource.isMemberOfSlotTrip(slot), "a guest who left is a non-member again");
+        assertError(resource.inSlot(slot), 404, ApiErrors.NOT_FOUND);
+
+        Assert.assertTrue(dao.saveChatMembership(guest.withRemoved(java.time.Instant.now(), "spam", "admin")));
+        Assert.assertFalse(resource.isMemberOfSlotTrip(slot), "a removed guest likewise");
+        assertError(resource.inSlot(slot), 404, ApiErrors.NOT_FOUND);
+
+        // A plain JOINED row (no guest marker) is bookkeeping, never a grant: chat's own rule, reused here.
+        Assert.assertTrue(dao.saveChatMembership(org.paulsens.trip.model.chat.ChatMembership.joining(
+                channel.getId(), USER, java.time.Instant.now())));
+        Assert.assertFalse(resource.isMemberOfSlotTrip(slot));
+    }
+
     @Test
     public void aBlankSlotNameIsRefused() {
         signedInAs(USER);

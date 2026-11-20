@@ -12,14 +12,17 @@ import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
 import org.paulsens.trip.action.BrandCommands;
 import org.paulsens.trip.action.BrandingPhotos;
+import org.paulsens.trip.action.MediaCommands;
 import org.paulsens.trip.action.TripPictureCommands;
 import org.paulsens.trip.api.dto.DiscoverFacetDto;
 import org.paulsens.trip.api.dto.DiscoverListDto;
 import org.paulsens.trip.api.dto.DiscoverTripDto;
+import org.paulsens.trip.api.dto.MediaItemDto;
 import org.paulsens.trip.audit.RequestContext;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.cache.InMemoryCacheClient;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.model.MediaItem;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
@@ -57,9 +60,11 @@ public class DiscoverResourceTest extends ResourceTestSupport {
     private static Trip offHomepage;
     private static Trip orgless;
     private static Trip ended;
+    private static Trip endedLongAgo;
     private static final List<Trip> CREATED = new ArrayList<>();
 
     private DiscoverResource resource;
+    private MediaCommands media;
 
     @BeforeClass
     public static void createOrgsAndTrips() throws IOException {
@@ -72,6 +77,7 @@ public class DiscoverResourceTest extends ResourceTestSupport {
         offHomepage = saveTrip("Staff Planning zqhidden" + STAMP, alphaOrg, false, 30, 35, "Rome, Italy", "IT");
         orgless = saveTrip("Legacy Row zqorgless" + STAMP, null, true, 30, 35, "Knock, Ireland", "IE");
         ended = saveTrip("Last Month zqended" + STAMP, alphaOrg, true, -30, -20, "Lourdes, France", "FR");
+        endedLongAgo = saveTrip("Last Year zqended" + STAMP, bravoOrg, true, -400, -390, "Rome, Italy", "IT");
     }
 
     @AfterClass(alwaysRun = true)
@@ -119,6 +125,8 @@ public class DiscoverResourceTest extends ResourceTestSupport {
         Mockito.when(brand.lookOf(ArgumentMatchers.any())).thenReturn(new BrandCommands.OrgLook(null, false, null,
                 null, null, null, null, null, null, null, null, null, null, null));
         bindMock(BrandingPhotos.class);
+        // Every album is empty unless a test says otherwise (a mock's list answer is an empty list).
+        media = bindMock(MediaCommands.class);
         Mockito.when(request.getRemoteAddr()).thenReturn(CLIENT);
         Mockito.when(request.getRequestURI()).thenReturn("/api/discover/trips");
         Mockito.when(request.getContextPath()).thenReturn("");
@@ -176,7 +184,7 @@ public class DiscoverResourceTest extends ResourceTestSupport {
         Assert.assertFalse(all.contains(quietTrip.getId()), "the organization turned Shared sites off");
         Assert.assertFalse(all.contains(offHomepage.getId()), "Show on homepage is off");
         Assert.assertFalse(all.contains(orgless.getId()), "a trip with no organization is not listed");
-        Assert.assertFalse(all.contains(ended.getId()), "an ended trip is not listed");
+        Assert.assertFalse(all.contains(ended.getId()), "an ended trip is not in the upcoming list");
         Assert.assertEquals(ids("org", quietOrg), List.of(), "asking for the opted-out organization by id finds none");
         final List<String> offeredOrgs = listed("limit", "100").facets().organizations().stream()
                 .map(DiscoverFacetDto::value).toList();
@@ -225,15 +233,121 @@ public class DiscoverResourceTest extends ResourceTestSupport {
         final Response never = resource.get(UUID.randomUUID().toString());
         assertError(never, 404, ApiErrors.NOT_FOUND);
 
-        for (final Trip unlisted : List.of(quietTrip, offHomepage, orgless, ended)) {
-            final Response miss = resource.get(unlisted.getId());
-            Assert.assertEquals(miss.getStatus(), 404, unlisted.getTitle());
-            Assert.assertEquals(miss.getEntity(), never.getEntity(), "the body must not tell them apart");
-            Assert.assertEquals(miss.getHeaders().keySet(), never.getHeaders().keySet());
-            Assert.assertEquals(miss.getMediaType(), never.getMediaType());
-            Assert.assertNull(miss.getHeaderString("ETag"), "a miss has no validator to compare");
+        for (final Trip unlisted : List.of(quietTrip, offHomepage, orgless)) {
+            for (final Response miss : List.of(resource.get(unlisted.getId()), resource.photos(unlisted.getId()))) {
+                Assert.assertEquals(miss.getStatus(), 404, unlisted.getTitle());
+                Assert.assertEquals(miss.getEntity(), never.getEntity(), "the body must not tell them apart");
+                Assert.assertEquals(miss.getHeaders().keySet(), never.getHeaders().keySet());
+                Assert.assertEquals(miss.getMediaType(), never.getMediaType());
+                Assert.assertNull(miss.getHeaderString("ETag"), "a miss has no validator to compare");
+            }
         }
+        assertError(resource.photos(UUID.randomUUID().toString()), 404, ApiErrors.NOT_FOUND);
     }
+
+    // ------------------------------------------------------------------ the past list (2026-11-19)
+
+    /** {@code when=past}: the ended trips listed in every other respect, latest first; never the upcoming ones. */
+    @Test
+    public void thePastListHoldsEndedListedTripsLatestFirst() {
+        final List<String> past = ids("when", "past", "limit", "100");
+
+        Assert.assertTrue(past.contains(ended.getId()) && past.contains(endedLongAgo.getId()), past.toString());
+        Assert.assertTrue(past.indexOf(ended.getId()) < past.indexOf(endedLongAgo.getId()),
+                "most recent departure first");
+        Assert.assertFalse(past.contains(alphaTrip.getId()), "an upcoming trip is not past");
+        Assert.assertEquals(ids("when", "past", "q", "zqended" + STAMP, "sort", "departure"),
+                List.of(endedLongAgo.getId(), ended.getId()), "search and a named order apply as usual");
+        Assert.assertEquals(ids("when", "past", "org", bravoOrg), List.of(endedLongAgo.getId()),
+                "and so do the filters");
+        Assert.assertEquals(ids("when", "upcoming", "q", "zqended" + STAMP), List.of());
+        final DiscoverListDto paged = listed("when", "past", "q", "zqended" + STAMP, "limit", "1");
+        Assert.assertEquals(paged.total(), 2);
+        Assert.assertEquals(listed("when", "past", "q", "zqended" + STAMP, "limit", "1", "cursor",
+                paged.nextCursor()).items().get(0).id(), endedLongAgo.getId());
+        assertError(resource.list(params("q", "zqended" + STAMP, "limit", "1", "cursor", paged.nextCursor())), 400,
+                ApiErrors.BAD_REQUEST);
+        assertError(resource.list(params("when", "yesterday")), 400, ApiErrors.BAD_REQUEST);
+        Assert.assertNotEquals(resource.list(params("when", "past")).getHeaderString("ETag"),
+                resource.list(params()).getHeaderString("ETag"), "two lists, two validators");
+    }
+
+    /** An ended trip, still listed in every other respect, is read by id; an opted-out one is not. */
+    @Test
+    public void anEndedListedTripCanBeReadById() throws IOException {
+        final Response response = resource.get(ended.getId());
+        assertOk(response);
+        Assert.assertEquals(((DiscoverTripDto) response.getEntity()).id(), ended.getId());
+
+        final Trip endedQuiet = saveTrip("Ended Quiet zqendedquiet" + STAMP, quietOrg, true, -30, -20, "Assisi",
+                "IT");
+        Assert.assertEquals(resource.get(endedQuiet.getId()).getStatus(), 404);
+        Assert.assertEquals(ids("when", "past", "q", "zqendedquiet" + STAMP), List.of());
+    }
+
+    // ------------------------------------------------------------------ the public album (2026-11-19)
+
+    private static MediaItem albumPhoto(final Trip trip, final String id, final String caption) {
+        return new MediaItem(id, "chat/" + trip.getId() + "/" + id + ".jpg", caption, "Uploaded by Someone in the chat",
+                "image/jpeg", 9L, "tripChat-" + trip.getId(), 0, LocalDateTime.now().minusDays(1), "a-person-id",
+                null, null);
+    }
+
+    private void albumOf(final Trip trip, final MediaItem... photos) {
+        Mockito.when(media.getVisibleInSlot("tripChat-" + trip.getId(), 0)).thenReturn(List.of(photos));
+        Mockito.when(media.getUrl(ArgumentMatchers.any())).thenAnswer(
+                call -> "/" + call.<MediaItem>getArgument(0).getS3Key());
+        Mockito.when(media.publicUrl(ArgumentMatchers.anyString())).thenAnswer(call -> "/" + call.getArgument(0));
+        Mockito.when(media.photoCaption(ArgumentMatchers.any())).thenAnswer(
+                call -> call.<MediaItem>getArgument(0).getTitle());
+        DiscoverIndex.getInstance().invalidate();
+    }
+
+    @Test
+    public void aListedTripCarriesItsPhotoCountAndServesItsPublicAlbum() {
+        albumOf(ended, albumPhoto(ended, "p1", "Grotto"), albumPhoto(ended, "p2", "Basilica"));
+        Mockito.when(request.getScheme()).thenReturn("http");
+        Mockito.when(request.getServerName()).thenReturn("localhost");
+        Mockito.when(request.getServerPort()).thenReturn(8091);
+
+        Assert.assertEquals(((DiscoverTripDto) resource.get(ended.getId()).getEntity()).photoCount(), 2);
+        Assert.assertEquals(((DiscoverTripDto) resource.get(alphaTrip.getId()).getEntity()).photoCount(), 0);
+        Assert.assertEquals(listed("when", "past", "q", "zqended" + STAMP, "sort", "-departure").items().get(0)
+                .photoCount(), 2, "the list carries the count too");
+
+        final Response response = resource.photos(ended.getId());
+        assertOk(response);
+        Assert.assertEquals(response.getHeaderString("Cache-Control"), "public, max-age=60");
+        final List<?> album = (List<?>) response.getEntity();
+        Assert.assertEquals(album.stream().map(photo -> ((MediaItemDto) photo).title()).toList(),
+                List.of("Grotto", "Basilica"), "album order");
+        final MediaItemDto first = (MediaItemDto) album.get(0);
+        Assert.assertEquals(first.url(), "http://localhost:8091/chat/" + ended.getId() + "/p1.jpg", "absolute");
+        Assert.assertNull(first.uploadedBy(), "who took it is no part of the public album");
+        Assert.assertNull(first.description());
+        assertOk(resource.photos(alphaTrip.getId()));
+        Assert.assertEquals(((List<?>) resource.photos(alphaTrip.getId()).getEntity()).size(), 0);
+
+        // Its own validator, and a 304 for a caller already holding the album.
+        final String etag = response.getHeaderString("ETag");
+        Assert.assertNotEquals(etag, resource.get(ended.getId()).getHeaderString("ETag"));
+        Mockito.when(request.getHeader("If-None-Match")).thenReturn(etag);
+        Assert.assertEquals(resource.photos(ended.getId()).getStatus(), 304);
+    }
+
+    /** A media write (a photo hidden in the album) takes effect on the next request, not a minute later. */
+    @Test
+    public void aMediaWriteRefreshesTheAlbumOnTheNextRequest() throws IOException {
+        albumOf(alphaTrip, albumPhoto(alphaTrip, "p1", "One"));
+        Assert.assertEquals(((List<?>) resource.photos(alphaTrip.getId()).getEntity()).size(), 1);
+
+        Mockito.when(media.getVisibleInSlot("tripChat-" + alphaTrip.getId(), 0)).thenReturn(List.of());
+        final MediaItem row = albumPhoto(alphaTrip, "zz-" + STAMP, "Unrelated");
+        Assert.assertTrue(DAO.getInstance().saveMedia(row));
+        Assert.assertEquals(((List<?>) resource.photos(alphaTrip.getId()).getEntity()).size(), 0);
+        DAO.getInstance().deleteMedia(row.getId());
+    }
+
 
     /** A trip that visits two countries is found under either, listed once, and counted under each. */
     @Test
@@ -324,7 +438,8 @@ public class DiscoverResourceTest extends ResourceTestSupport {
     public void aRequestTheSessionlessRuleDidNotRecognizeIsRefused() {
         Mockito.when(request.getRequestURI()).thenReturn("/api/trips/elsewhere");
 
-        for (final Response refused : List.of(resource.list(params()), resource.get(alphaTrip.getId()))) {
+        for (final Response refused : List.of(resource.list(params()), resource.get(alphaTrip.getId()),
+                resource.photos(alphaTrip.getId()))) {
             assertError(refused, 404, ApiErrors.NOT_FOUND);
             Assert.assertNull(refused.getHeaderString("Cache-Control"));
             Assert.assertNull(refused.getHeaderString("ETag"));
@@ -341,11 +456,12 @@ public class DiscoverResourceTest extends ResourceTestSupport {
         final Response list = resource.list(params("q", "zqalpha" + STAMP));
         final Response one = resource.get(alphaTrip.getId());
         final Response miss = resource.get(quietTrip.getId());
+        final Response album = resource.photos(alphaTrip.getId());
 
         Mockito.verify(request, Mockito.never()).getSession();
         Mockito.verify(request, Mockito.never()).getSession(ArgumentMatchers.anyBoolean());
         Mockito.verifyNoInteractions(response);
-        for (final Response answer : List.of(list, one, miss)) {
+        for (final Response answer : List.of(list, one, miss, album)) {
             Assert.assertNull(answer.getHeaderString("Set-Cookie"));
             Assert.assertTrue(answer.getCookies().isEmpty());
         }
@@ -474,7 +590,8 @@ public class DiscoverResourceTest extends ResourceTestSupport {
         Assert.assertEquals(resource.get(alphaTrip.getId()).getStatus(), 200, "the list and a trip share the count");
 
         for (final Response refused : List.of(resource.list(params()), resource.get(alphaTrip.getId()),
-                resource.get(quietTrip.getId()), resource.list(params("sort", "nonsense")))) {
+                resource.get(quietTrip.getId()), resource.list(params("sort", "nonsense")),
+                resource.photos(alphaTrip.getId()))) {
             assertError(refused, 429, ChatErrors.RATE_LIMITED);
             final int retryAfter = Integer.parseInt(refused.getHeaderString("Retry-After"));
             Assert.assertTrue(retryAfter >= 1 && retryAfter <= 60, "seconds until the window turns: " + retryAfter);

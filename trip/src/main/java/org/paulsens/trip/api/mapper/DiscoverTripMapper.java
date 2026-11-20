@@ -6,19 +6,24 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Function;
 import java.util.function.UnaryOperator;
 import org.paulsens.trip.action.BrandCommands;
 import org.paulsens.trip.action.BrandingPhotos;
+import org.paulsens.trip.action.ChatPhotos;
 import org.paulsens.trip.action.ConfigCommands;
 import org.paulsens.trip.action.IsoCountries;
+import org.paulsens.trip.action.MediaCommands;
 import org.paulsens.trip.action.TripCommands;
 import org.paulsens.trip.action.TripPageCommands;
 import org.paulsens.trip.action.TripPictureCommands;
 import org.paulsens.trip.action.TripTags;
 import org.paulsens.trip.api.Beans;
 import org.paulsens.trip.api.dto.DiscoverTripDto;
+import org.paulsens.trip.api.dto.MediaItemDto;
 import org.paulsens.trip.api.dto.TripPictureDto;
 import org.paulsens.trip.dynamo.LocalMode;
+import org.paulsens.trip.model.MediaItem;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripPicture;
@@ -107,7 +112,8 @@ public final class DiscoverTripMapper {
                 detailsUrl,
                 phase.wireName(),
                 phase == TripPageCommands.Phase.NOT_OPEN ? opensOn : null,
-                trip.isExternal());
+                trip.isExternal(),
+                0);
     }
 
     /**
@@ -120,7 +126,41 @@ public final class DiscoverTripMapper {
                 dto.countries(), dto.tags(), dto.tagLabels(), dto.kind(), dto.language(), dto.priceText(),
                 dto.pictures().stream().map(picture -> absolute(picture, absoluteUrl)).toList(),
                 dto.orgId(), dto.orgName(), dto.orgAbbreviation(), absoluteUrl.apply(dto.orgLogoUrl()),
-                absoluteUrl.apply(dto.detailsUrl()), dto.registration(), dto.registrationOpens(), dto.registersOnWeb());
+                absoluteUrl.apply(dto.detailsUrl()), dto.registration(), dto.registrationOpens(), dto.registersOnWeb(),
+                dto.photoCount());
+    }
+
+    /**
+     * A listed trip's PUBLIC album (its chat photos a public page shows: {@code MediaCommands.getVisibleInSlot},
+     * hidden rows left out, in album order), in the wire shape {@code GET /api/media/slots/...} uses, narrowed to
+     * what the website's anonymous album shows. The row's {@code description} ("Uploaded by NAME in the TRIP
+     * chat") and {@code uploadedBy} (a person id) are left out: Discover never says who travels. The title is the
+     * caption a public page prints ({@code MediaCommands.photoCaption}: none for a generated file name).
+     */
+    public static List<MediaItemDto> publicAlbum(final MediaCommands media, final String tripId) {
+        return media.getVisibleInSlot(ChatPhotos.slotFor(tripId), 0).stream()
+                .map(item -> publicPhoto(media, item))
+                .toList();
+    }
+
+    private static MediaItemDto publicPhoto(final MediaCommands media, final MediaItem item) {
+        return new MediaItemDto(item.getId(), item.getS3Key(), blankToNull(media.photoCaption(item)), null,
+                item.getContentType(), item.getSize(), item.getSlot(), item.getPosition(), item.getUploaded(), null,
+                false, media.getUrl(item) + item.getCacheBuster(),
+                item.getRev(), media.publicUrl(item.getDisplayKey()) + item.getCacheBuster());
+    }
+
+    /** The public album for each listed trip, on the running application's media bean: one per rebuild. */
+    public static Function<String, List<MediaItemDto>> liveAlbums() {
+        final MediaCommands media = Beans.get(MediaCommands.class);
+        return tripId -> publicAlbum(media, tripId);
+    }
+
+    /** A photo with its URLs made absolute for this request, as {@link #absolute(DiscoverTripDto, UnaryOperator)}. */
+    public static MediaItemDto absolute(final MediaItemDto photo, final UnaryOperator<String> absoluteUrl) {
+        return new MediaItemDto(photo.id(), photo.key(), photo.title(), photo.description(), photo.contentType(),
+                photo.size(), photo.slot(), photo.position(), photo.uploaded(), photo.uploadedBy(), photo.hidden(),
+                absoluteUrl.apply(photo.url()), photo.rev(), absoluteUrl.apply(photo.thumbUrl()));
     }
 
     private static TripPictureDto absolute(final TripPictureDto picture, final UnaryOperator<String> absoluteUrl) {

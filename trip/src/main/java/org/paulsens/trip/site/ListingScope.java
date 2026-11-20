@@ -110,6 +110,22 @@ public final class ListingScope {
     }
 
     /**
+     * Discover's PAST list (owner decision 2026-11-19, {@code when=past}): a trip {@link #discoverable} in every
+     * respect but the dates, because it has ENDED: its end date, else its start date, is before {@code today}.
+     * Exactly the trips {@link #discoverable} refuses for "not ended" alone, so the two never overlap and no
+     * other condition is relaxed: the same consent ({@link #sharedAcrossOrgs}), the same organization, the
+     * same refusal of an undated trip.
+     */
+    public static boolean discoverableEnded(final Trip trip, final Optional<Organization> owner,
+            final LocalDate today) {
+        if (today == null || !sharedAcrossOrgs(trip, owner)) {
+            return false;
+        }
+        final LocalDateTime last = trip.getEndDate() != null ? trip.getEndDate() : trip.getStartDate();
+        return last != null && last.toLocalDate().isBefore(today);
+    }
+
+    /**
      * The CONSENT half of {@link #discoverable}, with no word about dates: the trip is shown on its homepage and
      * its own organization exists and allows shared sites. What a public thing that OUTLIVES the trip asks (its
      * album, which fills as the trip ends): "not ended" is a rule about a list of upcoming trips, and letting it
