@@ -34,8 +34,8 @@ public class GroupTransactionTypedEntryTest {
         Assert.assertTrue(save(viaVarargs, (Object) List.of(a, b)));
         // The API's path: an already-typed list.
         Assert.assertTrue(transactions.saveGroupTransaction(viaTyped, List.of(), Transaction.Type.Shared,
-                Transaction.TransactionType.Bill, LocalDateTime.now(), 90.0f, "cat", "note", null, null,
-                List.of(a, b)));
+                Transaction.TransactionType.Bill, LocalDateTime.now(), 90.0f, "cat", "note",
+                TenancyFixtures.ledgerTripId(), null, List.of(a, b)));
 
         Assert.assertEquals(membersOf(viaVarargs, a), membersOf(viaTyped, a),
                 "The typed entry point must not reorder or drop members relative to the coerced one.");
@@ -61,8 +61,8 @@ public class GroupTransactionTypedEntryTest {
         final Person.Id c = Person.Id.newInstance();
         final String groupId = "grp-share-" + System.nanoTime();
         transactions.saveGroupTransaction(groupId, List.of(), Transaction.Type.Shared,
-                Transaction.TransactionType.Bill, LocalDateTime.now(), 600.0f, "cat", "note", null, null,
-                List.of(a, b, c));
+                Transaction.TransactionType.Bill, LocalDateTime.now(), 600.0f, "cat", "note",
+                TenancyFixtures.ledgerTripId(), null, List.of(a, b, c));
 
         final Transaction tx = transactions.getGroupTransactionForUser(a, groupId).orElseThrow();
 
@@ -73,7 +73,7 @@ public class GroupTransactionTypedEntryTest {
     private boolean save(final String groupId, final Object members) {
         return transactions.saveGroupTxAs(TripFinanceGate.forCaller(TenancyFixtures::siteAdminCaller), groupId,
                 List.of(), Transaction.Type.Shared, Transaction.TransactionType.Bill, LocalDateTime.now(), 90.0f,
-                "cat", "note", null, null, members);
+                "cat", "note", TenancyFixtures.ledgerTripId(), null, members);
     }
 
     private List<Person.Id> membersOf(final String groupId, final Person.Id member) {

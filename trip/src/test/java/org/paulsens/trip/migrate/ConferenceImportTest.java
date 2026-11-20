@@ -172,6 +172,38 @@ public class ConferenceImportTest {
         assertThrowsState(() -> applier().apply(plan, org));
     }
 
+    /**
+     * A live ledger row with no trip is refused, not imported unbound: every row is on a trip's books, which is
+     * what gives it its organization. The mapping's {@code transactionTrips} is how the owner names the trip. A
+     * DELETED row with none is history and comes along with a note.
+     */
+    @Test
+    public void aLiveLedgerRowWithNoTripIsABlockerUntilTheMappingNamesItsTrip() throws IOException {
+        final ObjectNode root = exportTree();
+        final ObjectNode gone = MAPPER.createObjectNode();
+        gone.put("userId", ids.p1());
+        gone.put("txId", "txGone");
+        gone.put("amount", 5.0);
+        gone.put("deleted", "2026-12-01T00:00:00");
+        ((ArrayNode) root.get("transactions")).add(gone);
+        final ImportMapping unrepaired = new ImportMapping(org, java.util.Set.of(ids.skip()),
+                Map.of(ids.o(), overridden.getEmail()), null, Map.of(ids.dup(), ids.p1()), null, 2,
+                Map.of("x", "Legacy X"), Map.of("tripCheckin", "checkinStaff"), null, null);
+
+        final ImportPlan refused = planner(unrepaired).plan(export(root));
+
+        assertTrue(refused.blockers().stream().anyMatch(blocker -> blocker.contains("Transaction tx3")
+                && blocker.contains("has no trip binding") && blocker.contains("transactionTrips")),
+                refused.blockers().toString());
+        assertTrue(refused.transactions().stream().noneMatch(step -> "tx3".equals(step.tx().getTxId())),
+                "the row is not planned at all");
+        assertTrue(refused.notes().stream().anyMatch(note -> note.contains("Deleted transaction txGone")),
+                refused.notes().toString());
+        assertTrue(refused.transactions().stream().anyMatch(step -> "txGone".equals(step.tx().getTxId())
+                && step.tripId() == null), "a deleted row is carried without a trip");
+        assertEquals(planner(mapping()).plan(export(root)).blockers(), List.of(), "named in the mapping: planned");
+    }
+
     @Test
     public void twoEqualRegistrationsForOnePersonAreTheOwnersCall() throws IOException {
         final ObjectNode root = exportTree();

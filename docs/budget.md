@@ -140,8 +140,10 @@ option's default stay (else the trip dates).
 
 No new privilege. Both gates live in `action/TripFinanceGate`, shared with the expense report so the two pages
 can never disagree. Edit (`BudgetCommands.canEditBudget`): site admin, `tripMgr@trip`, `tripFinAdmin@trip`.
-View (`canViewBudget`): an editor, `tripFinView@trip`, or the global `viewFinances`
-(`PrivilegeCommands.VIEW_FINANCES`). Both answer false for an unknown trip or nobody signed in. The Reports
+View (`canViewBudget`, `TripFinanceGate.canView`): an editor, `tripFinView@trip`, or `viewFinances` scoped to
+the organization that owns the trip (`PrivilegeCommands.VIEW_FINANCES`; org-scoped since 2026-11, a global row
+grants nothing: `docs/org-admin.md`, "Finance viewers"). Both answer false for an unknown trip or nobody signed
+in. The Reports
 tab and dashboard admit `tripMgr` and `tripFinAdmin` too, so a trip manager with no other role still reaches
 the Budget card (`docs/reports.md`, "Admission").
 

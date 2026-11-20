@@ -1610,6 +1610,20 @@ public class ContentCommands {
                 .anyMatch(section -> holdsEditorPrivilege(section, userId));
     }
 
+    /**
+     * Whether a content page opens in EDIT MODE: the request asked for it ({@code ?edit=true}) AND the viewer
+     * may edit the page ({@link #canEditPage}, or {@code alsoAllowed}: whatever else the host's own "Edit page"
+     * button admits, a site admin's {@code showAll} and on the landing page a media admin). THE one capture
+     * every content host uses ({@code viewScope.editMode = content.editModeFor(param.edit, ...)}): the hosts
+     * used to pin {@code "true".equals(param.edit)} for any signed-in visitor and gate only the edit CONTROLS,
+     * and edit mode lists every row ({@link #getForView}), so anyone signed in read a page's hidden and
+     * not-yet-visible sections by adding the parameter. Signed-in paths only: this reads the privilege store.
+     */
+    public boolean editModeFor(final String requested, final String pageKey, final Person.Id userId,
+            final boolean alsoAllowed) {
+        return "true".equals(requested) && userId != null && (alsoAllowed || canEditPage(pageKey, userId));
+    }
+
     private boolean holdsEditorPrivilege(final ContentInstance section, final Person.Id userId) {
         return section.getEditorPrivileges() != null && section.getEditorPrivileges().stream()
                 .anyMatch(name -> priv.check(name, null, userId));

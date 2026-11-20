@@ -2,6 +2,7 @@ package org.paulsens.trip.action;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Named;
+import java.util.Arrays;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.Audit;
 import org.paulsens.trip.audit.AuditActor;
@@ -9,6 +10,7 @@ import org.paulsens.trip.audit.AuditEventBuilder;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.Payment;
+import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Transaction;
 import org.paulsens.trip.model.Trip;
@@ -243,6 +245,47 @@ public class AuditCommands {
                 .actor(who == null ? AuditActor.current() : who)
                 .target(AuditEventBuilder.TARGET_TRIP, tripId)
                 .org(orgId)
+                .message(msg)
+                .log();
+        return msg;
+    }
+
+    /**
+     * A trip that has ledger rows was moved to another organization, and its rows re-stamped with it
+     * ({@code TripCommands.saveTrip}). One record in EACH organization's trail: the one that lost the rows must
+     * be able to find out where they went, and the one that gained them where they came from.
+     */
+    public String tripLedgerMoved(final Trip trip, final String fromOrgId, final int moved, final int failed,
+            final AuditActor who) {
+        final AuditActor actor = (who == null) ? AuditActor.current() : who;
+        final String msg = describeActor(actor) + " moved trip '" + trip.getTitle() + "' from organization "
+                + (fromOrgId == null ? "(none)" : fromOrgId) + " to " + trip.getOrgId() + "; " + moved
+                + " of its transactions moved with it" + (failed == 0 ? "" : ", " + failed + " FAILED to move");
+        for (final String orgId : Arrays.asList(fromOrgId, trip.getOrgId())) {
+            if (orgId != null) {
+                Audit.builder(AuditAction.TRANSACTION, AuditOutcome.of(failed == 0))
+                        .actor(actor)
+                        .target(AuditEventBuilder.TARGET_TRIP, trip.getId())
+                        .org(orgId)
+                        .message(msg)
+                        .log();
+            }
+        }
+        return msg;
+    }
+
+    /**
+     * An organization's "How to pay" page was given its starter text ({@code PayPageCommands.ensurePage}). The
+     * actor is the system: the seed runs on the first render of the page, whoever asked for it, a signed-out
+     * visitor included, so no person made this change and the trail must not name one.
+     */
+    public String payPageSeeded(final Organization org, final String pageKey) {
+        final String msg = "How to pay page seeded with its starter text for organization '" + org.getName()
+                + "' (" + pageKey + ")";
+        Audit.builder(AuditAction.ORGANIZATION, AuditOutcome.SUCCESS)
+                .actor(AuditActor.system())
+                .target(AuditEventBuilder.TARGET_ORGANIZATION, org.getId().getValue())
+                .org(org.getId().getValue())
                 .message(msg)
                 .log();
         return msg;

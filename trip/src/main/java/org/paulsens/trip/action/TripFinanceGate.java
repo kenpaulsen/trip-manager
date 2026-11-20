@@ -5,7 +5,6 @@ import java.util.function.Supplier;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.BindingType;
-import org.paulsens.trip.model.CompositeKey;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Transaction;
 import org.paulsens.trip.model.Trip;
@@ -15,10 +14,18 @@ import static org.paulsens.trip.action.PageFeedback.refuse;
 /**
  * The one spelling of who may read and write a trip's planning money: the budget ({@link BudgetCommands}) and
  * the expense report ({@link ExpenseCommands}) both ask it, so the two pages can never disagree about a
- * person. Edit = site admin, {@code tripMgr@trip} or {@code tripFinAdmin@trip}; view = an editor,
- * {@code tripFinView@trip} or the global {@code viewFinances}; settle (record payments against an expense
- * report) = site admin or {@code tripFinAdmin@trip} only, so a trip manager, usually the one being paid, cannot
- * mark their own report paid. All answer false for an unknown trip or nobody signed in.
+ * person. Edit = site admin, {@code tripMgr@trip} or {@code tripFinAdmin@trip}; view = an editor or whoever
+ * {@link #seesMoney}; settle (record payments against an expense report) = site admin or
+ * {@code tripFinAdmin@trip} only, so a trip manager, usually the one being paid, cannot mark their own report
+ * paid. All answer false for an unknown trip or nobody signed in.
+ *
+ * <p>TWO read rules, on purpose. {@link #seesMoney} is the MONEY pages' (the trip's ledger, the payment and
+ * lodging-cost reports, the balances on the contacts page, the check-in money row): a site admin,
+ * {@code tripFinView@trip}, or {@code viewFinances} scoped to the organization that owns the trip.
+ * {@link #canView} is the planning money's (budget, expense report, a balance in a mail merge or a reminder):
+ * {@code seesMoney} plus the editors. Do not merge them: a trip manager edits the budget and has never read the
+ * travelers' payments, and one rule would hand them every money page. {@code viewFinances} was a GLOBAL grant
+ * until 2026-11, which let its holder read every tenant's trip finances; a global row now grants nothing.
  *
  * <p>It is also the rule for the travelers' LEDGERS ({@code TransactionsResource}), which needs a second
  * half the planning money never did. A budget is keyed by its trip, so a role on the trip is the whole
@@ -27,6 +34,10 @@ import static org.paulsens.trip.action.PageFeedback.refuse;
  * anybody's rows on every other trip (audit 2026-11-11). Read = {@code tripFinView@trip} or
  * {@code tripFinAdmin@trip}; write = {@code tripFinAdmin@trip} (the settle rule: a trip manager is not a
  * finance admin). A site admin reads and writes every ledger, with or without a trip.
+ *
+ * <p>One deliberate exception to "only the rows on that trip's books" (owner decision 2026-11-20): Trip Contacts
+ * shows a traveler's balance with the trip's organization beside the trip amount to every viewer who passes
+ * {@link #seesMoney} on that trip, and to the traveler ({@code LedgerCommands.tripAndOrgBalances}).
  */
 public final class TripFinanceGate {
     private final Supplier<Caller> callerSource;
@@ -112,9 +123,8 @@ public final class TripFinanceGate {
         if (tripId.equals(owner)) {
             return true;
         }
-        final String key = CompositeKey.builder().partitionKey(owner).sortKey(tx.getTxId()).build().getValue();
-        return DAO.getInstance().getBindings(key, BindingType.TRANSACTION, BindingType.TRIP, cached)
-                .contains(tripId);
+        return DAO.getInstance().getBindings(LedgerStatements.keyOf(tx), BindingType.TRANSACTION, BindingType.TRIP,
+                cached).contains(tripId);
     }
 
     // ------------------------------------------------------------------ planning money
@@ -133,25 +143,57 @@ public final class TripFinanceGate {
         return signedInOnKnownTrip(tripId) && callerSource.get().has(PrivilegeCommands.TRIP_FIN_ADMIN, tripId);
     }
 
-    /** May read: an editor, the trip's finance viewers, or a global finance viewer. */
-    boolean canView(final String tripId) {
-        if (canEdit(tripId)) {
-            return true;
-        }
-        if (!signedInOnKnownTrip(tripId)) {
-            return false;
-        }
-        final Caller caller = callerSource.get();
-        return caller.has(PrivilegeCommands.TRIP_FIN_VIEW, tripId) || caller.has(PrivilegeCommands.VIEW_FINANCES);
+    /** May read the planning money: an editor, or whoever {@link #seesMoney}. */
+    public boolean canView(final String tripId) {
+        return canEdit(tripId) || seesMoney(tripId);
     }
 
-    /** The trip, or null for an unknown one ({@code getTrip} answers a miss with a blank trip and a fresh id). */
+    /**
+     * May open the trip's MONEY pages: a site admin, the trip's finance viewers ({@code tripFinView@trip}), or a
+     * finance viewer of the organization that owns the trip ({@code viewFinances@org}). Not the editors: see the
+     * class comment. False for nobody signed in and for a trip that is unknown or that this site does not serve,
+     * whoever asks.
+     */
+    public boolean seesMoney(final String tripId) {
+        return signedInOnKnownTrip(tripId) && seesMoney(callerSource.get(), knownTrip(tripId));
+    }
+
+    /**
+     * {@link #seesMoney(String)} over a trip the caller has ALREADY resolved on this site (the PDF servlet and the
+     * check-in bean hold theirs). The organization is read from the trip, never from the request's host or a
+     * parameter, so a grant in one organization cannot be carried to another's trip. A trip with no organization
+     * has no org finance viewers. The global row is deliberately not asked: it grants nothing.
+     */
+    public static boolean seesMoney(final Caller caller, final Trip trip) {
+        if (caller == null || trip == null || !caller.isAuthenticated()) {
+            return false;
+        }
+        if (caller.isSiteAdmin() || caller.has(PrivilegeCommands.TRIP_FIN_VIEW, trip.getId())) {
+            return true;
+        }
+        final String orgId = trip.getOrgId();
+        return orgId != null && !orgId.isBlank() && caller.has(PrivilegeCommands.VIEW_FINANCES, orgId);
+    }
+
+    /** The trip, or null for an unknown one: {@link #knownTrip(TripCommands, String)} through this gate's trips. */
     Trip knownTrip(final String tripId) {
-        if (tripId == null) {
+        return knownTrip(tripSource.get(), tripId);
+    }
+
+    /**
+     * The trip as {@code trips} serves it on this site, or null for none, an unknown one or one out of the site
+     * ({@code getTrip} answers a miss with a blank trip and a fresh id). THE one "is this a trip here" test of
+     * the money pages: this gate, the Balance page ({@code LedgerCommands}) and the pay page
+     * ({@code PayPageCommands}) each had a copy, and the copies disagreed about a blank or padded id, so one
+     * {@code ?trip=} was a trip to the pay page and no trip to the ledger. A pasted id's padding is forgiven.
+     */
+    static Trip knownTrip(final TripCommands trips, final String tripId) {
+        if (tripId == null || tripId.isBlank()) {
             return null;
         }
-        final Trip trip = tripSource.get().getTrip(tripId);
-        return (trip == null || !tripId.equals(trip.getId())) ? null : trip;
+        final String id = tripId.trim();
+        final Trip trip = trips.getTrip(id);
+        return (trip == null || !id.equals(trip.getId())) ? null : trip;
     }
 
     /**

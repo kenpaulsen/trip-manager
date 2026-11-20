@@ -26,7 +26,9 @@ import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.content.ContentRenderer;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.model.BindingType;
+import org.paulsens.trip.model.CompositeKey;
 import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.Language;
 import org.paulsens.trip.model.Organization;
@@ -34,6 +36,7 @@ import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.SharedSiteRegisterTarget;
 import org.paulsens.trip.model.Registration;
 import org.paulsens.trip.model.RegistrationOption;
+import org.paulsens.trip.model.Transaction;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripEvent;
 import org.paulsens.trip.model.TripKind;
@@ -51,8 +54,6 @@ public class TripCommands {
     private static final long TIMEOUT = 5_000L;
     /** Cap for the admin/joinable trip-resolution fallbacks (a user's own trips come from the reverse index). */
     private static final int RECENT_TRIP_LIMIT = 100;
-    /** The trip pickers' explicit no-trip row ({@code admin/batchTx.xhtml}'s Trip menu). */
-    private static final String NO_TRIP = "none";
     /** Shown (as a growl) on the profile page when a trip asked for by id could not be opened; see noTripUrl. */
     public static final String NO_TRIP_ACCESS_MESSAGE = "That trip is not available to you.";
     /**
@@ -66,6 +67,14 @@ public class TripCommands {
     /** How many times its cap an organization-filtered recent list fetches: {@link #tenantFilterWindow}. */
     private static final int TENANT_FILTER_OVER_FETCH = 4;
 
+    /**
+     * Trips newest first, one with no start date LAST (as {@code TripDAO.TRIP_ORDER} puts it): a stored trip
+     * may lack a start date, and a bare {@code comparing(Trip::getStartDate)} threw on the first such row.
+     */
+    static final Comparator<Trip> NEWEST_FIRST = Comparator
+            .comparing(Trip::getStartDate, Comparator.nullsFirst(Comparator.<LocalDateTime>naturalOrder()))
+            .reversed();
+
     /** How a refused event's start is spelled back to the manager, e.g. "Oct 13, 2026 6:55 PM". */
     private static final DateTimeFormatter EVENT_WHEN = DateTimeFormatter.ofPattern("MMM d, yyyy h:mm a");
 
@@ -75,6 +84,10 @@ public class TripCommands {
     private final Supplier<OrgCommands> orgSource;
     /** Who is asking, for the trip pickers' tenancy rule ({@link #getRecentTripsFor}). */
     private final Supplier<Caller> callerSource;
+    /** Writes a moved trip's ledger rows ({@link #restampLedger}). */
+    private final LedgerRowWriter ledgerRows;
+    /** Reads a moved trip's ledger rows; a save that moves nothing never asks it. */
+    private final LedgerRowReader ledgerReads;
 
     public TripCommands() {
         this(() -> org.paulsens.trip.api.Beans.get(OrgCommands.class));
@@ -87,8 +100,52 @@ public class TripCommands {
 
     /** Test seam: the caller too ({@code Caller.current()} needs a FacesContext). */
     TripCommands(final Supplier<OrgCommands> orgSource, final Supplier<Caller> callerSource) {
+        this(orgSource, callerSource, row -> DAO.getInstance().saveTransaction(row));
+    }
+
+    /** Test seam: the ledger row write too, so a test can fail ONE row of an organization move. */
+    TripCommands(final Supplier<OrgCommands> orgSource, final Supplier<Caller> callerSource,
+            final LedgerRowWriter ledgerRows) {
+        this(orgSource, callerSource, ledgerRows, DAO_LEDGER_READS);
+    }
+
+    /** Test seam: the ledger reads too, so a test can count them on a save that moves nothing. */
+    TripCommands(final Supplier<OrgCommands> orgSource, final Supplier<Caller> callerSource,
+            final LedgerRowWriter ledgerRows, final LedgerRowReader ledgerReads) {
         this.orgSource = orgSource;
         this.callerSource = callerSource;
+        this.ledgerRows = ledgerRows;
+        this.ledgerReads = ledgerReads;
+    }
+
+    /** How {@link #saveTrip} reads the rows on a trip's books: the DAO, uncached, which a test wraps to count. */
+    interface LedgerRowReader {
+        /** The "{userId},{txId}" keys of the rows bound to the trip. */
+        List<String> rowKeys(String tripId);
+
+        /** One of those rows, or empty when its binding outlived it. */
+        Optional<Transaction> row(String rowKey);
+    }
+
+    /** The production {@link LedgerRowReader}. */
+    static final LedgerRowReader DAO_LEDGER_READS = new LedgerRowReader() {
+        @Override
+        public List<String> rowKeys(final String tripId) {
+            return DAO.getInstance().getBindings(tripId, BindingType.TRIP, BindingType.TRANSACTION, Cached.NO);
+        }
+
+        @Override
+        public Optional<Transaction> row(final String rowKey) {
+            final CompositeKey key = CompositeKey.from(rowKey);
+            return DAO.getInstance().getTransaction(Person.Id.from(key.getPartitionKey()), key.getSortKey(),
+                    Cached.NO);
+        }
+    };
+
+    /** How {@link #restampLedger} writes one row back: the DAO's save, which a test replaces. */
+    @FunctionalInterface
+    interface LedgerRowWriter {
+        Boolean save(Transaction row) throws IOException;
     }
 
     public Trip createTrip() {
@@ -199,6 +256,12 @@ public class TripCommands {
                     + "a trip a conference or change a conference's kind.");
             return false;
         }
+        if (trip.getOrgId() == null || trip.getOrgId().isBlank()) {
+            // Every trip belongs to an organization: its ledger rows, payments and pages take their tenancy from
+            // it, and a row recorded on an org-less trip would belong to nobody (TransactionsCommands.ledgerTrip).
+            PageFeedback.warn(NO_ORG_REFUSED);
+            return false;
+        }
         if (hasUnnamedShownOption(trip)) {
             // New options start blank and shown (the editor's hints stand in for the name), so a forgotten one
             // would otherwise reach the registration form as a question with no label.
@@ -228,6 +291,16 @@ public class TripCommands {
             return false;
         }
         final boolean brandNew = before.readable() && stored == null;
+        final LedgerMove ledgerMove = ledgerMoveOf(trip, stored, before.readable(), org);
+        if (ledgerMove != null && ledgerMove.refused()) {
+            PageFeedback.warn(LEDGER_MOVE_REFUSED);
+            return false;
+        }
+        // The marker is this method's alone: a moving trip carries it into the trip write (so a re-stamp that
+        // then fails, or never runs, is known to the next site administrator's save), every other save keeps
+        // what the stored row has.
+        trip.setLedgerMoveFrom(ledgerMove != null ? ledgerMove.marker() : pendingMoveOf(trip, stored,
+                before.readable()));
         boolean result;
         // Read the roster BEFORE the write, so anyone dropped in this edit can be taken off the chat too. Done
         // here rather than at each Remove button because there are several ways off a trip and they must all
@@ -249,7 +322,16 @@ public class TripCommands {
             log.warn("Error while saving trip: ", ex);
             result = false;
         }
-        if (result) {
+        // The trip row is written: what follows it (the chat roster, the trip's page) happens whether or not every
+        // ledger row then moves. A failed row used to answer false before them, and they were skipped for good.
+        final boolean tripSaved = result;
+        if (tripSaved && ledgerMove != null) {
+            result = ledgerMove.rowKeys().isEmpty() || restampLedger(trip, ledgerMove);
+            if (result) {
+                clearLedgerMove(trip);
+            }
+        }
+        if (tripSaved) {
             ChatCommands.getChatCommands().leaveOnTripRemoval(trip.getId(), removed);
             if (trip.getPageSeededAt() == null
                     && (brandNew || trip.getDescription() == null || trip.getDescription().isBlank())) {
@@ -262,6 +344,158 @@ public class TripCommands {
             }
         }
         return result;
+    }
+
+    /** The refusal when a trip is saved with no organization. */
+    static final String NO_ORG_REFUSED = "Not saved: a trip must belong to an organization.";
+
+    /** The refusal when someone other than a site admin moves a trip that has ledger rows to another org. */
+    static final String LEDGER_MOVE_REFUSED = "Not saved: this trip has transactions on its books, so only a site "
+            + "administrator may move it to another organization (its transactions move with it).";
+
+    /**
+     * A save that moves ledger rows to the trip's organization: where from and the rows' keys. {@code refused}
+     * is the same move asked for by someone who may not make it, with nothing read beyond the keys.
+     */
+    record LedgerMove(String fromOrgId, List<String> rowKeys, boolean refused) {
+
+        /** What the trip row records while the move is under way: never blank, or it would read as "no move". */
+        String marker() {
+            return fromOrgId == null || fromOrgId.isBlank() ? MOVE_FROM_NO_ORG : fromOrgId;
+        }
+    }
+
+    /** {@code Trip.ledgerMoveFrom} for a legacy trip that had NO organization before its move. */
+    static final String MOVE_FROM_NO_ORG = "(none)";
+
+    /**
+     * The ledger half of an organization move, or null when this save is not one, which is every roster change,
+     * event edit and badge save: those read NO ledger row and are never refused on the ledger's account (they
+     * used to walk every row of the trip's books, and a single row left on another organization refused the
+     * save for everyone but a site administrator, silently for the callers that drop this method's result).
+     *
+     * <p>Two things make a save a move, and both are known from the trip rows alone. It CHANGES the
+     * organization (stored against saved) and the trip has rows on its books: a site administrator's alone,
+     * because a ledger row's organization is its trip's, so the rows go along. Or an earlier move did not
+     * finish: the stored trip still carries {@code ledgerMoveFrom}, written with the trip row before the
+     * re-stamp and cleared only after every row moved. A site administrator's save finishes that one; anyone
+     * else's save goes through untouched and leaves the marker for them.
+     */
+    LedgerMove ledgerMoveOf(final Trip trip, final Trip stored, final boolean storedReadable,
+            final OrgCommands org) {
+        final String pending = pendingMoveOf(trip, stored, storedReadable);
+        final boolean changesOrg = stored != null && !Objects.equals(stored.getOrgId(), trip.getOrgId());
+        if (!changesOrg && pending == null) {
+            return null;
+        }
+        final boolean siteAdmin = savedBySiteAdmin(org);
+        if (!changesOrg && !siteAdmin) {
+            log.info("Trip {} still has ledger rows to move from organization {}: left for a site administrator's "
+                    + "save", trip.getId(), pending);
+            return null;
+        }
+        final List<String> rowKeys = ledgerReads.rowKeys(trip.getId());
+        if (rowKeys.isEmpty() && (pending == null || !siteAdmin)) {
+            // No rows, no ledger move: the two organizations' administrators may move such a trip.
+            return null;
+        }
+        // (With a marker and no rows left, a site administrator's save moves nothing and clears the marker.)
+        // A second move before the first finished still names where the unmoved rows began.
+        final String from = pending != null ? pending : stored.getOrgId();
+        return new LedgerMove(MOVE_FROM_NO_ORG.equals(from) ? null : from, rowKeys, !siteAdmin);
+    }
+
+    /**
+     * Whether a site administrator is saving. A save with nobody to ask (a checkout finishing on the payment
+     * webhook's thread adds its travelers to the roster through here) is not one: it must go through like any
+     * other save that is not theirs to finish, never fail on the question.
+     */
+    private boolean savedBySiteAdmin(final OrgCommands org) {
+        try {
+            return (org == null ? orgSource.get() : org).isSiteAdmin();
+        } catch (final RuntimeException ex) {
+            log.warn("Could not tell who is saving a trip with a ledger move outstanding; not a site admin", ex);
+            return false;
+        }
+    }
+
+    /**
+     * The unfinished move the STORED trip records, or null. The saved object's own marker counts only when the
+     * stored row could not be read: a client's copy must not start, or hide, a move.
+     */
+    private static String pendingMoveOf(final Trip trip, final Trip stored, final boolean storedReadable) {
+        final String pending = storedReadable ? (stored == null ? null : stored.getLedgerMoveFrom())
+                : trip.getLedgerMoveFrom();
+        return pending == null || pending.isBlank() ? null : pending;
+    }
+
+    /**
+     * Takes the marker off a trip whose rows have all moved. A second trip write, which a move alone pays for;
+     * when it fails the marker stays, and the next site administrator's save re-checks the rows and clears it.
+     */
+    private void clearLedgerMove(final Trip trip) {
+        trip.setLedgerMoveFrom(null);
+        try {
+            if (!DAO.getInstance().saveTrip(trip)) {
+                log.warn("Trip {} moved with all its ledger rows, but the move marker was not cleared", trip.getId());
+            }
+        } catch (final RuntimeException | IOException ex) {
+            log.warn("Trip {} moved with all its ledger rows, but the move marker was not cleared", trip.getId(), ex);
+        }
+    }
+
+    /** Whether the trip has any row on its books: what makes an organization move a site admin's alone. */
+    public static boolean hasLedgerRows(final String tripId) {
+        return tripId != null && !DAO_LEDGER_READS.rowKeys(tripId).isEmpty();
+    }
+
+
+    /**
+     * Re-stamps every row on the moved trip's books with its new organization, then audits the move in both
+     * organizations' trails. Runs right after the trip row is written: there is no transaction across the two
+     * tables, so a row that fails is logged and reported (the save answers false and says so) rather than
+     * leaving a silent mismatch; a site administrator saving the trip again retries the rows that are still on
+     * the old org ({@link #ledgerMoveOf} knows from the marker the trip row carries until they have all moved).
+     */
+    private boolean restampLedger(final Trip trip, final LedgerMove move) {
+        int moved = 0;
+        int failed = 0;
+        for (final String rowKey : move.rowKeys()) {
+            final Restamp done = restampRow(rowKey, trip.getOrgId());
+            // GONE counts as neither: a binding whose row is deleted has nothing to move.
+            if (done == Restamp.MOVED) {
+                moved++;
+            } else if (done == Restamp.FAILED) {
+                failed++;
+            }
+        }
+        new AuditCommands().tripLedgerMoved(trip, move.fromOrgId(), moved, failed, AuditActor.current());
+        if (failed > 0) {
+            log.error("Trip {} moved to organization {} but {} of its ledger rows were NOT re-stamped", trip.getId(),
+                    trip.getOrgId(), failed);
+            PageFeedback.failure("The trip moved, but " + failed + " of its transactions did not. Save it again.");
+        }
+        return failed == 0;
+    }
+
+    /** What became of one row of a moved trip: it carries the new organization, its write failed, or it is gone. */
+    private enum Restamp { MOVED, FAILED, GONE }
+
+    private Restamp restampRow(final String rowKey, final String orgId) {
+        try {
+            final Transaction row = ledgerReads.row(rowKey).orElse(null);
+            if (row == null) {
+                return Restamp.GONE;
+            }
+            if (orgId.equals(row.getOrgId())) {
+                return Restamp.MOVED;
+            }
+            row.setOrgId(orgId);
+            return Boolean.TRUE.equals(ledgerRows.save(row)) ? Restamp.MOVED : Restamp.FAILED;
+        } catch (final RuntimeException | IOException ex) {
+            log.error("Could not re-stamp ledger row {} to organization {}", rowKey, orgId, ex);
+            return Restamp.FAILED;
+        }
     }
 
     /**
@@ -1480,7 +1714,7 @@ public class TripCommands {
         }
         return getTripsForUser(userId).stream()
                 .filter(trip -> trip.getEndDate() != null && trip.getEndDate().isBefore(cutoff))
-                .sorted(Comparator.comparing(Trip::getStartDate).reversed())
+                .sorted(NEWEST_FIRST)
                 .limit(limit > 0 ? limit : Long.MAX_VALUE)
                 .toList();
     }
@@ -1527,8 +1761,34 @@ public class TripCommands {
      * the caller may not pick ({@link #getPickableTrip}), adds nothing either.
      */
     public List<Trip> getRecentTripsWith(final String privilege, final int limit, final String pinnedId) {
-        final List<Trip> listed = getRecentTripsFor(privilege, limit);
-        if (isNoTrip(pinnedId) || listed.stream().anyMatch(trip -> pinnedId.equals(trip.getId()))) {
+        return withPinned(getRecentTripsFor(privilege, limit), privilege, pinnedId);
+    }
+
+    /**
+     * The trips a person is on ({@link #getTripsForUser}) plus, first, the trip their transaction was OPENED on
+     * when they are no longer on it (a withdrawn traveler's row stays on its trip's books): the single-person
+     * transaction editor's Trip menu, pinned exactly as {@link #getRecentTripsWith} pins the group editor's.
+     * The page used to build this list in its script and test membership with an EL stream, whose
+     * {@code anyMatch} answers EL's own Optional and cannot be coerced to a boolean attribute (every render of
+     * the editor was an HTTP 500).
+     */
+    public List<Trip> getTripsForUserWith(final Person.Id userId, final String privilege, final String pinnedId) {
+        return withPinned(userId == null ? List.of() : getTripsForUser(userId), privilege, pinnedId);
+    }
+
+    /**
+     * Whether a Trip menu whose items are {@code options} lists {@code tripId}: what decides if the menu still
+     * needs its "Choose a trip" row. False for no trip at all and for a trip the items omit, so such a menu
+     * posts NO trip (which Save refuses) rather than its first real one.
+     */
+    public boolean listsTrip(final Collection<Trip> options, final String tripId) {
+        return options != null && !TransactionsCommands.isNoTrip(tripId)
+                && options.stream().anyMatch(trip -> tripId.equals(trip.getId()));
+    }
+
+    /** {@code listed}, with the pinned trip first when the list lacks it and the caller may pick it. */
+    private List<Trip> withPinned(final List<Trip> listed, final String privilege, final String pinnedId) {
+        if (TransactionsCommands.isNoTrip(pinnedId) || listsTrip(listed, pinnedId)) {
             return listed;
         }
         final Trip pinned = getPickableTrip(privilege, pinnedId);
@@ -1549,7 +1809,8 @@ public class TripCommands {
      */
     public Trip getPickableTrip(final String privilege, final String tripId) {
         final Caller caller = callerSource.get();
-        if (isNoTrip(tripId) || !(seesEveryTrip(caller, privilege) || holdsOnTrip(caller, privilege, tripId))) {
+        if (TransactionsCommands.isNoTrip(tripId)
+                || !(seesEveryTrip(caller, privilege) || holdsOnTrip(caller, privilege, tripId))) {
             return Trip.builder().build();
         }
         return getTrip(tripId);
@@ -1628,11 +1889,6 @@ public class TripCommands {
                 .map(Trip::getId)
                 .collect(Collectors.toSet());
         return trips.stream().filter(trip -> kept.contains(trip.getId())).toList();
-    }
-
-    /** No trip at all: null, blank, or the pickers' explicit {@code "none"} row. */
-    private static boolean isNoTrip(final String tripId) {
-        return tripId == null || tripId.isBlank() || NO_TRIP.equals(tripId);
     }
 
     /**
@@ -1870,7 +2126,7 @@ public class TripCommands {
     public List<Trip> recentTripsFor(final Person.Id userId, final int limit) {
         return getTripsForUser(userId).stream()
                 .filter(trip -> trip.getStartDate() != null)
-                .sorted(Comparator.comparing(Trip::getStartDate).reversed())
+                .sorted(NEWEST_FIRST)
                 .limit(limit > 0 ? limit : 5)
                 .toList();
     }

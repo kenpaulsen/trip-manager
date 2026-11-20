@@ -1363,7 +1363,8 @@ public class OrgCommands {
             PrivilegeCommands.CONTENT_ADMIN, "Site Content Editor",
             PrivilegeCommands.MEDIA_ADMIN, "Site Media Editor",
             PrivilegeCommands.AUDIT_ADMIN, "Audit Viewer",
-            PrivilegeCommands.LODGING_ADMIN, "Lodging Admin");
+            PrivilegeCommands.LODGING_ADMIN, "Lodging Admin",
+            PrivilegeCommands.VIEW_FINANCES, "Finance Viewer");
 
     /** The display name of an org-scoped privilege base ("People Admin"), or the base itself when unnamed. */
     static String orgPrivName(final String base) {

@@ -2,6 +2,7 @@ package org.paulsens.trip.action;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripEvent;
@@ -40,6 +41,7 @@ public class TripResolutionTest {
 
     private Trip savedTrip(final LocalDateTime start, final LocalDateTime end, final Person.Id... members) {
         final Trip trip = trips.createTrip();
+        trip.setOrgId(FakeData.CFPW_ORG_ID);
         trip.setStartDate(start);
         trip.setEndDate(end);
         trip.setPeople(List.of(members));

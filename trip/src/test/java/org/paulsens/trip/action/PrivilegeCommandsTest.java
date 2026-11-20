@@ -49,6 +49,17 @@ public class PrivilegeCommandsTest {
                 && PrivilegeCommands.GLOBAL_BASES.contains(PrivilegeCommands.LODGING_ADMIN)
                 && PrivilegeCommands.ORG_HUB_BASES.contains(PrivilegeCommands.LODGING_ADMIN),
                 "lodgingAdmin is both org-scoped (offers, reservations) and global (every hotel), like contentAdmin");
+        // viewFinances MOVED to org scope (2026-11): offered for an organization, never as a global grant, and
+        // it opens no org dashboard (a finance viewer has no card there).
+        assertTrue(privCmds.knownBases("ORG").contains(PrivilegeCommands.VIEW_FINANCES));
+        assertFalse(privCmds.knownBases("GLOBAL").contains(PrivilegeCommands.VIEW_FINANCES));
+        assertFalse(privCmds.knownBases("TRIP").contains(PrivilegeCommands.VIEW_FINANCES));
+        assertFalse(PrivilegeCommands.ORG_HUB_BASES.contains(PrivilegeCommands.VIEW_FINANCES));
+        final List<String> hubless = new java.util.ArrayList<>(PrivilegeCommands.ORG_SCOPED_BASES);
+        hubless.remove(PrivilegeCommands.VIEW_FINANCES);
+        assertEquals(PrivilegeCommands.ORG_HUB_BASES, hubless, "every other org-scoped base opens the dashboard");
+        assertEquals(privCmds.baseDescription(PrivilegeCommands.VIEW_FINANCES),
+                "View the finances of the organization's trips: reports and budgets (read-only)");
         for (final String base : privCmds.knownBases("ACCOMMODATION")) {
             assertFalse(privCmds.baseDescription(base).isBlank(), "Missing description: " + base);
         }

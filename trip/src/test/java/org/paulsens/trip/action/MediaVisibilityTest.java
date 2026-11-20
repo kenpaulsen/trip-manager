@@ -72,6 +72,7 @@ public class MediaVisibilityTest {
                 .endDate(LocalDateTime.now().plusDays(endOffset))
                 .build();
         trip.setProvider("CFPW");
+        trip.setOrgId(FakeData.CFPW_ORG_ID);
         Assert.assertTrue(trips.saveTrip(trip), "seed trip " + id);
     }
 

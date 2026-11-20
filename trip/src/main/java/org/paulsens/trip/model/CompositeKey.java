@@ -20,6 +20,15 @@ public class CompositeKey implements Serializable {
     String sortKey;
 
     public String getValue() {
+        return join(partitionKey, sortKey);
+    }
+
+    /**
+     * The stored spelling of a two-part key, THE one place that writes it: a ledger row's binding key is its
+     * person's id and its row id joined this way, and code that spelled the separator by hand would keep
+     * matching its own keys while no longer matching what the bindings table holds.
+     */
+    public static String join(final String partitionKey, final String sortKey) {
         return partitionKey + SEPARATOR + sortKey;
     }
 

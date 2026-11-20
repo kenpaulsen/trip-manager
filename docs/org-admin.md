@@ -105,9 +105,45 @@ Privileges page once verified:
 | `paymentsAdmin` | The trip editor's Payment Settings row for that org's trips, and the payment page's sandbox toggle (`PaymentCommands.isPaymentsAdmin`) |
 | `contentAdmin`, `mediaAdmin` | That org's own site: its page, templates, media library (also global; see "Org-site editors") |
 | `auditAdmin` | That org's own audit trail — its site's view and its Dashboard card (also global: every trail); chip name "Audit Viewer" |
+| `viewFinances` | Read-only finances of that org's TRIPS: the money pages and the planning money (see "Finance viewers" below); chip name "Finance Viewer". Migrated 2026-11, NOT global, and the one org-scoped base that does not open the Dashboard |
 
 `addTx` was deleted outright (its one button now uses `tripFinAdmin@trip`, like its destination always
 did). `privilegeAdmin`, `configAdmin`, `siteDeployer`, and `eventAdmin` remain global-only.
+
+### Finance viewers: `viewFinances@org` (2026-11)
+
+`viewFinances` was a GLOBAL grant, so one holder opened every organization's trip finance pages (a tenancy
+leak; owner decision 2026-11-19: no global form, site admins still see everything). It is now in
+`ORG_SCOPED_BASES` only. A holder reads the finances of the trips whose `Trip.orgId` is the organization the
+grant names, and of no other organization's; a global row grants nothing anywhere and can be deleted from the
+Global Privileges page.
+
+Two read rules live on `action/TripFinanceGate`, and they are deliberately not one:
+
+| Rule | Admits | Asked by |
+|------|--------|----------|
+| `seesMoney(tripId)` | site admin, `tripFinView@trip`, `viewFinances@{the trip's org}` | the MONEY pages: `trip/tripTransactions`, the Reports dashboard's finance cards, `tripPayments`, `billedVsCost`, `roomInvoice` and its PDF servlet, the balances on `trip/tripContacts`, the Reports tab, `CheckinCommands.canSeeMoney` / `canViewCounts` |
+| `canView(tripId)` | `seesMoney`, plus the editors `tripMgr@trip` and `tripFinAdmin@trip` | the planning money: budget, expense report, a balance in a mail merge (`MailMerge` MONEY) or a reminder (`ReminderGate.sight`) |
+
+Merging them would hand every trip manager the travelers' payments. Both answer false for nobody signed in and
+for a trip that is unknown or that this site does not serve, whoever asks; the organization is read from the
+trip, never from the host or a parameter, and a trip with no organization has no org finance viewers. Pages ask
+`#{txCmds.seesMoney(tripId)}` (`TransactionsCommands`), one arity, never a spelled-out `priv.check` union: the
+old union's `priv.check('viewFinances', null, ...)` was the global row.
+
+What the grant does NOT open: the org Dashboard (`ORG_HUB_BASES` is every org-scoped base but this one, since
+no card there is a finance viewer's; their route is each trip's Reports tab), any trip picker
+(`TripCommands.getRecentTripsFor` lists nothing for it), a traveler's ledger page or the ledger REST API
+(`canReadLedgers` stays `tripFinView` / `tripFinAdmin` on the trip), and any write. The allow-list is checked
+when the grant is MADE, not when it is used (unlike `addConference`), so restricting an org later leaves its
+existing holders in place until someone revokes them. Tests: `OrgFinanceViewerTest`, and
+`TripRoleReachPwIT` in the browser suite.
+
+**Going live.** The org-scoped row cannot exist before the deploy, so the people who held the global grant
+lose finance viewing from the deploy until they are granted per organization (fail closed). After the deploy,
+for each organization: if its `grantablePrivileges` allow-list is set (not "everything"), a site admin adds
+`viewFinances` to it on the Privileges tab, or its admins cannot grant it; then the grant is made on the org
+People page, to MEMBERS of that organization only (add the person first if they are not one).
 
 **Granting**: org admins grant/revoke org-scoped privileges to their MEMBERS on the org People page
 (grantee need not be an org admin), through `OrgCommands.grantOrgPrivilege`/`revokeOrgPrivilege` — the
@@ -698,6 +734,9 @@ content key, fixed at creation.
   children, one row at a time, each with its own CONTENT audit line, beside the ORGANIZATION line "Site page
   ... deleted". The confirmation says the page and everything on it are deleted.
 - A new page gets one starter text block unless content already sits under its key (then adopted as-is).
+- **Two names are reserved** (`OrgPageBootstrap.isReservedPageName`): `home`, the home page's own, and `pay`,
+  the How to pay page's (below). `SitePageCommands.addPage` refuses both, so no Site Page can open a second door
+  onto either key. A LINK to `/pay` is still fine: a link has a generated name and no content.
 - `page.xhtml` renders only a PAGE the CURRENT org site lists, and hands the content host the STORED name (so
   `?name=mission%20` is the page, never a 500); anything else (a shared host, a link, a deleted or malformed
   name) gets `WEB-INF/noSuchPage.xhtml`, chosen at build time, which answers HTTP 404 through `/notFound`
@@ -707,6 +746,52 @@ content key, fixed at creation.
   the server only checks the result). An address typed by hand stops following, and a refused Save keeps it
   (`viewScope.dlgNameTouched`); the dialog's kind (page or link) is pinned when it opens (`viewScope.dlgIsLink`).
 - The shared sites keep their hand-written pages and literal menus.
+
+## The pay page: an organization's "How to pay" (2026-11-19)
+
+Whoever owes money pays ONE organization, so the how-to-pay page is always some organization's. Its content is
+ordinary editable content under `page:org:{orgId}:pay` (`OrgPageBootstrap.payPageKey`), rendered by `trip/pay.xhtml`
+through `WEB-INF/contentSections.xhtml` on ANY host that reaches the organization (as a trip's page is), never a
+Site Page. The Java is `action/PayPageCommands` (`#{payPage}`).
+
+- **One decision, asked by both pages**: `payPage.destination(tripId)`, `IN_APP` when the trip as this site serves
+  it resolves to a payable configuration (`OrgCommands.effectivePaymentConfig(trip).payable`), else `HOW_TO` (also
+  for no trip, an unknown one, and one this site does not serve). `trip/payment.xhtml` leaves when it is `HOW_TO`
+  and `trip/pay.xhtml` leaves when it is `IN_APP`, both on `payPage.inApp(tripId)`, so they cannot bounce a
+  traveler between them. `payPage.urlFor(tripId)` is the address the decision names. Never spell the test out on
+  a page again.
+- **Whose page**: `payPage.orgIdFor(param.trip, param.org)`: the trip's organization when this site serves the
+  trip; else the organization `?org=` names (its id, or its site's slug); else, with neither, the organization
+  whose own host this is; else null (a shared host with no context: the page sends the visitor to the Balance
+  page). `payPage.payPageKey(orgId)` answers the key only for an organization this site reaches
+  (`ListingScope.reachable`, the line `SiteCommands.tripPageKey` draws): another organization's page behaves
+  exactly like one that does not exist.
+- **Starter text**: `payPage.ensurePage(orgId)` (what the page calls for its key) gives the page, the FIRST time
+  it is rendered, one text block built in Java (`OrgPageBootstrap.payRows` / `payBody`): "How to pay {name}",
+  contact the organization at its contact email (`MailAddressCommands.contactEmailOf`; the address sentence is
+  left out when there is none), no colors or styles. ONCE per organization, recorded on its row
+  (`Organization.payPageSeededAt`, the `homePageSeededAt` pattern): a page its editors empty stays empty, and a
+  page authored before its first render is adopted as it is. (It used to refill whenever the page was empty, so
+  a signed-out GET brought the starter text back.) The row id is fixed per organization, so two first visits
+  write one row; nothing is seeded, or recorded, while the `text-only` starter template is missing. The check
+  reads the cached organization, so a render reads the store only until the seeding is recorded. NB the first
+  render may be a signed-out one and writes (one content row and the org row, once per organization); every
+  later render writes nothing.
+  A seed that records nothing (the template missing, the org row not saving) is tried again at most once per
+  `PayPageCommands.SEED_RETRY_AFTER` (5 minutes, remembered in memory per organization): without that bound
+  every anonymous hit cost a strongly consistent read and a log line. The audit record is written only once the
+  org row records the seed. Until the page has a section, `trip/pay.xhtml` shows `payPage.starterBody(orgId)`,
+  the same Java text, so the fallback and the seeded row cannot differ.
+- **Local mode**: `FakeData.addFakePayPage` authors the fake CFPW organization's page (demo instructions with
+  made-up details, `pay@example.com`) in the starter row's own id, so the first visit adopts it and the page is
+  demoable and testable locally; every other local organization gets the starter. In production CFPW's real
+  text is loaded once by `../medjugorje/scripts/seed-pay-pages.sh`.
+- **The platform's own organization has no pay page** (`Organization.isPlatform`): `payPageKey`, `orgIdFor`,
+  `orgName` and `ensurePage` all answer as for an organization that does not exist, on its own site too.
+- **Editing** is the existing content rule and nothing else (`ContentCommands.canEditPage` / `mayEdit`): a site
+  admin, a global `contentAdmin`, or `contentAdmin` of THAT organization, which the key itself names
+  (`OrgPageBootstrap.orgOf`). So an organization's editor edits its pay page on a shared host too, and nobody
+  else's.
 
 ## Shared-site Register target (2026-10-29)
 
@@ -829,6 +914,8 @@ like any other org grant and bounded by the org's allow-list) edits that ONE org
   from theirs. Its public URL is still URL-referenceable by anyone (locked decision: only discovery and
   writes are scoped).
 - The org DASHBOARD stays with the operational grants (`ORG_HUB_BASES`): editors work on the site itself.
+  (Later it admitted the editors too, for the org's templates; today it is every org-scoped base except
+  `viewFinances`, see "Finance viewers".)
 - Menu entries (Media, Content/Email Templates) and the landing page's upload/edit affordances use
   `priv.checkHere`, so an editor sees them on their org's host only.
 
@@ -1361,3 +1448,5 @@ Invite acceptance already produces a membership through the org People page's ad
 
 Acme trip `3f7a9c15…` (Kevin on the roster — demonstrates the removal guard), `emailAdmin@CFPW` → user2,
 `peopleAdmin@CFPW` → user4, and Acme's allow-list excludes `paymentsAdmin` (Kevin cannot grant it).
+`viewFinances@Acme` → user6 (Matt, a plain Acme member on no Acme trip): he reads the money pages of Acme's
+trips and of no other organization's.

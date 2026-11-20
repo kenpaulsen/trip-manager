@@ -149,6 +149,11 @@ public class SitePageCommandsTest {
         final SitePageCommands pages = commandsFor(orgAdmin);
 
         assertFalse(pages.addPage(orgId, "Home", "home", "ABOUT"), "home is the home page's own");
+        assertFalse(pages.addPage(orgId, "Pay", "pay", "HELP"), "pay is the How to pay page's own");
+        assertFalse(pages.addPage(orgId, "Pay", " PAY ", "HELP"), "however it is typed");
+        assertFalse(pages.saveDialog(orgId, "page", "pay", "Pay", null, "HELP"), "through the dialog too");
+        assertTrue(dao.getContentForSection(OrgPageBootstrap.payPageKey(org.getId()), Cached.NO).isEmpty(),
+                "a refused page seeds nothing under the pay page's key");
         assertFalse(pages.addPage(orgId, "Bad", "9lives", "ABOUT"));
         assertFalse(pages.addPage(orgId, "Bad", null, "ABOUT"));
         assertFalse(pages.addPage(orgId, " ", "blank", "ABOUT"), "a title is required");

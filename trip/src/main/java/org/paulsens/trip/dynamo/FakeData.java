@@ -570,6 +570,7 @@ public final class FakeData {
         seedFailedReminderSend(admin.getId());
         seedOrgScopedPrivileges(commands, kevin);
         seedOrgSiteEditor(commands);
+        seedOrgFinanceViewer(commands);
         // Each org SITE gets its default home page and its starter Site Pages (About Us, Board of Directors)
         // through the same once-only seeding a slug assignment triggers in production, so acme.localhost /
         // beta.localhost show what a new tenant sees. Runs after addFakeContent: the starter rows pin the
@@ -632,6 +633,15 @@ public final class FakeData {
     public static final String PUB_EN_2_TRIP_ID = "81f829e0-d44c-4dd1-9a9c-76e741e15f09";
     public static final String PUB_ES_1_TRIP_ID = "f0a65a39-3bca-4944-bc1b-87b51ffb0048";
     public static final String PUB_EXT_1_TRIP_ID = "85463bdc-e751-4c31-99da-bd682a4d92fd";
+    /**
+     * The ONE seeded trip with no organization: the External Demo, another provider's trip listed by its
+     * {@code provider} string. Production has no such row any more, but the code that tolerates one is still
+     * there and still tested against this seed: the provider fallback of {@code Trip.isCfpw()} (the CFPW sidebar
+     * leaves it out), the shared sites listing org-less content, and Discover refusing a trip with no
+     * organization. It can be read everywhere and SAVED nowhere ({@code TripCommands.saveTrip} refuses a blank
+     * organization), and no ledger row can be recorded on it. Do not add a second one.
+     */
+    public static final String LEGACY_ORGLESS_TRIP_ID = PUB_EXT_1_TRIP_ID;
     public static final String PUB_PAST_3D_TRIP_ID = "496bfbde-cede-46fe-a533-c301cd9cf8b7";
     public static final String PUB_PAST_30D_TRIP_ID = "3d1e0db4-03b4-465f-9f80-008191693b90";
     public static final String PUB_HIDDEN_TRIP_ID = "d80b4653-b521-4547-8cf3-a0945f40314f";
@@ -669,6 +679,21 @@ public final class FakeData {
             if (!commands.grantOrgPrivilege(ACME_ORG_ID, matt.getId(), base)) {
                 throw new IllegalStateException("Fake org seed: could not grant " + base + "@Acme to Matt");
             }
+        }
+    }
+
+    /**
+     * Matt (user6) is also Acme's FINANCE viewer: {@code viewFinances} scoped to Acme, through the real org grant
+     * path (membership and Acme's allow-list both checked). He reads the money pages of Acme's trips and of no
+     * other organization's, the org-scoped finance fixture. Matt because nothing else he holds opens a money
+     * page: he is a plain member, on no Acme trip, with no trip role there, and his two site-editor grants are
+     * about Acme's site. Kevin would prove nothing as the org's admin (he can grant himself any trip role).
+     */
+    private static void seedOrgFinanceViewer(final org.paulsens.trip.action.OrgCommands commands) {
+        final Person matt = DAO.getInstance().getPersonByEmail(localEmail("user6"), Cached.NO);
+        if (matt == null || !commands.grantOrgPrivilege(ACME_ORG_ID, matt.getId(),
+                org.paulsens.trip.action.PrivilegeCommands.VIEW_FINANCES)) {
+            throw new IllegalStateException("Fake org seed: could not grant viewFinances@Acme to Matt");
         }
     }
 
@@ -1173,10 +1198,37 @@ public final class FakeData {
                 new HashMap<>(Map.of("mediaId", "fake-doc-2")),
                 null, 1, 0, null, "fake-seed"));
         addFakeBoardPage();
+        addFakePayPage();
         // The product's own page (www.localhost): the same rows the production bootstrap script installs,
         // pinned to the band templates' current versions, so the full-width layout renders real content.
         MarketingPageBootstrap.rows(FakeData::currentTemplateVersion).forEach(FakeData::saveContent);
     }
+
+    /**
+     * The fake CFPW organization's "How to pay" page ({@code trip/pay.xhtml}), so the page can be demonstrated
+     * and tested locally with more than the generic starter: one text row under the organization's pay page key,
+     * in the starter row's own id (so the app's first-visit seed finds the page already authored and adopts it).
+     * Every detail is made up and says so: this repository is public, and no real payee belongs in it.
+     */
+    private static void addFakePayPage() {
+        final Organization.Id cfpw = Organization.Id.from(CFPW_ORG_ID);
+        saveContent(new ContentInstance(OrgPageBootstrap.payRowId(cfpw), OrgPageBootstrap.payPageKey(cfpw),
+                "How to pay", StarterTemplates.TEXT_ONLY_ID, currentTemplateVersion(StarterTemplates.TEXT_ONLY_ID),
+                new HashMap<>(Map.of("body", FAKE_PAY_BODY)), null, 0, 0, null, "fake-seed"));
+    }
+
+    /** Demo instructions only: example.com addresses, a 555 phone number, a post office box that does not exist. */
+    static final String FAKE_PAY_BODY = "<h2>How to Make a Payment</h2>"
+            + "<p>These are demo instructions for the local CFPW organization. Every detail below is made up.</p>"
+            + "<h3>Pay Online (Preferred)</h3>"
+            + "<p><strong>Bank transfer</strong></p>"
+            + "<p>A bank transfer is fast and <strong>free</strong>. Note the trip and your name(s).</p>"
+            + "<ul><li>Send payment to: <strong>pay@example.com</strong></li></ul>"
+            + "<h3>Pay by Check</h3>"
+            + "<p>Make check out to:</p><p><strong>CFPW Demo Organization</strong></p>"
+            + "<p>Mail check to:</p><p><strong>PO Box 000<br>Example City, OR 00000</strong></p>"
+            + "<p>Questions? Call (555) 010-0100 or write to <a href=\"mailto:pay@example.com\">pay@example.com</a>."
+            + "</p>";
 
     /**
      * The shared site's board page ({@code /board/index.jsf}), the first NAMED content page: a heading, then
@@ -1436,10 +1488,10 @@ public final class FakeData {
      * cover), one that has started (Closed) and one whose two places are taken (Full, with the registrations
      * {@link #addPicturedTripRegistrations} files). Three are CFPW's, owned by the CFPW organization (they were
      * org-less until medjugorje#155): Discover lists only a trip whose organization allows it, so with Acme's four
-     * local mode has two organizations to discover, while the landing seeds beside them stay org-less, the legacy
-     * shape Discover must NOT list. The shared site lists them as before: CFPW has no site of its own. Four are
-     * Acme's, so an org site lists its own. Beta deliberately gets none: the browser tests rely on Beta's site
-     * having no trip at all. Every
+     * local mode has two organizations to discover (the landing seeds beside them are CFPW's too now; the one
+     * org-less trip left, {@link #LEGACY_ORGLESS_TRIP_ID}, is the legacy shape Discover must NOT list). The shared
+     * site lists them as before: CFPW has no site of its own. Four are Acme's, so an org site lists its own. Beta
+     * deliberately gets none: the browser tests rely on Beta's site having no trip at all. Every
      * CFPW one starts well after the seeds above: the countdown cards and the tests that count the next CFPW trip
      * are theirs. The existing Holy Angels Demo gains a cover too, so the next departure the shared site features
      * is a pictured trip.
@@ -1725,11 +1777,15 @@ public final class FakeData {
     /**
      * Landing-page seeds: one trip per public-listing rule, so the data-driven home page renders every
      * branch locally (language sections, CFPW sidebar filter, countdown rules, 7-day removal, galleria).
+     * They are CFPW's (since the per-organization ledger: a ledger row takes its organization from its trip, and
+     * {@code TripCommands.saveTrip} refuses a trip with none), with ONE deliberate exception: the External Demo,
+     * {@link #LEGACY_ORGLESS_TRIP_ID}.
      */
     private static void addLandingPageSeeds(final List<Trip> trips, final List<Person.Id> allPeople,
             final List<Person.Id> tripStaff) {
         trips.add(Trip.builder()
                 .id(PUB_EN_1_TRIP_ID)
+                .orgId(CFPW_ORG_ID)
                 .title("2026 Sep: Holy Angels Demo")     // prefixed title exercises getShortTitle
                 .openToPublic(true)
                 .provider("CFPW")
@@ -1746,6 +1802,7 @@ public final class FakeData {
                 .build());
         trips.add(Trip.builder()
                 .id(PUB_EN_2_TRIP_ID)
+                .orgId(CFPW_ORG_ID)
                 .title("2027 Jan: Winter Demo")
                 .openToPublic(true)
                 .provider("CFPW")
@@ -1758,6 +1815,7 @@ public final class FakeData {
                 .build());
         trips.add(Trip.builder()
                 .id(PUB_ES_1_TRIP_ID)
+                .orgId(CFPW_ORG_ID)
                 .title("2026 dic: Bajo el Manto Demo")
                 .openToPublic(true)
                 .provider("CFPW")
@@ -1772,6 +1830,7 @@ public final class FakeData {
                 .facilitatorIds(tripStaff)
                 .build());
         trips.add(Trip.builder()
+                // THE org-less legacy fixture (LEGACY_ORGLESS_TRIP_ID): no .orgId here, on purpose.
                 .id(PUB_EXT_1_TRIP_ID)
                 .title("2026 Oct: External Demo")
                 .openToPublic(true)
@@ -1789,6 +1848,7 @@ public final class FakeData {
                 .build());
         trips.add(Trip.builder()
                 .id(PUB_PAST_3D_TRIP_ID)
+                .orgId(CFPW_ORG_ID)
                 .title("2026 Aug: Just Ended Demo")     // within the 7-day window; the galleria album trip
                 .openToPublic(true)
                 .provider("CFPW")
@@ -1801,6 +1861,7 @@ public final class FakeData {
                 .build());
         trips.add(Trip.builder()
                 .id(PUB_PAST_30D_TRIP_ID)
+                .orgId(CFPW_ORG_ID)
                 .title("2026 Jul: Long Gone Demo")     // past the 7-day window: must NOT be listed
                 .openToPublic(true)
                 .provider("CFPW")
@@ -1811,6 +1872,7 @@ public final class FakeData {
                 .build());
         trips.add(Trip.builder()
                 .id(PUB_HIDDEN_TRIP_ID)
+                .orgId(CFPW_ORG_ID)
                 .title("2026 Nov: Unlisted Demo")     // openToPublic=false: must NOT be listed
                 .openToPublic(false)
                 .provider("CFPW")

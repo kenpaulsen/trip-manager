@@ -9,7 +9,9 @@ replaces it end to end. Design decisions here are user-locked — do not relitig
 every Trip belongs to one (`Trip.orgId`; the legacy `provider` display string is SYNCED from the org's FULL
 name on every save — `TripCommands.syncProviderFromOrg` — for the public renderers; `isCfpw()` and the
 landing filter key on the org's short name, falling back to `provider` only for org-less legacy rows), and
-Transactions carry `orgId` (stamped from the trip on new writes; `org-migrate.sh` backfills legacy rows).
+Transactions carry `orgId` (stamped from the trip on new writes; `org-migrate.sh` backfills legacy rows; since
+2026-11-19 a new row cannot be recorded without a trip that has an organization: "The ledger's write
+invariants" below).
 Every writer that knows the trip must use `saveTransaction(tx, tripId)`: the one-arg form stamps nothing,
 and `trip/transaction.xhtml`'s Save used it until 2026-09-02, so a row recorded on `acme.unitetrip.com`
 was org-less — listed on the shared site, invisible on Acme's (a row already carrying an org keeps it, so
@@ -48,10 +50,11 @@ on acme.unitetrip.com showing up on visitqueenofpeace.com; now:
   holds `peopleAdmin` in, and hides org-less rows from everyone but a site admin (`org-admin.md`, "A person's
   trips and ledger rows on the admin people pages: ONE reach"; 2026-11-14).
 - **Totals and balances shown on a site are computed from the listed rows only** (`getBalance`,
-  `getFamilyBalance`, the pages' running columns): a person's vqop balance is their balance with the
-  organizations vqop lists, and their Acme balance lives on Acme's site. There is no all-sites total on any
-  page; the whole ledger is what the unbound/system context reads (mail, exports run under
-  `RequestContext.system()` reach everything).
+  `getFamilyBalance`): a person's Acme balance lives on Acme's site and never shows on vqop. There is no
+  all-sites total on any page; the whole ledger is what the unbound/system context reads (mail, exports run
+  under `RequestContext.system()` reach everything). Site scope is the OUTER bound, not the figure a page shows:
+  within what a site lists, a balance is per organization (next section), so on a shared host "their vqop
+  balance" is one balance for each organization vqop lists, never their sum.
 - `PaymentCommands.getOpenPayments()` (the `admin/payments.jsf` reconciliation list) is filtered the same way
   on `Payment.orgId`.
 - The ledger itself is untouched: payment creation/capture/recording, `PaymentRecorder`, the group-transaction
@@ -70,8 +73,177 @@ on acme.unitetrip.com showing up on visitqueenofpeace.com; now:
   the same rule (2026-11-12): `trip/transaction.xhtml` opens a row for a trip's finance admin only through
   `txCmds.tripStaffMayOpen` (the row is on that trip's books; a new row's person is on the trip) and otherwise
   drops the role from its auth check, and `trip/transactions.xhtml` hands someone who is there ONLY by a finance
-  role `txCmds.getTransactionsOnBooks` (that trip's rows) instead of the whole ledger with the other trips' rows
-  hidden by a style class.
+  role `ledger.tripStatement(personId, tripId)` (that trip's rows, the ones `txCmds.getTransactionsOnBooks` lists)
+  instead of the whole ledger with the other trips' rows hidden by a style class.
+  **One deliberate exception (owner decision 2026-11-20): Trip Contacts.** Its "With {organization}" amount is
+  shown to every viewer who passes the money rule on that trip, a holder of `tripFinView` on that trip alone
+  included, and to the traveler. The reviewers flagged that such a viewer can subtract the two amounts and learn
+  the traveler's net on the organization's other trips; the owner was shown that and kept it ("everyone who sees
+  finances"). It is not a contradiction of this rule to fix: see "Trip Contacts" below.
+
+### Balances are per organization (2026-11-19, `action/LedgerCommands`, `#{ledger}`)
+
+The section above says what a HOST lists. It does not say whose money a figure is, and on a shared host "the
+rows this site lists" is several organizations' rows added together: a traveler could not tell whom they owed, an
+organizer saw money that was not their organization's, and a pay link could point at the wrong one. **A balance
+or a statement shown to anyone now names exactly ONE organization**, and `LedgerCommands` is the one place that
+computes them. `getTransactions`, `getBalance`, `getFamilyBalance` and `getUserAmount` keep their meaning: they
+are the org-blind total of a site's reach, which is what the invariant tests and the migration's before/after
+proof compare the per-organization figures against. New pages read `#{ledger}`; do not add a page total built on
+`getBalance`.
+
+- **Two gates on every row.** The SITE gate is unchanged (`ListingScope.reaches` on the row's `orgId`). The
+  VIEWER gate is new: the person themself, someone who may act for them (`Person.managedUsers`, the family
+  switcher's reach) and a site admin see every organization the site lists; anyone else is staff and sees only
+  the organizations they administer or hold `peopleAdmin` in (`PeopleReach`) or hold `viewFinances` in
+  (`viewFinances@org`). So an admin of organization A looking at a person who also travels with B sees A's
+  balance, no statement for B, not even B's name, and no notice that the person owes somebody else.
+- **The reads** (results are records for `requestScope` only; they are deliberately not `Serializable`):
+  `overview(subjects, org)` is the whole Balance page from ONE partition read per subject: `orgs` (every
+  reachable organization's balance), `orgId` (the `?org=` asked for when reachable, else the default),
+  `statement` and `others` (the other organizations with a NONZERO balance, the page's notice). The same parts
+  singly: `orgBalances`, `orgBalance(subjects, orgId)` (the payment page's "balance with {the org of this
+  trip}"), `defaultOrg`, `otherOrgBalances`, `statement`. `subjects` is a collection of person ids: one person,
+  or a family's members (then the statement carries a per-person breakdown and each row says whose it is).
+  A row and a breakdown entry carry the preferred (first) name beside the full one (`Row.personPreferredName`,
+  `PersonBalance.preferredName`), so a page never looks a person up per row.
+- **A family manager's page** asks `familyOverview(subjects, members, org)` instead: the same `Overview` for
+  `subjects` (one member, or all), whose `family()` (`FamilyBalances`: `orgId`, `state`, `balanceCents`,
+  `magnitude()`, `people`, `hasBreakdown()`) holds EVERY member's own balance with the chosen organization
+  whichever member is selected: the pills. One partition read per member, no binding reads for the pills; with
+  no organization for the selected member, the pills use the family's default one. From `overview`, `family()`
+  is simply the statement's own breakdown. Never make a second `overview` call for the pills.
+- **One trip's books** (`tripStatement(personId, tripId)`): the same `Statement` shape with ONE trip group, for
+  a viewer the per-organization reads answer nothing: someone on the Balance page only by `tripFinView@trip` /
+  `tripFinAdmin@trip`. The rows are that person's rows on the trip's books (`TripFinanceGate.onBooks`: bound to
+  the trip, or the trip's own ledger) among those the site lists, not cut by organization reach; authorized by
+  `TripFinanceGate.canReadLedgers` or wider (the money pages' rule for the trip, the person themself, whoever
+  acts for them). A trip with no rows still answers its group; anyone else, an unknown trip and one this site
+  does not serve get `Statement.none()` (no group). The page used to fold these totals in page script.
+- **`TripGroup.payableInApp`**: whether the trip takes a payment in the app
+  (`OrgCommands.effectivePaymentConfig(trip).payable`), resolved only for a group with an amount due and false
+  for every other, so the "Make a payment" button needs no bean call per trip. The button itself asks
+  `payOffered()` (next).
+- **A trip's shortfall covered by a credit elsewhere with the same organization** (owner decision 2026-11-20;
+  the Balance page). A traveler who overpaid trip A by $200 and is $200 short on trip B owes the organization
+  nothing, and the page used to say "all paid up" above a red "$200.00 due" card with a pay button. The
+  ORGANIZATION balance of the statement being shown decides, in `LedgerStatements`, never on the page:
+  - `TripGroup.coveredByCredit()`: the group has an amount due and the statement's organization balance is not
+    owed (zero or a credit). The card shows the amount in the neutral text color with no "due", the muted line
+    "Covered by a credit on another trip with {Org}", no pay button, and is not the card opened for being due
+    (`Statement.openKey`). The rows on no trip are covered the same way.
+  - `TripGroup.payOffered()`: `payableInApp` and not covered, so "Make a payment" shows only while the
+    organization is actually owed AND the trip has an amount due AND takes a payment in the app (plus the page's
+    who-may-pay conditions). `TripGroup.magnitude()` is the card's unsigned amount.
+  - A PARTIAL credit (the organization is owed, but less than the due trips add up to) changes no trip card:
+    each stays due with its button, the organization card's amount is the true total, and
+    `Statement.hasOffsettingCredit()` (owed, one group in credit, another due) puts the muted line "Includes a
+    credit from another trip" under that amount.
+  - The statement's subjects as a whole decide: a family's statement is judged by the family's balance, one
+    member's own by that member's. The one-trip statement of `tripStatement` has no organization balance to
+    judge by, so it is never covered and reads as before.
+  - No figure changes. A covered trip's charges, payments, balance and row running totals are its own, on
+    screen and on the printed statement, whose table and totals stay factual; the covered line prints as text
+    under the trip's heading. The REST API is untouched (`OrgBalanceDto` carries no trip groups).
+- **The statement** groups the organization's rows by trip, newest trip first, each with its rows in date order
+  and its charges, payments and balance; rows on no trip come last, in one group titled "Not yet assigned to a
+  trip". Charges and payments are split by SIGN, not by `txType` (rows entered by hand before the type existed
+  are all `Payment`), so charges minus payments is always the balance. The header is the organization (the
+  payee), the balance and a state: `OWES`, `CREDIT`, `PAID_UP`, `NO_ACTIVITY`.
+- **The default organization** (what the page opens on with no `?org=`), among REACHABLE organizations only:
+  the organization of the next upcoming trip the person is on (roster, or a registration that is not Not
+  Registered), else of their most recent past trip, else of their most recent row, else none ("no account
+  activity yet"). The registration half reads the registrations of the site's upcoming trips, near-cached.
+- **Arithmetic is unchanged.** Every figure is a fold of `getUserAmount` (the exact Float share, no per-row
+  cent rounding) in partition order; totals are rounded ONCE, where they are shown (`balanceCents`, which is
+  also what every "is it zero" test uses). Three people on a $100 Shared row each show $33.33; nothing is nudged
+  to make the cents add to $100.00. A person's per-organization balances add up to `getBalance` for the same
+  reach, and every row is in exactly one statement (`LedgerCommandsTest` pins both, on every kind of site).
+  The bucketing, the fold and the statement layout are `action/LedgerStatements`: no store and no request, only
+  a `Source` (rows, bindings, names, who is looking). `LedgerCommands` is that over the caches and the request's
+  reach; the ledger migration's verifier runs the SAME class over a raw dump at system reach
+  (`migrate/LedgerStatementSource`), so its before/after proof is about this code and not a copy. Change the
+  arithmetic there, nowhere else.
+- **A row with no organization** should not exist any more (below), but must never vanish from its owner's view:
+  on a host that lists org-less content it is reported under the pseudo-organization `unassigned` ("No
+  organization") to the person, their family manager and a site admin, never to staff, and logged at error.
+- **Trip Contacts** (`tripAndOrgBalances(tripId)`): per traveler, the balance on THIS trip's books and the
+  balance with the trip's organization (`differ()` says whether the second adds anything). ONE
+  `TRIP->TRANSACTION` read for the whole trip plus one partition read per person, never a binding read per row.
+  A traveler's own row (and a managed family member's) is always visible; everyone else's needs the trip's money
+  rule: site admin, `tripFinView@trip` or `viewFinances@{the trip's org}`, never a trip manager as such.
+  The organization amount goes to ALL of them, the traveler included: that is the owner's deliberate exception
+  (decided 2026-11-20) to "a trip finance role reaches that trip's books only" above, so a `tripFinView`-only
+  viewer does read a figure that spans the organization's other trips here, and nowhere else. Pinned by
+  `LedgerCommandsTest.aTripOnlyFinanceViewerGetsTheOrganizationFigureOnTripContactsByOwnerDecision` and
+  `TripBooksPwIT.aTripOnlyFinanceViewerSeesTheOrganizationAmountByOwnerDecision`; change it only on the owner's
+  say.
+- **The trip payments report** reads `tripBooks(tripId)`: the travelers' rows BOUND to the trip (as
+  `tripTransactions.jsf` lists them, so someone who left the roster is still there), behind the same money rule.
+  It used to read `getTripTransactions`, which is every roster member's WHOLE ledger: every other trip's rows,
+  and every other organization's the host listed. `getTripTransactions` remains for `GET
+  /api/transactions/trips/{id}`, which filters it to the trip's books row by row.
+
+### The ledger's write invariants (2026-11-19)
+
+"A balance names one organization" holds only while every row has an organization that is its trip's. Production
+was clean on the stamp when this landed (no row without an `orgId`, none disagreeing with its trip); what was
+missing was a trip on some old rows (`docs/migrations/ledger-trip-binding.md`) and a rule that keeps both true:
+
+- **A NEW row needs a real trip that has an organization, and takes that organization.**
+  `TransactionsCommands.tripProblem(storedOrNull, tripId)` is the one rule; `saveFromPage` (the transaction
+  page), `saveGroup` (the group editor and the REST group save: it judges the whole group through `groupTrip`,
+  reading the trip ONCE, and answers which rule a refused save broke) and `TransactionsResource` (create and
+  group create, 400) all ask it. Null, blank and the trip menus' `"none"` are "no trip" and are refused with
+  a growl that says to choose one. NOT enforced in the DAO or in `saveTransaction(tx, tripId)`: the payment
+  recorder, the bill writers and the imports go through those with a trip already in hand.
+- **A stored row never silently loses its trip.** Saving one with no trip chosen keeps the binding it has (the
+  blank menu row used to reach `setBindings`, which replaces, so the row left its trip's books). The save binds
+  the row itself now, and `BindingCommands.setBindings` treats a `TRANSACTION->TRIP` list holding only `"none"`
+  as a no-op, so the page's own binding call cannot undo it. A row leaves its trip only by being deleted. For a
+  group, a member being ADDED with no trip chosen joins the trip the group is on.
+- **A stored row on NO trip is not edited until its trip is named.** "Keeps the trip it is on" has nothing to
+  keep for a row from before the rule, so `saveFromPage`, `saveGroupTransaction` and `PUT
+  /api/transactions/people/{id}/{txId}` refuse such a save with no trip chosen (`NEEDS_TRIP`; the pages refuse
+  it too, but the rule is Java's) and nothing is written; naming a real trip of the row's organization saves
+  and binds it. The re-saves that are NOT edits never ask: `deleteForPerson` / `deleteTransaction` /
+  `deleteGroup` / `deleteGroupById`, the group editor's empty selection, and `removeFromGroup` (delete one
+  member's row, restamp the others' membership) all work on a trip-less row or group, which the rows still
+  awaiting `docs/migrations/ledger-trip-binding.md` depend on. Shrinking a trip-less group through the group
+  editor's Save (fewer members, no trip) IS an edit and is refused: remove the member from the transaction page,
+  or name the trip.
+- **No row moves to another organization's trip** (`OTHER_ORG_TRIP`): a site admin may re-home a row to another
+  trip of the same organization; across organizations it is delete and re-record.
+- **Every trip has an organization.** `TripCommands.saveTrip` refuses a blank one, `PUT /api/trips/{id}` answers
+  400, and the local seeds follow (the landing-page seeds are CFPW's; ONE org-less trip remains on purpose,
+  `FakeData.LEGACY_ORGLESS_TRIP_ID`, for the code that still tolerates the shape).
+- **A trip that changes organization takes its rows along.** When a save changes `Trip.orgId` and the trip has
+  rows on its books (its `TRIP->TRANSACTION` bindings), only a SITE admin may do it (an administrator of both
+  organizations may still move a trip with no rows); `saveTrip` re-stamps every bound row with the new
+  organization right after the trip row is written and audits the move in BOTH organizations' trails
+  (`AuditCommands.tripLedgerMoved`). There is no transaction across the two tables: a row that fails is logged,
+  the save answers false and says so, and a site administrator saving the trip again retries the rows still on
+  the old organization. **An unfinished move is recorded on the trip row** (`Trip.ledgerMoveFrom`, the
+  organization the rows are moving from): `saveTrip` writes it WITH the moving trip row, before the re-stamp, and
+  clears it (a second trip write, which only a move pays for) once every row carries the trip's organization. So
+  a move that failed part way, or a task that died mid-move, leaves the marker, and `TripCommands.ledgerMoveOf`
+  knows from the stored trip alone: by then it already carries the new organization, and comparing the two trips
+  would call it "no move".
+- **A save that does not change the organization reads no ledger row and is never refused on the ledger's
+  account** (2026-11-20). `saveTrip` is also how travelers join and leave the roster (a paid checkout on the
+  webhook thread, an organizer's approval, the apps' event edits), and several of those callers drop its result.
+  The first version of the move check walked every row of the trip's books on EVERY save and refused anyone but
+  a site administrator while one row named another organization, so one stray row silently kept confirmed
+  travelers off `Trip.people`. Now the rows are read only when the save changes `orgId` (stored against saved)
+  or the stored trip carries the marker AND a site administrator is saving (which finishes the move); anyone
+  else's save of a marked trip goes through untouched and carries the marker along, whatever copy they sent.
+- **A payment's rows take the trip's organization as it is when they are RECORDED**
+  (`PaymentRecorder.rowOrgOf`), not `Payment.orgId`, which is the trip's organization when the payment was
+  started: a bank debit begun before a move and captured after it used to put a row of the old organization on
+  the moved trip's books with no failure anywhere. `Payment.orgId` remains the answer only when the trip no
+  longer answers.
+- `ConferenceImportPlanner` reports a LIVE ledger row with no trip binding as a blocker (the mapping's
+  `transactionTrips` names its trip); a deleted one is history and comes along with a note.
 
 ## Processor configs and secrets
 

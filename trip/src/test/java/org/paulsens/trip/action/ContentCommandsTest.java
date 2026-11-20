@@ -199,6 +199,24 @@ public class ContentCommandsTest {
     }
 
     @Test
+    public void editModeNeedsBothTheRequestAndTheRightToEditThePage() {
+        final ContentCommands content = as(ADMIN, false);
+        // Asked for by someone who may edit the page (an admin, a container's editor): edit mode.
+        Assert.assertTrue(content.editModeFor("true", FakeData.PAGE_KEY, ADMIN, false));
+        Assert.assertTrue(content.editModeFor("true", FakeData.PAGE_KEY, EVENTS_ONLY, false));
+        // Asked for by anyone else: NOT edit mode, so the page lists only what is visible now. This used to be
+        // the bare request parameter, and ?edit=true showed any signed-in visitor the hidden sections.
+        Assert.assertFalse(content.editModeFor("true", FakeData.PAGE_KEY, NOBODY, false));
+        Assert.assertFalse(content.editModeFor("true", FakeData.PAGE_KEY, null, true), "never for a visitor");
+        Assert.assertTrue(content.editModeFor("true", FakeData.PAGE_KEY, NOBODY, true),
+                "the host's own extra admission (showAll, the landing page's media admin)");
+        // Not asked for: never, whoever it is.
+        for (final String requested : new String[] {null, "", "false", "TRUE", "1"}) {
+            Assert.assertFalse(content.editModeFor(requested, FakeData.PAGE_KEY, ADMIN, true), "'" + requested + "'");
+        }
+    }
+
+    @Test
     public void canEditPageIncludesContainerEditors() {
         final ContentCommands content = as(ADMIN, false);
         Assert.assertTrue(content.canEditPage(FakeData.PAGE_KEY, ADMIN));

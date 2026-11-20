@@ -7,6 +7,7 @@ import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Registration;
 import org.paulsens.trip.model.Trip;
@@ -217,6 +218,7 @@ public class RegistrationStatusChangeTest {
                 .startDate(LocalDateTime.now().plusDays(startsInDays))
                 .endDate(LocalDateTime.now().plusDays(startsInDays + 10))
                 .build();
+        trip.setOrgId(FakeData.CFPW_ORG_ID);     // approving re-saves the trip, which must have an organization
         assertTrue(DAO.getInstance().saveTrip(trip));
         return trip;
     }

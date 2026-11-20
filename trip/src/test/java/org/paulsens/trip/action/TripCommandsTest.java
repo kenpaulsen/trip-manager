@@ -73,6 +73,7 @@ public class TripCommandsTest {
     @Test
     public void aSaveKeepsTheStoredPicturesAndNormalizesThePlace() throws java.io.IOException {
         final Trip trip = Trip.builder().title("Pictures " + java.util.UUID.randomUUID()).build();
+        trip.setOrgId(FakeData.CFPW_ORG_ID);
         assertTrue(asSiteAdmin().saveTrip(trip));
         final Trip staleCopy = org.paulsens.trip.dynamo.DAO.getInstance()
                 .getTrip(trip.getId(), org.paulsens.trip.cache.Cached.NO).orElseThrow();
@@ -111,6 +112,36 @@ public class TripCommandsTest {
         assertEquals(org.paulsens.trip.dynamo.DAO.getInstance()
                 .getTrip(trip.getId(), org.paulsens.trip.cache.Cached.NO).orElseThrow().getCountries(),
                 List.of("PT", "FR"), "and both are stored");
+    }
+
+    /** A stored trip may lack a start date; a list sorted on it must put that trip last, not throw. */
+    @Test
+    public void aPastTripWithNoStartDateSortsLastInsteadOfFailingTheList() throws java.io.IOException {
+        final Person.Id who = Person.Id.newInstance();
+        final java.time.LocalDateTime now = java.time.LocalDateTime.now();
+        final Trip older = pastTrip(who, now.minusDays(40), now.minusDays(30));
+        final Trip undated = pastTrip(who, null, now.minusDays(5));
+        final Trip newer = pastTrip(who, now.minusDays(20), now.minusDays(10));
+
+        assertEquals(tripCommands.getInactiveTrips(who, false, 0, 0).stream().map(Trip::getId).toList(),
+                List.of(newer.getId(), older.getId(), undated.getId()), "newest first, the undated one last");
+        assertEquals(tripCommands.getInactiveTrips(who, false, 0, 2).stream().map(Trip::getId).toList(),
+                List.of(newer.getId(), older.getId()), "so a cap drops the undated one first");
+        assertEquals(tripCommands.recentTripsFor(who, 5).stream().map(Trip::getId).toList(),
+                List.of(newer.getId(), older.getId()), "the recent list leaves an undated trip out");
+        assertEquals(java.util.stream.Stream.of(older, undated, newer).sorted(TripCommands.NEWEST_FIRST)
+                .map(Trip::getId).toList(), List.of(newer.getId(), older.getId(), undated.getId()));
+    }
+
+    private static Trip pastTrip(final Person.Id who, final java.time.LocalDateTime start,
+            final java.time.LocalDateTime end) throws java.io.IOException {
+        final Trip trip = Trip.builder().id(java.util.UUID.randomUUID().toString()).title("Past")
+                .people(new java.util.ArrayList<>(List.of(who))).build();
+        trip.setOrgId(FakeData.CFPW_ORG_ID);
+        trip.setStartDate(start);
+        trip.setEndDate(end);
+        assertTrue(org.paulsens.trip.dynamo.DAO.getInstance().saveTrip(trip));
+        return trip;
     }
 
     private static TripCommands asSiteAdmin() {
@@ -360,13 +391,25 @@ public class TripCommandsTest {
         assertFalse(partner.isCfpw(), "A partner org's trip never reads as CFPW");
     }
 
+    /**
+     * A trip must belong to an organization: its ledger rows take their organization from it, so one saved with
+     * none would put rows on nobody's books. Refused before anything is written, a blank id included.
+     */
     @Test
-    public void saveTripLeavesTheProviderAloneWithoutAnOrg() {
+    public void saveTripRefusesATripWithNoOrganization() {
         final Trip trip = Trip.builder().id("org-sync2-" + System.nanoTime()).title("Legacy").build();
         trip.setProvider("Hand Entered Provider");
+        assertFalse(tripCommands.saveTrip(trip), "No organization, no save");
+        trip.setOrgId("  ");
+        assertFalse(tripCommands.saveTrip(trip), "A blank id is no organization either");
+        assertTrue(org.paulsens.trip.dynamo.DAO.getInstance().getTrip(trip.getId(), Cached.NO).isEmpty(),
+                "Nothing was stored");
+        trip.setOrgId(FakeData.CFPW_ORG_ID);
         assertTrue(tripCommands.saveTrip(trip));
-        assertEquals(trip.getProvider(), "Hand Entered Provider", "Legacy trips keep their string");
+    }
 
+    @Test
+    public void saveTripLeavesTheProviderAloneForAnUnknownOrg() {
         final Trip unknownOrg = Trip.builder().id("org-sync3-" + System.nanoTime()).title("Ghost").build();
         unknownOrg.setOrgId("no-such-org");
         unknownOrg.setProvider("Kept");
@@ -391,6 +434,7 @@ public class TripCommandsTest {
     @Test
     public void aSaveRefusesAnExternalOrFlyerUrlThatIsNoWebAddress() {
         final Trip trip = Trip.builder().title("Links " + java.util.UUID.randomUUID()).build();
+        trip.setOrgId(FakeData.CFPW_ORG_ID);
         trip.setNonHostedTripUrl("javascript:alert(1)");
         assertFalse(asSiteAdmin().saveTrip(trip), "A javascript: external URL is never stored");
         trip.setNonHostedTripUrl("https://example.org/register");
@@ -410,6 +454,7 @@ public class TripCommandsTest {
     @Test
     public void aTripStoredWithALegacyLinkStillSavesEverythingElse() throws java.io.IOException {
         final Trip legacy = Trip.builder().title("Legacy links " + java.util.UUID.randomUUID()).build();
+        legacy.setOrgId(FakeData.CFPW_ORG_ID);
         legacy.setFlyerUrl("www.example.org/2026 Holy Angels.pdf");
         legacy.setNonHostedTripUrl("example.org/register");
         assertTrue(org.paulsens.trip.dynamo.DAO.getInstance().saveTrip(legacy), "Stored as the old editor allowed");
@@ -435,6 +480,7 @@ public class TripCommandsTest {
     @Test
     public void aFailedPreReadJudgesNoLinkAndTheSaveGoesOn() throws java.io.IOException {
         final Trip legacy = Trip.builder().title("Unreadable " + java.util.UUID.randomUUID()).build();
+        legacy.setOrgId(FakeData.CFPW_ORG_ID);
         legacy.setFlyerUrl("www.example.org/legacy.pdf");
         assertTrue(org.paulsens.trip.dynamo.DAO.getInstance().saveTrip(legacy));
         final TripCommands blind = new TripCommands(() -> new OrgCommands(() -> new Caller(Person.Id.from("admin"),
@@ -459,6 +505,7 @@ public class TripCommandsTest {
     public void aSaveKeepsThePicturesOfThePreReadAndTheCallersWhenItFails() throws java.io.IOException {
         final org.paulsens.trip.dynamo.DAO dao = org.paulsens.trip.dynamo.DAO.getInstance();
         final Trip trip = Trip.builder().title("Fresh pictures " + java.util.UUID.randomUUID()).build();
+        trip.setOrgId(FakeData.CFPW_ORG_ID);
         final TripPicture stored = new TripPicture("tripPictures/fresh/1", null, 960, 640, "#102030");
         final TripPicture sent = new TripPicture("tripPictures/fresh/sent", null, 960, 640, "#203040");
         trip.getPictures().add(stored);

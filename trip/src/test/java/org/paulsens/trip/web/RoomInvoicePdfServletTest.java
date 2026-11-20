@@ -134,6 +134,44 @@ public class RoomInvoicePdfServletTest {
     }
 
     /**
+     * {@code viewFinances} is scoped to an ORGANIZATION: its holder downloads the invoice of that organization's
+     * trip, and neither another organization's holder nor a leftover global row (the grant's old form) does.
+     */
+    @Test
+    public void anOrgFinanceViewerDownloadsOnlyTheirOwnOrgsInvoice() throws IOException {
+        final String orgId = UUID.randomUUID().toString();
+        final Trip orgTrip = Trip.builder().id(UUID.randomUUID().toString()).title("Org Trip").build();
+        orgTrip.setOrgId(orgId);
+        servlet.setSources(id -> orgTrip.getId().equals(id) ? orgTrip : Trip.builder().build(),
+                (id, access, finance) -> new ReportCommands.RoomInvoice());
+        final Person.Id ours = Person.Id.newInstance();
+        final Person.Id theirs = Person.Id.newInstance();
+        final Person.Id global = Person.Id.newInstance();
+        DAO.getInstance().savePrivilege(new Privilege(Privilege.idFor(PrivilegeCommands.VIEW_FINANCES, orgId),
+                "test", List.of(ours)));
+        DAO.getInstance().savePrivilege(new Privilege(
+                Privilege.idFor(PrivilegeCommands.VIEW_FINANCES, UUID.randomUUID().toString()), "test",
+                List.of(theirs)));
+        final PrivilegeCommands priv = new PrivilegeCommands();
+        Assert.assertTrue(priv.savePrivilege(
+                priv.getOrCreate(PrivilegeCommands.VIEW_FINANCES, null, "leftover").withNewPerson(global)));
+
+        signedIn(theirs.getValue(), "user", orgTrip.getId());
+        servlet.doGet(req, resp);
+        Assert.assertEquals(status.get(), HttpServletResponse.SC_FORBIDDEN, "another organization's finance viewer");
+        signedIn(global.getValue(), "user", orgTrip.getId());
+        servlet.doGet(req, resp);
+        Assert.assertEquals(status.get(), HttpServletResponse.SC_FORBIDDEN, "a global row grants nothing");
+        Assert.assertEquals(out.size(), 0, "no money left for either");
+
+        status.set(200);
+        signedIn(ours.getValue(), "user", orgTrip.getId());
+        servlet.doGet(req, resp);
+        Assert.assertEquals(status.get(), 200, "the trip's own organization's finance viewer");
+        Assert.assertTrue(out.size() > 0);
+    }
+
+    /**
      * Two hotels on one trip, an operator of hotel A: the servlet admits them on their lodging access alone,
      * builds the invoice through the real {@code roomInvoiceFor}, and the PDF names A and not B, addressed to
      * the trip's organization. The finance viewer's PDF has both. While hotel B's option has no cost the

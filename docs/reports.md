@@ -33,7 +33,8 @@ is the UNION of three privileges, and `PrivilegeCommands.isAuthorized` can be to
 (`viewScope.reqPriv`). The old page named `tripView`, so a finance-only viewer was bounced off a page that had
 two cards for them.
 
-Admitted: `showAll` (site admin), `tripView@trip`, `tripFinView@trip`, the global `viewFinances`, or (since
+Admitted: `showAll` (site admin), `tripView@trip`, the finance viewers (`txCmds.seesMoney`: `tripFinView@trip`,
+or `viewFinances` in the trip's OWN organization; it was a global grant until 2026-11), or (since
 the budget, 2026-10-26) `tripMgr@trip` or `tripFinAdmin@trip`, who edit the Budget and may hold nothing else on
 the trip. The page reads that last pair through `budget.canViewBudget` (`seeBudget`). That is the same union
 that shows the tab, so navigation and enforcement cannot disagree. Opening the dashboard
@@ -59,7 +60,10 @@ named on the trip or an admin of its organization may hold no trip privilege at 
 | Check-in (conferences) | `admin/checkin.jsf?trip=` (number: "37 of 120 checked in") | `seeCheckin` = `checkin.canViewCounts` (see `docs/checkin.md`) |
 | Badges (conferences) | `trip/itinerary-badge.jsf?all=true[&unprinted=true]&trip=` (number: "N not yet printed") | `seeBadges` = `checkin.canPrintBadges` |
 
-`tripViewer` is `showAll || tripView@trip`; `seeFinances` is `viewFinances || tripFinView@trip`. Both are
+`tripViewer` is `showAll || tripView@trip`; `seeFinances` is `txCmds.seesMoney(tripId)`, THE money rule
+(`TripFinanceGate.seesMoney`: site admin, `tripFinView@trip`, or `viewFinances` scoped to the organization that
+owns the trip; `docs/org-admin.md`, "Finance viewers"). Never spell that union out on a page again: the old
+copies asked `priv.check('viewFinances', null, ...)`, a GLOBAL row, which opened every tenant's trips. Both are
 computed into `requestScope` every request, so a grant made while the page is open takes effect on the next
 load. The **Rooms** card carries three buttons stacked (`.hub-stack`), each gated like its own page, and renders
 for either holder. The cards use the shared `.hub-grid` / `.hub-head` / `.hub-num` / `.hub-sub` vocabulary in
@@ -153,7 +157,8 @@ in **Billed vs Cost** below.
 
 ### Who may open it
 
-Finance viewers (`seeFinances`: site admin, the global `viewFinances`, `tripFinView@trip`), the trip's own
+Finance viewers (`seeFinances` = `txCmds.seesMoney`: site admin, `tripFinView@trip`, `viewFinances` in the
+trip's organization), the trip's own
 lodging admins (`lodgingAccess.forTrip(tripId).internal`: `tripMgr`, the org's or the global `lodgingAdmin`,
 since the bill is the hotel's COST side, which is exactly what they reconcile with the hotel) and, since the
 2026-10-25 roles round, a **Hotel Operator** of a hotel in play on the trip (`.operatorHere`). The page computes
@@ -234,8 +239,9 @@ first, and the renderer, handed one anyway, prints the refusal instead of sectio
   production with a 301 to the media CDN, and stands aside locally, so a `.pdf` URL passes every local test and
   breaks only once deployed. The file name travels in `Content-Disposition` instead; `AdminReportsPwIT`
   asserts the page never links a `.pdf`.
-- **Gate:** internal = a finance viewer (site admin, the global `viewFinances`, or `tripFinView@trip`, through
-  `Caller.of(session)`) or the trip's own lodging admin (`access.isInternal()`); otherwise an operator of a
+- **Gate:** internal = a finance viewer (`TripFinanceGate.seesMoney(caller, trip)` over `Caller.of(session)`
+  and the trip the servlet already resolved: site admin, `tripFinView@trip`, or `viewFinances` in the trip's
+  organization) or the trip's own lodging admin (`access.isInternal()`); otherwise an operator of a
   hotel in play (`new LodgingAccessCommands(() -> caller).forTrip(tripId).isOperatorHere()`; built on the
   servlet's own caller because the CDI bean's default caller source reads the FacesContext a servlet does not
   have). The servlet passes `roomInvoiceFor(tripId, access, internal)`, answers a blocked invoice with

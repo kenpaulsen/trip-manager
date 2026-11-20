@@ -1,6 +1,7 @@
 package org.paulsens.trip.action;
 
 import java.util.List;
+import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.model.DataId;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Status;
@@ -46,6 +47,7 @@ public class TodoWorkflowTest {
 
     private Trip savedTrip(final Person.Id... members) {
         final Trip trip = trips.createTrip();
+        trip.setOrgId(FakeData.CFPW_ORG_ID);
         trip.setPeople(List.of(members));
         Assert.assertTrue(trips.saveTrip(trip));
         awaitStoreSettled();

@@ -251,6 +251,15 @@ public final class Trip implements Serializable {
     @JsonProperty("page")
     @Getter(AccessLevel.NONE)
     private TripPageOptions page;
+    /**
+     * The organization this trip's ledger rows are being moved FROM, set while a change of organization is
+     * re-stamping them and cleared once every row carries the trip's own ({@code TripCommands.saveTrip}). There is
+     * no transaction across the two tables, so a move that failed part way leaves this behind: it is how the next
+     * site administrator's save knows to finish the move without any save having to read the rows to find out.
+     * Null on every trip that is not mid-move.
+     */
+    @JsonProperty("ledgerMoveFrom")
+    private String ledgerMoveFrom;
 
     private Trip() {
     }

@@ -350,6 +350,10 @@ public class ModelTailsTest {
     @Test
     public void compositeKeyToStringIsItsValue() {
         Assert.assertEquals(CompositeKey.from("user,tx").toString(), CompositeKey.from("user,tx").getValue());
+        // The one spelling of a two-part key: what the builder's value is, and what from() reads back.
+        Assert.assertEquals(CompositeKey.join("user", "tx"),
+                CompositeKey.builder().partitionKey("user").sortKey("tx").build().getValue());
+        Assert.assertEquals(CompositeKey.from(CompositeKey.join("user", "tx")).getSortKey(), "tx");
     }
 
     @Test

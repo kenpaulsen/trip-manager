@@ -144,6 +144,54 @@ public class OrgPageBootstrapTest {
     }
 
     @Test
+    public void thePayPageStartsWithOneBlockThatSendsTheReaderToTheOrganization() {
+        final Organization org = new Organization();
+        org.setName("Acme <Widgets> & Co");
+        final String key = OrgPageBootstrap.payPageKey(org.getId());
+        Assert.assertEquals(key, "page:org:" + org.getId().getValue() + ":pay");
+        Assert.assertEquals(OrgPageBootstrap.orgOf(key), org.getId(), "its editors derive from the key");
+
+        final List<ContentInstance> rows = OrgPageBootstrap.payRows(org, "office@example.org", id -> 4);
+        Assert.assertEquals(rows.size(), 1);
+        final ContentInstance row = rows.get(0);
+        Assert.assertEquals(row.getSection(), key);
+        Assert.assertEquals(row.getTemplateId(), StarterTemplates.TEXT_ONLY_ID);
+        Assert.assertEquals(row.getTemplateVersion(), 4, "pinned to the version it is handed");
+        Assert.assertEquals(OrgPageBootstrap.payRowTemplateIds(), List.of(StarterTemplates.TEXT_ONLY_ID));
+        Assert.assertEquals(row.getId(), OrgPageBootstrap.payRows(org, null, id -> 1).get(0).getId(),
+                "the same organization always names the same row, so two first visits write one");
+        Assert.assertFalse(OrgPageBootstrap.isSeededPlaceholder(row), "shown at once: no Show until");
+        final String body = row.getValues().get("body");
+        Assert.assertTrue(body.contains("<h2>How to pay Acme &lt;Widgets&gt; &amp; Co</h2>"), body);
+        Assert.assertTrue(body.contains("<a href=\"mailto:office@example.org\">office@example.org</a>"), body);
+        Assert.assertFalse(body.contains("<Widgets>"), "raw markup from a name must never reach the page");
+        Assert.assertFalse(body.contains("style="), "no styles: it renders inside the organization's theme");
+    }
+
+    @Test
+    public void thePayPageLeavesTheAddressOutWhenTheOrganizationHasNone() {
+        for (final String none : new String[] {null, "", "  "}) {
+            final String body = OrgPageBootstrap.payBody("Acme", none);
+            Assert.assertTrue(body.contains("please contact the organization. They will tell you"), body);
+            Assert.assertFalse(body.contains("mailto"), body);
+            Assert.assertFalse(body.contains(" at ."), body);
+        }
+        Assert.assertTrue(OrgPageBootstrap.payBody("Acme", " a\"b@example.org ")
+                .contains("mailto:a&quot;b@example.org"), "an address is data inside authored HTML too");
+    }
+
+    @Test
+    public void homeAndPayAreReservedAndNoStarterPageTakesEither() {
+        Assert.assertTrue(OrgPageBootstrap.isReservedPageName("home"));
+        Assert.assertTrue(OrgPageBootstrap.isReservedPageName("pay"));
+        Assert.assertFalse(OrgPageBootstrap.isReservedPageName("payments"));
+        Assert.assertFalse(OrgPageBootstrap.isReservedPageName(null));
+        Assert.assertTrue(OrgPageBootstrap.isPageName(OrgPageBootstrap.PAY_PAGE), "a well-formed name, just taken");
+        Assert.assertTrue(OrgPageBootstrap.starterPages().stream()
+                .noneMatch(page -> OrgPageBootstrap.isReservedPageName(page.name())));
+    }
+
+    @Test
     public void theStarterSitePagesAreAboutAndTheBoard() {
         final List<OrgPageBootstrap.StarterPage> starters = OrgPageBootstrap.starterPages();
         Assert.assertEquals(starters.stream().map(OrgPageBootstrap.StarterPage::name).toList(),

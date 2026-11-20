@@ -7,6 +7,7 @@ import java.util.UUID;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.model.Creds;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
@@ -105,6 +106,22 @@ final class TenancyFixtures {
     static void grantPeopleAdmin(final Organization org, final Person person) {
         assertTrue(asSiteAdmin().grantOrgPrivilege(org.getId().getValue(), person.getId(),
                 PrivilegeCommands.PEOPLE_ADMIN));
+    }
+
+    /**
+     * The id of a saved trip that can carry ledger rows (it exists and has an organization, the seeded CFPW id),
+     * for a test whose subject is the ROW: every new row must name such a trip
+     * ({@code TransactionsCommands.tripProblem}). One per call, so tests never share books.
+     */
+    static String ledgerTripId() {
+        final Trip trip = Trip.builder().id(UUID.randomUUID().toString()).title("Ledger " + unique()).build();
+        trip.setOrgId(FakeData.CFPW_ORG_ID);
+        try {
+            assertTrue(DAO.getInstance().saveTrip(trip));
+        } catch (final IOException ex) {
+            throw new IllegalStateException(ex);
+        }
+        return trip.getId();
     }
 
     /** A saved trip owned by the org (a canonical UUID id: privilege scopes refuse anything else). */

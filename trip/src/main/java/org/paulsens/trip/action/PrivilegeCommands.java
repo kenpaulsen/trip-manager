@@ -56,7 +56,12 @@ public class PrivilegeCommands {
     public static final String TRIP_VIEW = "tripView";
     public static final String TRIP_FIN_VIEW = "tripFinView";
     public static final String TRIP_FIN_ADMIN = "tripFinAdmin";
-    /** GLOBAL read-only access to every trip's finances (the reports' finance cards, the budget). */
+    /**
+     * Read-only access to the finances of ONE organization's trips (the money reports, the budget, the expense
+     * report). ORG-scoped only: it was a global grant until 2026-11, and a holder then opened every tenant's
+     * trip finance pages. There is no global form any more, so a leftover global row grants nothing, like the
+     * other migrated bases ({@code docs/org-admin.md}). The rule that reads it is {@link TripFinanceGate#seesMoney}.
+     */
     public static final String VIEW_FINANCES = "viewFinances";
     /** Moderates a trip's chat (delete messages, manage members). Trip-scoped. */
     public static final String CHAT_MGR = "chatMgr";
@@ -119,10 +124,11 @@ public class PrivilegeCommands {
      * contentAdmin} + the org UUID) edits that one organization's own site -- its page, its templates, its
      * media library, its audit trail -- and nothing shared. The org-site editing decision is
      * privilege-only: an org's admins do not edit content, or read the trail, by being admins.
+     * {@link #VIEW_FINANCES} is here and NOT global: the finances of the org's trips, and of no other org's.
      */
     public static final List<String> ORG_SCOPED_BASES =
             List.of(PEOPLE_ADMIN, ADD_TRIP, ADD_CONFERENCE, EMAIL_ADMIN, PAYMENTS_ADMIN, CONTENT_ADMIN, MEDIA_ADMIN,
-                    AUDIT_ADMIN, LODGING_ADMIN);
+                    AUDIT_ADMIN, LODGING_ADMIN, VIEW_FINANCES);
     /**
      * Bases scoped to ONE accommodation (a global hotel, not a trip or an org): the hotel-level grant behind
      * the lodging admin page. {@link #knownBases} answers it for the kind {@code ACCOMMODATION}.
@@ -134,14 +140,18 @@ public class PrivilegeCommands {
      * TEMPLATES are managed, and the site-wide Templates entry is global-only, so an editor whose only grant
      * is content or media would otherwise have no route to their own work. Opening the hub grants nothing by
      * itself: every card on it is gated separately, so an editor arrives at a page showing only their own.
+     *
+     * <p>Every org-scoped base but {@link #VIEW_FINANCES}: a finance viewer's pages are each trip's Reports tab,
+     * and no card on the hub is theirs, so the grant alone would open an empty dashboard.
      */
-    public static final List<String> ORG_HUB_BASES = ORG_SCOPED_BASES;
+    public static final List<String> ORG_HUB_BASES =
+            ORG_SCOPED_BASES.stream().filter(base -> !VIEW_FINANCES.equals(base)).toList();
     /**
-     * The global grants the privilege editor offers by name. {@link #VIEW_FINANCES} was missing (2026-10-29),
-     * so the editor's dropdown never offered it and the only way to grant it was the "Other..." escape.
+     * The global grants the privilege editor offers by name. {@link #VIEW_FINANCES} is deliberately absent: it
+     * is org-scoped only, and offering it here would mint a row that grants nothing.
      */
     public static final List<String> GLOBAL_BASES = List.of(PRIVILEGE_ADMIN, CONFIG_ADMIN, AUDIT_ADMIN,
-            SITE_DEPLOYER, CONTENT_ADMIN, MEDIA_ADMIN, EVENT_ADMIN, LODGING_ADMIN, VIEW_FINANCES);
+            SITE_DEPLOYER, CONTENT_ADMIN, MEDIA_ADMIN, EVENT_ADMIN, LODGING_ADMIN);
 
     /**
      * One-line description per canonical base, defaulted into a new row's description by the privilege
@@ -169,7 +179,8 @@ public class PrivilegeCommands {
             java.util.Map.entry(CONTENT_ADMIN, "Edit templates and template-driven page content"),
             java.util.Map.entry(MEDIA_ADMIN, "Manage the media library"),
             java.util.Map.entry(EVENT_ADMIN, "Edit the home page's Events section"),
-            java.util.Map.entry(VIEW_FINANCES, "View every trip's finances: reports and budgets (read-only)"),
+            java.util.Map.entry(VIEW_FINANCES,
+                    "View the finances of the organization's trips: reports and budgets (read-only)"),
             java.util.Map.entry(LODGING_ADMIN,
                     "Manage lodging: offers and reservations on the organization's trips (every accommodation "
                             + "too, when global)"),

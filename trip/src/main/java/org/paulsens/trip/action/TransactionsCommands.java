@@ -11,8 +11,10 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -21,6 +23,7 @@ import org.paulsens.trip.api.Beans;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.BindingType;
+import org.paulsens.trip.model.CompositeKey;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Transaction;
 import org.paulsens.trip.model.Transaction.Type;
@@ -50,8 +53,152 @@ public class TransactionsCommands {
         this.orgSource = orgSource;
     }
 
+    /**
+     * What a trip menu's blank row submits ({@code itemValue="none"}): no trip chosen, never a trip id. THE one
+     * definition, with {@link #isNoTrip}: the trip pickers ({@code TripCommands}) ask it too.
+     */
+    public static final String NO_TRIP = "none";
+
+    /**
+     * The refusal for a row with no trip: a NEW one, or an edit of a stored one that is on no trip. Every row is
+     * recorded on a trip, which is what gives it its org.
+     */
+    public static final String NEEDS_TRIP = "Choose the trip this transaction is for. Every transaction is recorded "
+            + "on a trip, which is what ties it to that trip's organization.";
+    /** The refusal for a trip that cannot carry a ledger row. */
+    public static final String NOT_A_LEDGER_TRIP = "That trip does not exist or has no organization, so a "
+            + "transaction cannot be recorded on it.";
+    /** The refusal for re-binding a stored row to a trip of another organization. */
+    public static final String OTHER_ORG_TRIP = "This transaction belongs to a different organization than that "
+            + "trip. Delete it and record it on the other trip instead.";
+
     public Transaction createTransaction(final Person.Id userId) {
         return new Transaction(userId, null, null);
+    }
+
+    // ------------------------------------------------------------------ the write invariants
+
+    /** No trip at all: null, blank, or a trip menu's {@link #NO_TRIP} row. */
+    public static boolean isNoTrip(final String tripId) {
+        return tripId == null || tripId.isBlank() || NO_TRIP.equalsIgnoreCase(tripId.trim());
+    }
+
+    /** What both transaction editors say when Save is pressed with no trip chosen. */
+    public static final String NO_TRIP_CHOSEN = "Not saved: choose the trip this transaction is for. Every "
+            + "transaction is recorded on a trip.";
+
+    /**
+     * The editors' Save, asked first: true (and the page is told why) when no trip is chosen, in which case the
+     * page saves nothing. Refused here for EVERY row and group, a stored one included: the save methods let a
+     * stored row keep "the trip it is on", which for one on no trip is none. One rule and one wording for the
+     * transaction page and the group editor, which each used to spell both out.
+     */
+    public boolean refuseWithoutTrip(final String tripId) {
+        if (!isNoTrip(tripId)) {
+            return false;
+        }
+        PageFeedback.error(NO_TRIP_CHOSEN, "");
+        return true;
+    }
+
+    /**
+     * The trip a ledger row may be recorded on, or null: it must exist and belong to an organization, because a
+     * row's organization IS its trip's. Read fresh: the answer stamps the tenancy of a money row.
+     */
+    public static Trip ledgerTrip(final String tripId) {
+        if (isNoTrip(tripId)) {
+            return null;
+        }
+        final Trip trip = DAO.getInstance().getTrip(tripId, Cached.NO).orElse(null);
+        return trip == null || isNullOrBlank(trip.getOrgId()) ? null : trip;
+    }
+
+    /**
+     * Why a row may not be saved against {@code tripId}, or null when it may. THE write invariant of the per-org
+     * ledger, asked by every door that takes a trip from a person (the transaction page, the group editor, the
+     * REST resource): a NEW row ({@code storedOrNull} null) needs a real trip that has an organization; a stored
+     * row saved with no trip chosen keeps the trip it is on, so one that is on NO trip (a row from before the
+     * rule) cannot be edited until its trip is named; and a stored row is never moved to a trip of another
+     * organization (its org stamp would then disagree with its trip). Not enforced in the DAO: the imports and
+     * the payment recorder write through it with a trip already in hand, and the re-saves that are not edits
+     * (a delete, a group's membership restamp) must keep working on the rows that still await their trip.
+     */
+    public static String tripProblem(final Transaction storedOrNull, final String tripId) {
+        if (isNoTrip(tripId)) {
+            return boundTripOf(storedOrNull) == null ? NEEDS_TRIP : null;
+        }
+        return chosenTripProblem(storedOrNull, ledgerTrip(tripId));
+    }
+
+    /**
+     * {@link #tripProblem} for a trip that WAS chosen and is already read ({@link #ledgerTrip}: null when it does
+     * not exist or has no organization), so a caller that goes on to stamp the row from it does not read it
+     * twice.
+     */
+    static String chosenTripProblem(final Transaction storedOrNull, final Trip trip) {
+        if (trip == null) {
+            return NOT_A_LEDGER_TRIP;
+        }
+        return storedOrNull != null && isOtherOrgs(storedOrNull, trip) ? OTHER_ORG_TRIP : null;
+    }
+
+    /**
+     * What a group save's trip question came to: why the group may not be saved, or else the trip its rows go
+     * on. {@code trip} is the chosen trip, or with none chosen the trip the group is already on when a member
+     * is being added (null when nobody is: the stored rows keep the trip they have and nothing reads it). So a
+     * new group, and a stored group on no trip, must name its trip. Shrinking or deleting a trip-less group is
+     * not a save of it: {@link #removeFromGroup} and the delete paths never come through here.
+     */
+    record GroupTrip(String problem, Trip trip) {
+    }
+
+    /**
+     * {@link #tripProblem} for every row of a group at once. The trip is read ONCE through {@code tripReader}
+     * and each stored row's organization compared in memory: asking {@link #tripProblem} per member made one
+     * fresh read of the same trip for each of them, so a 50-member Batch cost 50 reads to judge and 50 more to
+     * write. The answer's trip is what {@link #persistTx} then stamps and binds from, with no further read.
+     */
+    static GroupTrip groupTrip(final String tripId, final List<Optional<Transaction>> rows,
+            final Function<String, Trip> tripReader) {
+        final List<Transaction> stored = rows.stream().flatMap(Optional::stream).toList();
+        final boolean adding = stored.size() < rows.size();
+        if (isNoTrip(tripId)) {
+            final String onTrip = tripOfGroup(stored);
+            if (onTrip == null) {
+                return new GroupTrip(NEEDS_TRIP, null);
+            }
+            final Trip joined = adding ? tripReader.apply(onTrip) : null;
+            return new GroupTrip(adding && joined == null ? NOT_A_LEDGER_TRIP : null, joined);
+        }
+        if (rows.isEmpty()) {
+            return new GroupTrip(null, null);
+        }
+        final Trip trip = tripReader.apply(tripId);
+        if (trip == null) {
+            return new GroupTrip(NOT_A_LEDGER_TRIP, null);
+        }
+        final boolean foreign = stored.stream().anyMatch(row -> isOtherOrgs(row, trip));
+        return new GroupTrip(foreign ? OTHER_ORG_TRIP : null, trip);
+    }
+
+    /** Whether a stored row carries another organization than the trip's (one with none stamped does not). */
+    private static boolean isOtherOrgs(final Transaction stored, final Trip trip) {
+        return !isNullOrBlank(stored.getOrgId()) && !stored.getOrgId().equals(trip.getOrgId());
+    }
+
+    /** The trip a group's stored rows are on: the first row's that has one (a group lives on ONE trip), or null. */
+    private static String tripOfGroup(final List<Transaction> stored) {
+        return stored.stream().map(TransactionsCommands::boundTripOf).filter(trip -> trip != null)
+                .findFirst().orElse(null);
+    }
+
+    /** The trip this row's TRANSACTION to TRIP binding names, or null. Read fresh: it decides a money write. */
+    static String boundTripOf(final Transaction tx) {
+        if (tx == null || tx.getUserId() == null || tx.getTxId() == null) {
+            return null;
+        }
+        return DAO.getInstance().getBindings(LedgerStatements.keyOf(tx), BindingType.TRANSACTION, BindingType.TRIP,
+                Cached.NO).stream().findFirst().orElse(null);
     }
 
     /**
@@ -180,6 +327,18 @@ public class TransactionsCommands {
     }
 
     /**
+     * The MONEY pages' gate, for a page: {@code #{txCmds.seesMoney(tripId)}} is {@link TripFinanceGate#seesMoney}
+     * for the signed-in user (a site admin, {@code tripFinView@trip}, or {@code viewFinances} in the organization
+     * that owns the trip). The pages used to spell this out with {@code priv.check}, and their copy asked for
+     * {@code viewFinances} as a GLOBAL row, which opened every organization's trips to one holder. Answers false
+     * for an anonymous visitor before reading anything, so the trip tab strip may ask on a public page. One
+     * arity only: EL cannot choose between same-arity overloads.
+     */
+    public boolean seesMoney(final String tripId) {
+        return TripFinanceGate.forCaller(Caller::current).seesMoney(tripId);
+    }
+
+    /**
      * Saves a Shared/Batch group of transactions. {@code origPeople} is the membership as it was when the page
      * loaded (from {@link #getUserIdsForGroup}); members removed from the new selection get their row deleted.
      * Every surviving row is stamped with the full member list so membership never requires probing other users.
@@ -254,6 +413,25 @@ public class TransactionsCommands {
                 final Transaction.TransactionType txType, final LocalDateTime date, final Float amount,
                 final String cat, final String note, final String tripId, final String eventId,
                 final List<Person.Id> members) {
+        final GroupSave save = saveGroup(gid, origPeople, type, txType, date, amount, cat, note, tripId, eventId,
+                members);
+        return save.problem() == null ? save.saved() : PageFeedback.refuse("Not saved", save.problem());
+    }
+
+    /** How a group save ended: written or not, and the trip rule it broke when that is why not (else null). */
+    public record GroupSave(boolean saved, String problem) {
+    }
+
+    /**
+     * {@link #saveGroupTransaction} answering WHY a refused save was refused instead of growling it: the REST
+     * resource turns the trip rule's refusal into a 400. One judgment of the group
+     * ({@link #groupTrip}), made here and nowhere else: a separate "would this save be refused" question judged
+     * every member's row and the trip a second time, and could drift from what the save then did.
+     */
+    public GroupSave saveGroup(final String gid, final List<Person.Id> origPeople, final Type type,
+                final Transaction.TransactionType txType, final LocalDateTime date, final Float amount,
+                final String cat, final String note, final String tripId, final String eventId,
+                final List<Person.Id> members) {
         final List<Person.Id> txPeople = (members == null) ? Collections.emptyList() : members;
         final String groupId = isNullOrEmpty(gid) ? UUID.randomUUID().toString() : gid;
         final List<Person.Id> existing = (origPeople == null) ? List.of() : origPeople;
@@ -265,7 +443,17 @@ public class TransactionsCommands {
             // 0 members is no transaction. Legitimate for a Batch (a set of identical charges, and an empty
             // set is a valid one); for a Shared amount it undoes the whole thing, which is why the pages
             // confirm first (needsGroupDeleteConfirm).
-            return deleteGroupById(groupId, existing, actor);
+            return new GroupSave(deleteGroupById(groupId, existing, actor), null);
+        }
+        // Every member's row is found BEFORE anything is written, so the trip rule is judged on the group as
+        // it stands and a refusal leaves it untouched (a refusal after the removals below would have deleted
+        // rows for a save that then did not happen).
+        final List<Optional<Transaction>> rows = txPeople.stream()
+                .map(uid -> getGroupTransactionForUser(uid, groupId))
+                .toList();
+        final GroupTrip judged = groupTrip(tripId, rows, TransactionsCommands::ledgerTrip);
+        if (judged.problem() != null) {
+            return new GroupSave(false, judged.problem());
         }
         boolean result = true;
 
@@ -283,14 +471,19 @@ public class TransactionsCommands {
         }
 
         // Find existing, update or create their tx (our "existing" variable doesn't contain deleted, search 1 by 1)
-        for (final Person.Id uid : txPeople) {
-            final Transaction tx = updateTx(getGroupTransactionForUser(uid, groupId)
-                    .orElseGet(() -> new Transaction(uid, groupId, type)), date, amount, txType, cat, note);
+        for (int idx = 0; idx < txPeople.size(); idx++) {
+            final Person.Id uid = txPeople.get(idx);
+            final Transaction stored = rows.get(idx).orElse(null);
+            final Transaction tx = updateTx(stored != null ? stored : new Transaction(uid, groupId, type), date,
+                    amount, txType, cat, note);
             tx.setGroupPeople(txPeople);
-            result = persistTx(tx, tripId, eventId) && result;
+            // A stored row is re-bound only to a trip that was actually chosen; a new one is bound either way.
+            // (With none chosen, a member being added joins the trip the group is on: judged.trip() either way.)
+            final Trip bindTrip = stored == null || !isNoTrip(tripId) ? judged.trip() : null;
+            result = persistTx(tx, stored == null, bindTrip, eventId) && result;
         }
 
-        return result;
+        return new GroupSave(result, null);
     }
 
     /**
@@ -546,18 +739,53 @@ public class TransactionsCommands {
     }
 
     boolean saveFromPage(final TripFinanceGate gate, final Transaction tx, final String tripId) {
-        if (tx == null || tx.getUserId() == null || !mayPutOnBooks(gate, tx, tripId)) {
-            return PageFeedback.refuse("Not saved", "You can record transactions only on the books of a trip whose "
-                    + "finances you administer, for the people on that trip.");
+        if (tx == null || tx.getUserId() == null) {
+            return refuseOffBooks();
         }
-        return saveTransaction(tx, tripId);
-    }
-
-    private static boolean mayPutOnBooks(final TripFinanceGate gate, final Transaction tx, final String tripId) {
         // A Transaction always carries an id (its constructors mint one), so "new" means nothing stored under it.
         final Transaction stored =
                 DAO.getInstance().getTransaction(tx.getUserId(), tx.getTxId(), Cached.NO).orElse(null);
-        return mayPutOnBooks(gate, tripId, tx.getUserId(), stored);
+        final boolean noTrip = isNoTrip(tripId);
+        // A stored row saved with no trip chosen is judged against, and stays on, the trip it is bound to: the
+        // menu's blank row ("none") used to reach the binding write and silently took the row off its trip.
+        final String judgedTripId = noTrip ? boundTripOf(stored) : tripId;
+        if (stored != null && judgedTripId == null) {
+            // A stored row on no trip, saved with none chosen: the page refuses this too, but the rule is
+            // Java's. Asked before the books gate so a site admin and a trip's staff get the same clear answer.
+            return PageFeedback.refuse("Not saved", NEEDS_TRIP);
+        }
+        if (!mayPutOnBooks(gate, judgedTripId, tx.getUserId(), stored)) {
+            return refuseOffBooks();
+        }
+        // The trip is read ONCE: the same read judges the save and stamps the row.
+        final Trip trip = noTrip ? null : ledgerTrip(tripId);
+        final String problem = noTrip ? (stored == null ? NEEDS_TRIP : null) : chosenTripProblem(stored, trip);
+        if (problem != null) {
+            return PageFeedback.refuse("Not saved", problem);
+        }
+        // The org is never the page's to choose: a stored row keeps its own, a new one takes its trip's (as does
+        // a stored row from before rows carried one, when its trip is named).
+        final boolean keepsOwn = stored != null && (trip == null || !isNullOrBlank(stored.getOrgId()));
+        tx.setOrgId(keepsOwn ? stored.getOrgId() : trip.getOrgId());
+        if (!saveTransaction(tx)) {
+            return false;
+        }
+        if (!noTrip) {
+            bindToTrip(tx, tripId);
+        }
+        return true;
+    }
+
+    private static boolean refuseOffBooks() {
+        return PageFeedback.refuse("Not saved", "You can record transactions only on the books of a trip whose "
+                + "finances you administer, for the people on that trip.");
+    }
+
+    /** Puts the row on the trip's books (both directions), replacing any other trip it was bound to. */
+    private void bindToTrip(final Transaction tx, final String tripId) {
+        final BindingCommands binder = getBind();
+        binder.setBindings(binder.key(tx.getUserId().getValue(), tx.getTxId()), BindingType.TRANSACTION,
+                BindingType.TRIP, List.of(tripId), true);
     }
 
     /** The ONE books rule for both page gates: a new row needs mayCharge, an existing one mayWriteRow. */
@@ -590,24 +818,36 @@ public class TransactionsCommands {
         return row != null && mayPutOnBooks(gate, tripId, subject, row);
     }
 
-    private boolean persistTx(final Transaction tx, final String tripId, final String eventId) {
+    /**
+     * Writes one row of a group save. {@code bindTrip} is the trip to put it on, already read and known to have
+     * an organization ({@link #groupTrip}), or null to leave a stored row on the trip it has
+     * ({@link #saveGroup} has already refused a new row with no trip); a new row takes that trip's organization.
+     */
+    private boolean persistTx(final Transaction tx, final boolean isNew, final Trip bindTrip, final String eventId) {
         if ((tx.getGroupId() != null) && ((tx.getGroupPeople() == null) || tx.getGroupPeople().isEmpty())) {
             // An EMPTY membership list is worse than a missing one: getUserIdsForGroup reads it as the legacy
             // "just this user" case, which renders a Shared row's FULL amount as one person's share.
             log.error("Refusing to save group tx ({}) with no members", tx.getGroupId());
             return false;
         }
+        if (isNew && bindTrip == null) {
+            log.error("Refusing to save new group tx ({}) with no trip that has an organization", tx.getGroupId());
+            return false;
+        }
         final BindingCommands bind = getBind();
         final String txBindKey = bind.key(tx.getUserId().getValue(), tx.getTxId());
         tx.setDeleted(null); // Ensure not deleted
-        stampOrgFromTrip(tx, tripId);
+        if (tx.getOrgId() == null && bindTrip != null) {
+            // A row that already carries an organization keeps it: re-saving an old row must not re-tenant it.
+            tx.setOrgId(bindTrip.getOrgId());
+        }
         if (!saveTransaction(tx)) {
             log.error("Unable to save group tx ({}) with note: {}", tx.getGroupId(), tx.getNote());
             return false;
         }
         // Now save any binding(s)
-        if ((tripId != null) && !tripId.isEmpty()) {
-            bind.setBindings(txBindKey, BindingType.TRANSACTION, BindingType.TRIP, List.of(tripId), true);
+        if (bindTrip != null) {
+            bind.setBindings(txBindKey, BindingType.TRANSACTION, BindingType.TRIP, List.of(bindTrip.getId()), true);
             if ((eventId != null) && !eventId.isEmpty()) {
                 bind.setBindings(txBindKey, BindingType.TRANSACTION, BindingType.TRIP_EVENT, List.of(eventId),
                         true);
@@ -747,6 +987,31 @@ public class TransactionsCommands {
         return all;
     }
 
+    /**
+     * The three footers of the trip transactions page ({@link TripLedgerTotals}), as this request's site lists
+     * the trip's books: the rows behind the trip's TRIP to TRANSACTION bindings, each read through
+     * {@link #getTransaction} (so a deleted row, or one the host does not list, is left out exactly as on the
+     * page). The page's footers ARE this answer ({@code requestScope.txTotals}); the ledger migration's before
+     * and after figures use the same {@link TripLedgerTotals} over every live row (system reach).
+     */
+    public TripLedgerTotals getTripLedgerTotals(final String tripId) {
+        if (isNullOrEmpty(tripId)) {
+            return TripLedgerTotals.of("", List.of(), this::getUserAmount);
+        }
+        final List<Transaction> rows = getBind().getBindings(tripId, BindingType.TRIP, BindingType.TRANSACTION)
+                .stream()
+                .map(this::boundRow)
+                .filter(Objects::nonNull)
+                .toList();
+        return TripLedgerTotals.of(tripId, rows, this::getUserAmount);
+    }
+
+    /** The row a trip's binding names ("{userId},{txId}"), or null when it is deleted or not listed here. */
+    private Transaction boundRow(final String compositeKey) {
+        final CompositeKey key = CompositeKey.from(compositeKey);
+        return getTransaction(Person.Id.from(key.getPartitionKey()), key.getSortKey());
+    }
+
     private Transaction updateTx(final Transaction tx, final LocalDateTime date, final Float amount,
             final Transaction.TransactionType txType, final String cat, final String note) {
         tx.setTxDate(date);
@@ -775,5 +1040,9 @@ public class TransactionsCommands {
 
     private static boolean isNullOrEmpty(final String str) {
         return (str == null) || str.isEmpty();
+    }
+
+    private static boolean isNullOrBlank(final String str) {
+        return (str == null) || str.isBlank();
     }
 }

@@ -153,7 +153,8 @@ expenses, 20 currencies, 40 receipts per expense, 60 at report level, 100 paymen
 
 No new privilege, and no second spelling of one: `action/TripFinanceGate` is THE rule for the trip's money
 pages, used by both `BudgetCommands` and `ExpenseCommands`. Edit: site admin, `tripMgr@trip`,
-`tripFinAdmin@trip`. View: an editor, `tripFinView@trip`, or the global `viewFinances`. Settle (record, edit or
+`tripFinAdmin@trip`. View: an editor, `tripFinView@trip`, or `viewFinances` in the trip's organization
+(org-scoped since 2026-11; `docs/org-admin.md`, "Finance viewers"). Settle (record, edit or
 delete a payment; `canSettle`, `ExpenseCommands.canRecordPayments`): site admin or `tripFinAdmin@trip` ONLY, so a
 trip manager, usually the one being reimbursed, cannot mark their own report paid. The Reports dashboard's
 **Expense Report** card shows for the same people as View (`seeExpenses`).

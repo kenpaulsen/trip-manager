@@ -98,7 +98,11 @@ payment write and is saved as before. `page` (the trip page's look) is still rea
 trip to another organization, which a trip manager may not do: 403 `FORBIDDEN` unless the caller is a site admin or
 an administrator of BOTH organizations (`orgId` equal to the trip's own is not a move). On a move, `paymentConfig`
 and `people` are checked against the organization the trip ends up in, and a processor override left over from the
-old organization is a 400 `VALIDATION_FAILED` until the same body clears or replaces it.
+old organization is a 400 `VALIDATION_FAILED` until the same body clears or replaces it. Since 2026-11-19 a trip
+that has transactions on its books moves only for a SITE admin (403 for an administrator of both organizations): its
+transactions are re-stamped with the new organization in the same save and the move is audited in both
+organizations' trails. And every trip has an organization: a blank `orgId`, or any update of a stored trip that has
+none without sending one, is 400 `VALIDATION_FAILED`.
 `TripEventDto`: id, type (EVENT|FLIGHT|GROUND|LODGING), title, notes, start, end, participants[ids],
 participating, privNote, details{from,to,flightNumber,duration,carrier} (backend phase).
 `notes` and `privNote` are HTML from the site's rich editor, and both are CLEANED through an allowlist
@@ -276,7 +280,8 @@ the label of the answer to the trip's type question) and `name` (check-in respon
 secret: the single `GET {personId}` carries it for the traveler, their family manager or trip staff (the app shows
 the owner's QR from it), and every LISTING (`GET registrations`, `lookup`) strips it. Who may: check in = site
 admin, `tripMgr` or `checkinStaff`; clear = site admin or `tripMgr`; counts = the check-in callers plus `tripView`,
-`tripFinView`, `tripFinAdmin` and the global `viewFinances`.
+`tripFinView`, `tripFinAdmin` and `viewFinances` in the trip's organization (org-scoped since 2026-11; a global
+`viewFinances` row grants nothing).
 
 - `GET /api/trips/{tripId}/registrations/lookup?q=` → `[RegistrationDto]` (no `options`, no ticket; `name` is
   "Last, First"). A whole ticket code (grouped, any case, 0/1/8 for O/I/B) matches exactly that ticket, never a
@@ -532,6 +537,38 @@ photos).
   binding), normally one. The app fetches the person's whole ledger once (`GET /api/transactions/people/{id}`
   without `trip`) and filters by this on the device. `POST`/`PUT /api/transactions/people/{id}?trip=` now
   write that binding too (they saved the row without one before), as the website's transaction page does.
+- **Balances are per organization (2026-11-19).** A person can travel with several organizations, and what they owe
+  is owed to ONE of them, so the wire now says which. All additive:
+  - `TransactionDto.orgId` / `orgName`: the organization the row's money is with (its trip's). Both are absent on
+    a row that has none (legacy content; none is expected).
+  - `GET /api/transactions/people/{id}/balances` → `[{orgId, orgName, balance, balanceCents, state,
+    transactions}]`, one line per organization this host lists that the person has transactions (or a trip) with,
+    sorted by name. `balance` is the exact sum of the person's shares (negative: they owe); `balanceCents` is that
+    rounded once and is the figure to show and to compare with zero; `state` is `OWES`, `CREDIT`, `PAID_UP` or
+    `NO_ACTIVITY` (a trip with that organization and no transactions yet). `orgId` is `"unassigned"` for rows with
+    no organization. The person, someone who may act for them (the family switcher's reach) and a site
+    administrator get every organization; anyone else only the organizations they administer or hold `peopleAdmin`
+    or `viewFinances` in, and with none of those 403 `FORBIDDEN`. For the person themself the lines add up to the
+    sum of `userAmount` over `GET people/{id}` on the same host.
+  - `GET /api/transactions/people/{id}?org={orgId}`: only that organization's rows (`unassigned` for rows with
+    none); it narrows what the caller could already read, never widens it, and combines with `trip`.
+  ```json
+  [{"orgId":"5f0c2a4e-9d31-4a8e-8f34-6d2f19c7b0a1","orgName":"CFPW","balance":-200.0,"balanceCents":-20000,
+    "state":"OWES","transactions":2}]
+  ```
+- **CONTRACT CHANGE (2026-11-19): a new transaction must name a real trip.** `POST
+  /api/transactions/people/{id}` without `?trip=` (or with `trip=none`, an unknown trip, or a trip that has no
+  organization) is now 400 `VALIDATION_FAILED`; it used to save a row bound to no trip, with no organization, for a
+  site administrator (everyone else was already 403 without a trip). `POST /api/transactions/groups` is held to the
+  same rule: a NEW group needs `?trip=`; an existing group amended without one keeps the trip it is on, and a member
+  being added joins that trip; no group moves to a trip of another organization (400). A new row takes its trip's
+  organization. `PUT /api/transactions/people/{id}/{txId}?trip=` on a stored row that is on NO trip binds it to
+  that trip, and that bind is held to the same rule: an unknown trip, a trip with no organization, or a trip of
+  another organization than the row's is 400 `VALIDATION_FAILED` and nothing is saved. A row already on a trip is
+  never moved by a `PUT`, and a `PUT` without `?trip=` keeps the row where it is. A `PUT` without `?trip=` on a
+  row that is on NO trip is 400 `VALIDATION_FAILED` too (it has no trip to keep): name a real trip of its
+  organization to save the edit; `DELETE` still works. `POST /api/transactions/groups` without `?trip=` on a
+  stored group that is on no trip is refused the same way. The apps create no transactions.
 - **A finance role reaches one trip's books (2026-11-12).** `tripFinView` / `tripFinAdmin` are roles on the trip
   named by `?trip=` (or the path's `{tripId}`), and since this date they reach only the rows BOUND to that trip
   (`tripIds` contains it) plus the trip's own ledger; the role alone used to open every person's whole ledger.
@@ -734,7 +771,8 @@ Simulator recipe (no server needed): save a payload as `push.apns` with a top-le
 ## Trip money: budget and expense report (web-first; not yet used by the apps)
 
 Both wrap the web pages' beans (`docs/budget.md`, `docs/expense-report.md`) and share ONE gate: **read** = site
-admin, `tripMgr`/`tripFinAdmin`/`tripFinView` on the trip, or the global `viewFinances`; **write** = site admin,
+admin, `tripMgr`/`tripFinAdmin`/`tripFinView` on the trip, or `viewFinances` in the trip's organization (not
+the global row, which grants nothing since 2026-11); **write** = site admin,
 `tripMgr` or `tripFinAdmin` on the trip. Writes need the CSRF header (`X-Trip-Api`) and answer 403 without it or
 without the write gate; a refusal is 400 `VALIDATION_FAILED` whose `message` is the page's own sentence; an unknown
 trip is 404. Money goes IN as plain numbers (`1440`, `255.83`) and comes OUT in `summary` as display strings

@@ -7,7 +7,14 @@ root.
 ## CDI action beans (`org.paulsens.trip.action`)
 
 `@Named @ApplicationScoped` beans exposed to JSF EL. Current names: `trip` (TripCommands), `people` (PersonCommands),
-`reg` (RegistrationCommands), `txCmds` (TransactionsCommands), `todo`, `bind`, `priv`, `pdv`, `pass`, `mail`, `chat`,
+`reg` (RegistrationCommands), `txCmds` (TransactionsCommands), `ledger` (LedgerCommands -- the per-organization
+ledger: every balance and statement names ONE organization; `overview` is the whole Balance page,
+`familyOverview` the same for a family manager with every member's balance for the pills, `tripStatement` one
+trip's books for a viewer there only by a trip finance role, `tripAndOrgBalances` the Trip Contacts figures,
+`tripBooks` the trip payments report's rows; `docs/payments.md`,
+"Balances are per organization", before touching it or any page that shows a balance; its arithmetic is the
+plain class `LedgerStatements`, which the ledger migration's verifier runs too), `todo`, `bind`, `priv`,
+`pdv`, `pass`, `mail`, `chat`,
 `audit`, `auditView`, `config` (ConfigCommands -- admin Settings page), `media`, `reports` (ReportCommands -- the trip
 report pages' scalar rows; see `docs/reports.md`), `profilePhotos`, `chatPhotos` (ChatPhotos -- chat photo
 storage/staging/album), `photoChat` (PhotoChatCommands -- per-photo comment threads/reactions; see
@@ -18,7 +25,11 @@ touching either -- MAIL-kind templates are runtime-editable email copy rendered 
 tokens filled by Java only), `family` (FamilyCommands -- family accounts; the create-and-link security boundary, see
 `docs/family-accounts.md`), `support` (SupportChatCommands -- the support:main channel; requests post without
 membership), `orgPages` (SitePageCommands -- an org site's own pages and menu links, `admin/orgPages.xhtml`,
-`page.xhtml`), `org` (OrgCommands -- organizations, THE tenancy boundary: membership, org-scoped privileges + the
+`page.xhtml`), `payPage` (PayPageCommands -- the org-aware "How to pay" page, `trip/pay.xhtml`: `destination` /
+`inApp` is THE in-app-or-how-to decision that `pay.xhtml` and `payment.xhtml` both redirect on, `orgIdFor` and
+`payPageKey` say whose page a request is for, `ensurePage` seeds its starter text once per organization;
+`docs/org-admin.md`, "The pay
+page"), `org` (OrgCommands -- organizations, THE tenancy boundary: membership, org-scoped privileges + the
 per-org allow-list, processor configs, the payment-config ladder; see `docs/org-admin.md` and `docs/payments.md` before
 touching), `payment` (PaymentCommands -- the whole payment flow in Java: quote/start/complete/cancel + reconciliation +
 paymentsAdmin sandbox; see `docs/payments.md`), `site` (SiteCommands -- the request's resolved `SiteContext`: shared /
@@ -34,7 +45,7 @@ replaced image recoverable; see `docs/org-admin.md` "Uploading the four images")
 accommodations, room types, rooms, floor maps, offers, reservations, the room-assignment board, lodging bills, the
 itinerary rows; see `docs/lodging.md` before touching), `budget` (BudgetCommands -- the trip's planning budget: typed
 inputs, shared and per-person lines, lodging lines reading the trip's options live, the page's rows and the dashboard
-headline; edit = tripMgr/tripFinAdmin, view adds tripFinView and the global viewFinances; arithmetic in
+headline; edit = tripMgr/tripFinAdmin, view adds tripFinView and viewFinances in the trip's org; arithmetic in
 `pay/BudgetMath`; see `docs/budget.md`; both gates live in `TripFinanceGate`, shared with the expense report),
 `expenses` (ExpenseCommands -- the trip's shared expense report: details, currencies, expenses matched to budget lines,
 the submit stamp, budget vs actual, payments recorded behind the narrower settle gate (site admin or `tripFinAdmin`

@@ -144,6 +144,14 @@ public final class Organization implements Serializable {
     private LocalDateTime sitePagesSeededAt;
 
     /**
+     * When the org's "How to pay" page ({@code page:org:{id}:pay}) got its starter text, or was found already
+     * authored; null until the page is first rendered. Once only, like {@link #homePageSeededAt}: a page its
+     * editors later empty stays empty, and a signed-out visitor's render of it writes nothing. Setter-populated,
+     * outside the 8-arg creator like {@link #paymentDefaults}.
+     */
+    private LocalDateTime payPageSeededAt;
+
+    /**
      * The organization's consent to its public content (trips, albums) being shown ANYWHERE but its own site.
      * Three things read it, all through {@link #allowsSharedSites()}:
      * <ul>

@@ -17,8 +17,8 @@ person's answers to anyone holding their person id, and a "Paid" column that sum
 |---|---|---|
 | `canCheckIn` | site admin, `tripMgr@trip`, `checkinStaff@trip` | lookup, check in, the focus panel, `ticketFor`, the scan endpoints |
 | `canClearCheckIn` | site admin, `tripMgr@trip` | Clear check-in (staff scan; they never edit) |
-| `canViewCounts` | `canCheckIn`, plus the Reports dashboard union: `tripView`, `tripFinView`, `tripFinAdmin`, global `viewFinances` | the page itself, the Check-in tab, the dashboard card, `GET counts` |
-| `canSeeMoney` | the dashboard's finance union: site admin, `viewFinances`, `tripFinView@trip` | the money row, `counts.money` |
+| `canViewCounts` | `canCheckIn`, plus the Reports dashboard union: `tripView`, `tripFinAdmin`, and the finance viewers of `canSeeMoney` | the page itself, the Check-in tab, the dashboard card, `GET counts` |
+| `canSeeMoney` | the money rule (`TripFinanceGate.seesMoney`): site admin, `tripFinView@trip`, `viewFinances` in the trip's organization (never a global row) | the money row, `counts.money` |
 | `canPrintBadges` | `canCheckIn` or `tripView@trip` | the batch badges and "Mark printed" |
 
 Every gate answers false for a caller who is not signed in BEFORE it reads anything (no trip read, no session

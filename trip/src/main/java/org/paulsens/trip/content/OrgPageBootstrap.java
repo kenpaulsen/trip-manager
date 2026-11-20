@@ -57,6 +57,13 @@ public final class OrgPageBootstrap {
     /** The name of a site's home page; every other named page ({@code board}, ...) is a secondary page. */
     public static final String HOME_PAGE = "home";
 
+    /**
+     * The name of an organization's "How to pay" page ({@code page:org:{uuid}:pay}, docs/org-admin.md, "The pay
+     * page"). Not a Site Page: {@code trip/pay.xhtml} serves it on any host that reaches the organization, so the
+     * name is reserved ({@link #isReservedPageName}) and no Site Page can take its content key.
+     */
+    public static final String PAY_PAGE = "pay";
+
     private static final String ORG_PAGE_PREFIX = "page:org:";
     private static final String SHARED_PAGE_PREFIX = "page:shared:";
     private static final String MARKETING_PAGE_PREFIX = "page:unitetrip:";
@@ -103,6 +110,19 @@ public final class OrgPageBootstrap {
     /** Whether {@code name} may name a page: a short lower-case slug ({@code board}, {@code our-team}). */
     public static boolean isPageName(final String name) {
         return name != null && PAGE_NAME.matcher(name).matches();
+    }
+
+    /**
+     * Whether {@code name} is a page name the app keeps for itself, which a Site Page may therefore not take: the
+     * home page's and the pay page's. Both are well-formed names ({@link #isPageName}); they are just not free.
+     */
+    public static boolean isReservedPageName(final String name) {
+        return HOME_PAGE.equals(name) || PAY_PAGE.equals(name);
+    }
+
+    /** The section key of an organization's "How to pay" page: {@code page:org:{uuid}:pay}. */
+    public static String payPageKey(final Organization.Id orgId) {
+        return pageKey(orgId, PAY_PAGE);
     }
 
     private static String requirePageName(final String name) {
@@ -224,6 +244,55 @@ public final class OrgPageBootstrap {
                         Map.of(PilgrimagesType.PROP_LANGUAGE, TripCommands.ANY_LANGUAGE,
                                 PilgrimagesType.PROP_CFPW_ONLY, "false")),
                 row(key, "Pictures", StarterTemplates.PHOTO_ALBUMS_ID, templateVersion, 2, Map.of()));
+    }
+
+    /**
+     * The one row {@code org}'s "How to pay" page starts with, unsaved and pinned like {@link #rows}: a generic
+     * block that sends the reader to the organization, since the app cannot know how an organization that takes
+     * no payments here wants to be paid. Its id is DETERMINISTIC per org ({@link #payRowId}): the page is seeded
+     * from a visitor's render, so two first visits at once must write the same row, not two.
+     *
+     * @param contactEmail the organization's usable contact address, or null to leave the address out
+     */
+    public static List<ContentInstance> payRows(final Organization org, final String contactEmail,
+            final ToIntFunction<String> templateVersion) {
+        return List.of(new ContentInstance(payRowId(org.getId()), payPageKey(org.getId()), "How to pay",
+                StarterTemplates.TEXT_ONLY_ID, templateVersion.applyAsInt(StarterTemplates.TEXT_ONLY_ID),
+                new HashMap<>(Map.of("body", payBody(org.getName(), contactEmail))), null, 0, 0, null,
+                SEED_AUTHOR));
+    }
+
+    /** The template ids {@link #payRows} pins. */
+    public static List<String> payRowTemplateIds() {
+        return List.of(StarterTemplates.TEXT_ONLY_ID);
+    }
+
+    /**
+     * The pay page's starter row id: the same organization always names the same row. Public for the local-mode
+     * seed ({@code FakeData}), which writes the fake organization's instructions into that very row, as
+     * {@code scripts/seed-pay-pages.sh} does for a real one.
+     */
+    public static String payRowId(final Organization.Id orgId) {
+        return UUID.nameUUIDFromBytes(("pay-page:" + orgId.getValue() + ":how-to-pay")
+                .getBytes(StandardCharsets.UTF_8)).toString();
+    }
+
+    /**
+     * The pay page's starter text: who is being paid as the heading, then whom to ask. The address sentence is
+     * left out when the organization has no usable contact address, rather than naming the site's (the site is
+     * not the payee). No colors and no styles: it renders inside the organization's theme.
+     */
+    public static String payBody(final String orgName, final String contactEmail) {
+        final String name = escape(orgName);
+        final String heading = "<h2>How to pay " + name + "</h2>";
+        final String tail = " They will tell you which payment methods they accept and where to send your"
+                + " payment.</p>";
+        if (contactEmail == null || contactEmail.isBlank()) {
+            return heading + "<p>To make a payment to " + name + ", please contact the organization." + tail;
+        }
+        final String email = escape(contactEmail.trim());
+        return heading + "<p>To make a payment to " + name + ", please contact the organization at <a href=\"mailto:"
+                + email + "\">" + email + "</a>." + tail;
     }
 
     /** The classpath resource holding the starter Site Pages: one JSON list of {@link StarterPage}. */

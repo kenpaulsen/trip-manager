@@ -178,9 +178,13 @@ public class BudgetCommandsTest {
         assertTrue(finView.canViewBudget(id), "A trip finance viewer reads the budget");
         assertFalse(finView.canEditBudget(id), "...and edits nothing");
         assertFalse(finView.saveInputs(id, inputs(1, 1, null, null)));
-        final BudgetCommands global = as(grant(PrivilegeCommands.VIEW_FINANCES, null));
-        assertTrue(global.canViewBudget(id), "The global finance viewer reads every trip's budget");
-        assertFalse(global.canEditBudget(id));
+        final BudgetCommands orgViewer = as(grant(PrivilegeCommands.VIEW_FINANCES, orgId));
+        assertTrue(orgViewer.canViewBudget(id), "A finance viewer of the trip's organization reads its budget");
+        assertFalse(orgViewer.canEditBudget(id));
+        assertFalse(as(grant(PrivilegeCommands.VIEW_FINANCES, UUID.randomUUID().toString())).canViewBudget(id),
+                "...and another organization's finance viewer does not");
+        assertFalse(as(grant(PrivilegeCommands.VIEW_FINANCES, null)).canViewBudget(id),
+                "viewFinances has no global form: a leftover global row grants nothing");
 
         assertTrue(admin.canEditBudget(id), "A site admin holds everything");
         final String unknown = UUID.randomUUID().toString();

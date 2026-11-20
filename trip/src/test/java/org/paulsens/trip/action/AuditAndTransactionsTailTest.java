@@ -74,7 +74,8 @@ public class AuditAndTransactionsTailTest {
 
         Assert.assertTrue(transactions.saveGroupTransaction(groupId, List.of(),
                 Transaction.Type.Shared, Transaction.TransactionType.Bill, LocalDateTime.now(), 500f,
-                "lodging", "shared room", null, null, List.of(alice.getId(), bob.getId())));
+                "lodging", "shared room", TenancyFixtures.ledgerTripId(), null,
+                List.of(alice.getId(), bob.getId())));
 
         final Transaction alicesRow =
                 transactions.getGroupTransactionForUser(alice.getId(), groupId).orElseThrow();
@@ -91,7 +92,8 @@ public class AuditAndTransactionsTailTest {
         final String groupId = "tail-group-2";
         final List<Person.Id> both = List.of(alice.getId(), bob.getId());
         Assert.assertTrue(transactions.saveGroupTransaction(groupId, List.of(), Transaction.Type.Shared,
-                Transaction.TransactionType.Bill, LocalDateTime.now(), 100f, "c", "n", null, null, both));
+                Transaction.TransactionType.Bill, LocalDateTime.now(), 100f, "c", "n",
+                TenancyFixtures.ledgerTripId(), null, both));
         // The second save reads the group rows back; wait out the asynchronous cache invalidation so it sees
         // the rows the first save just wrote rather than the pre-save empty cache.
         awaitGroupRow(bob.getId(), groupId);

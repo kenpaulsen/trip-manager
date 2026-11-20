@@ -645,6 +645,16 @@ public class TripsResource extends BaseResource {
             return error(403, ApiErrors.FORBIDDEN,
                     "Moving a trip to another organization needs an administrator of both organizations.");
         }
+        if (moved && body.orgId().isBlank()) {
+            return error(400, ApiErrors.VALIDATION_FAILED, "A trip must belong to an organization.");
+        }
+        // A ledger row's organization is its trip's, so a trip with rows on its books takes them along
+        // (TripCommands.saveTrip re-stamps them): money leaving one organization's books for another's is a
+        // site administrator's decision, not the two organizations' admins'.
+        if (moved && !privileges().isSiteAdmin() && TripCommands.hasLedgerRows(trip.getId())) {
+            return error(403, ApiErrors.FORBIDDEN, "This trip has transactions on its books: only a site "
+                    + "administrator may move it to another organization.");
+        }
         // Payment settings and people are checked against the org the trip will END UP in, not the one it
         // is leaving (applyPeople reads the body's orgId the same way).
         final String toOrg = moved ? body.orgId() : fromOrg;
@@ -671,6 +681,10 @@ public class TripsResource extends BaseResource {
         final String storedExternal = trip.getNonHostedTripUrl();
         final String storedFlyer = trip.getFlyerUrl();
         apply(body, trip);
+        if (trip.getOrgId() == null || trip.getOrgId().isBlank()) {
+            // A legacy row with no organization cannot be saved as it is (TripCommands.saveTrip refuses it).
+            return error(400, ApiErrors.VALIDATION_FAILED, "A trip must belong to an organization: send orgId.");
+        }
         final String pageProblem = pageProblem(trip);
         if (pageProblem != null) {
             // The trip is this request's own copy (DAO reads are copies), so a refusal here changes nothing stored.

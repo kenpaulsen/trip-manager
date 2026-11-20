@@ -348,8 +348,8 @@ public class ReportCommands {
     }
 
     /**
-     * The invoice as ONE caller may see it. Finance viewers ({@code finance}: site admin, the global
-     * {@code viewFinances}, {@code tripFinView@trip}) and anyone internal on the trip's lodging get every
+     * The invoice as ONE caller may see it. Finance viewers ({@code finance}: site admin, {@code tripFinView@trip},
+     * {@code viewFinances} in the trip's organization) and anyone internal on the trip's lodging get every
      * section. A Hotel Operator gets the invoice REBUILT over the stays at the hotels they operate on this
      * trip, so its counts, its totals and its {@code missingCost} refusal are theirs alone. Anyone else gets an
      * empty invoice.

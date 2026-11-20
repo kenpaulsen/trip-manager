@@ -789,8 +789,16 @@ public class ConferenceImportPlanner {
                 tree.set("groupPeople", mapper.valueToTree(groups.get(group)));
             }
             final String tripId = tripOfTx.get(text(old, "userId") + "," + text(old, "txId"));
-            if (tripId == null) {
-                work.notes.add("Transaction " + text(old, "txId") + " has no trip binding in the export.");
+            if (tripId == null && old.hasNonNull("deleted")) {
+                // A deleted row lost its binding with the delete; it is history, in no balance, and comes along.
+                work.notes.add("Deleted transaction " + text(old, "txId") + " has no trip binding in the export.");
+            } else if (tripId == null) {
+                // Refused, not imported unbound: a live ledger row with no trip is on nobody's books and in no
+                // organization's statement by trip (the write invariant, TransactionsCommands.tripProblem).
+                work.blockers.add("Transaction " + text(old, "txId") + " (" + old.path("amount").asText() + ", "
+                        + text(old, "category") + ") of " + work.describeOld(text(old, "userId"))
+                        + " has no trip binding in the export: name its trip in the mapping's transactionTrips.");
+                continue;
             }
             work.transactions.add(new ImportPlan.TxStep(convert(tree, Transaction.class), tripId));
         }

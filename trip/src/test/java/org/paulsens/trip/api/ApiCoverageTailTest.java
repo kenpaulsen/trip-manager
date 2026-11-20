@@ -246,9 +246,15 @@ public class ApiCoverageTailTest extends ResourceTestSupport {
     public void theTripUpdateAppliesEveryOptionalField() {
         final TripCommands trips = bindMock(TripCommands.class);
         bindMock(PersonCommands.class);
+        // The answer's fallback picture is the organization's, read through these two.
+        Mockito.when(bindMock(org.paulsens.trip.action.BrandCommands.class).lookOf(ArgumentMatchers.any()))
+                .thenReturn(new org.paulsens.trip.action.BrandCommands.OrgLook(null, false, null, null, null, null,
+                        null, null, null, null, null, null, null, null));
+        bindMock(org.paulsens.trip.action.BrandingPhotos.class);
         signedInAsSiteAdmin(ME);
         final TripsResource resource = resource(new TripsResource());
         final Trip existing = Trip.builder().id("t1").people(List.of(ME)).build();
+        existing.setOrgId(org.paulsens.trip.dynamo.FakeData.CFPW_ORG_ID);     // an org-less trip is refused
         Mockito.when(trips.getTrip("t1")).thenReturn(existing);
         Mockito.when(trips.saveTrip(ArgumentMatchers.eq(existing), ArgumentMatchers.any())).thenReturn(true);
 

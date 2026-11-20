@@ -178,9 +178,13 @@ public class ExpenseCommandsTest {
         assertFalse(finView.saveAdvance(id, advance("CASH", 1.0, null)));
         assertFalse(finView.deleteAdvance(id, "x"));
         assertFalse(finView.submit(id));
-        final ExpenseCommands global = as(grant(PrivilegeCommands.VIEW_FINANCES, null));
-        assertTrue(global.canViewExpenses(id));
-        assertFalse(global.canEditExpenses(id));
+        final ExpenseCommands orgViewer = as(grant(PrivilegeCommands.VIEW_FINANCES, orgId));
+        assertTrue(orgViewer.canViewExpenses(id), "A finance viewer of the trip's organization reads its report");
+        assertFalse(orgViewer.canEditExpenses(id));
+        assertFalse(as(grant(PrivilegeCommands.VIEW_FINANCES, UUID.randomUUID().toString())).canViewExpenses(id),
+                "another organization's finance viewer does not");
+        assertFalse(as(grant(PrivilegeCommands.VIEW_FINANCES, null)).canViewExpenses(id),
+                "a leftover global row grants nothing");
         assertFalse(admin.canViewExpenses(UUID.randomUUID().toString()), "Unknown trip");
         assertFalse(admin.canViewExpenses(null));
 
@@ -217,7 +221,7 @@ public class ExpenseCommandsTest {
         assertFalse(manager.reportPage(id).isCanRecordPayments());
         assertTrue(admin.reportPage(id).isCanRecordPayments());
         assertFalse(as(grant(PrivilegeCommands.TRIP_FIN_VIEW, id)).canRecordPayments(id));
-        assertFalse(as(grant(PrivilegeCommands.VIEW_FINANCES, null)).canRecordPayments(id));
+        assertFalse(as(grant(PrivilegeCommands.VIEW_FINANCES, orgId)).canRecordPayments(id));
         assertFalse(new ExpenseCommands(() -> new Caller(null, false, AuditActor.system(), new PrivilegeCommands()))
                 .canRecordPayments(id));
         assertFalse(admin.canRecordPayments(UUID.randomUUID().toString()), "Unknown trip");

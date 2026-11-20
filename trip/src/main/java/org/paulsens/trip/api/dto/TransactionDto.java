@@ -29,11 +29,15 @@ public record TransactionDto(
         boolean deleted,
         List<String> groupPeople,
         // The trips this transaction is bound to (TRANSACTION->TRIP bindings): normally one, may be empty.
-        List<String> tripIds) {
+        List<String> tripIds,
+        // The organization the money is with (the row's trip's organization) and its name: a balance names ONE
+        // organization, so a client groups a person's rows by this. Absent on a row that has none.
+        String orgId,
+        String orgName) {
 
     /** This transaction without the list of who else shares it. */
     public TransactionDto withoutGroupPeople() {
         return new TransactionDto(txId, userId, groupId, type, txType, txDate, amount, userAmount, category,
-                note, deleted, null, tripIds);
+                note, deleted, null, tripIds, orgId, orgName);
     }
 }

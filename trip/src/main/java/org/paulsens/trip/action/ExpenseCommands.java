@@ -162,7 +162,7 @@ public class ExpenseCommands {
         return gate.canEdit(tripId);
     }
 
-    /** May read the report: an editor, the trip's finance viewers, or a global finance viewer. */
+    /** May read the report: an editor, the trip's finance viewers, or a finance viewer of its organization. */
     public boolean canViewExpenses(final String tripId) {
         return gate.canView(tripId);
     }

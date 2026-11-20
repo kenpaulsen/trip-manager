@@ -212,4 +212,48 @@ public class TripPickersTest {
         }
         Assert.assertEquals(lookups.get(), 0, "no trip, no lookup");
     }
+
+    @Test
+    public void aPersonsTripMenuPinsTheTripTheirRowWasOpenedOn() throws Exception {
+        // The single-person transaction editor: the person's own trips, plus the trip a row is already on when
+        // they have left its roster (a withdrawn traveler's payment stays on that trip's books).
+        final Trip left = Trip.builder().title("Picker left trip " + RandomData.genAlpha(6))
+                .startDate(LocalDateTime.of(2001, 2, 1, 9, 0))
+                .endDate(LocalDateTime.of(2001, 2, 2, 17, 0))
+                .build();
+        left.setOrgId(FakeData.CFPW_ORG_ID);
+        Assert.assertTrue(DAO.getInstance().saveTrip(left));
+        final TripCommands admin = as(TestCallers.siteAdmin());
+        final List<String> own = ids(onShared(() -> admin.getTripsForUser(traveler)));
+        Assert.assertTrue(own.contains(ownTrip.getId()));
+        Assert.assertFalse(own.contains(left.getId()), "precondition: the traveler is not on that roster");
+
+        final List<String> pinned = ids(onShared(() -> admin.getTripsForUserWith(traveler, FIN_ADMIN, left.getId())));
+        Assert.assertEquals(pinned.getFirst(), left.getId(), "the trip the row is on comes first");
+        Assert.assertEquals(pinned.subList(1, pinned.size()), own, "then the person's trips, unchanged");
+        Assert.assertEquals(ids(onShared(() -> admin.getTripsForUserWith(traveler, FIN_ADMIN, ownTrip.getId()))),
+                own, "a trip already listed is not listed twice");
+        Assert.assertEquals(ids(onShared(() -> admin.getTripsForUserWith(traveler, FIN_ADMIN, ""))), own);
+        Assert.assertEquals(ids(onShared(() -> admin.getTripsForUserWith(traveler, FIN_ADMIN, "none"))), own);
+        Assert.assertEquals(ids(onShared(() -> admin.getTripsForUserWith(null, FIN_ADMIN, left.getId()))),
+                List.of(left.getId()), "nobody (a new row before its person resolves): only the pinned trip");
+        // The pin follows the picker's own rule: someone who may not pick the trip is not handed it.
+        final TripCommands stranger = as(TestCallers.person(finAdmin));
+        Assert.assertFalse(ids(onShared(() -> stranger.getTripsForUserWith(traveler, FIN_ADMIN, left.getId())))
+                .contains(left.getId()));
+    }
+
+    @Test
+    public void aTripMenuKnowsWhetherItListsItsValue() {
+        // What hides the menu's "Choose a trip" row: only a value that is really among the items.
+        final TripCommands trips = as(TestCallers.siteAdmin());
+        final List<Trip> options = List.of(ownTrip, otherOrgTrip);
+        Assert.assertTrue(trips.listsTrip(options, ownTrip.getId()));
+        Assert.assertFalse(trips.listsTrip(options, "no-such-trip"), "an omitted trip keeps the placeholder");
+        Assert.assertFalse(trips.listsTrip(options, null));
+        Assert.assertFalse(trips.listsTrip(options, ""));
+        Assert.assertFalse(trips.listsTrip(options, "none"));
+        Assert.assertFalse(trips.listsTrip(List.of(), ownTrip.getId()));
+        Assert.assertFalse(trips.listsTrip(null, ownTrip.getId()), "a page whose items did not resolve");
+    }
 }

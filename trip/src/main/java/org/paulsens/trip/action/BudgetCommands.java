@@ -65,8 +65,8 @@ import static org.paulsens.trip.action.PageFeedback.refuse;
  * {@link TripBudget} row, saves it with one versioned put, audits, and renders {@link BudgetViews} rows.
  *
  * <p>Gates: edit = site admin, {@code tripMgr@trip} or {@code tripFinAdmin@trip}; view = an editor,
- * {@code tripFinView@trip} or the global {@code viewFinances}. Offers are read straight from the DAO rather
- * than through {@link LodgingCommands}, whose gates are the lodging tab's, not the budget's.
+ * {@code tripFinView@trip} or {@code viewFinances} in the trip's organization. Offers are read straight from the
+ * DAO rather than through {@link LodgingCommands}, whose gates are the lodging tab's, not the budget's.
  */
 @Slf4j
 @Named("budget")
@@ -112,7 +112,7 @@ public class BudgetCommands {
         return gate.canEdit(tripId);
     }
 
-    /** May read the budget: an editor, the trip's finance viewers, or a global finance viewer. */
+    /** May read the budget: an editor, the trip's finance viewers, or a finance viewer of its organization. */
     public boolean canViewBudget(final String tripId) {
         return gate.canView(tripId);
     }

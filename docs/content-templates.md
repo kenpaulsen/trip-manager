@@ -127,6 +127,11 @@ key. So every site has its OWN copy of a named page, never the shared site's. `O
 its org's pages and the platform org's editor all of the marketing host's, through the unchanged `canEdit`/`mayEdit`
 rules.
 
+One named page of an organization is NOT a Site Page: `page:org:{uuid}:pay`, its "How to pay" page, which
+`trip/pay.xhtml` hosts on any site that reaches the organization and `PayPageCommands.ensurePage` seeds once
+(`docs/org-admin.md`, "The pay page"). The names `home` and `pay` are reserved for that reason
+(`OrgPageBootstrap.isReservedPageName`).
+
 **Everything is a Site Page on an org site** (owner decision 2026-11-13, issue medjugorje#124). An org site's
 named pages exist only as `Organization.sitePages` entries, served by `page.xhtml` (`/page.jsf?name={name}`)
 and managed on its Site Pages admin page (`docs/org-admin.md`, "Site Pages"). Before this, the hand-written
@@ -271,6 +276,11 @@ registry never changes at runtime.
   `choiceLabel`, `getTemplateVersions`, `pinnedVersion`, `versionLabel`, `isTemplateOutdated`,
   `retargetTemplateVersion`, and for adding a section (below) `templateCards`, `sampleRender`,
   `previewInstance`, `saveNewContentAt`, `landingAnchor`.
+- **Edit mode is asked for AND permitted.** A host captures it once with
+  `content.editModeFor(param.edit, pageKey, userId, alsoAllowed)`: `?edit=true` and `canEditPage` (or whatever
+  else that host's own "Edit page" button admits). Edit mode makes `getForView` list every row, the hidden and
+  not-yet-visible ones included, so the bare parameter with only the buttons gated showed them to any signed-in
+  reader. `../medjugorje/webtest/.../EditModePolicyIT` scans the pages for any other capture.
 - **Privileges**: contentAdmin (or a site admin) edits everything. A container instance may name
   `editorPrivileges` (only contentAdmin can set them — the save path guards the field): holders of ANY
   listed privilege may add/edit/reorder/delete that container's CHILDREN (the landing page grants

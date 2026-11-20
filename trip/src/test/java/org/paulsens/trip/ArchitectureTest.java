@@ -112,6 +112,44 @@ public class ArchitectureTest {
                 "personalize with {{token}} substitution (TokenText) instead of evaluating text as EL");
     }
 
+    /**
+     * {@code DAO.scanTable} is a strongly consistent scan of a WHOLE table, there for the one-time ledger
+     * migration alone. Local mode answers it small, so a page or report that called it would pass every suite
+     * and then scan the ledger on every production render; only its declaration and {@code migrate/} may name
+     * it.
+     */
+    @Test
+    public void theWholeTableScanStaysInTheMigration() throws IOException {
+        final List<String> offenders = new ArrayList<>();
+        for (final Path source : mainSources()) {
+            final String path = source.toString().replace('\\', '/');
+            if (!path.contains("/migrate/") && !path.endsWith("dynamo/DAO.java")) {
+                offenders.addAll(linesMatching(source, "scanTable("));
+            }
+        }
+        Assert.assertEquals(offenders, List.of(), "DAO.scanTable is for migrate/ only: never on a request path");
+        Assert.assertEquals(linesMatching(MAIN.resolve("org/paulsens/trip/dynamo/DAO.java"), "scanTable(").size(), 1,
+                "its declaration, and no caller inside the DAO facade either");
+    }
+
+    /**
+     * "No trip" has ONE definition ({@code TransactionsCommands.isNoTrip}). A second, private one on the trip
+     * pickers once disagreed with it about {@code "None"} and {@code " none"}, so the transaction editor's Trip
+     * menu and its save rule answered differently for the same posted value.
+     */
+    @Test
+    public void noTripHasOneDefinition() throws IOException {
+        final List<String> definitions = new ArrayList<>();
+        for (final Path source : mainSources()) {
+            definitions.addAll(linesMatching(source, "boolean isNoTrip("));
+            definitions.addAll(linesMatching(source, "String NO_TRIP ="));
+        }
+        Assert.assertEquals(definitions.size(), 2, "one isNoTrip and one NO_TRIP, both on TransactionsCommands: "
+                + definitions);
+        Assert.assertTrue(definitions.stream().allMatch(line -> line.contains("TransactionsCommands.java")),
+                definitions.toString());
+    }
+
     /** Matches CODE lines only: comments may (and do) name the banned things while explaining their absence. */
     private static List<String> linesMatching(final Path source, final String needle) throws IOException {
         final List<String> hits = new ArrayList<>();

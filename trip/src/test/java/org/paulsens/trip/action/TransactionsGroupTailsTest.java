@@ -22,7 +22,7 @@ public class TransactionsGroupTailsTest {
         final Person.Id anna = Person.Id.from("grp-anna-" + System.nanoTime());
         final Person.Id ben = Person.Id.from("grp-ben-" + System.nanoTime());
         final String gid = UUID.randomUUID().toString();
-        final String tripId = "grp-trip-" + System.nanoTime();
+        final String tripId = TenancyFixtures.ledgerTripId();
         final String eventId = "grp-evt-" + System.nanoTime();
 
         Assert.assertTrue(txs.saveGroupTransaction(gid, null, Transaction.Type.Shared,

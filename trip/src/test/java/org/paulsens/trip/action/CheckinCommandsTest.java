@@ -134,6 +134,13 @@ public class CheckinCommandsTest {
         assertGates(viewer, tripId, false, false, true, false, true);
         assertGates(finance, tripId, false, false, true, true, false);
         assertGates(finAdmin, tripId, false, false, true, false, false);
+        // viewFinances is ORG-scoped: the trip's own organization (newTrip: CFPW) reads the counts and the money
+        // row, another organization's holder and a leftover global row read nothing.
+        assertGates(as(grant(PrivilegeCommands.VIEW_FINANCES, FakeData.CFPW_ORG_ID)), tripId,
+                false, false, true, true, false);
+        assertGates(as(grant(PrivilegeCommands.VIEW_FINANCES, UUID.randomUUID().toString())), tripId,
+                false, false, false, false, false);
+        assertGates(as(grant(PrivilegeCommands.VIEW_FINANCES, null)), tripId, false, false, false, false, false);
         assertGates(admin(), "no-such-trip", false, false, false, false, false);
         assertGates(admin(), null, false, false, false, false, false);
     }

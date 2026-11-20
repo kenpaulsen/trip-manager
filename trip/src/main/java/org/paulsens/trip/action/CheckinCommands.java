@@ -92,22 +92,24 @@ public class CheckinCommands {
     }
 
     /**
-     * May read the counts: whoever checks people in, plus the Reports dashboard's union (tripView, the two finance
-     * viewers, tripFinAdmin; tripMgr is already a checker), so the Check-in tab and the dashboard card agree.
+     * May read the counts: whoever checks people in, plus the Reports dashboard's union (tripView, the finance
+     * viewers of {@link #canSeeMoney}, tripFinAdmin; tripMgr is already a checker), so the Check-in tab and the
+     * dashboard card agree.
      */
     public boolean canViewCounts(final String tripId) {
         if (canCheckIn(tripId)) {
             return true;
         }
         return signedInOnKnownTrip(tripId) && (has(PrivilegeCommands.TRIP_VIEW, tripId)
-                || has(PrivilegeCommands.TRIP_FIN_VIEW, tripId) || has(PrivilegeCommands.TRIP_FIN_ADMIN, tripId)
-                || caller().has(PrivilegeCommands.VIEW_FINANCES));
+                || has(PrivilegeCommands.TRIP_FIN_ADMIN, tripId) || canSeeMoney(tripId));
     }
 
-    /** May see the money row: the dashboard's finance union (site admin, viewFinances, tripFinView@trip). */
+    /**
+     * May see the money row: the money pages' rule ({@link TripFinanceGate#seesMoney}: site admin,
+     * {@code tripFinView@trip}, or {@code viewFinances} in the trip's own organization).
+     */
     public boolean canSeeMoney(final String tripId) {
-        return signedInOnKnownTrip(tripId) && (caller().has(PrivilegeCommands.VIEW_FINANCES)
-                || has(PrivilegeCommands.TRIP_FIN_VIEW, tripId));
+        return signedInOnKnownTrip(tripId) && TripFinanceGate.seesMoney(caller(), knownTrip(tripId));
     }
 
     /** May open the batch badges: the trip's viewers (who print the roster today) or anyone who checks people in. */

@@ -13,6 +13,7 @@ import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -20,8 +21,10 @@ import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.AuditCommands;
 import org.paulsens.trip.action.BindingCommands;
+import org.paulsens.trip.action.LedgerCommands;
 import org.paulsens.trip.action.TransactionsCommands;
 import org.paulsens.trip.action.TripFinanceGate;
+import org.paulsens.trip.api.dto.OrgBalanceDto;
 import org.paulsens.trip.api.dto.TransactionDto;
 import org.paulsens.trip.api.mapper.TransactionMapper;
 import org.paulsens.trip.model.BindingType;
@@ -49,6 +52,8 @@ public class TransactionsResource extends BaseResource {
     private static final String V1 = ApiMediaTypes.TRANSACTIONS_V1;
 
     private TripFinanceGate cachedGate;
+    /** {@link #orgName}'s per-request memo: a ledger is many rows of one or two organizations. */
+    private final Map<String, String> orgNames = new HashMap<>();
 
     @Override
     protected String versionedType() {
@@ -63,7 +68,8 @@ public class TransactionsResource extends BaseResource {
     @Path("people/{personId}")
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response forPerson(
-            @PathParam("personId") final String personIdParam, @QueryParam("trip") final String tripId) {
+            @PathParam("personId") final String personIdParam, @QueryParam("trip") final String tripId,
+            @QueryParam("org") final String orgId) {
         final Person.Id subject = Person.Id.from(personIdParam);
         final boolean own = actsFor(subject);
         final boolean staff = gate().canReadLedgers(tripId);
@@ -72,8 +78,40 @@ public class TransactionsResource extends BaseResource {
         }
         return ok(Beans.get(TransactionsCommands.class).getTransactions(subject).stream()
                 .filter(tx -> own || gate().listsRow(tripId, tx))
+                .filter(tx -> isWithOrg(tx, orgId))
                 .map(tx -> dto(tx, staff && (!own || gate().listsRow(tripId, tx))))
                 .toList());
+    }
+
+    /**
+     * The optional {@code ?org=} filter: only the rows that are with this organization (the statement behind one
+     * line of {@link #balances}); {@code unassigned} names the rows with none. It only ever narrows.
+     */
+    private static boolean isWithOrg(final Transaction tx, final String orgId) {
+        if (orgId == null || orgId.isBlank()) {
+            return true;
+        }
+        final boolean orgless = tx.getOrgId() == null || tx.getOrgId().isBlank();
+        return LedgerCommands.UNASSIGNED_ORG_ID.equals(orgId) ? orgless : orgId.equals(tx.getOrgId());
+    }
+
+    /**
+     * A person's balance with each organization: one line per organization this host lists that they have
+     * transactions (or a trip) with. Theirs and their family manager's to read, and a site administrator's;
+     * anyone else is shown only the organizations they manage or hold {@code peopleAdmin} or
+     * {@code viewFinances} in ({@code LedgerCommands}, the one rule the Balance page uses too), and with none of
+     * those is refused.
+     */
+    @GET
+    @Path("people/{personId}/balances")
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response balances(@PathParam("personId") final String personIdParam) {
+        final Person.Id subject = Person.Id.from(personIdParam);
+        final LedgerCommands ledger = new LedgerCommands(this::caller);
+        if (!ledger.mayView(subject)) {
+            return error(403, ApiErrors.FORBIDDEN, "Not permitted to read these finances.");
+        }
+        return ok(ledger.orgBalances(List.of(subject)).stream().map(OrgBalanceDto::of).toList());
     }
 
     @GET
@@ -156,6 +194,12 @@ public class TransactionsResource extends BaseResource {
         if (!gate().mayCharge(tripId, subject)) {
             return error(403, ApiErrors.FORBIDDEN, "That person is not on this trip.");
         }
+        // A new row needs a real trip that has an organization: only a site admin gets this far without one
+        // (everyone else's finance role IS a trip), and theirs used to be saved with no trip and no org.
+        final String tripProblem = TransactionsCommands.tripProblem(null, tripId);
+        if (tripProblem != null) {
+            return error(400, ApiErrors.VALIDATION_FAILED, tripProblem);
+        }
         final Transaction tx = transactions.createTransaction(subject);
         apply(body, tx);
         // The trip-carrying save stamps the tenancy boundary (Transaction.orgId) from ?trip=, as the page
@@ -213,6 +257,16 @@ public class TransactionsResource extends BaseResource {
         if (tx == null || !gate().mayWriteRow(tripId, tx)) {
             return error(404, ApiErrors.NOT_FOUND, "No such transaction.");
         }
+        // A stored row on no trip is GIVEN ?trip= below (bindToTrip), and that bind is held to the write
+        // invariant like a new row's: a real trip that has an organization, and the row's own organization
+        // when it carries one. Otherwise a site admin's save could put a row on a trip that does not exist,
+        // or on another organization's books. With no ?trip= at all the edit is refused: a row on no trip
+        // cannot be changed until its trip is named (deleting it still works). A row already on a trip is not
+        // moved, so nothing to ask.
+        final String tripProblem = boundTrips(tx).isEmpty() ? TransactionsCommands.tripProblem(tx, tripId) : null;
+        if (tripProblem != null) {
+            return error(400, ApiErrors.VALIDATION_FAILED, tripProblem);
+        }
         apply(body, tx);
         if (!transactions.saveTransaction(tx, tripId)) {    // a row that already carries an org keeps it
             return error(500, ApiErrors.STORE_FAILED, "Could not save the transaction.");
@@ -258,11 +312,14 @@ public class TransactionsResource extends BaseResource {
             return error(400, ApiErrors.BAD_REQUEST, "At least one person is required for a new group.");
         }
         // The group id is minted HERE when the client did not supply one, rather than left to the bean. The
-        // bean generates one internally and returns only a boolean, so a client that let it do so would have
+        // bean generates one internally and never returns it, so a client that let it do so would have
         // just created a group transaction it has no way to name, fetch or amend afterwards.
         final String groupId = (body.groupId() == null || body.groupId().isBlank())
                 ? UUID.randomUUID().toString() : body.groupId();
-        final boolean saved = Beans.get(TransactionsCommands.class).saveGroupTransaction(
+        // The save judges the trip rule of every ledger write itself, before anything is touched (a new group,
+        // or a member being added, needs a real trip that has an organization, and no row moves to another
+        // organization's trip), and says which it broke. Asking first and then saving judged the group twice.
+        final TransactionsCommands.GroupSave save = Beans.get(TransactionsCommands.class).saveGroup(
                 groupId,
                 ids(body.originalPeople()),
                 Transaction.Type.valueOf(body.type()),
@@ -274,7 +331,10 @@ public class TransactionsResource extends BaseResource {
                 tripId,
                 body.eventId(),
                 ids(body.people()));
-        if (!saved) {
+        if (save.problem() != null) {
+            return error(400, ApiErrors.VALIDATION_FAILED, save.problem());
+        }
+        if (!save.saved()) {
             return error(500, ApiErrors.STORE_FAILED, "Could not save the group transaction.");
         }
         return ok(Map.of("saved", true, "groupId", groupId));
@@ -354,8 +414,17 @@ public class TransactionsResource extends BaseResource {
         final Float share = Beans.get(TransactionsCommands.class).getUserAmount(tx);
         final TransactionDto withShare = new TransactionDto(mapped.txId(), mapped.userId(), mapped.groupId(),
                 mapped.type(), mapped.txType(), mapped.txDate(), mapped.amount(), share, mapped.category(),
-                mapped.note(), mapped.deleted(), mapped.groupPeople(), boundTrips(tx));
+                mapped.note(), mapped.deleted(), mapped.groupPeople(), boundTrips(tx), mapped.orgId(),
+                orgName(mapped.orgId()));
         return staff ? withShare : withShare.withoutGroupPeople();
+    }
+
+    /** The organization's name, read once per request per organization; null for a row that has none. */
+    private String orgName(final String orgId) {
+        if (orgId == null || orgId.isBlank()) {
+            return null;
+        }
+        return orgNames.computeIfAbsent(orgId, LedgerCommands::nameOf);
     }
 
     /**

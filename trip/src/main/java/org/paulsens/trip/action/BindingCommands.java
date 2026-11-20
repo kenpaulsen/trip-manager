@@ -51,6 +51,9 @@ public class BindingCommands {
             final BindingType destType,
             final Collection<String> destIds,
             final boolean inBothDirections) {
+        if (keepsLedgerRowOnItsTrip(type, destType, destIds)) {
+            return new ArrayList<>();
+        }
         final Set<String> oldIds = new HashSet<>(getBindings(id, type, destType));
         final Set<String> newIds = new HashSet<>(destIds); // Ensure uniqueness
         // FYI: dao.saveBinding will avoid making updates if there are no changes
@@ -71,6 +74,18 @@ public class BindingCommands {
             }
         }
         return new ArrayList<>(oldIds);
+    }
+
+    /**
+     * Whether this call is a trip menu's blank row ("none") being "bound" to a ledger row: a no-op. The DAO never
+     * stores "none", but the replace above then removed the row's real trip, so saving a transaction with the
+     * menu left blank silently took it off its trip's books (and out of its organization's statement by trip).
+     * A ledger row leaves its trip only with the row itself, which passes an EMPTY list ({@code deleteRow}).
+     */
+    private static boolean keepsLedgerRowOnItsTrip(final BindingType type, final BindingType destType,
+            final Collection<String> destIds) {
+        return type == BindingType.TRANSACTION && destType == BindingType.TRIP && !destIds.isEmpty()
+                && destIds.stream().allMatch(TransactionsCommands::isNoTrip);
     }
 
     public boolean removeBinding(final String id, final BindingType type,
@@ -97,7 +112,7 @@ public class BindingCommands {
     }
 
     public String key(final String k1, final String k2) {
-        return CompositeKey.builder().partitionKey(k1).sortKey(k2).build().getValue();
+        return CompositeKey.join(k1, k2);
     }
 
     public List<String> splitKey(final String compositeKey) {

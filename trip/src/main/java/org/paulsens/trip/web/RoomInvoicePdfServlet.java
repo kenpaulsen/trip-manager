@@ -10,11 +10,11 @@ import java.util.function.Function;
 import org.paulsens.trip.action.Caller;
 import org.paulsens.trip.action.LodgingAccess;
 import org.paulsens.trip.action.LodgingAccessCommands;
-import org.paulsens.trip.action.PrivilegeCommands;
 import org.paulsens.trip.action.ReportCommands;
 import org.paulsens.trip.action.RoomInvoiceHeading;
 import org.paulsens.trip.action.RoomInvoicePdf;
 import org.paulsens.trip.action.TripCommands;
+import org.paulsens.trip.action.TripFinanceGate;
 import org.paulsens.trip.api.Beans;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Trip;
@@ -27,8 +27,9 @@ import org.paulsens.trip.model.Trip;
  * production with a 301 to the media CDN (and stands aside locally, so a {@code .pdf} URL would pass every
  * local test and break only once deployed). The file name travels in {@code Content-Disposition} instead.
  *
- * <p>Gated like the page: a FINANCE viewer (site administrator, the global {@code viewFinances}, or
- * {@code tripFinView} on this trip) gets the whole invoice, and a Hotel Operator of a hotel in play on the trip
+ * <p>Gated like the page: a FINANCE viewer ({@link TripFinanceGate#seesMoney}: site administrator,
+ * {@code tripFinView} on this trip, or {@code viewFinances} in the trip's organization) gets the whole invoice,
+ * and a Hotel Operator of a hotel in play on the trip
  * ({@link LodgingAccess#isOperatorHere()}) gets their hotel's part, built by
  * {@link ReportCommands#roomInvoiceFor}. An invoice REFUSED for want of a hotel cost
  * ({@code RoomInvoice.blocked}) is answered {@code 409 Conflict} as {@code text/plain} with
@@ -44,8 +45,6 @@ import org.paulsens.trip.model.Trip;
 public class RoomInvoicePdfServlet extends HttpServlet {
 
     static final String LOGIN = "/account/login.jsf?to=";
-    /** The GLOBAL finance-view privilege; the pages name it as a literal too (there is no constant for it). */
-    static final String VIEW_FINANCES = "viewFinances";
 
     /** The invoice as one caller may see it: {@link ReportCommands#roomInvoiceFor}'s shape. */
     @FunctionalInterface
@@ -84,8 +83,7 @@ public class RoomInvoicePdfServlet extends HttpServlet {
         final LodgingAccess access = new LodgingAccessCommands(() -> caller).forTrip(tripId);
         // Internal = a finance viewer or the trip's own lodging admin (the bill is the hotel's cost side, which
         // is exactly what they reconcile), as on the page: the flag picks the wording of a 409 refusal.
-        final boolean internal = caller.has(VIEW_FINANCES) || caller.has(PrivilegeCommands.TRIP_FIN_VIEW, tripId)
-                || access.isInternal();
+        final boolean internal = TripFinanceGate.seesMoney(caller, trip) || access.isInternal();
         if (!internal && !access.isOperatorHere()) {
             resp.sendError(HttpServletResponse.SC_FORBIDDEN);
             return;

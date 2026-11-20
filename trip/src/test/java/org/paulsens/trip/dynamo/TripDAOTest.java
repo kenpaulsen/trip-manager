@@ -74,6 +74,33 @@ public class TripDAOTest {
         assertEquals(trips.get(2).getTitle(), "Later");
     }
 
+    /** A stored trip may lack a start date: it lists last, and the lists that sort do not throw over it. */
+    @Test
+    public void anUndatedTripSortsLastInsteadOfFailingTheList() throws IOException {
+        final Trip undated = Trip.builder().title("Undated").build();
+        undated.setStartDate(null);
+        dao.saveTrip(undated);
+        dao.saveTrip(Trip.builder().title("Dated").startDate(LocalDateTime.now().plusDays(400)).build());
+        final List<Trip> trips = dao.getRecentTrips(100);
+        assertEquals(trips.stream().map(Trip::getTitle).toList(), List.of("Dated", "Undated"));
+    }
+
+    /**
+     * The same undated row in the ACTIVE list (a trip with no end date is always active): the per-organization
+     * ledger walks it for every Balance page, and the list's sort used to throw over it.
+     */
+    @Test
+    public void anUndatedTripDoesNotFailTheActiveTrips() throws IOException {
+        final Trip undated = Trip.builder().title("Undated and open-ended").build();
+        undated.setStartDate(null);
+        undated.setEndDate(null);
+        dao.saveTrip(undated);
+        dao.saveTrip(Trip.builder().title("Dated").startDate(LocalDateTime.now().plusDays(400))
+                .endDate(LocalDateTime.now().plusDays(410)).build());
+        final List<Trip> trips = dao.getActiveTrips(LocalDateTime.now());
+        assertEquals(trips.stream().map(Trip::getTitle).toList(), List.of("Dated", "Undated and open-ended"));
+    }
+
     @Test
     public void saveTripIsIdempotent() throws IOException {
         final Trip trip = Trip.builder().title("Idempotent").build();

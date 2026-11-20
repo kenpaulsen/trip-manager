@@ -77,12 +77,15 @@ import org.paulsens.trip.security.Pepper;
 import org.paulsens.trip.action.ChatPhotos;
 import org.paulsens.trip.site.DiscoverIndex;
 import org.paulsens.trip.site.SiteIndex;
+import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 
 @Slf4j
 public final class DAO {
     @Getter
     private final ObjectMapper mapper;
     private final CacheClient cacheClient;
+    /** Kept only for {@link #scanTable}; every other read and write goes through a domain DAO. */
+    private final Persistence persistence;
     private final PersonDAO personDao;
     private final FamilyDAO familyDao;
     private final OrganizationDAO orgDao;
@@ -124,6 +127,7 @@ public final class DAO {
     private DAO(final Persistence persistence, final CacheClient cacheClient) {
         this.mapper = createObjectMapper();
         this.cacheClient = cacheClient;
+        this.persistence = persistence;
         this.personDao = new PersonDAO(mapper, persistence, cacheClient);
         this.familyDao = new FamilyDAO(mapper, persistence, cacheClient);
         this.orgDao = new OrganizationDAO(mapper, persistence, cacheClient);
@@ -1057,6 +1061,17 @@ public final class DAO {
     }
 
     /**
+     * Every raw item of one table, read strongly consistently and never through a cache: the whole-table read of
+     * the one-time ledger migration ({@code migrate/LedgerBindingCli}), which must see soft-deleted rows and the
+     * stored JSON exactly as written, neither of which a domain DAO hands out. Read-only, and far too expensive
+     * for a request: nothing a page or the API serves may call it. In local mode only the tables the fake backs
+     * answer; the rest scan empty, because there the cache is the store.
+     */
+    public List<Map<String, AttributeValue>> scanTable(final String table) {
+        return persistence.scanAll(scan -> scan.tableName(table).consistentRead(true));
+    }
+
+    /**
      * The invalidation scopes an operator (admin Settings, the REST endpoint, migration-script hooks) can
      * clear. Scopes rather than raw prefixes on purpose: {@code PERSON} knows it also means the email index
      * and the people search index -- key-layout knowledge that must not leak into shell scripts.
@@ -1209,7 +1224,12 @@ public final class DAO {
         invalidate(CacheScope.ALL);
     }
 
-    private ObjectMapper createObjectMapper() {
+    /**
+     * The ONE configuration every stored row and cache blob is written and read with. Static, and touching no
+     * datastore, so the offline migration tools parse a dump with exactly this mapper without building a DAO
+     * (which would build the datastore clients): a copy of these lines would drift the day one is added here.
+     */
+    public static ObjectMapper createObjectMapper() {
         final ObjectMapper mapper = new ObjectMapper();
         mapper.setDefaultPropertyInclusion(JsonInclude.Include.NON_NULL);
         mapper.registerModule(new JavaTimeModule());

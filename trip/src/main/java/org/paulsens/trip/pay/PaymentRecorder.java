@@ -12,6 +12,7 @@ import org.paulsens.trip.model.BindingType;
 import org.paulsens.trip.model.Payment;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Transaction;
+import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.util.Util;
 
 /**
@@ -281,6 +282,7 @@ public class PaymentRecorder {
                 .map(Payment.Allocation::getPersonId)
                 .toList();
         final List<String> txIds = new ArrayList<>();
+        final String orgId = rowOrgOf(payment);
         for (final Person.Id member : members) {
             final String txId = txCmds.getGroupTransactionForUser(member, line.txOrGroupId())
                     .map(Transaction::getTxId)
@@ -288,7 +290,7 @@ public class PaymentRecorder {
             final Transaction tx = new Transaction(txId, member, line.txOrGroupId(), Transaction.Type.Shared,
                     line.txType(), LocalDateTime.now(), MoneyMath.toFloatDollars(line.amountCents()), "Payment",
                     line.description(), members);
-            tx.setOrgId(payment.getOrgId());
+            tx.setOrgId(orgId);
             if (!txCmds.saveTransaction(tx, payment.getTripId())) {
                 throw new IllegalStateException("Ledger write failed for payment " + payment.getPaymentId()
                         + " (shared group " + line.txOrGroupId() + ", member " + member.getValue() + ")");
@@ -297,6 +299,19 @@ public class PaymentRecorder {
             txIds.add(tx.getTxId());
         }
         return txIds;
+    }
+
+    /**
+     * The organization a row of this payment is recorded with: its trip's organization NOW, read fresh. A row's
+     * organization is its trip's, and the payment's own stamp is the trip's organization when the payment was
+     * STARTED: a payment begun before the trip moved to another organization and captured after it (a bank
+     * debit settles days later; so do a refund and an administrator's Finish) put a row of the old organization
+     * on the moved trip's books, where neither organization's statement was right. The payment's stamp remains
+     * the answer only when there is no such trip to ask.
+     */
+    private static String rowOrgOf(final Payment payment) {
+        final Trip trip = TransactionsCommands.ledgerTrip(payment.getTripId());
+        return trip == null ? payment.getOrgId() : trip.getOrgId();
     }
 
     private void bindToTrip(final Payment payment, final Transaction tx) {
@@ -312,7 +327,7 @@ public class PaymentRecorder {
                 Transaction.Type.Tx, line.txType(), LocalDateTime.now(),
                 MoneyMath.toFloatDollars(line.amountCents()),
                 categoryOf(line), line.description());
-        tx.setOrgId(payment.getOrgId());
+        tx.setOrgId(rowOrgOf(payment));
         if (!txCmds.saveTransaction(tx, payment.getTripId())) {
             throw new IllegalStateException("Ledger write failed for payment " + payment.getPaymentId()
                     + " (tx " + line.txOrGroupId() + ")");

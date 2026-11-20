@@ -22,5 +22,6 @@ public interface TransactionMapper {
     @Mapping(target = "deleted", expression = "java(tx.getDeleted() != null)")
     @Mapping(target = "userAmount", ignore = true)
     @Mapping(target = "tripIds", ignore = true)
+    @Mapping(target = "orgName", ignore = true)
     TransactionDto toDto(Transaction tx);
 }

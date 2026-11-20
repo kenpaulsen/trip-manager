@@ -96,6 +96,8 @@ public class TripsResourceTest extends ResourceTestSupport {
                 .endDate(LocalDateTime.now().plusDays(40))
                 .people(List.of(members))
                 .build();
+        // Every trip belongs to an organization: an update of one with none is refused (400).
+        trip.setOrgId(org.paulsens.trip.dynamo.FakeData.CFPW_ORG_ID);
         trip.getTripEvents().add(event("evt-1"));
         return trip;
     }
@@ -1206,6 +1208,43 @@ public class TripsResourceTest extends ResourceTestSupport {
         signedInAsSiteAdmin(ME);
         assertOk(resource(new TripsResource()).update(tripId, CSRF_OK, orgBody(home)));
         Assert.assertEquals(existing.getOrgId(), home);
+    }
+
+    /**
+     * A trip with rows on its books takes them to the new organization (a ledger row's organization is its
+     * trip's), so that move is a site admin's alone: an administrator of both organizations moves an empty trip,
+     * not one with money on it. And no update leaves a trip with no organization.
+     */
+    @Test
+    public void movingATripWithLedgerRowsTakesASiteAdminAndNoTripIsLeftWithoutAnOrganization() throws IOException {
+        final Person.Id ofBoth = Person.Id.newInstance();
+        final String home = orgAdministeredBy(ofBoth);
+        final String away = orgAdministeredBy(ofBoth);
+        final String tripId = UUID.randomUUID().toString();
+        grant(PrivilegeCommands.TRIP_MGR, tripId, ofBoth);
+        final Trip existing = trip(tripId, ME);
+        existing.setOrgId(home);
+        tripExists(existing);
+        Mockito.when(trips.saveTrip(ArgumentMatchers.eq(existing), ArgumentMatchers.any())).thenReturn(true);
+        Assert.assertTrue(DAO.getInstance().saveBinding(tripId, org.paulsens.trip.model.BindingType.TRIP,
+                ME.getValue() + "," + UUID.randomUUID(), org.paulsens.trip.model.BindingType.TRANSACTION, true));
+
+        assertError(as(ofBoth).update(tripId, CSRF_OK, orgBody(away)), 403, ApiErrors.FORBIDDEN);
+        Assert.assertEquals(existing.getOrgId(), home, "the trip and its money stayed where they were");
+        Mockito.verify(trips, Mockito.never()).saveTrip(ArgumentMatchers.any(), ArgumentMatchers.any());
+
+        signedInAsSiteAdmin(ME);
+        final TripsResource admin = resource(new TripsResource());
+        assertError(admin.update(tripId, CSRF_OK, orgBody(" ")), 400, ApiErrors.VALIDATION_FAILED);
+        Assert.assertEquals(existing.getOrgId(), home);
+        assertOk(admin.update(tripId, CSRF_OK, orgBody(away)));
+        Assert.assertEquals(existing.getOrgId(), away, "a site admin moves it (the bean re-stamps the rows)");
+
+        // A stored row from before every trip had an organization cannot be saved as it is.
+        final Trip legacy = trip(UUID.randomUUID().toString(), ME);
+        legacy.setOrgId(null);
+        tripExists(legacy);
+        assertError(admin.update(legacy.getId(), CSRF_OK, linksBody(null, null)), 400, ApiErrors.VALIDATION_FAILED);
     }
 
     /** F6: the processor override named the OLD organization's account; it does not follow the trip. */

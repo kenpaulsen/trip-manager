@@ -77,7 +77,7 @@ public class GroupTransactionDeleteTest {
     public void aDeletedRowTakesItsBindingsWithIt() {
         final Person.Id anna = id("anna");
         final Person.Id ben = id("ben");
-        final String tripId = "trip-" + UUID.randomUUID();
+        final String tripId = TenancyFixtures.ledgerTripId();
         final String eventId = "evt-" + UUID.randomUUID();
         final String gid = UUID.randomUUID().toString();
         Assert.assertTrue(txs.saveGroupTransaction(gid, null, Transaction.Type.Batch,
@@ -182,7 +182,8 @@ public class GroupTransactionDeleteTest {
     private String group(final Transaction.Type type, final float amount, final Person.Id... members) {
         final String gid = UUID.randomUUID().toString();
         Assert.assertTrue(txs.saveGroupTransaction(gid, null, type, Transaction.TransactionType.Payment,
-                LocalDateTime.now(), amount, "cat", "note", null, null, List.of(members)));
+                LocalDateTime.now(), amount, "cat", "note", TenancyFixtures.ledgerTripId(), null,
+                List.of(members)));
         return gid;
     }
 

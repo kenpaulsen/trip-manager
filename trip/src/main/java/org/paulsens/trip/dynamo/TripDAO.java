@@ -34,9 +34,14 @@ public class TripDAO {
     private static final String ID = "id";
     private static final String CONTENT = "content";
     private static final String TRIP_TABLE = "trips";
-    /** Display order for resolved trip lists (matches the pre-index whole-table cache ordering). */
-    private static final Comparator<Trip> TRIP_ORDER =
-            Comparator.comparing(Trip::getStartDate).thenComparing(Trip::getId);
+    /**
+     * Display order for resolved trip lists (matches the pre-index whole-table cache ordering). A stored trip
+     * may lack a start date, and sorts LAST rather than throwing: one undated row otherwise failed every list
+     * that sorts (the recent trips a member removal walks, among others).
+     */
+    private static final Comparator<Trip> TRIP_ORDER = Comparator
+            .comparing(Trip::getStartDate, Comparator.nullsLast(Comparator.<LocalDateTime>naturalOrder()))
+            .thenComparing(Trip::getId);
     /** Trips with no end date sort as "ongoing" (always active, never inactive) rather than crashing date math. */
     private static final long NO_END_DATE = Long.MAX_VALUE / 2;
 

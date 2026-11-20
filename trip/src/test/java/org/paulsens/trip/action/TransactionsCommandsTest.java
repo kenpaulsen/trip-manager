@@ -52,7 +52,7 @@ public class TransactionsCommandsTest {
         final Person.Id p1 = createPerson();
         txCmds.saveGroupTxAs(TripFinanceGate.forCaller(TenancyFixtures::siteAdminCaller), sharedGroup, List.of(),
                 Transaction.Type.Shared, Transaction.TransactionType.Bill,
-                LocalDateTime.now(), amount, cat, note, null /* tripId */, null /* eventId */,
+                LocalDateTime.now(), amount, cat, note, TenancyFixtures.ledgerTripId(), null /* eventId */,
                 p1, createPerson(), createPerson(), createPerson());
         // Membership is stamped on each row -- read it off any member's tx
         final Transaction memberTx = txCmds.getGroupTransactionForUser(p1, sharedGroup).orElse(null);

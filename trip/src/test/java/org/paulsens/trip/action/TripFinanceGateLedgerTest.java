@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.UUID;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.model.BindingType;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Registration;
@@ -26,6 +27,7 @@ public class TripFinanceGateLedgerTest {
     private static Trip storedTrip(final Person.Id... roster) throws IOException {
         final Trip trip = Trip.builder().id(UUID.randomUUID().toString()).title("Gate " + System.nanoTime())
                 .startDate(LocalDateTime.now().plusDays(30)).people(new ArrayList<>(List.of(roster))).build();
+        trip.setOrgId(FakeData.CFPW_ORG_ID);     // a ledger row needs a trip that has an organization
         Assert.assertTrue(DAO.getInstance().saveTrip(trip));
         return trip;
     }
@@ -44,6 +46,28 @@ public class TripFinanceGateLedgerTest {
         bind.setBindings(bind.key(who.getValue(), row.getTxId()), BindingType.TRANSACTION, BindingType.TRIP,
                 List.of(trip.getId()), true);
         return row;
+    }
+
+    @Test
+    public void theMoneyPagesAgreeOnWhatIsATripHere() throws IOException {
+        final Person.Id traveler = Person.Id.newInstance();
+        final Trip trip = storedTrip(traveler);
+        final String padded = " " + trip.getId() + " ";
+        final TripCommands trips = new TripCommands(TenancyFixtures::asSiteAdmin, TenancyFixtures::siteAdminCaller);
+        for (final String none : new String[] {null, "", "  ", UUID.randomUUID().toString()}) {
+            Assert.assertNull(TripFinanceGate.knownTrip(trips, none), "'" + none + "'");
+        }
+        Assert.assertEquals(TripFinanceGate.knownTrip(trips, padded).getId(), trip.getId(), "padding is forgiven");
+
+        // One ?trip= value, three askers. The pay page forgave a padded id while the Balance page and the gate
+        // called it no trip, each from its own copy of the test: they share one now.
+        final TripFinanceGate gate = TripFinanceGate.forCaller(TenancyFixtures::siteAdminCaller);
+        final LedgerCommands ledger = new LedgerCommands(TenancyFixtures::siteAdminCaller);
+        final PayPageCommands pay = new PayPageCommands(TenancyFixtures::siteAdminCaller);
+        Assert.assertEquals(gate.knownTrip(padded).getId(), trip.getId());
+        Assert.assertTrue(gate.seesMoney(padded));
+        Assert.assertEquals(pay.orgIdFor(padded, null), FakeData.CFPW_ORG_ID);
+        Assert.assertEquals(ledger.tripAndOrgBalances(padded).tripId(), trip.getId());
     }
 
     @Test

@@ -264,9 +264,15 @@ public class SitePageCommands {
      */
     public boolean addPage(final String orgId, final String title, final String name, final String placement) {
         final String cleanName = name == null ? "" : name.trim().toLowerCase(Locale.ROOT);
-        if (!OrgPageBootstrap.isPageName(cleanName) || OrgPageBootstrap.HOME_PAGE.equals(cleanName)) {
+        if (!OrgPageBootstrap.isPageName(cleanName)) {
             return PageFeedback.refuse("Invalid address", "A page address starts with a letter and uses lowercase "
-                    + "letters, digits and hyphens, at most 40 characters, and \"home\" is the home page's own.");
+                    + "letters, digits and hyphens, at most 40 characters.");
+        }
+        if (OrgPageBootstrap.isReservedPageName(cleanName)) {
+            // "pay" as well as "home": its content key is the organization's How to pay page, which the pay
+            // page serves and seeds, so a Site Page there would be a second door onto the same rows.
+            return PageFeedback.refuse("Address taken", "\"home\" is the home page's own address and \"pay\" "
+                    + "the How to pay page's. Choose another address.");
         }
         return add(orgId, new SitePage(cleanName, title, null, Placement.from(placement).name()), true);
     }

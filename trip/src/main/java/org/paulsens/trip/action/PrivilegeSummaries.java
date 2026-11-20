@@ -30,14 +30,14 @@ import org.paulsens.trip.model.Privilege;
 public final class PrivilegeSummaries {
     /**
      * Display names for the global-only bases. A base that is also org-scoped (content, media, audit, lodging)
-     * takes its name from {@link OrgCommands#orgPrivName}, so one rename reaches both rows. Others show raw.
+     * takes its name from {@link OrgCommands#orgPrivName}, so one rename reaches both rows, and so does the
+     * inert global row of a base that MOVED to org scope (people, finance viewing). Others show raw.
      */
     private static final Map<String, String> GLOBAL_NAMES = Map.of(
             PrivilegeCommands.PRIVILEGE_ADMIN, "Privilege Admin",
             PrivilegeCommands.CONFIG_ADMIN, "Settings Admin",
             PrivilegeCommands.SITE_DEPLOYER, "Site Deployer",
-            PrivilegeCommands.EVENT_ADMIN, "Events Editor",
-            PrivilegeCommands.VIEW_FINANCES, "View Finances");
+            PrivilegeCommands.EVENT_ADMIN, "Events Editor");
 
     /**
      * One person's privileges as the People page shows them.
