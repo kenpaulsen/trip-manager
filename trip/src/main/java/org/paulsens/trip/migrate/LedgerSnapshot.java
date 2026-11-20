@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.function.Predicate;
+import org.paulsens.trip.action.LedgerStatements;
 import org.paulsens.trip.action.TripLedgerTotals;
 import org.paulsens.trip.model.CompositeKey;
 import org.paulsens.trip.model.Transaction;
@@ -38,7 +39,7 @@ public record LedgerSnapshot(String asOf, int allRows, Map<String, String> liveH
     /** One person's money on one trip, as {@code CheckinCommands.balanceOf} counts it: cents, rounded per row. */
     public record TripMoney(long paidCents, long billedCents) {
         TripMoney plus(final LedgerData.Row row) {
-            final long cents = Math.round(row.share() * 100d);
+            final long cents = LedgerStatements.cents(row.share());
             return row.tx().isPayment() ? new TripMoney(paidCents + cents, billedCents)
                     : new TripMoney(paidCents, billedCents - cents);
         }

@@ -101,6 +101,37 @@ public final class TripFinanceGate {
                 || TripCommands.isOnTrip(knownTrip(tripId), subject);
     }
 
+    /**
+     * May open a traveler's Balance page with this trip named ({@code trip/transactions.jsf?trip=}), as the trip's
+     * staff: a site admin, or a finance viewer of THIS trip (an exact {@code tripFinView@trip}, which Finance
+     * Admin does not imply). Narrower than {@link #seesMoney}: an organization's finance viewer opens the trip's
+     * ledger, not a traveler's page through it. THE rule the pages that link to that page ask (the trip ledger,
+     * Trip Contacts) and the page itself, so a link is never shown to a viewer the page then refuses.
+     */
+    public boolean opensTripLedger(final String tripId) {
+        final Caller caller = callerSource.get();
+        return caller.isAuthenticated() && (caller.isSiteAdmin()
+                || (tripId != null && !tripId.isBlank() && caller.has(PrivilegeCommands.TRIP_FIN_VIEW, tripId)));
+    }
+
+    /**
+     * Whether {@code person} belongs on the Balance page's {@code ?trip=} form: on the trip's roster, or with a row
+     * on its books. A traveler who paid a deposit and then left the roster keeps their rows on the trip's books
+     * (the trip ledger lists them), so their name there must still open their page rather than send the viewer
+     * home. Read from the cache: this admits a READ, which the page then narrows to this trip's rows.
+     */
+    public static boolean onTripLedger(final Trip trip, final Person.Id person) {
+        if (trip == null || person == null) {
+            return false;
+        }
+        if (TripCommands.isOnTrip(trip, person)) {
+            return true;
+        }
+        final String prefix = person.getValue() + ",";
+        return DAO.getInstance().getBindings(trip.getId(), BindingType.TRIP, BindingType.TRANSACTION, Cached.YES)
+                .stream().anyMatch(key -> key.startsWith(prefix));
+    }
+
     private boolean reaches(final String tripId, final Transaction tx) {
         return callerSource.get().isSiteAdmin() || onBooks(tripId, tx);
     }

@@ -19,6 +19,7 @@ import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.BindingType;
 import org.paulsens.trip.model.CompositeKey;
+import org.paulsens.trip.model.Family;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Registration;
@@ -442,10 +443,44 @@ public class LedgerCommands {
      * the entry {@link #orgBalances} would list, or a zero {@link State#NO_ACTIVITY} one. Never null.
      */
     public OrgBalance orgBalance(final Collection<Person.Id> subjects, final String orgId) {
-        final Snapshot snap = snapshot(subjects);
+        return balanceWith(snapshot(subjects), orgId);
+    }
+
+    private OrgBalance balanceWith(final Snapshot snap, final String orgId) {
         return balancesOf(snap).stream().filter(entry -> entry.orgId().equals(orgId)).findFirst()
                 .orElseGet(() -> new OrgBalance(orgId, snap.viewer.nameOfReachable(snap.subjects, orgId), false,
                         0d, 0L, 0, State.NO_ACTIVITY));
+    }
+
+    /**
+     * The payment page's figures: each row's own balance with the trip's organization, and the family line's.
+     * {@code family} is null unless the line is shown (the payer manages the family).
+     */
+    public record PayBalances(Map<String, OrgBalance> byPerson, OrgBalance family) {
+        /** One row's figure (never null: an id this call was not given has no activity). */
+        public OrgBalance forPerson(final String personId) {
+            return byPerson.getOrDefault(personId, new OrgBalance(null, null, false, 0d, 0L, 0, State.NO_ACTIVITY));
+        }
+    }
+
+    /**
+     * {@link #orgBalance} for every row of the payment page and for its family line, in ONE call: each person's
+     * partition is read once however many figures it is part of. The page asked {@link #orgBalance} per row and
+     * again for the family, each call reading its partitions afresh (a manager of five read ten partitions for
+     * six figures, on every re-render). The family line only {@code withFamily} (the payer manages
+     * {@code family}); else {@code family()} is null.
+     */
+    public PayBalances payBalances(final Collection<String> rowIds, final Family family, final boolean withFamily,
+            final String orgId) {
+        final Collection<Person.Id> familyIds = withFamily && family != null ? family.getMemberIds() : null;
+        final Map<Person.Id, List<Transaction>> partitions = new HashMap<>();
+        final Map<String, OrgBalance> byPerson = new LinkedHashMap<>();
+        for (final String id : rowIds == null ? List.<String>of() : rowIds) {
+            byPerson.put(id, balanceWith(new Snapshot(List.of(Person.Id.from(id)), partitions, false), orgId));
+        }
+        final OrgBalance familyLine = familyIds == null || familyIds.isEmpty() ? null
+                : balanceWith(new Snapshot(familyIds, partitions, false), orgId);
+        return new PayBalances(byPerson, familyLine);
     }
 
     /**

@@ -97,6 +97,10 @@ public class PayPageCommandsTest {
         Assert.assertEquals(pay.howToUrlForOrg(null), "/trip/pay.jsf");
         Assert.assertEquals(pay.howToUrlForOrg(" " + mine.getId().getValue()), "/trip/pay.jsf?org="
                 + mine.getId().getValue());
+        // The anonymous /pay/ page hands its own parameter in: it stays ONE value, never a second parameter.
+        Assert.assertEquals(pay.howToUrl("x&org=" + other.getId().getValue()), "/trip/pay.jsf?trip=x%26org%3D"
+                + other.getId().getValue());
+        Assert.assertEquals(pay.howToUrlForOrg("a b#c"), "/trip/pay.jsf?org=a+b%23c");
 
         Assert.assertTrue(pay.inApp(theirs.getId()), "where the trip is served it is paid in the app");
         Assert.assertFalse(onSite(siteOf(mine), () -> pay.inApp(theirs.getId())),

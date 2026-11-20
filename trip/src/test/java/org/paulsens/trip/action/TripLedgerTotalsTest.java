@@ -1,7 +1,7 @@
 package org.paulsens.trip.action;
 
-import java.io.IOException;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import org.paulsens.trip.action.TripLedgerTotals.Bucket;
@@ -74,26 +74,18 @@ public class TripLedgerTotalsTest {
     }
 
     @Test
-    public void theBeanTotalsTheRowsATripsBindingsReach() throws IOException {
-        final DAO dao = DAO.getInstance();
+    public void theBeanTotalsTheRowsThePageListsWithoutReadingThemAgain() {
         final String tripId = UUID.randomUUID().toString();
         final String person = UUID.randomUUID().toString();
         final TransactionsCommands txs = new TransactionsCommands();
         final Transaction bill = row(person, null, TransactionType.Bill, -100f, null);
         final Transaction paid = row(person, null, TransactionType.Payment, 40f, null);
         final Transaction own = row(tripId, null, TransactionType.Payment, -700f, null);
-        final Transaction deleted = row(person, null, TransactionType.Payment, 999f, null);
-        for (final Transaction tx : List.of(bill, paid, own, deleted)) {
-            assertTrue(dao.saveTransaction(tx));
-            assertTrue(dao.saveBinding(tx.getUserId().getValue() + "," + tx.getTxId(), BindingType.TRANSACTION,
-                    tripId, BindingType.TRIP, true));
-        }
-        deleted.delete();
-        assertTrue(dao.saveTransaction(deleted));
-        final TripLedgerTotals totals = txs.getTripLedgerTotals(tripId);
-        assertEquals(totals, new TripLedgerTotals(-700d, -100d, 40d, 3), "a deleted row's binding reaches nothing");
-        assertEquals(txs.getTripLedgerTotals(""), new TripLedgerTotals(0d, 0d, 0d, 0));
-        assertEquals(txs.getTripLedgerTotals(null).rows(), 0);
+        // Never stored: the bean folds what it is handed and reads nothing.
+        final TripLedgerTotals totals = txs.getTripLedgerTotals(tripId, List.of(own), List.of(bill), List.of(paid));
+        assertEquals(totals, new TripLedgerTotals(-700d, -100d, 40d, 3));
+        assertEquals(txs.getTripLedgerTotals("", null, null, null), new TripLedgerTotals(0d, 0d, 0d, 0));
+        assertEquals(txs.getTripLedgerTotals(null, List.of(), null, List.of()).rows(), 0);
     }
 
     private static <T> T onSite(final SiteContext site, final ScopedValue.CallableOp<T, Exception> body)
@@ -103,22 +95,24 @@ public class TripLedgerTotalsTest {
 
     /**
      * What {@code trip/tripTransactions.xhtml} lists, as the page itself gathers it: the trip's bindings, each
-     * row through the site-filtered {@code getTransaction}, in the page's three lists. Spelled out here apart
-     * from {@link TripLedgerTotals} on purpose: the page's footers are the bean's totals, and this is the check
-     * that they are the totals of exactly the rows the tables above them show.
+     * row through the site-filtered {@code getTransaction}, in the page's three lists (trip, invoice, user).
+     * Spelled out here apart from {@link TripLedgerTotals} on purpose: the page hands these lists to the bean
+     * for its footers, and this is the check that the footers are the totals of exactly those rows.
      */
-    private static double[] listedByThePage(final TransactionsCommands txs, final String tripId) {
-        final double[] sums = new double[4];
+    private static List<List<Transaction>> listedByThePage(final TransactionsCommands txs, final String tripId) {
+        final List<List<Transaction>> lists = List.of(new ArrayList<>(), new ArrayList<>(), new ArrayList<>());
         for (final String key : txs.getBind().getBindings(tripId, BindingType.TRIP, BindingType.TRANSACTION)) {
             final String[] ids = key.split(",", 2);
             final Transaction tx = txs.getTransaction(Person.Id.from(ids[0]), ids[1]);
             if (tx != null) {
-                final int list = ids[0].equals(tripId) ? 0 : (tx.getTxType() == TransactionType.Bill ? 1 : 2);
-                sums[list] += txs.getUserAmount(tx);
-                sums[3]++;
+                lists.get(ids[0].equals(tripId) ? 0 : (tx.getTxType() == TransactionType.Bill ? 1 : 2)).add(tx);
             }
         }
-        return sums;
+        return lists;
+    }
+
+    private static double sum(final TransactionsCommands txs, final List<Transaction> rows) {
+        return rows.stream().mapToDouble(txs::getUserAmount).sum();
     }
 
     @Test
@@ -146,14 +140,17 @@ public class TripLedgerTotalsTest {
         final SiteContext orgHost = SiteContext.org(org.getId(), "footer", "footer.example.test");
         final SiteContext sharedHost = SiteContext.shared("localhost");
         for (final SiteContext site : List.of(orgHost, sharedHost)) {
-            final TripLedgerTotals totals = onSite(site, () -> txs.getTripLedgerTotals(tripId));
-            final double[] listed = onSite(site, () -> listedByThePage(txs, tripId));
-            assertEquals(totals.trip(), listed[0], "the trip footer on " + site);
-            assertEquals(totals.invoice(), listed[1], "the invoice footer on " + site);
-            assertEquals(totals.user(), listed[2], "the user footer on " + site);
-            assertEquals(totals.rows(), (int) listed[3]);
+            final List<List<Transaction>> listed = onSite(site, () -> listedByThePage(txs, tripId));
+            final TripLedgerTotals totals = txs.getTripLedgerTotals(tripId, listed.get(0), listed.get(1),
+                    listed.get(2));
+            assertEquals(totals.trip(), sum(txs, listed.get(0)), "the trip footer on " + site);
+            assertEquals(totals.invoice(), sum(txs, listed.get(1)), "the invoice footer on " + site);
+            assertEquals(totals.user(), sum(txs, listed.get(2)), "the user footer on " + site);
+            assertEquals(totals.rows(), listed.stream().mapToInt(List::size).sum());
         }
-        final TripLedgerTotals onOrgHost = onSite(orgHost, () -> txs.getTripLedgerTotals(tripId));
+        final List<List<Transaction>> orgListed = onSite(orgHost, () -> listedByThePage(txs, tripId));
+        final TripLedgerTotals onOrgHost = txs.getTripLedgerTotals(tripId, orgListed.get(0), orgListed.get(1),
+                orgListed.get(2));
         assertEquals(onOrgHost, new TripLedgerTotals(-70d, -100d, 40d, 3),
                 "the organization's own host lists its three rows and not the other organization's");
     }

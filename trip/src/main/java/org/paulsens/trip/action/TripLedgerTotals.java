@@ -18,8 +18,8 @@ import org.paulsens.trip.model.Transaction;
  *
  * <p>This class knows nothing about which SITE is asking. The page reads its rows through
  * {@code TransactionsCommands.getTransaction}, which hides a row whose organization the request's host does not
- * list, and renders its three footers from {@link TransactionsCommands#getTripLedgerTotals}, which reads the rows
- * the same way: a footer is the total of exactly the rows its table lists on that host. The ledger
+ * list, and renders its three footers from {@link TransactionsCommands#getTripLedgerTotals}, which folds those same
+ * listed rows: a footer is the total of exactly the rows its table lists on that host. The ledger
  * migration ({@code migrate/LedgerBindingCli}) hands in every live bound row instead (system reach). The two agree
  * wherever the host lists the trip's organization, because a row's organization is its trip's.
  *
@@ -77,6 +77,6 @@ public record TripLedgerTotals(double trip, double invoice, double user, int row
 
     /** One bucket's total in whole cents, rounded once: what the page's footer displays. */
     public long cents(final Bucket bucket) {
-        return Math.round(total(bucket) * 100d);
+        return LedgerStatements.cents(total(bucket));
     }
 }

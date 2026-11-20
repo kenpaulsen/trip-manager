@@ -3,6 +3,8 @@ package org.paulsens.trip.action;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Named;
 import java.io.IOException;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -104,15 +106,21 @@ public class PayPageCommands {
 
     /**
      * The How to pay page for a trip; the trip rides along so the page can tell whose instructions to show. A
-     * blank id's parameter is left out, never sent empty.
+     * blank id's parameter is left out, never sent empty. Encoded: the anonymous {@code /pay/} page passes its own
+     * request parameter straight in, and a raw {@code x&org=...} would have named another organization's page.
      */
     public String howToUrl(final String tripId) {
-        return isBlank(tripId) ? HOW_TO_URL : HOW_TO_URL + "?trip=" + tripId.trim();
+        return isBlank(tripId) ? HOW_TO_URL : HOW_TO_URL + "?trip=" + encoded(tripId);
     }
 
     /** The How to pay page of one organization (the Balance page's "How to pay {org}" link). */
     public String howToUrlForOrg(final String orgId) {
-        return isBlank(orgId) ? HOW_TO_URL : HOW_TO_URL + "?org=" + orgId.trim();
+        return isBlank(orgId) ? HOW_TO_URL : HOW_TO_URL + "?org=" + encoded(orgId);
+    }
+
+    /** A caller's text as one query value (as {@code CustomPalettes} encodes its own). */
+    private static String encoded(final String value) {
+        return URLEncoder.encode(value.trim(), StandardCharsets.UTF_8);
     }
 
     /**

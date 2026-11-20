@@ -165,8 +165,11 @@ public final class LedgerStatements {
         return share == null ? 0d : share;
     }
 
-    /** A finished total in whole cents: the one place a figure is rounded. */
-    static long cents(final double amount) {
+    /**
+     * A finished total in whole cents: THE rounding of every ledger figure (the Balance page, the trip footers,
+     * the ledger migration's verifier), so no two of them can round the same rows differently.
+     */
+    public static long cents(final double amount) {
         return Math.round(amount * 100d);
     }
 

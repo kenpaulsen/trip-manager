@@ -7,6 +7,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import org.paulsens.trip.action.LedgerStatements;
 import org.paulsens.trip.action.TripLedgerTotals;
 import org.paulsens.trip.action.TripLedgerTotals.Bucket;
 import org.paulsens.trip.migrate.LedgerBindingApplier.Approval;
@@ -111,7 +112,7 @@ final class LedgerPlanFiles {
                 .toList();
         return LedgerCsv.typed(trip.title()) + " | " + trip.dates() + " | "
                 + (trip.ended(today) ? "ended" : "NOT ENDED") + " | net now "
-                + LedgerBindingPlanner.money(LedgerData.cents(LedgerData.fold(onIt))) + " | " + tripId;
+                + LedgerBindingPlanner.money(LedgerStatements.cents(LedgerData.fold(onIt))) + " | " + tripId;
     }
 
     private static String amount(final Float amount) {

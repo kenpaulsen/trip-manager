@@ -141,10 +141,17 @@ public class AdjacencyCache {
             allOk &= reconcileBindingSet(sourceKey, dest, loaderIds, preByDest.getOrDefault(dest, Set.of()));
         }
         final boolean marked = afterBindingWrites(sourceKey, allOk);
-        if (marked) {
+        final List<String> loaded = byDestType.getOrDefault(destTypeId, List.of());
+        // The set as cached (it also holds a write-through, or a delete, that landed during the load), except with
+        // the cache switched OFF: NoopCacheClient accepts every write and answers every set empty, so reading the
+        // cache back answered [] for EVERY binding read. The ledger migration CLI runs that way: its read-back
+        // reported every binding it wrote as "not read back", its "already bound" checks saw nothing, and its
+        // rollback would have found nothing to remove. A union of cached and loaded was rejected: with a real cache
+        // it would answer a binding that a concurrent delete had just removed.
+        if (marked && !(cache instanceof NoopCacheClient)) {
             return members(sourceKey, destTypeId);
         }
-        return sorted(byDestType.getOrDefault(destTypeId, List.of()));
+        return sorted(loaded);
     }
 
     private boolean reconcileBindingSet(

@@ -3,6 +3,7 @@ package org.paulsens.trip.dynamo;
 import java.util.List;
 import java.util.stream.Stream;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.paulsens.trip.cache.NoopCacheClient;
 import org.paulsens.trip.model.BindingType;
 import org.paulsens.trip.util.RandomData;
 import org.testng.Assert;
@@ -44,6 +45,28 @@ public class BindingDAOTest {
                 Stream.of(id2, id4).sorted().toList());
         Assert.assertEquals(dao.getBindings(id2, BindingType.TRANSACTION, BindingType.PERSON), List.of(id1));
         Assert.assertEquals(dao.getBindings(id4, BindingType.TRANSACTION, BindingType.PERSON), List.of(id1));
+    }
+
+    /**
+     * The ledger migration CLI's read-back, with the shared cache OFF as that CLI runs it: a binding just written
+     * reads back in both directions, and one removed reads back gone. Every read answered [] (the loaded rows were
+     * dropped for the empty set of a cache that keeps nothing), so every apply reported "not read back".
+     */
+    @Test
+    public void withTheCacheOffAWrittenBindingReadsBackInBothDirections() {
+        final BindingDAO dao = new BindingDAO(DynamoLocal.persistence(), new NoopCacheClient());
+        final String trip = RandomData.genAlpha(12);
+        final String row = RandomData.genAlpha(7) + ',' + RandomData.genAlpha(7);
+        Assert.assertEquals(dao.getBindings(row, BindingType.TRANSACTION, BindingType.TRIP), List.of());
+
+        Assert.assertTrue(dao.saveBinding(row, BindingType.TRANSACTION, trip, BindingType.TRIP, true));
+        Assert.assertEquals(dao.getBindings(row, BindingType.TRANSACTION, BindingType.TRIP), List.of(trip));
+        Assert.assertEquals(dao.getBindings(trip, BindingType.TRIP, BindingType.TRANSACTION), List.of(row));
+
+        Assert.assertTrue(dao.removeBinding(row, BindingType.TRANSACTION, trip, BindingType.TRIP, false));
+        Assert.assertEquals(dao.getBindings(row, BindingType.TRANSACTION, BindingType.TRIP), List.of());
+        Assert.assertEquals(dao.getBindings(trip, BindingType.TRIP, BindingType.TRANSACTION), List.of(row),
+                "the other direction is a row of its own");
     }
 
     @Test

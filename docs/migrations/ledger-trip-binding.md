@@ -25,6 +25,7 @@ cd ../medjugorje/scripts
 #   the script invalidates the app's binding cache (TRIP_APP_URL and TRIP_ADMIN_EMAIL set), else: press Clear caches
 ./ledger-bind.sh verify   --run <go-live> --before <go-live>/snapshot.json --plan <plan.json> --approved <reviewed csv>
 ./ledger-bind.sh rollback --run <go-live> --apply            # only if needed; the same cache step follows
+rm -rf ../../ledger-migration/<dump>                         # once verify passes and the owner is satisfied
 ```
 
 1. **snapshot** computes the figures every check compares against, by TODAY'S arithmetic
@@ -53,6 +54,11 @@ cd ../medjugorje/scripts
    BEFORE each write so an interrupted run is still fully undoable; a re-run in the same folder keeps it. Each
    save replaces the file in one move (a temporary file beside it, then an atomic rename), so an interruption
    mid-save leaves the previous complete list, never an empty or cut-off file.
+   Until 2026-11-20 every binding READ with the cache off answered empty (`AdjacencyCache` returned the set of a
+   cache that keeps nothing instead of the rows it had just loaded): the read-back reported every correct write as
+   "written, but not read back in both directions", the "already on this trip" and "bound to another trip" checks
+   saw nothing, and a rollback would have found every binding ABSENT and removed none. `verify` and the snapshot
+   scan the table directly, which is why they agreed the writes were right.
 6. **The app's cache.** The CLI runs with the cache off and never touches the app's shared cache; after an apply or
    a rollback that wrote, `ledger-bind.sh` invalidates the app's binding cache itself when `TRIP_APP_URL` and
    `TRIP_ADMIN_EMAIL` are exported, and otherwise says to press Clear caches (admin Settings).
@@ -61,6 +67,10 @@ cd ../medjugorje/scripts
    (and again right before the deploy of the per-organization code).
 8. **rollback** removes exactly the bindings in `rollback.json` (dry run without `--apply`), each only if it is still
    there, and reads back that it is gone. Point-in-time recovery of `bindings` is the backstop.
+9. **Delete the dumps.** A dump holds ledger rows and every person's name (the dump script keeps only the name of a
+   person, and only the six tables the tool reads): once verify has passed on the deployed code and the owner is
+   satisfied, delete each dump folder under `ledger-migration/`. The run folders (plan, snapshot, rollback list)
+   are kept only while a rollback is still wanted.
 
 `--dump <dir>` makes snapshot, plan and verify read a dump directory instead of the live tables (local mode: no AWS
 at all); without it they scan the live tables once each, strongly consistently, through `DAO.scanTable`. A dump is
@@ -125,8 +135,9 @@ balances that code STATES; check 4 also fails a statement whose balance is not t
 
 `TripLedgerTotals` is the ONE bucket rule for a trip's three totals (a row whose `userId` is the trip is a "trip"
 row; another `Bill` is an "invoice" row; the rest are "user" rows; each total is the fold of `getUserAmount`).
-`TransactionsCommands.getTripLedgerTotals(tripId)` gives a page the same totals as its site lists them (each row
-read through the site-filtered `getTransaction`), and the trip ledger page (`tripTransactions.jsf`) renders its three
-footers from it, so the footers and this tool are one rule. The page still gathers its three LISTS itself;
+`TransactionsCommands.getTripLedgerTotals(tripId, tripRows, invoiceRows, userRows)` folds the rows a page already
+lists (the trip ledger page, `tripTransactions.jsf`, gathers its three lists through the site-filtered
+`getTransaction` and hands them in), and the page renders its three footers from it, so the footers and this tool
+are one rule, and nothing is read twice. The page gathers its three LISTS itself;
 `TripLedgerTotalsTest.theFootersAreTheTotalsOfTheRowsEachHostLists` checks, on an organization's host and on a
 shared one, that each footer is the total of exactly the rows its table lists.

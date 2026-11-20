@@ -461,11 +461,6 @@ final class LedgerData {
         return total;
     }
 
-    /** A finished total in whole cents: the one place a figure is rounded. */
-    static long cents(final double total) {
-        return Math.round(total * 100d);
-    }
-
     /**
      * A row's content as this tool's own mapper writes it, hashed: equal for a row planned from a dump and the
      * same row read through the DAO at apply time, whatever key order or legacy fields its stored JSON has.

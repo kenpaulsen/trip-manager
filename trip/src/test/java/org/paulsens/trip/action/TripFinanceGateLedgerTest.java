@@ -70,6 +70,33 @@ public class TripFinanceGateLedgerTest {
         Assert.assertEquals(ledger.tripAndOrgBalances(padded).tripId(), trip.getId());
     }
 
+    /**
+     * Who the Balance page's {@code ?trip=} form opens for (a site admin, the trip's exact Finance Viewer) and whom
+     * it is about: someone on the trip, or someone with a row on its books after leaving it.
+     */
+    @Test
+    public void theTripLedgerFormOpensForTheTripsFinanceViewerAndReachesWhoeverIsOnItsBooks() throws IOException {
+        final Person.Id traveler = Person.Id.newInstance();
+        final Person.Id withdrawn = Person.Id.newInstance();
+        final Trip trip = storedTrip(traveler);
+        Assert.assertTrue(gateFor(PrivilegeCommands.TRIP_FIN_VIEW, trip).opensTripLedger(trip.getId()));
+        Assert.assertFalse(gateFor(PrivilegeCommands.TRIP_FIN_ADMIN, trip).opensTripLedger(trip.getId()),
+                "Finance Admin does not imply the viewer role");
+        Assert.assertFalse(gateFor(PrivilegeCommands.TRIP_FIN_VIEW, trip).opensTripLedger(null));
+        Assert.assertFalse(gateFor(PrivilegeCommands.TRIP_FIN_VIEW, trip).opensTripLedger(" "));
+        Assert.assertTrue(TripFinanceGate.forCaller(TenancyFixtures::siteAdminCaller).opensTripLedger(null));
+        Assert.assertFalse(TripFinanceGate.forCaller(() -> Caller.of(null)).opensTripLedger(trip.getId()),
+                "nobody signed in");
+
+        Assert.assertTrue(TripFinanceGate.onTripLedger(trip, traveler), "on the roster");
+        Assert.assertFalse(TripFinanceGate.onTripLedger(trip, withdrawn), "neither on the roster nor the books");
+        rowOnBooks(withdrawn, trip);
+        Assert.assertTrue(TripFinanceGate.onTripLedger(trip, withdrawn), "off the roster, a row on the books");
+        Assert.assertFalse(TripFinanceGate.onTripLedger(null, traveler));
+        Assert.assertFalse(TripFinanceGate.onTripLedger(trip, null));
+        Assert.assertTrue(new TransactionsCommands().onTripLedger(trip, withdrawn), "the page's door to it");
+    }
+
     @Test
     public void aFinanceRoleReachesOnlyTheRowsOnItsOwnTripsBooks() throws IOException {
         final Person.Id traveler = Person.Id.newInstance();

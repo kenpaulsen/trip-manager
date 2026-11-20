@@ -951,7 +951,10 @@ public class RegistrationCommands {
         if (!saveRegistration(confirmed)) {
             return false;
         }
-        trips.saveTrip(trip);
+        if (!trips.saveTrip(trip)) {
+            log.error("Registration of {} on trip {} was approved, but the trip's roster was not saved",
+                    reg.getUserId().getValue(), trip.getId());
+        }
         final Person person = afterConfirmed(trip, confirmed);
         // The email goes to the person, or to their family's mailable managers, and a missing
         // template/address never blocks the approval itself.
@@ -991,8 +994,10 @@ public class RegistrationCommands {
     private boolean returnToPending(final Registration reg) {
         final TripCommands trips = tripSource.get();
         final org.paulsens.trip.model.Trip trip = trips.getTripForEdit(reg.getTripId());
-        if (reg.getStatus() == Registration.Status.CONFIRMED && trip.getPeople().remove(reg.getUserId())) {
-            trips.saveTrip(trip);
+        if (reg.getStatus() == Registration.Status.CONFIRMED && trip.getPeople().remove(reg.getUserId())
+                && !trips.saveTrip(trip)) {
+            log.error("{} returned to Pending on trip {}, but the trip's roster was not saved",
+                    reg.getUserId().getValue(), trip.getId());
         }
         if (!saveRegistration(reg.withStatus(Registration.Status.PENDING))) {
             return false;
@@ -1011,8 +1016,10 @@ public class RegistrationCommands {
     private boolean cancelRegistration(final Registration reg) {
         final TripCommands trips = tripSource.get();
         final org.paulsens.trip.model.Trip trip = trips.getTripForEdit(reg.getTripId());
-        if (reg.getStatus() == Registration.Status.CONFIRMED && trip.getPeople().remove(reg.getUserId())) {
-            trips.saveTrip(trip);
+        if (reg.getStatus() == Registration.Status.CONFIRMED && trip.getPeople().remove(reg.getUserId())
+                && !trips.saveTrip(trip)) {
+            log.error("{} was taken off trip {} (Not Registered), but the trip's roster was not saved",
+                    reg.getUserId().getValue(), trip.getId());
         }
         if (!saveRegistration(reg.withStatus(Registration.Status.NOT_REGISTERED))) {
             return false;

@@ -30,6 +30,7 @@ import org.paulsens.trip.api.mapper.TransactionMapper;
 import org.paulsens.trip.model.BindingType;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Transaction;
+import org.paulsens.trip.model.Trip;
 
 /**
  * Money owed and money paid.
@@ -196,38 +197,21 @@ public class TransactionsResource extends BaseResource {
         }
         // A new row needs a real trip that has an organization: only a site admin gets this far without one
         // (everyone else's finance role IS a trip), and theirs used to be saved with no trip and no org.
-        final String tripProblem = TransactionsCommands.tripProblem(null, tripId);
+        final Trip trip = TransactionsCommands.ledgerTrip(tripId);
+        final String tripProblem = TransactionsCommands.tripProblem(null, tripId, trip);
         if (tripProblem != null) {
             return error(400, ApiErrors.VALIDATION_FAILED, tripProblem);
         }
         final Transaction tx = transactions.createTransaction(subject);
         apply(body, tx);
-        // The trip-carrying save stamps the tenancy boundary (Transaction.orgId) from ?trip=, as the page
-        // does: an unstamped row is org-less legacy content, which the shared sites list and an org's own
-        // site never would.
-        if (!transactions.saveTransaction(tx, tripId)) {
+        // The save stamps the tenancy boundary (Transaction.orgId) from ?trip=, as the page does, and puts the
+        // row on that trip's books: an unstamped row is org-less legacy content, which the shared sites list and
+        // an org's own site never would.
+        if (!transactions.saveOnTrip(tx, trip, true)) {
             return error(500, ApiErrors.STORE_FAILED, "Could not save the transaction.");
         }
-        bindToTrip(tx, tripId);
         Beans.get(AuditCommands.class).transaction(findPerson(subject), tx, actor());
         return ok(dto(tx, true));
-    }
-
-    /**
-     * The TRANSACTION→TRIP binding the page's Save writes: it is what the website's ledger (and a client's
-     * trip filter) scope rows by, so a row recorded through the API without it belonged to no trip at all.
-     *
-     * <p>Only ever GIVEN, never moved: {@code setBindings} replaces, so binding an update's {@code ?trip=}
-     * unconditionally lifted a row off the books it was on and onto the caller's. A row that already
-     * belongs to a trip stays there, whatever {@code ?trip=} a site admin's save names.
-     */
-    private static void bindToTrip(final Transaction tx, final String tripId) {
-        if (tripId == null || tripId.isBlank() || tx.getUserId() == null || !boundTrips(tx).isEmpty()) {
-            return;
-        }
-        final BindingCommands bind = Beans.get(BindingCommands.class);
-        bind.setBindings(bind.key(tx.getUserId().getValue(), tx.getTxId()), BindingType.TRANSACTION,
-                BindingType.TRIP, List.of(tripId), true);
     }
 
     @PUT
@@ -257,21 +241,23 @@ public class TransactionsResource extends BaseResource {
         if (tx == null || !gate().mayWriteRow(tripId, tx)) {
             return error(404, ApiErrors.NOT_FOUND, "No such transaction.");
         }
-        // A stored row on no trip is GIVEN ?trip= below (bindToTrip), and that bind is held to the write
-        // invariant like a new row's: a real trip that has an organization, and the row's own organization
-        // when it carries one. Otherwise a site admin's save could put a row on a trip that does not exist,
-        // or on another organization's books. With no ?trip= at all the edit is refused: a row on no trip
-        // cannot be changed until its trip is named (deleting it still works). A row already on a trip is not
-        // moved, so nothing to ask.
-        final String tripProblem = boundTrips(tx).isEmpty() ? TransactionsCommands.tripProblem(tx, tripId) : null;
+        // A stored row on no trip is GIVEN ?trip= by the save, and that bind is held to the write invariant
+        // like a new row's: a real trip that has an organization, and the row's own organization when it
+        // carries one. Otherwise a site admin's save could put a row on a trip that does not exist, or on
+        // another organization's books. With no ?trip= at all the edit is refused: a row on no trip cannot be
+        // changed until its trip is named (deleting it still works). A row already on a trip is not moved, so
+        // nothing to ask, and it is stamped from THAT trip: ?trip= naming another organization's trip used to
+        // give an org-less row that organization while the row stayed on the first trip's books.
+        final String onTrip = boundTrips(tx).stream().findFirst().orElse(null);
+        final Trip trip = TransactionsCommands.ledgerTrip(onTrip != null ? onTrip : tripId);
+        final String tripProblem = onTrip == null ? TransactionsCommands.tripProblem(tx, tripId, trip) : null;
         if (tripProblem != null) {
             return error(400, ApiErrors.VALIDATION_FAILED, tripProblem);
         }
         apply(body, tx);
-        if (!transactions.saveTransaction(tx, tripId)) {    // a row that already carries an org keeps it
+        if (!transactions.saveOnTrip(tx, trip, onTrip == null)) {    // a row that already carries an org keeps it
             return error(500, ApiErrors.STORE_FAILED, "Could not save the transaction.");
         }
-        bindToTrip(tx, tripId);
         Beans.get(AuditCommands.class).transaction(findPerson(subject), tx, actor());
         return ok(dto(tx, true));
     }

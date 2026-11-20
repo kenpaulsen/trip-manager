@@ -73,6 +73,20 @@ public class AdjacencyCacheTest {
         Assert.assertEquals(loads.get(), 1, "a warm source must not reload");
     }
 
+    /**
+     * With the cache switched OFF every read is a load, and the load is the answer: the marker write "succeeds"
+     * on a client that keeps nothing, and the set read after it used to answer [] for every source.
+     */
+    @Test
+    public void withTheCacheOffEveryReadAnswersWhatItLoaded() {
+        final AdjacencyCache adj = adjacency(new NoopCacheClient());
+
+        Assert.assertEquals(adj.get(SRC, "2", loader()), List.of("t1", "t2"));
+        Assert.assertEquals(adj.get(SRC, "2", loader()), List.of("t1", "t2"), "and again: nothing was kept");
+        Assert.assertEquals(loads.get(), 2);
+        Assert.assertEquals(adj.get(SRC, "3", loader()), List.of());
+    }
+
     @Test
     public void writeThroughAddAndRemoveKeepTheSetCurrentBetweenLoads() {
         final AdjacencyCache adj = adjacency(cache);

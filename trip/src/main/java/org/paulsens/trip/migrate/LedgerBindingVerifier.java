@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
+import org.paulsens.trip.action.LedgerStatements;
 import org.paulsens.trip.action.TripLedgerTotals;
 import org.paulsens.trip.action.TripLedgerTotals.Bucket;
 import org.paulsens.trip.migrate.LedgerData.Row;
@@ -142,8 +143,8 @@ final class LedgerBindingVerifier {
             for (final OrgStatement statement : statements.of(person).values()) {
                 stated += statement.balance();
             }
-            final long was = LedgerData.cents(before.balance().getOrDefault(person, 0d));
-            final long now = LedgerData.cents(stated);
+            final long was = LedgerStatements.cents(before.balance().getOrDefault(person, 0d));
+            final long now = LedgerStatements.cents(stated);
             if (was != now) {
                 problems.add(person + ": balance " + money(was) + " before, " + money(now) + " by the new code");
             }
@@ -165,15 +166,15 @@ final class LedgerBindingVerifier {
             for (final String org : orgs) {
                 final double balance = now.containsKey(org) ? now.get(org).balance() : 0d;
                 sum += balance;
-                if (LedgerData.cents(was.getOrDefault(org, 0d)) != LedgerData.cents(balance)) {
+                if (LedgerStatements.cents(was.getOrDefault(org, 0d)) != LedgerStatements.cents(balance)) {
                     problems.add(person + " in organization '" + org + "': "
-                            + money(LedgerData.cents(was.getOrDefault(org, 0d))) + " before, "
-                            + money(LedgerData.cents(balance)) + " now");
+                            + money(LedgerStatements.cents(was.getOrDefault(org, 0d))) + " before, "
+                            + money(LedgerStatements.cents(balance)) + " now");
                 }
             }
-            final long total = LedgerData.cents(LedgerData.fold(after.liveRowsOf(person)));
-            if (LedgerData.cents(sum) != total) {
-                problems.add(person + ": the organizations sum to " + money(LedgerData.cents(sum))
+            final long total = LedgerStatements.cents(LedgerData.fold(after.liveRowsOf(person)));
+            if (LedgerStatements.cents(sum) != total) {
+                problems.add(person + ": the organizations sum to " + money(LedgerStatements.cents(sum))
                         + ", the org-blind total is " + money(total));
             }
         }
@@ -213,10 +214,11 @@ final class LedgerBindingVerifier {
                 final OrgStatement stated = statement.getValue();
                 // A statement whose balance is not the fold of the rows it lists would pass checks 1 and 2 on
                 // its figure and this one on its rows while showing a reader two things that disagree.
-                final long listed = LedgerData.cents(LedgerData.fold(statementRows(person, stated.txIds())));
-                if (listed != LedgerData.cents(stated.balance())) {
+                final long listed = LedgerStatements.cents(LedgerData.fold(statementRows(person, stated.txIds())));
+                if (listed != LedgerStatements.cents(stated.balance())) {
                     problems.add(person + " in organization '" + statement.getKey() + "': the statement says "
-                            + money(LedgerData.cents(stated.balance())) + ", its rows add up to " + money(listed));
+                            + money(LedgerStatements.cents(stated.balance())) + ", its rows add up to "
+                            + money(listed));
                 }
                 for (final String txId : stated.txIds()) {
                     final Row row = after.liveRow(CompositeKey.join(person, txId));

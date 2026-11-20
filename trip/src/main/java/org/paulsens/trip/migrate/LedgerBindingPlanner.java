@@ -11,6 +11,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
+import org.paulsens.trip.action.LedgerStatements;
 import org.paulsens.trip.migrate.LedgerBindingPlan.Bind;
 import org.paulsens.trip.migrate.LedgerBindingPlan.Kind;
 import org.paulsens.trip.migrate.LedgerBindingPlan.Uncertain;
@@ -61,7 +62,7 @@ final class LedgerBindingPlanner {
         }
 
         long cents() {
-            return LedgerData.cents(net);
+            return LedgerStatements.cents(net);
         }
 
         /** Invoiced and covered: a trip nobody has billed yet is still waiting for its payments. */
@@ -340,7 +341,7 @@ final class LedgerBindingPlanner {
         }
         final TripInfo last = data.trips().get(owing.get(0));
         if (owing.size() == 1 && last != null && last.ended(today)
-                && states.get(last.id()).cents() == LedgerData.cents(balance)) {
+                && states.get(last.id()).cents() == LedgerStatements.cents(balance)) {
             return "OK the remainder sits on one ended trip and equals the person's balance";
         }
         final List<String> nets = owing.stream()

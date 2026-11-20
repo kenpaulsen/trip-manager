@@ -8,6 +8,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
+import org.paulsens.trip.action.LedgerStatements;
 import org.paulsens.trip.action.TripLedgerTotals;
 import org.paulsens.trip.action.TripLedgerTotals.Bucket;
 import org.paulsens.trip.cache.Cached;
@@ -325,7 +326,7 @@ public class LedgerBindingTest {
         final LedgerData data = ledger.data();
         final LedgerSnapshot snapshot = LedgerSnapshot.of(data, TODAY);
         assertEquals(snapshot.balance().get(ann), (double) (100f / 3), "the Float share, exactly as the app folds it");
-        assertEquals(LedgerData.cents(snapshot.balance().get(ann)), 3333);
+        assertEquals(LedgerStatements.cents(snapshot.balance().get(ann)), 3333);
         assertEquals(snapshot.tripTotals().get(trip).cents(Bucket.USER), 10000, "three shares, rounded once");
         assertEquals(snapshot.tripBound().get(trip).get(ann), new LedgerSnapshot.TripMoney(3333, 0),
                 "check-in rounds each row, as CheckinCommands.balanceOf does");

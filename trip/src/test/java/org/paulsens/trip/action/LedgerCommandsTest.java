@@ -23,6 +23,7 @@ import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.model.BindingType;
 import org.paulsens.trip.model.CompositeKey;
+import org.paulsens.trip.model.Family;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Registration;
@@ -1049,6 +1050,45 @@ public class LedgerCommandsTest {
         reads.reset();
         ledger.statement(family, chosen.getId().getValue());
         Assert.assertEquals(reads.bindings.size(), 2 * chosenRows.size() + 1, "for " + stray.getTxId());
+    }
+
+    @Test
+    public void thePaymentPageReadsEachMembersRowsOnceForEveryFigureItShows() {
+        final Person parent = TenancyFixtures.savedPerson("PayParent");
+        final Person child = TenancyFixtures.savedPerson("PayChild");
+        parent.setManagedUsers(List.of(child.getId()));
+        TenancyFixtures.saved(parent);
+        final Organization org = TenancyFixtures.org("PayFigures", parent, child);
+        final Organization other = TenancyFixtures.org("PayFiguresOther", parent, child);
+        final Trip trip = trip(org, 21, parent, child);
+        row(parent.getId(), trip, -100f, 5);
+        row(parent.getId(), trip, 40f, 4);
+        row(child.getId(), trip, -60f, 5);
+        row(child.getId(), trip(other, 40, child), -7f, 6);
+        final Family family = Family.builder().memberIds(List.of(parent.getId(), child.getId()))
+                .managerIds(List.of(parent.getId())).build();
+        final List<String> rows = List.of(parent.getId().getValue(), child.getId().getValue());
+        final String orgId = org.getId().getValue();
+        final CountingReads reads = new CountingReads();
+        final LedgerCommands ledger = new LedgerCommands(() -> TenancyFixtures.callerFor(parent), reads,
+                LocalDate::now);
+
+        final LedgerCommands.PayBalances figures = ledger.payBalances(rows, family, true, orgId);
+        Assert.assertEquals(figures.forPerson(parent.getId().getValue()).balanceCents(), -6000L);
+        Assert.assertEquals(figures.forPerson(child.getId().getValue()).balanceCents(), -6000L,
+                "the other organization's row is not this one's");
+        Assert.assertEquals(figures.family().balanceCents(), -12000L);
+        Assert.assertEquals(figures.forPerson(parent.getId().getValue()),
+                ledger.orgBalance(List.of(parent.getId()), orgId), "the figure the page used to ask for per row");
+        reads.reset();
+        ledger.payBalances(rows, family, true, orgId);
+        Assert.assertEquals(reads.partitions, List.of(parent.getId(), child.getId()),
+                "three figures, one partition read per member");
+        Assert.assertEquals(figures.forPerson("nobody").state(), State.NO_ACTIVITY);
+
+        Assert.assertNull(ledger.payBalances(rows, family, false, orgId).family(), "no family line for a member");
+        Assert.assertNull(ledger.payBalances(rows, null, true, orgId).family());
+        Assert.assertTrue(ledger.payBalances(null, null, false, orgId).byPerson().isEmpty());
     }
 
     @Test

@@ -73,6 +73,11 @@ public class TransactionsResourceTest extends ResourceTestSupport {
         resource = resource(new TransactionsResource());
     }
 
+    /** The trip a save is handed, matched by id (the resource reads its own copy). */
+    private static Trip tripWithId(final String tripId) {
+        return ArgumentMatchers.argThat(trip -> trip != null && tripId.equals(trip.getId()));
+    }
+
     private static Transaction tx(final Person.Id who) {
         final Transaction tx = new Transaction(who, "group-1", Transaction.Type.Shared);
         tx.setAmount(1000f);
@@ -218,17 +223,16 @@ public class TransactionsResourceTest extends ResourceTestSupport {
         final Transaction created = tx(OTHER);
         Mockito.when(transactions.createTransaction(OTHER)).thenReturn(created);
         // The trip-carrying save: ?trip= stamps the row's org (tenancy), as the page's save does.
-        Mockito.when(transactions.saveTransaction(created, TRIP_ID)).thenReturn(true);
+        Mockito.when(transactions.saveOnTrip(ArgumentMatchers.same(created), tripWithId(TRIP_ID),
+                ArgumentMatchers.eq(true))).thenReturn(true);
         Mockito.when(transactions.getUserAmount(created)).thenReturn(75f);
-
-        Mockito.when(bindings.key(OTHER.getValue(), created.getTxId())).thenReturn("composite");
 
         final TransactionDto body = new TransactionDto(null, null, null, null, "Bill", null, 75f, null,
                 "lodging", "deposit", false, null, null, null, null);
         assertOk(resource.create(OTHER.getValue(), CSRF_OK, TRIP_ID, body));
         // Bound to the trip the way the page's Save binds it: the ledger's trip filter sees the new row.
-        Mockito.verify(bindings).setBindings("composite", BindingType.TRANSACTION, BindingType.TRIP,
-                List.of(TRIP_ID), true);
+        Mockito.verify(transactions).saveOnTrip(ArgumentMatchers.same(created), tripWithId(TRIP_ID),
+                ArgumentMatchers.eq(true));
 
         Assert.assertEquals(created.getAmount(), 75f);
         Assert.assertEquals(created.getTxType(), Transaction.TransactionType.Bill);
@@ -241,7 +245,8 @@ public class TransactionsResourceTest extends ResourceTestSupport {
     public void aFailedCreateIsReportedAndNotAudited() {
         signedInAsSiteAdmin(ME);
         Mockito.when(transactions.createTransaction(OTHER)).thenReturn(tx(OTHER));
-        Mockito.when(transactions.saveTransaction(ArgumentMatchers.any(), ArgumentMatchers.any())).thenReturn(false);
+        Mockito.when(transactions.saveOnTrip(ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.anyBoolean())).thenReturn(false);
 
         assertError(resource.create(OTHER.getValue(), CSRF_OK, TRIP_ID, null), 500, ApiErrors.STORE_FAILED);
         Mockito.verifyNoInteractions(audit);
@@ -263,7 +268,8 @@ public class TransactionsResourceTest extends ResourceTestSupport {
         Mockito.when(transactions.getTransaction(ME, "gone")).thenReturn(null);
 
         assertError(resource.update(ME.getValue(), "gone", CSRF_OK, TRIP_ID, null), 404, ApiErrors.NOT_FOUND);
-        Mockito.verify(transactions, Mockito.never()).saveTransaction(ArgumentMatchers.any(), ArgumentMatchers.any());
+        Mockito.verify(transactions, Mockito.never()).saveOnTrip(ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.anyBoolean());
     }
 
     @Test
@@ -271,7 +277,8 @@ public class TransactionsResourceTest extends ResourceTestSupport {
         signedInAsSiteAdmin(ME);
         final Transaction existing = tx(ME);
         Mockito.when(transactions.getTransaction(ME, existing.getTxId())).thenReturn(existing);
-        Mockito.when(transactions.saveTransaction(existing, TRIP_ID)).thenReturn(true);
+        Mockito.when(transactions.saveOnTrip(ArgumentMatchers.same(existing), tripWithId(TRIP_ID),
+                ArgumentMatchers.eq(true))).thenReturn(true);
         Mockito.when(transactions.getUserAmount(existing)).thenReturn(80f);
 
         final TransactionDto body = new TransactionDto(null, null, null, null, null, null, 80f, null,
@@ -280,10 +287,9 @@ public class TransactionsResourceTest extends ResourceTestSupport {
 
         Assert.assertEquals(existing.getAmount(), 80f);
         Assert.assertEquals(existing.getNote(), "amended");
-        Mockito.verify(transactions).saveTransaction(ArgumentMatchers.same(existing), ArgumentMatchers.eq(TRIP_ID));
-        Mockito.verify(bindings).setBindings(ArgumentMatchers.any(),
-                ArgumentMatchers.eq(BindingType.TRANSACTION), ArgumentMatchers.eq(BindingType.TRIP),
-                ArgumentMatchers.eq(List.of(TRIP_ID)), ArgumentMatchers.eq(true));
+        // A row on no trip is given ?trip= by the save itself.
+        Mockito.verify(transactions).saveOnTrip(ArgumentMatchers.same(existing), tripWithId(TRIP_ID),
+                ArgumentMatchers.eq(true));
         Mockito.verify(audit).transaction(ArgumentMatchers.any(), ArgumentMatchers.eq(existing),
                 ArgumentMatchers.any());
     }
@@ -480,7 +486,8 @@ public class TransactionsResourceTest extends ResourceTestSupport {
         Assert.assertEquals(((List<?>) ledger.getEntity()).size(), 0, "nothing of the person's other trips");
 
         Assert.assertEquals(row.getAmount(), -120f, "untouched");
-        Mockito.verify(transactions, Mockito.never()).saveTransaction(ArgumentMatchers.any(), ArgumentMatchers.any());
+        Mockito.verify(transactions, Mockito.never()).saveOnTrip(ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.anyBoolean());
         Mockito.verify(transactions, Mockito.never()).deleteForPerson(ArgumentMatchers.any(), ArgumentMatchers.any());
         Mockito.verifyNoInteractions(audit);
         // Naming the OTHER trip does not help either: the privilege is not on it.
@@ -499,7 +506,8 @@ public class TransactionsResourceTest extends ResourceTestSupport {
         final Trip mine = storedTrip(traveler);
         final Transaction row = rowOnBooks(traveler, mine);
         bind(BindingCommands.class, new BindingCommands());     // the real binding, so the DTO names the trip
-        Mockito.when(transactions.saveTransaction(row, mine.getId())).thenReturn(true);
+        Mockito.when(transactions.saveOnTrip(ArgumentMatchers.same(row), tripWithId(mine.getId()),
+                ArgumentMatchers.eq(false))).thenReturn(true);
         Mockito.when(transactions.deleteForPerson(ArgumentMatchers.eq(row), ArgumentMatchers.any()))
                 .thenReturn(true);
         final TransactionsResource admin = as(holderOf(PrivilegeCommands.TRIP_FIN_ADMIN, mine));
@@ -580,8 +588,8 @@ public class TransactionsResourceTest extends ResourceTestSupport {
                 Registration.Status.NOT_REGISTERED, new HashMap<>())));
         Mockito.when(transactions.createTransaction(ArgumentMatchers.any()))
                 .thenAnswer(call -> new Transaction(call.getArgument(0), null, null));
-        Mockito.when(transactions.saveTransaction(ArgumentMatchers.any(), ArgumentMatchers.eq(mine.getId())))
-                .thenReturn(true);
+        Mockito.when(transactions.saveOnTrip(ArgumentMatchers.any(), tripWithId(mine.getId()),
+                ArgumentMatchers.eq(true))).thenReturn(true);
         final TransactionsResource admin = as(holderOf(PrivilegeCommands.TRIP_FIN_ADMIN, mine));
 
         assertError(admin.create(stranger.getValue(), CSRF_OK, mine.getId(), null), 403, ApiErrors.FORBIDDEN);
@@ -601,12 +609,16 @@ public class TransactionsResourceTest extends ResourceTestSupport {
         final Trip named = storedTrip();
         final Transaction row = rowOnBooks(traveler, home);
         bind(BindingCommands.class, new BindingCommands());
-        Mockito.when(transactions.saveTransaction(row, named.getId())).thenReturn(true);
+        Mockito.when(transactions.saveOnTrip(ArgumentMatchers.same(row), ArgumentMatchers.any(),
+                ArgumentMatchers.anyBoolean())).thenReturn(true);
         signedInAsSiteAdmin(ME);
 
         assertOk(resource.update(traveler.getValue(), row.getTxId(), CSRF_OK, named.getId(), null));
 
         Assert.assertEquals(tripsOf(row), List.of(home.getId()), "a site admin's ?trip= does not re-home the row");
+        // Nor does it give the row ITS organization: the row is saved on the trip it is on, and not re-bound.
+        Mockito.verify(transactions).saveOnTrip(ArgumentMatchers.same(row), tripWithId(home.getId()),
+                ArgumentMatchers.eq(false));
     }
 
     /**
@@ -637,12 +649,15 @@ public class TransactionsResourceTest extends ResourceTestSupport {
                 ApiErrors.VALIDATION_FAILED);
         assertError(resource.update(traveler.getValue(), row.getTxId(), CSRF_OK, " ", null), 400,
                 ApiErrors.VALIDATION_FAILED);
-        Mockito.verify(transactions, Mockito.never()).saveTransaction(ArgumentMatchers.any(), ArgumentMatchers.any());
+        Mockito.verify(transactions, Mockito.never()).saveOnTrip(ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.anyBoolean());
         Assert.assertEquals(tripsOf(row), List.of(), "a refused bind writes nothing");
 
-        Mockito.when(transactions.saveTransaction(row, home.getId())).thenReturn(true);
+        Mockito.when(transactions.saveOnTrip(ArgumentMatchers.same(row), tripWithId(home.getId()),
+                ArgumentMatchers.eq(true))).thenReturn(true);
         assertOk(resource.update(traveler.getValue(), row.getTxId(), CSRF_OK, home.getId(), null));
-        Assert.assertEquals(tripsOf(row), List.of(home.getId()), "its own organization's trip binds it");
+        Mockito.verify(transactions).saveOnTrip(ArgumentMatchers.same(row), tripWithId(home.getId()),
+                ArgumentMatchers.eq(true));
     }
 
     /** The group door: a group id is all it takes to name somebody else's shared transaction. */

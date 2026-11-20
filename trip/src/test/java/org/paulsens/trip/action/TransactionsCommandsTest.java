@@ -4,9 +4,14 @@ import org.paulsens.trip.dynamo.FakeData;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
+import org.paulsens.trip.cache.Cached;
+import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.model.BindingType;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Person.Sex;
 import org.paulsens.trip.model.Transaction;
+import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.util.RandomData;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNull;
@@ -75,8 +80,22 @@ public class TransactionsCommandsTest {
         org.paulsens.trip.dynamo.FakeData.initFakeData();
         org.paulsens.trip.dynamo.FakeData.addFakeData();     // seeds faketrip with the CFPW org id
         final Transaction tx = new Transaction(createPerson(), null, null);
-        assertTrue(txCmds.saveTransaction(tx, FakeData.FAKE_TRIP_ID));
+        assertTrue(txCmds.saveOnTrip(tx, fakeTrip(), true));
         assertEquals(tx.getOrgId(), org.paulsens.trip.dynamo.FakeData.CFPW_ORG_ID);
+        assertEquals(DAO.getInstance().getBindings(txCmds.getBind().key(tx.getUserId().getValue(), tx.getTxId()),
+                BindingType.TRANSACTION, BindingType.TRIP, Cached.NO), List.of(FakeData.FAKE_TRIP_ID),
+                "and put on the trip's books");
+
+        // A row already on a trip is saved with that trip and is not bound again.
+        final Transaction kept = new Transaction(createPerson(), null, null);
+        assertTrue(txCmds.saveOnTrip(kept, fakeTrip(), false));
+        assertEquals(kept.getOrgId(), FakeData.CFPW_ORG_ID);
+        assertEquals(DAO.getInstance().getBindings(txCmds.getBind().key(kept.getUserId().getValue(),
+                kept.getTxId()), BindingType.TRANSACTION, BindingType.TRIP, Cached.NO), List.of());
+    }
+
+    private static Trip fakeTrip() {
+        return DAO.getInstance().getTrip(FakeData.FAKE_TRIP_ID, Cached.NO).orElseThrow();
     }
 
     @Test
@@ -85,16 +104,30 @@ public class TransactionsCommandsTest {
         org.paulsens.trip.dynamo.FakeData.addFakeData();
         final Transaction preTenanted = new Transaction(createPerson(), null, null);
         preTenanted.setOrgId("some-other-org");
-        assertTrue(txCmds.saveTransaction(preTenanted, FakeData.FAKE_TRIP_ID));
+        assertTrue(txCmds.saveOnTrip(preTenanted, fakeTrip(), false));
         assertEquals(preTenanted.getOrgId(), "some-other-org", "Re-saving never re-tenants a row");
 
+        // A BLANK stored organization is none, on every door: it used to be kept as-is by two of the three.
+        final Transaction blank = new Transaction(createPerson(), null, null);
+        blank.setOrgId(" ");
+        assertTrue(txCmds.saveOnTrip(blank, fakeTrip(), false));
+        assertEquals(blank.getOrgId(), FakeData.CFPW_ORG_ID);
+
         final Transaction noTrip = new Transaction(createPerson(), null, null);
-        assertTrue(txCmds.saveTransaction(noTrip, null));
+        assertTrue(txCmds.saveOnTrip(noTrip, null, true));
         assertNull(noTrip.getOrgId(), "No trip, no org: the migration backfills legacy rows");
 
-        final Transaction unknownTrip = new Transaction(createPerson(), null, null);
-        assertTrue(txCmds.saveTransaction(unknownTrip, "no-such-trip"));
-        assertNull(unknownTrip.getOrgId());
+        // The id-only form stamps the same way, from the trip read by its id.
+        final Transaction byId = new Transaction(createPerson(), null, null);
+        assertTrue(txCmds.saveTransaction(byId, FakeData.FAKE_TRIP_ID));
+        assertEquals(byId.getOrgId(), FakeData.CFPW_ORG_ID);
+        final Transaction byNoId = new Transaction(createPerson(), null, null);
+        assertTrue(txCmds.saveTransaction(byNoId, "none"));
+        assertNull(byNoId.getOrgId());
+
+        final Transaction orgless = new Transaction(createPerson(), null, null);
+        assertTrue(txCmds.saveOnTrip(orgless, Trip.builder().id(UUID.randomUUID().toString()).build(), false));
+        assertNull(orgless.getOrgId());
     }
 
     @Test

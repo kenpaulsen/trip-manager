@@ -291,7 +291,15 @@ public class TripCommands {
             return false;
         }
         final boolean brandNew = before.readable() && stored == null;
-        final LedgerMove ledgerMove = ledgerMoveOf(trip, stored, before.readable(), org);
+        // The move is judged against the stored organization; with the pre-read failed, the cached copy stands in
+        // for it. A failed read used to make every save a plain one: the trip saved under its new organization
+        // with every ledger row left on the old one, no marker to finish the move, and no site-admin check.
+        final Trip judged = before.readable() ? stored : cachedForMove(trip.getId());
+        if (!before.readable() && judged == null && mayHaveLedgerRows(trip.getId())) {
+            PageFeedback.warn(MOVE_UNCHECKED_REFUSED);
+            return false;
+        }
+        final LedgerMove ledgerMove = ledgerMoveOf(trip, judged, before.readable(), org);
         if (ledgerMove != null && ledgerMove.refused()) {
             PageFeedback.warn(LEDGER_MOVE_REFUSED);
             return false;
@@ -344,6 +352,34 @@ public class TripCommands {
             }
         }
         return result;
+    }
+
+    /** The refusal when neither copy of the stored trip can be read and the trip has rows on its books. */
+    static final String MOVE_UNCHECKED_REFUSED = "Not saved: the trip could not be read to check whether this save "
+            + "moves it to another organization, and it has transactions on its books. Try again in a moment.";
+
+    /**
+     * The stored trip from the cache, when the uncached pre-read failed: what an organization move is judged
+     * against then (a cached copy is the organization the trip had at most a moment ago; moves are rare). Null
+     * when there is none or it cannot be read either. Package-private so a test can make it fail too.
+     */
+    Trip cachedForMove(final String tripId) {
+        try {
+            return tripId == null ? null : DAO.getInstance().getTrip(tripId, Cached.YES).orElse(null);
+        } catch (final RuntimeException ex) {
+            log.warn("Could not read trip {} from the cache either", tripId, ex);
+            return null;
+        }
+    }
+
+    /** Whether the trip has rows on its books, or the question cannot be answered (then: assume it has). */
+    private boolean mayHaveLedgerRows(final String tripId) {
+        try {
+            return tripId != null && !ledgerReads.rowKeys(tripId).isEmpty();
+        } catch (final RuntimeException ex) {
+            log.warn("Could not read the ledger rows of trip {}", tripId, ex);
+            return true;
+        }
     }
 
     /** The refusal when a trip is saved with no organization. */

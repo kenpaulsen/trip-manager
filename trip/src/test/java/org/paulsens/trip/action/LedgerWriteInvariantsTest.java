@@ -8,6 +8,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.FakeData;
@@ -327,8 +328,9 @@ public class LedgerWriteInvariantsTest {
             Assert.assertTrue(txs.refuseWithoutTrip(noTrip), "'" + noTrip + "' is no trip");
         }
         Assert.assertFalse(txs.refuseWithoutTrip(UUID.randomUUID().toString()), "a chosen trip is the save's to judge");
-        Assert.assertEquals(TransactionsCommands.NO_TRIP_CHOSEN, "Not saved: choose the trip this transaction is "
-                + "for. Every transaction is recorded on a trip.", "the editors' wording, unchanged");
+        Assert.assertEquals(PageFeedback.compose("Not saved", TransactionsCommands.NEEDS_TRIP), "Not saved: Choose "
+                + "the trip this transaction is for. Every transaction is recorded on a trip, which is what ties it "
+                + "to that trip's organization.", "the page guard says what the save itself says");
     }
 
     // ------------------------------------------------------------------ a trip that changes organization
@@ -570,6 +572,79 @@ public class LedgerWriteInvariantsTest {
         reads.set(0);
         Assert.assertTrue(asOrgAdmin.saveTrip(done));
         Assert.assertEquals(reads.get(), 0);
+    }
+
+    /**
+     * A TripCommands whose uncached pre-read of the stored trip fails, as DynamoDB throwing once would make it;
+     * {@code cacheToo}: the cached copy cannot be read either.
+     */
+    private static TripCommands blind(final Supplier<OrgCommands> orgs, final boolean cacheToo) {
+        return new TripCommands(orgs) {
+            @Override
+            PreRead preRead(final String tripId) {
+                return new PreRead(null, false);
+            }
+
+            @Override
+            Trip cachedForMove(final String tripId) {
+                return cacheToo ? null : super.cachedForMove(tripId);
+            }
+        };
+    }
+
+    @Test
+    public void aMoveIsStillAMoveWhenThePreReadFails() throws IOException {
+        final Person traveler = TenancyFixtures.savedPerson("Blind");
+        final Person both = TenancyFixtures.savedPerson("BlindAdmin");
+        final Organization from = TenancyFixtures.org("BlindFrom", traveler, both);
+        final Organization to = TenancyFixtures.org("BlindTo", traveler, both);
+        TenancyFixtures.makeOrgAdmin(from, both);
+        TenancyFixtures.makeOrgAdmin(to, both);
+        final Trip trip = TenancyFixtures.tripOwnedBy(from, traveler);
+        final Transaction bill = payment(traveler.getId(), -200f);
+        Assert.assertTrue(txs.saveFromPage(siteAdmin, bill, trip.getId()));
+        final Trip moving = DAO.getInstance().getTrip(trip.getId(), Cached.NO).orElseThrow();
+        moving.setOrgId(to.getId().getValue());
+
+        // The cached copy stands in for the stored one: still a site admin's alone.
+        Assert.assertFalse(blind(() -> TenancyFixtures.orgsFor(both), false).saveTrip(moving),
+                "a failed read no longer lets an org admin move a trip with rows on its books");
+        Assert.assertEquals(DAO.getInstance().getTrip(trip.getId(), Cached.NO).orElseThrow().getOrgId(),
+                from.getId().getValue(), "nothing moved");
+        Assert.assertTrue(blind(TenancyFixtures::asSiteAdmin, false).saveTrip(moving));
+        Assert.assertEquals(stored(bill).getOrgId(), to.getId().getValue(), "and a site admin's move takes the rows");
+        Assert.assertNull(DAO.getInstance().getTrip(trip.getId(), Cached.NO).orElseThrow().getLedgerMoveFrom());
+
+        // Neither copy readable, and the trip has rows: the save cannot tell a move from a roster change.
+        final Trip back = DAO.getInstance().getTrip(trip.getId(), Cached.NO).orElseThrow();
+        back.setOrgId(from.getId().getValue());
+        Assert.assertFalse(blind(TenancyFixtures::asSiteAdmin, true).saveTrip(back));
+        Assert.assertEquals(DAO.getInstance().getTrip(trip.getId(), Cached.NO).orElseThrow().getOrgId(),
+                to.getId().getValue(), "refused, not written as a silent move");
+        Assert.assertEquals(stored(bill).getOrgId(), to.getId().getValue());
+
+        // A trip with no rows has nothing to move: a blind save of it goes through as before.
+        final Trip empty = DAO.getInstance().getTrip(TenancyFixtures.tripOwnedBy(from, traveler).getId(),
+                Cached.NO).orElseThrow();
+        empty.getPeople().add(both.getId());
+        Assert.assertTrue(blind(() -> TenancyFixtures.orgsFor(both), true).saveTrip(empty));
+        Assert.assertNull(new TripCommands(TenancyFixtures::asSiteAdmin).cachedForMove(null));
+    }
+
+    @Test
+    public void aGroupRowWithABlankOrganizationTakesItsTrips() throws IOException {
+        final Person anna = TenancyFixtures.savedPerson("BlankAnna");
+        final Organization org = TenancyFixtures.org("Blank", anna);
+        final Trip trip = TenancyFixtures.tripOwnedBy(org, anna);
+        final String gid = UUID.randomUUID().toString();
+        Assert.assertTrue(save(gid, List.of(), trip.getId(), List.of(anna.getId())));
+        final Transaction blank = txs.getGroupTransactionForUser(anna.getId(), gid).orElseThrow();
+        blank.setOrgId(" ");
+        Assert.assertTrue(DAO.getInstance().saveTransaction(blank));
+
+        Assert.assertTrue(save(gid, List.of(anna.getId()), trip.getId(), List.of(anna.getId())));
+        Assert.assertEquals(stored(blank).getOrgId(), org.getId().getValue(),
+                "a blank organization is none, as on the transaction page");
     }
 
     private static OrgCommands nobodyToAsk() {

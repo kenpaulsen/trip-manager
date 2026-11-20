@@ -390,7 +390,11 @@ public class CheckoutCommands {
         }
         if (!confirmed.isEmpty()) {
             confirmed.forEach(row -> trip.getPeople().add(row.getUserId()));
-            new TripCommands().saveTrip(trip);
+            if (!new TripCommands().saveTrip(trip)) {
+                // The registrations are confirmed and paid for; only the roster write was refused or failed.
+                log.error("Checkout payment {} confirmed {} registration(s) on trip {}, but the trip's roster was "
+                        + "not saved", payment.getPaymentId(), confirmed.size(), trip.getId());
+            }
             final RegistrationCommands regs = new RegistrationCommands(callerSource);
             confirmed.forEach(row -> regs.afterConfirmed(trip, row));
         }

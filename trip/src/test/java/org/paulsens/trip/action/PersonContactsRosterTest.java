@@ -73,8 +73,7 @@ public class PersonContactsRosterTest {
     /** The review blocker of 2026-11-12: a row that stays as digits are typed reveals a hidden number. */
     @Test
     public void aCoTravelerCannotFindSomeoneByAHiddenCellOrEmail() throws IOException {
-        final Person shy = saved("Shy", "Hidden" + RandomData.genAlpha(6), null,
-                "(555) 777-" + RandomData.genSecureDigits(4));
+        final Person shy = saved("Shy", "Hidden" + RandomData.genAlpha(6), null, "(555) 777-" + digitsNotIn(needle));
         shy.getPrivacy().setCell(PrivacySettings.Visibility.PRIVATE);
         shy.getPrivacy().setEmail(PrivacySettings.Visibility.PRIVATE);
         assertTrue(DAO.getInstance().savePerson(shy));
@@ -157,6 +156,20 @@ public class PersonContactsRosterTest {
         assertEquals(people.adminPickerLabel(noFirst), "Picker", "a null first name is left out, not \"null\"");
         final Person noLast = Person.builder().first("Bare").cell(" ").build();
         assertEquals(people.adminPickerLabel(noLast), "Bare");
+    }
+
+    /**
+     * Four random digits that occur nowhere in the needle's cell. A search matches any run of a cell's digits, so a
+     * hidden number whose last four also sat inside the needle's "555210xxxx" found the needle and failed the
+     * "hides it" check about once in fifteen hundred runs (2026-11-20).
+     */
+    private static String digitsNotIn(final Person other) {
+        final String taken = other.getCell().replaceAll("\\D", "");
+        String digits = RandomData.genSecureDigits(4);
+        while (taken.contains(digits)) {
+            digits = RandomData.genSecureDigits(4);
+        }
+        return digits;
     }
 
     private static List<Person.Id> ids(final PeopleResult result) {
