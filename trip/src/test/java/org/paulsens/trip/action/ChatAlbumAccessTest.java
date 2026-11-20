@@ -36,7 +36,7 @@ public class ChatAlbumAccessTest {
     @BeforeMethod
     public void freshTrip() throws IOException {
         chat = new ChatCommands(new ChatRateLimiter(new InMemoryCacheClient()));
-        access = new ChatAlbumAccess(() -> chat);
+        access = new ChatAlbumAccess(() -> chat, MediaCommands::new);
         trip = Trip.builder().id(UUID.randomUUID().toString()).title("Album access")
                 .people(new ArrayList<>(List.of(TRAVELER))).build();
         trip.setOpenToPublic(false);

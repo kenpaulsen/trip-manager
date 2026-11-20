@@ -44,7 +44,7 @@ import org.paulsens.trip.model.Trip;
  * most recently ended trips, and the organizations, each LISTED trip's registrations (the mapper's
  * open/full/closed phase) and cached album slot, and each listing organization's logo setting. It runs when a
  * request finds the snapshot {@link #REFRESH_INTERVAL} old, or on the first request after {@link #invalidate}
- * whatever its age, which is after every trip, organization or media save on this
+ * whatever its age, which is after every trip or organization save, chat-album write and media delete on this
  * server (a photo hidden in the album must leave the public album on the next request, not a minute later).
  * While people are registering (a registration saves its trip) that is once per save, not once a minute.
  *

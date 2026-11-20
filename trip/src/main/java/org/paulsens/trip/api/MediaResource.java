@@ -168,7 +168,8 @@ public class MediaResource extends BaseResource {
         final String tripId = ChatPhotos.tripOfSlot(slot);
         final Person.Id me = personId();
         return tripId == null || me == null ? null
-                : new ChatAlbumAccess().visibleThroughChat(tripId, me, () -> media.getDiscoverableInSlot(slot));
+                : Beans.get(ChatAlbumAccess.class).visibleThroughChat(tripId, me,
+                        () -> media.getDiscoverableInSlot(slot));
     }
 
     /**

@@ -39,6 +39,9 @@ public class MediaResourceTest extends ResourceTestSupport {
         bindMock(PersonCommands.class);
         // The album gate asks who may READ the trip (canReadTrip), which asks who manages someone on it.
         trips = bindMock(org.paulsens.trip.action.TripCommands.class);
+        // The real chat-album rule, reading this test's media mock: the slot read asks it of a chat reader.
+        bind(org.paulsens.trip.action.ChatAlbumAccess.class, new org.paulsens.trip.action.ChatAlbumAccess(
+                org.paulsens.trip.action.ChatCommands::getChatCommands, () -> media));
         resource = resource(new MediaResource());
     }
 

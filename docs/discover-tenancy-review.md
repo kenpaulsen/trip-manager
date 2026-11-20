@@ -133,10 +133,11 @@ widenings, each kept to what an organization's site already shows an anonymous v
 This second endpoint keeps the rule below that it "reads DiscoverIndex, never the DAO": the album is read when the
 index rebuilds (one cached slot read per LISTED trip, beside the registrations it already reads) and held in the
 entry, so a request still costs only the rate limiter's counter and a map lookup, an unlisted trip's album is the
-same 404 as the trip, and a host narrows it exactly as it narrows the trip (`SiteContext.admits`). Every media
-write marks the index stale (`DAO.saveMedia`, `deleteMedia`, `clearMediaCache`), so a photo hidden or removed
-leaves the public album on the next request to that server; another server learns of it within the same bounds as
-a trip save ("Staleness" below).
+same 404 as the trip, and a host narrows it exactly as it narrows the trip (`SiteContext.admits`). Every
+chat-album write (`DAO.saveMedia` of a row in a chat slot before or after the save, so an edit that moves a photo
+out of an album counts), every delete (`deleteMedia`) and every `clearMediaCache` marks the index stale, so a photo
+hidden or removed leaves the public album on the next request to that server; another server learns of it within
+the same bounds as a trip save ("Staleness" below).
 
 Separate from Discover, the same day: the signed-in album read `GET /api/media/slots/tripChat-{tripId}`, and the
 website's trip photos page, admit anyone the trip's chat admits (`ChatCommands.canRead`), not only its roster: an

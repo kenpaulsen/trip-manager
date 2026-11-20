@@ -5,7 +5,9 @@ import jakarta.inject.Named;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
+import org.paulsens.trip.api.Beans;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.MediaItem;
@@ -34,21 +36,21 @@ import org.paulsens.trip.model.chat.ChatVisibility;
 public class ChatAlbumAccess {
 
     private final Supplier<ChatCommands> chat;
+    private final Supplier<MediaCommands> media;
 
     public ChatAlbumAccess() {
-        this(ChatCommands::getChatCommands);
+        this(ChatCommands::getChatCommands, () -> Beans.get(MediaCommands.class));
     }
 
-    /** Test seam: a chat of the caller's own. */
-    public ChatAlbumAccess(final Supplier<ChatCommands> chat) {
+    /** Test seam: a chat and a media library of the caller's own. */
+    public ChatAlbumAccess(final Supplier<ChatCommands> chat, final Supplier<MediaCommands> media) {
         this.chat = chat;
+        this.media = media;
     }
 
     /** Whether {@code me} reads this trip's chat as it stands: its channel exists and the chat admits them. */
     public boolean readsChat(final String tripId, final Person.Id me) {
-        final ChatCommands commands = chat.get();
-        final ChatChannel channel = tripId == null ? null : commands.getChannel(tripId);
-        return channel != null && commands.canRead(channel, me);
+        return readableChannel(tripId, me) != null;
     }
 
     /**
@@ -59,12 +61,11 @@ public class ChatAlbumAccess {
      */
     public List<MediaItem> visibleThroughChat(final String tripId, final Person.Id me,
             final Supplier<List<MediaItem>> rows) {
-        final ChatCommands commands = chat.get();
-        final ChatChannel channel = tripId == null ? null : commands.getChannel(tripId);
-        if (channel == null || !commands.canRead(channel, me)) {
+        final ChatChannel channel = readableChannel(tripId, me);
+        if (channel == null) {
             return null;
         }
-        final ChatMembership row = commands.membershipRow(channel.getId(), me).orElse(null);
+        final ChatMembership row = chat.get().membershipRow(channel.getId(), me).orElse(null);
         final Trip trip = DAO.getInstance().getTrip(tripId, Cached.YES).orElse(null);
         final Instant now = Instant.now();
         final List<MediaItem> album = rows.get();
@@ -74,16 +75,18 @@ public class ChatAlbumAccess {
     }
 
     /**
-     * The trip photos page's album for such a reader: {@link #visibleThroughChat} over the whole album, and an
-     * empty album (never null) once the chat no longer admits them. The page asks on every request, so leaving
-     * or being removed takes effect on the next one.
+     * The trip photos page's album for such a reader: {@link #visibleThroughChat} over the album rows the media
+     * API reads ({@code MediaCommands.getDiscoverableInSlot}, so both doors share one source and its fallback: a
+     * failed media read is an empty album, never an aborted page), and an empty album (never null) once the chat
+     * no longer admits them. The page asks on every request, so leaving or being removed takes effect on the
+     * next one.
      */
     public List<MediaItem> albumFor(final String tripId, final Person.Id me) {
         if (tripId == null) {
             return List.of();
         }
         final List<MediaItem> rows = visibleThroughChat(tripId, me,
-                () -> DAO.getInstance().getMediaInSlot(ChatPhotos.slotFor(tripId), Cached.YES));
+                () -> media.get().getDiscoverableInSlot(ChatPhotos.slotFor(tripId)));
         return rows == null ? List.of() : rows;
     }
 
@@ -93,13 +96,29 @@ public class ChatAlbumAccess {
      * because the jsft parser cannot safely combine {@code ==} with a method call in one condition.
      */
     public Trip tripForAlbumPage(final Trip resolved, final String tripId, final Person.Id me) {
+        return tripForPage(resolved, tripId, id -> readsChat(id, me));
+    }
+
+    /**
+     * A chat-admitted page's trip resolution, the chat page's ({@code ChatCommands.tripForChatPage}) and the trip
+     * photos page's alike: the page's own resolution when it found the REQUESTED trip; else that trip when the
+     * page's rule {@code admits} it; else the page's own answer, unchanged.
+     */
+    static Trip tripForPage(final Trip resolved, final String tripId, final Predicate<String> admits) {
         if (resolved != null && tripId != null && tripId.equals(resolved.getId())) {
             return resolved;
         }
-        if (readsChat(tripId, me)) {
+        if (admits.test(tripId)) {
             return DAO.getInstance().getTrip(tripId, Cached.NO).orElse(resolved);
         }
         return resolved;
+    }
+
+    /** The trip's chat channel when it exists and admits {@code me} ({@code ChatCommands.canRead}); else null. */
+    private ChatChannel readableChannel(final String tripId, final Person.Id me) {
+        final ChatCommands commands = chat.get();
+        final ChatChannel channel = tripId == null ? null : commands.getChannel(tripId);
+        return channel != null && commands.canRead(channel, me) ? channel : null;
     }
 
     private static Instant uploadedAt(final MediaItem item) {

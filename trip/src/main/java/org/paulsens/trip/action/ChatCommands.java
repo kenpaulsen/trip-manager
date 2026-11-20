@@ -322,13 +322,7 @@ public class ChatCommands {
      * script because the jsft parser cannot safely combine {@code ==} with a method call in one condition.
      */
     public Trip tripForChatPage(final Trip resolved, final String tripId, final Person.Id me) {
-        if (resolved != null && tripId != null && tripId.equals(resolved.getId())) {
-            return resolved;
-        }
-        if (canParticipate(tripId, me)) {
-            return dao().getTrip(tripId, Cached.NO).orElse(resolved);
-        }
-        return resolved;
+        return ChatAlbumAccess.tripForPage(resolved, tripId, id -> canParticipate(id, me));
     }
 
     /**

@@ -345,6 +345,15 @@ public class DiscoverResourceTest extends ResourceTestSupport {
         final MediaItem row = albumPhoto(alphaTrip, "zz-" + STAMP, "Unrelated");
         Assert.assertTrue(DAO.getInstance().saveMedia(row));
         Assert.assertEquals(((List<?>) resource.photos(alphaTrip.getId()).getEntity()).size(), 0);
+
+        // Moving a row OUT of an album into the library is an album write too; a library row's save is not.
+        final MediaItem moved = row.withEdits(row.getS3Key(), row.getTitle(), null, "home-docs", 0, false);
+        final DiscoverIndex.Snapshot beforeMove = DiscoverIndex.getInstance().current();
+        Assert.assertTrue(DAO.getInstance().saveMedia(moved));
+        Assert.assertNotSame(DiscoverIndex.getInstance().current(), beforeMove, "moved out of an album: rebuilt");
+        final DiscoverIndex.Snapshot afterMove = DiscoverIndex.getInstance().current();
+        Assert.assertTrue(DAO.getInstance().saveMedia(moved));
+        Assert.assertSame(DiscoverIndex.getInstance().current(), afterMove, "a library row's save: untouched");
         DAO.getInstance().deleteMedia(row.getId());
     }
 

@@ -756,14 +756,22 @@ public final class DAO {
     }
     // A chat-album write marks Discover stale: it holds each listed trip's public album, and a photo hidden or
     // removed there must leave Discover on the next request (see DiscoverIndex). Only a mark; the rebuild is lazy.
-    // Library, receipt and profile rows are no album's, so their saves leave the index alone; a delete names only
-    // a row id, and deletes are rare, so every one marks it.
+    // "Chat-album write" means the row is in a chat slot after the save OR was before it (an edit can move a row
+    // out of a trip's album into the library). Other rows leave the index alone; a delete names only a row id, and
+    // deletes are rare, so every one marks it.
     public Boolean saveMedia(final MediaItem item) {
+        final boolean albumRow = item != null && (ChatPhotos.isChatSlot(item.getSlot()) || wasInChatSlot(item));
         final Boolean saved = mediaDao.saveMedia(item);
-        if (item != null && ChatPhotos.isChatSlot(item.getSlot())) {
+        if (albumRow) {
             DiscoverIndex.getInstance().invalidate();
         }
         return saved;
+    }
+
+    /** Whether the stored row this save replaces sits in a chat slot (read before the save overwrites it). */
+    private boolean wasInChatSlot(final MediaItem item) {
+        return item.getId() != null && getMedia(item.getId(), Cached.YES)
+                .map(stored -> ChatPhotos.isChatSlot(stored.getSlot())).orElse(false);
     }
     public Boolean deleteMedia(final String id) {
         final Boolean deleted = mediaDao.deleteMedia(id);
