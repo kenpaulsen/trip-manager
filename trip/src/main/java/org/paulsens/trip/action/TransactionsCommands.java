@@ -108,6 +108,11 @@ public class TransactionsCommands {
         return trip == null || isNullOrBlank(trip.getOrgId()) ? null : trip;
     }
 
+    /** {@link #tripProblem(Transaction, String, Trip)} reading the chosen trip itself: the tests' door. */
+    static String tripProblem(final Transaction storedOrNull, final String tripId) {
+        return tripProblem(storedOrNull, tripId, isNoTrip(tripId) ? null : ledgerTrip(tripId));
+    }
+
     /**
      * Why a row may not be saved against {@code tripId}, or null when it may. THE write invariant of the per-org
      * ledger, asked by every door that takes a trip from a person (the transaction page, the group editor, the
@@ -117,15 +122,8 @@ public class TransactionsCommands {
      * organization (its org stamp would then disagree with its trip). Not enforced in the DAO: the imports and
      * the payment recorder write through it with a trip already in hand, and the re-saves that are not edits
      * (a delete, a group's membership restamp) must keep working on the rows that still await their trip.
-     */
-    public static String tripProblem(final Transaction storedOrNull, final String tripId) {
-        return tripProblem(storedOrNull, tripId, isNoTrip(tripId) ? null : ledgerTrip(tripId));
-    }
-
-    /**
-     * {@link #tripProblem(Transaction, String)} with the chosen trip already read ({@link #ledgerTrip} of
-     * {@code tripId}), for a caller that goes on to save the row on it ({@link #saveOnTrip}) without reading it
-     * again.
+     * {@code chosen} is {@link #ledgerTrip} of {@code tripId}, already read by a caller that goes on to save the
+     * row on it ({@link #saveOnTrip}) without reading it again.
      */
     public static String tripProblem(final Transaction storedOrNull, final String tripId, final Trip chosen) {
         if (isNoTrip(tripId)) {
@@ -222,16 +220,19 @@ public class TransactionsCommands {
      * for the writers that hold only the trip's id: the payment recorder, the bills, the expense report.
      */
     public boolean saveTransaction(final Transaction tx, final String tripId) {
-        stampOrg(tx, isNoTrip(tripId) ? null : DAO.getInstance().getTrip(tripId, Cached.YES).orElse(null));
+        // Read the trip only when it can stamp something: the payment recorder stamps its rows first.
+        if (isNullOrBlank(tx.getOrgId()) && !isNoTrip(tripId)) {
+            stampOrg(tx, DAO.getInstance().getTrip(tripId, Cached.YES).orElse(null));
+        }
         return saveTransaction(tx);
     }
 
     /**
-     * The REST resource's save of one row, its create and its update alike: stamped from {@code trip}
-     * ({@link #stampOrg}), saved, and, when {@code bind} (the row is on no trip's books yet), put on that trip's
-     * books in both directions. {@code trip} is the one the caller already read and judged: the trip the request
-     * names for a row on no trip, or the trip the row is already on, whatever the request names (a binding is
-     * only ever given, never moved, so neither is the organization the row takes).
+     * The save of one row through a door that holds its trip (the REST resource's create and update, the
+     * transaction page): stamped from {@code trip} ({@link #stampOrg}), saved, and, when {@code bind}, put on that
+     * trip's books in both directions (a no-op for a row already there). {@code trip} is the one the caller already
+     * read and judged: the trip the request names for a row on no trip, or the trip the row is already on, whatever
+     * the request names (a binding is only ever given, never moved, so neither is the organization the row takes).
      */
     public boolean saveOnTrip(final Transaction tx, final Trip trip, final boolean bind) {
         stampOrg(tx, trip);
@@ -771,7 +772,7 @@ public class TransactionsCommands {
     }
 
     /**
-     * The transaction page's Save: {@link #saveTransaction(Transaction, String)} once the signed-in user may put
+     * The transaction page's Save: {@link #saveOnTrip} once the signed-in user may put
      * this row on this trip's books. A site admin may always. A trip's finance admin may record a NEW row only
      * for someone on that trip, and may change an existing row only while it stays on the books it is on
      * ({@code TripFinanceGate.mayCharge} / {@code mayWriteRow}, the API's rule: an update never re-binds a row
@@ -810,14 +811,7 @@ public class TransactionsCommands {
         // The org is never the page's to choose: a stored row keeps its own, a new one takes its trip's (as does
         // a stored row from before rows carried one, when its trip is named).
         tx.setOrgId(stored == null ? null : stored.getOrgId());
-        stampOrg(tx, trip);
-        if (!saveTransaction(tx)) {
-            return false;
-        }
-        if (!noTrip) {
-            bindToTrip(tx, tripId);
-        }
-        return true;
+        return saveOnTrip(tx, trip, !noTrip);
     }
 
     private static boolean refuseOffBooks() {
@@ -1018,16 +1012,13 @@ public class TransactionsCommands {
      * three tables list ({@code trip/tripTransactions.xhtml} gathers them once per view, from the trip's TRIP to
      * TRANSACTION bindings through the site-filtered {@link #getTransaction}). Handed in rather than read again:
      * a second read of every bound row, uncached and on every postback, doubled the page's reads and let a
-     * footer disagree with the table above it once another admin changed a row. The ledger migration's before
+     * footer disagree with the table above it once another admin changed a row. Each list is folded into its own
+     * footer as given, so a footer is the total of its table by construction. The ledger migration's before
      * and after figures use the same {@link TripLedgerTotals} over every live row (system reach).
      */
-    public TripLedgerTotals getTripLedgerTotals(final String tripId, final Collection<Transaction> tripRows,
+    public TripLedgerTotals getTripLedgerTotals(final Collection<Transaction> tripRows,
             final Collection<Transaction> invoiceRows, final Collection<Transaction> userRows) {
-        final List<Transaction> rows = new ArrayList<>();
-        for (final Collection<Transaction> list : List.of(orNone(tripRows), orNone(invoiceRows), orNone(userRows))) {
-            rows.addAll(list);
-        }
-        return TripLedgerTotals.of(isNullOrEmpty(tripId) ? "" : tripId, rows, this::getUserAmount);
+        return TripLedgerTotals.ofLists(orNone(tripRows), orNone(invoiceRows), orNone(userRows), this::getUserAmount);
     }
 
     private static Collection<Transaction> orNone(final Collection<Transaction> rows) {

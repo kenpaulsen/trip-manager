@@ -5,6 +5,7 @@ import java.util.function.Supplier;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.BindingType;
+import org.paulsens.trip.model.CompositeKey;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Transaction;
 import org.paulsens.trip.model.Trip;
@@ -127,9 +128,16 @@ public final class TripFinanceGate {
         if (TripCommands.isOnTrip(trip, person)) {
             return true;
         }
-        final String prefix = person.getValue() + ",";
         return DAO.getInstance().getBindings(trip.getId(), BindingType.TRIP, BindingType.TRANSACTION, Cached.YES)
-                .stream().anyMatch(key -> key.startsWith(prefix));
+                .stream().anyMatch(key -> isRowOf(key, person));
+    }
+
+    /**
+     * Whether a ledger row's binding key names this person, read through {@link CompositeKey} (a TRANSACTION key is
+     * always stored composite, {@code BindingDAO}), never by spelling the separator here.
+     */
+    private static boolean isRowOf(final String key, final Person.Id person) {
+        return CompositeKey.from(key).getPartitionKey().equals(person.getValue());
     }
 
     private boolean reaches(final String tripId, final Transaction tx) {

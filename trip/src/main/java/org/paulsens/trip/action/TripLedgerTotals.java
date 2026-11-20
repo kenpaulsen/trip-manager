@@ -3,7 +3,9 @@ package org.paulsens.trip.action;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Function;
 import org.paulsens.trip.model.Transaction;
 
@@ -44,7 +46,8 @@ public record TripLedgerTotals(double trip, double invoice, double user, int row
     }
 
     /**
-     * The totals of these rows, which the caller has already resolved from the trip's bindings (live rows only).
+     * The totals of these rows, which the caller has already resolved from the trip's bindings (live rows only),
+     * sorted into the three lists by {@link #bucketOf}.
      *
      * @param tripId the trip whose books these are
      * @param bound  the trip's rows, in any order
@@ -52,18 +55,37 @@ public record TripLedgerTotals(double trip, double invoice, double user, int row
      */
     public static TripLedgerTotals of(final String tripId, final Collection<Transaction> bound,
             final Function<Transaction, Float> share) {
-        final List<Transaction> sorted = new ArrayList<>(bound);
+        final Map<Bucket, List<Transaction>> lists = new EnumMap<>(Bucket.class);
+        for (final Transaction tx : bound) {
+            lists.computeIfAbsent(bucketOf(tripId, tx), na -> new ArrayList<>()).add(tx);
+        }
+        return ofLists(lists.getOrDefault(Bucket.TRIP, List.of()), lists.getOrDefault(Bucket.INVOICE, List.of()),
+                lists.getOrDefault(Bucket.USER, List.of()), share);
+    }
+
+    /**
+     * The totals of three lists as given, each folded into its own footer: what a page that has already sorted its
+     * rows into its three tables shows, so a footer is by construction the total of the table above it.
+     */
+    public static TripLedgerTotals ofLists(final Collection<Transaction> tripRows,
+            final Collection<Transaction> invoiceRows, final Collection<Transaction> userRows,
+            final Function<Transaction, Float> share) {
+        return new TripLedgerTotals(fold(tripRows, share), fold(invoiceRows, share), fold(userRows, share),
+                tripRows.size() + invoiceRows.size() + userRows.size());
+    }
+
+    private static double fold(final Collection<Transaction> rows, final Function<Transaction, Float> share) {
+        final List<Transaction> sorted = new ArrayList<>(rows);
         // The page sorts each list by date before its footer folds it; a stable sort keeps ties as given.
         sorted.sort(Comparator.comparing(Transaction::getTxDate, Comparator.nullsFirst(Comparator.naturalOrder())));
-        final double[] totals = new double[Bucket.values().length];
+        double total = 0;
         for (final Transaction tx : sorted) {
             final Float amount = share.apply(tx);
             if (amount != null) {
-                totals[bucketOf(tripId, tx).ordinal()] += amount;
+                total += amount;
             }
         }
-        return new TripLedgerTotals(totals[Bucket.TRIP.ordinal()], totals[Bucket.INVOICE.ordinal()],
-                totals[Bucket.USER.ordinal()], sorted.size());
+        return total;
     }
 
     /** One bucket's total. */

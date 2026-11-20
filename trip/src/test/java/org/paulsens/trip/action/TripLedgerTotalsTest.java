@@ -82,10 +82,13 @@ public class TripLedgerTotalsTest {
         final Transaction paid = row(person, null, TransactionType.Payment, 40f, null);
         final Transaction own = row(tripId, null, TransactionType.Payment, -700f, null);
         // Never stored: the bean folds what it is handed and reads nothing.
-        final TripLedgerTotals totals = txs.getTripLedgerTotals(tripId, List.of(own), List.of(bill), List.of(paid));
+        final TripLedgerTotals totals = txs.getTripLedgerTotals(List.of(own), List.of(bill), List.of(paid));
         assertEquals(totals, new TripLedgerTotals(-700d, -100d, 40d, 3));
-        assertEquals(txs.getTripLedgerTotals("", null, null, null), new TripLedgerTotals(0d, 0d, 0d, 0));
-        assertEquals(txs.getTripLedgerTotals(null, List.of(), null, List.of()).rows(), 0);
+        assertEquals(txs.getTripLedgerTotals(null, null, null), new TripLedgerTotals(0d, 0d, 0d, 0));
+        assertEquals(txs.getTripLedgerTotals(List.of(), null, List.of()).rows(), 0);
+        // Each footer is the list in its slot, whatever bucketOf says: a bill listed as a "user" row counts there.
+        assertEquals(txs.getTripLedgerTotals(List.of(), List.of(), List.of(bill, paid)),
+                new TripLedgerTotals(0d, 0d, -60d, 2));
     }
 
     private static <T> T onSite(final SiteContext site, final ScopedValue.CallableOp<T, Exception> body)
@@ -141,7 +144,7 @@ public class TripLedgerTotalsTest {
         final SiteContext sharedHost = SiteContext.shared("localhost");
         for (final SiteContext site : List.of(orgHost, sharedHost)) {
             final List<List<Transaction>> listed = onSite(site, () -> listedByThePage(txs, tripId));
-            final TripLedgerTotals totals = txs.getTripLedgerTotals(tripId, listed.get(0), listed.get(1),
+            final TripLedgerTotals totals = txs.getTripLedgerTotals(listed.get(0), listed.get(1),
                     listed.get(2));
             assertEquals(totals.trip(), sum(txs, listed.get(0)), "the trip footer on " + site);
             assertEquals(totals.invoice(), sum(txs, listed.get(1)), "the invoice footer on " + site);
@@ -149,7 +152,7 @@ public class TripLedgerTotalsTest {
             assertEquals(totals.rows(), listed.stream().mapToInt(List::size).sum());
         }
         final List<List<Transaction>> orgListed = onSite(orgHost, () -> listedByThePage(txs, tripId));
-        final TripLedgerTotals onOrgHost = txs.getTripLedgerTotals(tripId, orgListed.get(0), orgListed.get(1),
+        final TripLedgerTotals onOrgHost = txs.getTripLedgerTotals(orgListed.get(0), orgListed.get(1),
                 orgListed.get(2));
         assertEquals(onOrgHost, new TripLedgerTotals(-70d, -100d, 40d, 3),
                 "the organization's own host lists its three rows and not the other organization's");

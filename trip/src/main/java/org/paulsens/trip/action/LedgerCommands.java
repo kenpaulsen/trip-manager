@@ -439,10 +439,11 @@ public class LedgerCommands {
     }
 
     /**
-     * The subject(s)' balance with ONE organization (the payment page's "balance with {the org of this trip}"):
-     * the entry {@link #orgBalances} would list, or a zero {@link State#NO_ACTIVITY} one. Never null.
+     * The subject(s)' balance with ONE organization: the entry {@link #orgBalances} would list, or a zero
+     * {@link State#NO_ACTIVITY} one. Never null. No page reads it (the payment page reads {@link #payBalances}); it
+     * is the per-call oracle the tests hold {@code payBalances} to.
      */
-    public OrgBalance orgBalance(final Collection<Person.Id> subjects, final String orgId) {
+    OrgBalance orgBalance(final Collection<Person.Id> subjects, final String orgId) {
         return balanceWith(snapshot(subjects), orgId);
     }
 

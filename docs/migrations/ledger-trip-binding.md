@@ -67,10 +67,11 @@ rm -rf ../../ledger-migration/<dump>                         # once verify passe
    (and again right before the deploy of the per-organization code).
 8. **rollback** removes exactly the bindings in `rollback.json` (dry run without `--apply`), each only if it is still
    there, and reads back that it is gone. Point-in-time recovery of `bindings` is the backstop.
-9. **Delete the dumps.** A dump holds ledger rows and every person's name (the dump script keeps only the name of a
-   person, and only the six tables the tool reads): once verify has passed on the deployed code and the owner is
-   satisfied, delete each dump folder under `ledger-migration/`. The run folders (plan, snapshot, rollback list)
-   are kept only while a rollback is still wanted.
+9. **Delete the dumps.** A dump holds ledger rows and every person's name (the dump script reads only the six tables
+   the tool reads, and keeps of a person only the name and of a registration only its trip, person and status):
+   once verify has passed on the deployed code and the owner is satisfied, delete each dump folder under
+   `ledger-migration/`. The run folders (plan, snapshot, rollback list) are kept only while a rollback is still
+   wanted.
 
 `--dump <dir>` makes snapshot, plan and verify read a dump directory instead of the live tables (local mode: no AWS
 at all); without it they scan the live tables once each, strongly consistently, through `DAO.scanTable`. A dump is
@@ -135,7 +136,7 @@ balances that code STATES; check 4 also fails a statement whose balance is not t
 
 `TripLedgerTotals` is the ONE bucket rule for a trip's three totals (a row whose `userId` is the trip is a "trip"
 row; another `Bill` is an "invoice" row; the rest are "user" rows; each total is the fold of `getUserAmount`).
-`TransactionsCommands.getTripLedgerTotals(tripId, tripRows, invoiceRows, userRows)` folds the rows a page already
+`TransactionsCommands.getTripLedgerTotals(tripRows, invoiceRows, userRows)` folds each list a page already
 lists (the trip ledger page, `tripTransactions.jsf`, gathers its three lists through the site-filtered
 `getTransaction` and hands them in), and the page renders its three footers from it, so the footers and this tool
 are one rule, and nothing is read twice. The page gathers its three LISTS itself;
