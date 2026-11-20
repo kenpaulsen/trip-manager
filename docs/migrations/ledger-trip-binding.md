@@ -136,9 +136,9 @@ balances that code STATES; check 4 also fails a statement whose balance is not t
 
 `TripLedgerTotals` is the ONE bucket rule for a trip's three totals (a row whose `userId` is the trip is a "trip"
 row; another `Bill` is an "invoice" row; the rest are "user" rows; each total is the fold of `getUserAmount`).
-`TransactionsCommands.getTripLedgerTotals(tripRows, invoiceRows, userRows)` folds each list a page already
-lists (the trip ledger page, `tripTransactions.jsf`, gathers its three lists through the site-filtered
-`getTransaction` and hands them in), and the page renders its three footers from it, so the footers and this tool
-are one rule, and nothing is read twice. The page gathers its three LISTS itself;
+The trip ledger page (`tripTransactions.jsf`) gathers its rows through the site-filtered `getTransaction` and
+files each into its three lists with `TransactionsCommands.fileLedgerRow`, which is `bucketOf`;
+`getTripLedgerTotals(tripRows, invoiceRows, userRows)` then folds each list into its own footer. So the footers
+and this tool are one rule, a footer is the total of its table, and nothing is read twice.
 `TripLedgerTotalsTest.theFootersAreTheTotalsOfTheRowsEachHostLists` checks, on an organization's host and on a
 shared one, that each footer is the total of exactly the rows its table lists.

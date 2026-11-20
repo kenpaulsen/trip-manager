@@ -108,11 +108,6 @@ public class TransactionsCommands {
         return trip == null || isNullOrBlank(trip.getOrgId()) ? null : trip;
     }
 
-    /** {@link #tripProblem(Transaction, String, Trip)} reading the chosen trip itself: the tests' door. */
-    static String tripProblem(final Transaction storedOrNull, final String tripId) {
-        return tripProblem(storedOrNull, tripId, isNoTrip(tripId) ? null : ledgerTrip(tripId));
-    }
-
     /**
      * Why a row may not be saved against {@code tripId}, or null when it may. THE write invariant of the per-org
      * ledger, asked by every door that takes a trip from a person (the transaction page, the group editor, the
@@ -1019,6 +1014,20 @@ public class TransactionsCommands {
     public TripLedgerTotals getTripLedgerTotals(final Collection<Transaction> tripRows,
             final Collection<Transaction> invoiceRows, final Collection<Transaction> userRows) {
         return TripLedgerTotals.ofLists(orNone(tripRows), orNone(invoiceRows), orNone(userRows), this::getUserAmount);
+    }
+
+    /**
+     * Adds one of a trip's rows to the page list it belongs in, by {@link TripLedgerTotals#bucketOf}: THE bucket
+     * rule, so the trip ledger's three tables (and the footers folded from them) and the ledger migration's
+     * figures sort rows one way. The page used to spell the rule out in its own script.
+     */
+    public void fileLedgerRow(final String tripId, final Transaction tx, final Collection<Transaction> tripRows,
+            final Collection<Transaction> invoiceRows, final Collection<Transaction> userRows) {
+        switch (TripLedgerTotals.bucketOf(tripId, tx)) {
+            case TRIP -> tripRows.add(tx);
+            case INVOICE -> invoiceRows.add(tx);
+            case USER -> userRows.add(tx);
+        }
     }
 
     private static Collection<Transaction> orNone(final Collection<Transaction> rows) {

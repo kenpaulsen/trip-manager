@@ -99,8 +99,8 @@ public class TripLedgerTotalsTest {
     /**
      * What {@code trip/tripTransactions.xhtml} lists, as the page itself gathers it: the trip's bindings, each
      * row through the site-filtered {@code getTransaction}, in the page's three lists (trip, invoice, user).
-     * Spelled out here apart from {@link TripLedgerTotals} on purpose: the page hands these lists to the bean
-     * for its footers, and this is the check that the footers are the totals of exactly those rows.
+     * Filed by {@code fileLedgerRow}, as the page files them: the page hands these lists to the bean for its
+     * footers, and this is the check that the footers are the totals of exactly those rows.
      */
     private static List<List<Transaction>> listedByThePage(final TransactionsCommands txs, final String tripId) {
         final List<List<Transaction>> lists = List.of(new ArrayList<>(), new ArrayList<>(), new ArrayList<>());
@@ -108,7 +108,7 @@ public class TripLedgerTotalsTest {
             final String[] ids = key.split(",", 2);
             final Transaction tx = txs.getTransaction(Person.Id.from(ids[0]), ids[1]);
             if (tx != null) {
-                lists.get(ids[0].equals(tripId) ? 0 : (tx.getTxType() == TransactionType.Bill ? 1 : 2)).add(tx);
+                txs.fileLedgerRow(tripId, tx, lists.get(0), lists.get(1), lists.get(2));
             }
         }
         return lists;

@@ -221,7 +221,7 @@ public class LedgerCommandsTest {
         Assert.assertFalse(balance.unassigned());
         Assert.assertEquals(ledger.defaultOrg(subject), org.getId().getValue());
         Assert.assertEquals(ledger.otherOrgBalances(subject, org.getId().getValue()), List.of());
-        Assert.assertEquals(ledger.orgBalance(subject, org.getId().getValue()), balance);
+        Assert.assertEquals(withOrg(ledger, subject, org.getId().getValue()), balance);
 
         final Statement statement = ledger.statement(subject, org.getId().getValue());
         Assert.assertEquals(statement.orgId(), org.getId().getValue());
@@ -671,8 +671,8 @@ public class LedgerCommandsTest {
             Assert.assertEquals(ledger.statement(subject, theirsId), Statement.none(),
                     "the other organization's statement does not exist for them, name included");
             Assert.assertEquals(ledger.statement(subject, LedgerCommands.UNASSIGNED_ORG_ID), Statement.none());
-            Assert.assertEquals(ledger.orgBalance(subject, theirsId).orgName(), "");
-            Assert.assertEquals(ledger.orgBalance(subject, theirsId).state(), State.NO_ACTIVITY);
+            Assert.assertEquals(withOrg(ledger, subject, theirsId).orgName(), "");
+            Assert.assertEquals(withOrg(ledger, subject, theirsId).state(), State.NO_ACTIVITY);
             final Overview page = ledger.overview(subject, theirsId);
             Assert.assertEquals(page.orgId(), mineId, "asking for the other organization lands on their own");
             Assert.assertEquals(txIds(page.statement()), List.of(ours.getTxId()));
@@ -1079,7 +1079,7 @@ public class LedgerCommandsTest {
                 "the other organization's row is not this one's");
         Assert.assertEquals(figures.family().balanceCents(), -12000L);
         Assert.assertEquals(figures.forPerson(parent.getId().getValue()),
-                ledger.orgBalance(List.of(parent.getId()), orgId), "the figure the page used to ask for per row");
+                withOrg(ledger, List.of(parent.getId()), orgId), "the figure the page used to ask for per row");
         reads.reset();
         ledger.payBalances(rows, family, true, orgId);
         Assert.assertEquals(reads.partitions, List.of(parent.getId(), child.getId()),
@@ -1187,5 +1187,14 @@ public class LedgerCommandsTest {
         final LedgerCommands.Statement loose = new LedgerCommands.Statement("org", "Org", false,
                 LedgerCommands.State.OWES, -10d, -1000L, 10d, 0d, 0, List.of(group(null, 10d, 0d)), List.of());
         Assert.assertEquals(loose.openKey(null), LedgerCommands.TripGroup.UNASSIGNED_KEY);
+    }
+
+    /**
+     * One person's balance with one organization, read the way the payment page reads it ({@code payBalances}): the
+     * entry {@code orgBalances} lists, or a zero NO_ACTIVITY one.
+     */
+    private static OrgBalance withOrg(final LedgerCommands ledger, final List<Person.Id> subject, final String orgId) {
+        final String id = subject.getFirst().getValue();
+        return ledger.payBalances(List.of(id), null, false, orgId).forPerson(id);
     }
 }

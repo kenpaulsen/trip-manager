@@ -88,9 +88,9 @@ public class LedgerWriteInvariantsTest {
         Assert.assertEquals(stored(fresh).getOrgId(), org.getId().getValue(), "the trip's organization, always");
         Assert.assertEquals(tripsOf(fresh), List.of(trip.getId()), "and bound to the trip by the save itself");
 
-        Assert.assertEquals(TransactionsCommands.tripProblem(null, null), TransactionsCommands.NEEDS_TRIP);
-        Assert.assertEquals(TransactionsCommands.tripProblem(null, "nope"), TransactionsCommands.NOT_A_LEDGER_TRIP);
-        Assert.assertNull(TransactionsCommands.tripProblem(null, trip.getId()));
+        Assert.assertEquals(tripProblem(null, null), TransactionsCommands.NEEDS_TRIP);
+        Assert.assertEquals(tripProblem(null, "nope"), TransactionsCommands.NOT_A_LEDGER_TRIP);
+        Assert.assertNull(tripProblem(null, trip.getId()));
         Assert.assertNull(TransactionsCommands.ledgerTrip("none"));
         Assert.assertEquals(TransactionsCommands.ledgerTrip(trip.getId()).getId(), trip.getId());
         Assert.assertTrue(TransactionsCommands.isNoTrip(" None "));
@@ -154,7 +154,7 @@ public class LedgerWriteInvariantsTest {
                 "another organization's trip: its org stamp would disagree with its trip");
         Assert.assertEquals(tripsOf(row), List.of(second.getId()));
         Assert.assertEquals(stored(row).getOrgId(), org.getId().getValue());
-        Assert.assertEquals(TransactionsCommands.tripProblem(stored(row), foreign.getId()),
+        Assert.assertEquals(tripProblem(stored(row), foreign.getId()),
                 TransactionsCommands.OTHER_ORG_TRIP);
         Assert.assertFalse(txs.saveFromPage(siteAdmin, row, UUID.randomUUID().toString()), "nor a trip that is gone");
     }
@@ -249,7 +249,7 @@ public class LedgerWriteInvariantsTest {
             Assert.assertFalse(txs.saveFromPage(siteAdmin, row, noTrip), "no trip ('" + noTrip + "')");
             Assert.assertEquals(stored(row).getAmount(), -90f, "the refused edit wrote nothing");
         }
-        Assert.assertEquals(TransactionsCommands.tripProblem(stored(row), "none"), TransactionsCommands.NEEDS_TRIP);
+        Assert.assertEquals(tripProblem(stored(row), "none"), TransactionsCommands.NEEDS_TRIP);
         Assert.assertFalse(txs.saveFromPage(siteAdmin, row, foreign.getId()), "nor onto another organization's");
         Assert.assertEquals(tripsOf(row), List.of());
 
@@ -257,7 +257,7 @@ public class LedgerWriteInvariantsTest {
         Assert.assertTrue(txs.saveFromPage(siteAdmin, row, trip.getId()), "a real trip of its organization");
         Assert.assertEquals(stored(row).getAmount(), -95f);
         Assert.assertEquals(tripsOf(row), List.of(trip.getId()));
-        Assert.assertNull(TransactionsCommands.tripProblem(stored(row), "none"), "on a trip now: it keeps it");
+        Assert.assertNull(tripProblem(stored(row), "none"), "on a trip now: it keeps it");
         row.setAmount(-96f);
         Assert.assertTrue(txs.saveFromPage(siteAdmin, row, "none"));
 
@@ -741,5 +741,11 @@ public class LedgerWriteInvariantsTest {
         final String partial = audit.tripLedgerMoved(trip, null, 1, 2, null);
         Assert.assertTrue(partial.contains("from organization (none)") && partial.contains("2 FAILED to move"),
                 partial);
+    }
+
+    /** The invariant as a door that has not read the trip yet asks it: the trip read here, then judged. */
+    private static String tripProblem(final Transaction storedOrNull, final String tripId) {
+        return TransactionsCommands.tripProblem(storedOrNull, tripId,
+                TransactionsCommands.isNoTrip(tripId) ? null : TransactionsCommands.ledgerTrip(tripId));
     }
 }

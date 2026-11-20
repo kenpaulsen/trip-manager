@@ -438,15 +438,6 @@ public class LedgerCommands {
         return balancesOf(snapshot(subjects));
     }
 
-    /**
-     * The subject(s)' balance with ONE organization: the entry {@link #orgBalances} would list, or a zero
-     * {@link State#NO_ACTIVITY} one. Never null. No page reads it (the payment page reads {@link #payBalances}); it
-     * is the per-call oracle the tests hold {@code payBalances} to.
-     */
-    OrgBalance orgBalance(final Collection<Person.Id> subjects, final String orgId) {
-        return balanceWith(snapshot(subjects), orgId);
-    }
-
     private OrgBalance balanceWith(final Snapshot snap, final String orgId) {
         return balancesOf(snap).stream().filter(entry -> entry.orgId().equals(orgId)).findFirst()
                 .orElseGet(() -> new OrgBalance(orgId, snap.viewer.nameOfReachable(snap.subjects, orgId), false,
@@ -465,9 +456,10 @@ public class LedgerCommands {
     }
 
     /**
-     * {@link #orgBalance} for every row of the payment page and for its family line, in ONE call: each person's
-     * partition is read once however many figures it is part of. The page asked {@link #orgBalance} per row and
-     * again for the family, each call reading its partitions afresh (a manager of five read ten partitions for
+     * The balance with ONE organization (the entry {@link #orgBalances} would list, or a zero
+     * {@link State#NO_ACTIVITY} one) for every row of the payment page and for its family line, in ONE call: each
+     * person's partition is read once however many figures it is part of. The page used to ask per row and again
+     * for the family, each call reading its partitions afresh (a manager of five read ten partitions for
      * six figures, on every re-render). The family line only {@code withFamily} (the payer manages
      * {@code family}); else {@code family()} is null.
      */
