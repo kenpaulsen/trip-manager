@@ -27,6 +27,8 @@ import org.paulsens.trip.action.TripFinanceGate;
 import org.paulsens.trip.api.dto.OrgBalanceDto;
 import org.paulsens.trip.api.dto.TransactionDto;
 import org.paulsens.trip.api.mapper.TransactionMapper;
+import org.paulsens.trip.cache.Cached;
+import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.BindingType;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Transaction;
@@ -55,6 +57,8 @@ public class TransactionsResource extends BaseResource {
     private TripFinanceGate cachedGate;
     /** {@link #orgName}'s per-request memo: a ledger is many rows of one or two organizations. */
     private final Map<String, String> orgNames = new HashMap<>();
+    /** {@link #shownTrip}'s per-request memo, by trip id: a ledger's rows sit on a handful of trips. */
+    private final Map<String, Optional<Trip>> trips = new HashMap<>();
 
     @Override
     protected String versionedType() {
@@ -398,11 +402,29 @@ public class TransactionsResource extends BaseResource {
     private TransactionDto dto(final Transaction tx, final boolean staff) {
         final TransactionDto mapped = TransactionMapper.INSTANCE.toDto(tx);
         final Float share = Beans.get(TransactionsCommands.class).getUserAmount(tx);
+        final List<String> tripIds = boundTrips(tx);
+        final Optional<Trip> shown = shownTrip(tripIds, mapped.orgId());
         final TransactionDto withShare = new TransactionDto(mapped.txId(), mapped.userId(), mapped.groupId(),
                 mapped.type(), mapped.txType(), mapped.txDate(), mapped.amount(), share, mapped.category(),
-                mapped.note(), mapped.deleted(), mapped.groupPeople(), boundTrips(tx), mapped.orgId(),
-                orgName(mapped.orgId()));
+                mapped.note(), mapped.deleted(), mapped.groupPeople(), tripIds, mapped.orgId(),
+                orgName(mapped.orgId()), shown.map(Trip::getTitle).orElse(null),
+                shown.map(Trip::getStartDate).orElse(null), shown.map(Trip::getEndDate).orElse(null));
         return staff ? withShare : withShare.withoutGroupPeople();
+    }
+
+    /**
+     * The trip a row is shown under, by the website statement's rule ({@code LedgerStatements.place}): its first
+     * bound trip, when that trip exists and is the row's organization's (a row with no organization takes any).
+     * A row bound to another organization's trip is never shown under that trip's title. Read from the DAO, as the
+     * statement reads it, so a trip this site would not otherwise serve still names the person's own charge.
+     */
+    private Optional<Trip> shownTrip(final List<String> tripIds, final String orgId) {
+        if (tripIds.isEmpty()) {
+            return Optional.empty();
+        }
+        return trips.computeIfAbsent(tripIds.getFirst(), id -> DAO.getInstance().getTrip(id, Cached.YES)
+                        .filter(trip -> id.equals(trip.getId())))
+                .filter(trip -> orgId == null || orgId.equals(trip.getOrgId()));
     }
 
     /** The organization's name, read once per request per organization; null for a row that has none. */

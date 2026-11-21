@@ -541,6 +541,12 @@ photos).
   is owed to ONE of them, so the wire now says which. All additive:
   - `TransactionDto.orgId` / `orgName`: the organization the row's money is with (its trip's). Both are absent on
     a row that has none (legacy content; none is expected).
+  - `TransactionDto.tripTitle` / `tripStartDate` / `tripEndDate` (2026-11-21): the trip the row is shown under,
+    by the website statement's rule (`LedgerStatements.place`): its first bound trip, when that trip exists and is
+    the row's organization's (a row with no organization takes any). Absent otherwise. A client must name a row's
+    trip from these, not from its own trip list: a charge can sit on a trip the person is not on the roster of,
+    which `filter=mine` does not list and `GET /api/trips/{id}` refuses (the apps showed "Another trip" for every
+    such trip).
   - `GET /api/transactions/people/{id}/balances` → `[{orgId, orgName, balance, balanceCents, state,
     transactions}]`, one line per organization this host lists that the person has transactions (or a trip) with,
     sorted by name. `balance` is the exact sum of the person's shares (negative: they owe); `balanceCents` is that

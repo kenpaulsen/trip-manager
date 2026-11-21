@@ -137,6 +137,49 @@ public class TransactionsResourceTest extends ResourceTestSupport {
         Assert.assertEquals(dto.withoutGroupPeople().tripIds(), List.of(TRIP_ID), "the trip survives redaction");
     }
 
+    /**
+     * A row names its trip by title and dates, as the website's statement does, even a trip the person is not on
+     * the roster of (no trip list of theirs would name it); never a trip of another organization than the row's.
+     */
+    @Test
+    public void aTransactionNamesItsTripByTheStatementsRule() throws IOException {
+        final LocalDateTime start = LocalDateTime.of(2025, 5, 10, 0, 0);
+        final LocalDateTime end = LocalDateTime.of(2025, 5, 20, 0, 0);
+        final Trip past = Trip.builder().id(UUID.randomUUID().toString()).startDate(start).endDate(end).build();
+        past.setTitle("Spring 2025");
+        past.setOrgId(FakeData.CFPW_ORG_ID);
+        Assert.assertTrue(DAO.getInstance().saveTrip(past));
+        signedInAs(ME);
+        final Transaction cfpw = boundRow(FakeData.CFPW_ORG_ID, past.getId());
+        final Transaction acme = boundRow(FakeData.ACME_ORG_ID, past.getId());
+        final Transaction orgless = boundRow(null, past.getId());
+        final Transaction unbound = boundRow(FakeData.CFPW_ORG_ID, null);
+        Mockito.when(transactions.getTransactions(ME)).thenReturn(List.of(cfpw, acme, orgless, unbound));
+
+        final List<TransactionDto> read = rows(resource.forPerson(ME.getValue(), null, null));
+
+        Assert.assertFalse(past.getPeople().contains(ME), "the reader is not on the trip");
+        Assert.assertEquals(read.get(0).tripTitle(), "Spring 2025");
+        Assert.assertEquals(read.get(0).tripStartDate(), start);
+        Assert.assertEquals(read.get(0).tripEndDate(), end);
+        Assert.assertNull(read.get(1).tripTitle(), "another organization's trip is never named");
+        Assert.assertNull(read.get(1).tripStartDate());
+        Assert.assertEquals(read.get(2).tripTitle(), "Spring 2025", "a row with no organization takes any trip");
+        Assert.assertNull(read.get(3).tripTitle(), "a row on no trip names none");
+        Assert.assertEquals(read.get(0).withoutGroupPeople().tripTitle(), "Spring 2025", "it survives redaction");
+    }
+
+    /** One of ME's rows with an organization, bound (by the mocked bindings) to {@code tripId} or to none. */
+    private Transaction boundRow(final String orgId, final String tripId) {
+        final Transaction row = tx(ME);
+        row.setOrgId(orgId);
+        final String key = "key-" + row.getTxId();
+        Mockito.when(bindings.key(ME.getValue(), row.getTxId())).thenReturn(key);
+        Mockito.when(bindings.getBindings(key, BindingType.TRANSACTION, BindingType.TRIP))
+                .thenReturn(tripId == null ? List.of() : List.of(tripId));
+        return row;
+    }
+
     /** Group membership is who ELSE is on the bill: staff-only on the wire. */
     @Test
     public void aTravellersOwnViewOmitsTheGroupMembership() {
@@ -228,7 +271,7 @@ public class TransactionsResourceTest extends ResourceTestSupport {
         Mockito.when(transactions.getUserAmount(created)).thenReturn(75f);
 
         final TransactionDto body = new TransactionDto(null, null, null, null, "Bill", null, 75f, null,
-                "lodging", "deposit", false, null, null, null, null);
+                "lodging", "deposit", false, null, null, null, null, null, null, null);
         assertOk(resource.create(OTHER.getValue(), CSRF_OK, TRIP_ID, body));
         // Bound to the trip the way the page's Save binds it: the ledger's trip filter sees the new row.
         Mockito.verify(transactions).saveOnTrip(ArgumentMatchers.same(created), tripWithId(TRIP_ID),
@@ -282,7 +325,7 @@ public class TransactionsResourceTest extends ResourceTestSupport {
         Mockito.when(transactions.getUserAmount(existing)).thenReturn(80f);
 
         final TransactionDto body = new TransactionDto(null, null, null, null, null, null, 80f, null,
-                null, "amended", false, null, null, null, null);
+                null, "amended", false, null, null, null, null, null, null, null);
         assertOk(resource.update(ME.getValue(), existing.getTxId(), CSRF_OK, TRIP_ID, body));
 
         Assert.assertEquals(existing.getAmount(), 80f);
@@ -474,7 +517,7 @@ public class TransactionsResourceTest extends ResourceTestSupport {
         Mockito.when(transactions.getTransactions(traveler)).thenReturn(List.of(row));
         final TransactionsResource admin = as(holderOf(PrivilegeCommands.TRIP_FIN_ADMIN, mine));
         final TransactionDto zero = new TransactionDto(null, null, null, null, null, null, 0f, null,
-                null, "zeroed", false, null, null, null, null);
+                null, "zeroed", false, null, null, null, null, null, null, null);
 
         assertError(admin.update(traveler.getValue(), row.getTxId(), CSRF_OK, mine.getId(), zero),
                 404, ApiErrors.NOT_FOUND);
@@ -516,7 +559,7 @@ public class TransactionsResourceTest extends ResourceTestSupport {
         assertOk(read);
         Assert.assertEquals(((TransactionDto) read.getEntity()).tripIds(), List.of(mine.getId()));
         final TransactionDto amended = new TransactionDto(null, null, null, null, null, null, -150f, null,
-                null, "amended", false, null, null, null, null);
+                null, "amended", false, null, null, null, null, null, null, null);
         assertOk(admin.update(traveler.getValue(), row.getTxId(), CSRF_OK, mine.getId(), amended));
         Assert.assertEquals(row.getAmount(), -150f);
         Assert.assertEquals(tripsOf(row), List.of(mine.getId()), "still on the same books");

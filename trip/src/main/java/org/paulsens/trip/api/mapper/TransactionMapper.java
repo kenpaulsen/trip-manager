@@ -23,5 +23,8 @@ public interface TransactionMapper {
     @Mapping(target = "userAmount", ignore = true)
     @Mapping(target = "tripIds", ignore = true)
     @Mapping(target = "orgName", ignore = true)
+    @Mapping(target = "tripTitle", ignore = true)
+    @Mapping(target = "tripStartDate", ignore = true)
+    @Mapping(target = "tripEndDate", ignore = true)
     TransactionDto toDto(Transaction tx);
 }

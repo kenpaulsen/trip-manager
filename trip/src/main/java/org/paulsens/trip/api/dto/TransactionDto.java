@@ -33,11 +33,17 @@ public record TransactionDto(
         // The organization the money is with (the row's trip's organization) and its name: a balance names ONE
         // organization, so a client groups a person's rows by this. Absent on a row that has none.
         String orgId,
-        String orgName) {
+        String orgName,
+        // The trip the row is shown under (its first bound trip, when that trip is the row's organization's) by
+        // title and dates. A client cannot look these up itself: a charge may be on a trip the person is not on
+        // the roster of, which neither their trip list nor the trip endpoint will name. Absent when there is none.
+        String tripTitle,
+        LocalDateTime tripStartDate,
+        LocalDateTime tripEndDate) {
 
     /** This transaction without the list of who else shares it. */
     public TransactionDto withoutGroupPeople() {
         return new TransactionDto(txId, userId, groupId, type, txType, txDate, amount, userAmount, category,
-                note, deleted, null, tripIds, orgId, orgName);
+                note, deleted, null, tripIds, orgId, orgName, tripTitle, tripStartDate, tripEndDate);
     }
 }
