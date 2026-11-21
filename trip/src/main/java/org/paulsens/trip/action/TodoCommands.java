@@ -15,6 +15,8 @@ import java.util.Optional;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.content.PageHtml;
+import org.paulsens.trip.content.StripNotes;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.DataId;
 import org.paulsens.trip.model.Person;
@@ -54,6 +56,8 @@ public class TodoCommands {
 // FIXME: When a user tries to move one that only and admin can edit, provide a facesmessage explaining why it failed
 
     public boolean saveTodo(final TodoItem todo) {
+        // Typed HTML that the to-do page writes unescaped (medjugorje#158): every save path meets the allowlist.
+        todo.setMoreDetails(PageHtml.cleanOrNull(todo.getMoreDetails()));
         boolean result;
         try {
             result = DAO.getInstance().saveTodo(todo);
@@ -206,8 +210,11 @@ public class TodoCommands {
             theTodo = getTodo(theTrip.getId(), dataId);
         }
         theTodo.setDescription(desc);
-        theTodo.setMoreDetails(moreDetails);
-        saveTodo(theTodo);
+        final PageHtml.Cleaned details = PageHtml.cleanNoting(moreDetails);
+        theTodo.setMoreDetails(moreDetails == null ? null : details.body());
+        if (saveTodo(theTodo)) {
+            warnOfRemovals(StripNotes.lines("More details", details));
+        }
 
         // Set Status info for all the people now assigned this task...
         final HashSet<Person.Id> assignedPeople = new HashSet<>();
@@ -379,5 +386,25 @@ public class TodoCommands {
             result = Person.Id.from(todoOwner.trim());
         }
         return result;
+    }
+
+    /**
+     * Says exactly what the allowlist took out of a to-do's details (the owner's rule: never silently). The page
+     * redirects after this save, so the message is kept for the page that follows.
+     */
+    private static void warnOfRemovals(final List<String> removed) {
+        if (removed.isEmpty()) {
+            return;
+        }
+        final FacesContext faces = FacesContext.getCurrentInstance();
+        if (faces != null) {
+            faces.getExternalContext().getFlash().setKeepMessages(true);
+        }
+        PageFeedback.warn("Saved, with some markup removed. " + String.join(" ", removed));
+    }
+
+    /** A to-do's details as the page writes them: through the allowlist ({@link PageHtml}). "" for none. */
+    public String detailsHtml(final TodoStatus status) {
+        return status == null ? "" : PageHtml.clean(status.getMoreDetails());
     }
 }

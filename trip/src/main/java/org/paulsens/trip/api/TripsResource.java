@@ -582,6 +582,7 @@ public class TripsResource extends BaseResource {
             return error(403, ApiErrors.FORBIDDEN, PAYMENTS_ADMIN_REQUIRED);
         }
         apply(body, trip);
+        trip.setDescription(cleanedHtml("description", trip.getDescription()));
         if (trip.getOpenToPublic() == null) {
             // Same default the page's create path stamps: never public until someone chooses it.
             trip.setOpenToPublic(false);
@@ -681,6 +682,7 @@ public class TripsResource extends BaseResource {
         final String storedExternal = trip.getNonHostedTripUrl();
         final String storedFlyer = trip.getFlyerUrl();
         apply(body, trip);
+        trip.setDescription(cleanedHtml("description", trip.getDescription()));
         if (trip.getOrgId() == null || trip.getOrgId().isBlank()) {
             // A legacy row with no organization cannot be saved as it is (TripCommands.saveTrip refuses it).
             return error(400, ApiErrors.VALIDATION_FAILED, "A trip must belong to an organization: send orgId.");

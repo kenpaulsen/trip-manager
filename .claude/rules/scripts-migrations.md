@@ -23,8 +23,13 @@ binds every trip-less live ledger row to its trip and writes bindings ONLY, neve
 `rotate-password-pepper.sh` (pepper rotation and plaintext-password migration). One-time migration docs are in
 `docs/migrations/`. `migrate/NoteElFlattenCli` (run by the private repo's `scripts/flatten-note-el.sh`) replaced
 the room EL stored in trip events' private notes with text (`docs/migrations/note-el-flatten.md`); notes are never
-evaluated now. The family-accounts migration scripts (report/migrate/consistency) live in the private
-repo's `scripts/` -- see `docs/family-accounts.md`.
+evaluated now. `migrate/HtmlCleanCli` (run by the private repo's `scripts/html-clean.sh`) evaluates what
+cleaning the stored page HTML would change, one verdict per trip and per page, and migrates the rows under the
+owner's per-unit approval rule (`HtmlCleanMigration`: fingerprints, `approve`, `rehearse`, `apply` that stops at the
+first unit not cleared, `verify`, `rollback`; rows are read and conditionally rewritten as text through
+`dynamo/RawRows`; `docs/migrations/html-clean.md`). The family-accounts
+migration scripts (report/migrate/consistency) live in the private repo's `scripts/` -- see
+`docs/family-accounts.md`.
 
 - `rotate-password-pepper.sh` is DRY-RUN unless `--apply`. Rotation adds version N+1 and RETAINS old keys (a
   supplied `--value` must be strict base64; `openssl base64 -d` is too lenient). `--migrate` runs

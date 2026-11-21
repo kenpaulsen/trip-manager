@@ -10,6 +10,13 @@ media type (`application/vnd.trip.<area>.v1+json`); errors are `{"error": CODE, 
 JSON is camelCase; absent means redacted/unknown, never null. Dates: instants `2026-09-12T17:31:30.025Z`,
 LocalDateTime `2026-09-12T17:31:30.025` (no zone), LocalDate `2026-09-12`.
 
+**Typed HTML (2026-11-21, medjugorje#158).** A trip's `description` and a to-do's `moreDetails` are HTML the website
+writes into its pages, so both go through the server's allowlist: a write stores the cleaned text and the response
+body holds it, and every read returns cleaned text even for a row stored before the rule. When a write loses
+anything, the response carries one `X-Markup-Removed` header value per kind of thing removed, percent-encoded, each a
+sentence fit to show whoever typed it ("description: the <script> tag and everything inside it: script cannot be
+saved here."). No header means nothing was removed. A client that does not edit HTML can ignore it.
+
 ## Auth (`/api/auth`)
 
 | Route | Body | Response |

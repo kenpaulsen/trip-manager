@@ -123,6 +123,28 @@ public class TodoWorkflowTest {
         Assert.assertNull(todos.getWidgetId(DataId.from("d"), null));
     }
 
+    /** medjugorje#158: a to-do's details are typed HTML the page writes unescaped, so every save cleans them. */
+    @Test
+    public void aTodosDetailsAreStoredAndShownCleaned() {
+        final Trip trip = savedTrip(alice);
+        todos.saveTodoAndStatuses(new Person.Id[] {alice}, null, trip, "USER", "Read the notes",
+                "<p onclick=\"x()\">keep</p><script>x()</script>", Status.Visibility.USER, Status.Priority.NORMAL);
+        awaitStoreSettled();
+        final TodoItem todo = todos.getTodos(trip.getId()).stream()
+                .filter(item -> "Read the notes".equals(item.getDescription())).findFirst().orElseThrow();
+        Assert.assertEquals(todo.getMoreDetails(), "<p>keep</p>");
+
+        // A row written past the save (a script, an old row) is still clean where the page writes it.
+        final TodoStatus status = todos.getOrCreateTodoStatus(todo, alice);
+        status.setMoreDetails("<img src=\"/a.png\" onerror=\"x()\">");
+        Assert.assertEquals(todos.detailsHtml(status), "<img src=\"/a.png\" />");
+        Assert.assertEquals(todos.detailsHtml(null), "");
+        Assert.assertEquals(org.paulsens.trip.api.mapper.TodoMapper.INSTANCE.toDto(status).moreDetails(),
+                "<img src=\"/a.png\" />");
+        Assert.assertEquals(org.paulsens.trip.api.mapper.TodoMapper.INSTANCE.toDto(status.getTodoItem())
+                .moreDetails(), "<img src=\"/a.png\" />");
+    }
+
     @Test
     public void theBulkSaveAssignsEveryoneAndUnassignsByFlippingVisibility() {
         final Trip trip = savedTrip(alice, bob);

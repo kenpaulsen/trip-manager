@@ -19,9 +19,10 @@ import org.paulsens.trip.model.Placeholder;
  * is the security model: the rendered string is emitted with {@code escape="false"}, so everything except
  * {@link Placeholder.Type#RICH_TEXT} must be neutralized here. TEXT is HTML-escaped; image and video URLs
  * must parse as http(s) or render empty, a link URL may also be site-relative or a fragment
- * ({@link #requireLinkUrl}), and all are attribute-escaped; RICH_TEXT is inserted verbatim -- WYSIWYG output from
- * trusted admins (granting {@code contentAdmin} is equivalent to granting script on public pages; see
- * docs/content-templates.md).
+ * ({@link #requireLinkUrl}), and all are attribute-escaped; RICH_TEXT, and a title that carries markup, go
+ * through the allowlist cleaner ({@link PageHtml}, medjugorje#158) here as well as when they are saved, so a row
+ * that reached storage some other way (a script, a restore, a row older than the cleaner) is still clean on the
+ * page. The template BODY is written as stored: see docs/content-templates.md, "Trust tiers".
  *
  * <p>A token with no matching declared placeholder, or a missing value, renders as the empty string: a
  * public page must never leak a literal <code>{{token}}</code>.
@@ -106,7 +107,7 @@ public final class ContentRenderer {
         }
         return switch (declared.getType()) {
             case TEXT, CHOICE, MULTI_CHOICE, PERSON -> escapeHtml(raw);
-            case RICH_TEXT -> raw;
+            case RICH_TEXT -> PageHtml.clean(raw);
             case IMAGE_URL -> escapeHtml(requireHttpUrl(raw));
             case URL -> escapeHtml(requireLinkUrl(linkTarget.apply(raw)));
             case VIDEO_URL -> escapeHtml(normalizeVideoUrl(raw));
@@ -124,7 +125,7 @@ public final class ContentRenderer {
 
     /**
      * Fills {@code {{container:title}}} in one part of a container's body (a row half, or the once-around
-     * wrapper) with the container instance's title: plain text escaped, markup verbatim (the same
+     * wrapper) with the container instance's title: plain text escaped, markup cleaned (the same
      * WYSIWYG/raw escape hatch {@link #renderContainerTitle} honors, validated at save), blank as "" --
      * an untitled band's heading element is then empty and its stylesheet hides it.
      */
@@ -136,17 +137,17 @@ public final class ContentRenderer {
         return CONTAINER_TITLE_TOKEN.matcher(part).replaceAll(Matcher.quoteReplacement(titleText(title)));
     }
 
-    /** The title as text for a band's own heading element: escaped, or verbatim when it carries markup. */
+    /** The title as text for a band's own heading element: escaped, or cleaned when it carries markup. */
     static String titleText(final String title) {
         if (title == null || title.isBlank()) {
             return "";
         }
-        return title.indexOf('<') >= 0 ? title : escapeHtml(title.trim());
+        return title.indexOf('<') >= 0 ? PageHtml.clean(title) : escapeHtml(title.trim());
     }
 
     /**
      * A container instance's on-page title. Plain text gets the site's default heading treatment; a title
-     * containing markup renders verbatim (the WYSIWYG/raw escape hatch, validated at save). Blank renders
+     * containing markup renders as typed, cleaned (the WYSIWYG/raw escape hatch). Blank renders
      * nothing -- an untitled container is legal.
      */
     public static String renderContainerTitle(final String title) {
@@ -154,7 +155,7 @@ public final class ContentRenderer {
             return "";
         }
         if (title.indexOf('<') >= 0) {
-            return title;
+            return PageHtml.clean(title);
         }
         return "<h3 class=\"contentTitle\">" + escapeHtml(title.trim()) + "</h3>";
     }

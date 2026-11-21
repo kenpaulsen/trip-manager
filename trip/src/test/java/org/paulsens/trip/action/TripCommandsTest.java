@@ -66,6 +66,29 @@ public class TripCommandsTest {
         assertEquals(asSiteAdmin().getTripCountForOrg(orgId), 1);
     }
 
+    /** medjugorje#158: a description is typed HTML pages write unescaped; every save and every reader cleans it. */
+    @Test
+    public void aDescriptionIsStoredShownAndSentCleaned() throws java.io.IOException {
+        final Trip trip = Trip.builder().title("Described " + java.util.UUID.randomUUID()).build();
+        trip.setOrgId(FakeData.CFPW_ORG_ID);
+        trip.setDescription("<p onclick=\"x()\">keep</p><script>x()</script>");
+        assertTrue(asSiteAdmin().saveTrip(trip));
+        final Trip stored = org.paulsens.trip.dynamo.DAO.getInstance()
+                .getTrip(trip.getId(), org.paulsens.trip.cache.Cached.NO).orElseThrow();
+        assertEquals(stored.getDescription(), "<p>keep</p>");
+
+        // A row written past the save is still clean on the page, in the API and in the page seeded from it.
+        stored.setDescription("<b onmouseover=\"x()\">old</b>");
+        final TripPageCommands pages = new TripPageCommands();
+        assertEquals(pages.descriptionHtml(stored), "<b>old</b>");
+        assertEquals(pages.descriptionHtml(null), "");
+        assertEquals(org.paulsens.trip.api.mapper.TripMapper.INSTANCE.toDto(stored).description(), "<b>old</b>");
+        assertEquals(org.paulsens.trip.content.OrgPageBootstrap.legacyRows(stored, id -> 1).get(0).getValues()
+                .get("body"), "<b>old</b>");
+        stored.setDescription(null);
+        assertNull(org.paulsens.trip.api.mapper.TripMapper.INSTANCE.toDto(stored).description(), "absent stays absent");
+    }
+
     /**
      * Issue 154: pictures are written only by TripPictureCommands, so a save from a copy taken before an upload
      * (the editor's working copy, a REST body) keeps the STORED list; the place fields are normalized.

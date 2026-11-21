@@ -133,6 +133,7 @@ public class TodosResource extends BaseResource {
         final TodoCommands todos = Beans.get(TodoCommands.class);
         final TodoItem todo = todos.createTodo(tripId);
         apply(body, todo);
+        todo.setMoreDetails(cleanedHtml("moreDetails", todo.getMoreDetails()));
         if (!todos.saveTodo(todo)) {
             return error(500, ApiErrors.STORE_FAILED, "Could not save the todo.");
         }
@@ -161,6 +162,7 @@ public class TodosResource extends BaseResource {
             return error(404, ApiErrors.NOT_FOUND, "No such todo.");
         }
         apply(body, todo);
+        todo.setMoreDetails(cleanedHtml("moreDetails", todo.getMoreDetails()));
         if (!todos.saveTodo(todo)) {
             return error(500, ApiErrors.STORE_FAILED, "Could not save the todo.");
         }

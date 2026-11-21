@@ -347,6 +347,17 @@
             <version>2.22.0</version>
         </dependency>
         <!--
+            The allowlist HTML sanitizer behind content.PageHtml (medjugorje#158): hand-authored HTML that people
+            below the Web Developer tier type and pages write out unescaped. Apache-2.0 or BSD-2-Clause, no
+            runtime dependencies. Its 2026-09 to 2026-11 releases are fixes for SVG and MathML bypasses, so keep
+            it current; PageHtml allows svg and path only, never image, math or template.
+        -->
+        <dependency>
+            <groupId>com.googlecode.owasp-java-html-sanitizer</groupId>
+            <artifactId>owasp-java-html-sanitizer</artifactId>
+            <version>20261110.1</version>
+        </dependency>
+        <!--
             Profile-picture background removal (U^2-Net-small via ONNX Runtime; flag-gated by
             profile.bgRemoval.enabled). The jar bundles its natives for linux-aarch64 and macOS, so the
             container image needs NOTHING extra. The model itself (src/main/resources/models/u2netp.onnx,

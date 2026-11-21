@@ -134,4 +134,15 @@ public class PersonTypeTest {
         final Person blank = Person.builder().id(Person.Id.from(ID)).build();
         Assert.assertNull(PersonType.card(Map.of(), blank, false).name());
     }
+
+    /** medjugorje#158: a biography is typed HTML the card writes unescaped, so the card holds it cleaned. */
+    @Test
+    public void aBiographyReachesTheCardCleaned() {
+        final Map<String, String> values = new HashMap<>();
+        values.put(PersonType.PROP_NAME, "Sr. Demo Speaker");
+        values.put(PersonType.PROP_BIO, "<p onclick=\"x()\">Bio</p><script>x()</script>");
+        Assert.assertEquals(PersonType.card(values, null, false).bio(), "<p>Bio</p>");
+        values.remove(PersonType.PROP_BIO);
+        Assert.assertNull(PersonType.card(values, null, false).bio(), "no biography stays none");
+    }
 }

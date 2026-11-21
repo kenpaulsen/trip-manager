@@ -10,6 +10,8 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -21,6 +23,8 @@ import org.paulsens.trip.action.PersonCommands;
 import org.paulsens.trip.action.ProfilePhotos;
 import org.paulsens.trip.action.TripCommands;
 import org.paulsens.trip.audit.AuditActor;
+import org.paulsens.trip.content.PageHtml;
+import org.paulsens.trip.content.StripNotes;
 import org.paulsens.trip.media.PhotoProcessor;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
@@ -49,6 +53,14 @@ public abstract class BaseResource {
      * literally, so renaming it would break every open chat page the moment this deploys.
      */
     public static final String CSRF_HEADER = "X-Trip-Api";
+
+    /**
+     * Names what the allowlist removed from typed HTML a write carried (medjugorje#158): one header value per
+     * removal, percent-encoded, each a sentence fit to show the person who typed it ({@code StripNotes}). Absent
+     * when nothing was removed. A client that edits HTML shows these; one that does not can ignore them, and the
+     * body it gets back holds the cleaned text either way.
+     */
+    public static final String MARKUP_REMOVED_HEADER = "X-Markup-Removed";
 
     @Context
     protected HttpServletRequest request;
@@ -425,5 +437,25 @@ public abstract class BaseResource {
             return false;
         }
         return headerValue == null || !"1".equals(headerValue.trim());
+    }
+
+    /**
+     * Typed HTML on its way to storage: cleaned by the allowlist, with each removal named in the response
+     * ({@link #MARKUP_REMOVED_HEADER}), so that a write never loses markup silently. A null stays null.
+     *
+     * @param field what the caller calls the field ("description")
+     */
+    protected String cleanedHtml(final String field, final String html) {
+        if (html == null) {
+            return null;
+        }
+        final PageHtml.Cleaned cleaned = PageHtml.cleanNoting(html);
+        if (response != null) {
+            for (final String line : StripNotes.lines(field, cleaned)) {
+                response.addHeader(MARKUP_REMOVED_HEADER,
+                        URLEncoder.encode(line, StandardCharsets.UTF_8).replace("+", "%20"));
+            }
+        }
+        return cleaned.body();
     }
 }

@@ -153,6 +153,22 @@ public class TodosResourceTest extends ResourceTestSupport {
         Assert.assertEquals(((TodoDto) response.getEntity()).description(), "Bring a coat");
     }
 
+    /** medjugorje#158: typed HTML is stored cleaned, and the response names each thing that was removed. */
+    @Test
+    public void aWriteNamesTheMarkupItRemoved() {
+        signedInAsSiteAdmin(ME);
+        Mockito.when(todos.createTodo(TRIP)).thenReturn(todoItem("d1"));
+        Mockito.when(todos.saveTodo(ArgumentMatchers.any())).thenReturn(true);
+
+        final Response created = resource.create(TRIP, CSRF_OK,
+                new TodoDto(null, null, "Bring a coat", "<p>keep</p><script>x()</script>", null));
+
+        assertOk(created);
+        Assert.assertEquals(((TodoDto) created.getEntity()).moreDetails(), "<p>keep</p>");
+        Mockito.verify(response).addHeader(BaseResource.MARKUP_REMOVED_HEADER, "moreDetails%3A%20the%20%3Cscript%3E"
+                + "%20tag%20and%20everything%20inside%20it%3A%20script%20cannot%20be%20saved%20here.");
+    }
+
     @Test
     public void aFailedStoreIsReportedRatherThanSwallowed() {
         signedInAsSiteAdmin(ME);

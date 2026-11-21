@@ -123,7 +123,8 @@ public final class PersonType implements ProgrammaticContentTemplate {
         final String phoneOverride = value(values, PROP_PHONE);
         final String photoUrl = photoUrl(values);
         final String subtitle = value(values, PROP_SUBTITLE);
-        final String bio = value(values, PROP_BIO);
+        // Typed rich text, written to the page unescaped: through the allowlist here as well as on its save.
+        final String bio = PageHtml.cleanOrNull(value(values, PROP_BIO));
         if (person == null) {
             return new Card(null, nameOverride, role, publicEmail, null, phoneOverride, null,
                     initials(nameOverride), photoUrl, subtitle, bio);

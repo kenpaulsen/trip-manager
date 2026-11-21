@@ -290,7 +290,7 @@ public class ContentRendererTest {
 
         final ContentInstance band = child("b1", "Trips & <b>more</b>");
         Assert.assertEquals(ContentRenderer.fillContainerTokens("<h2>{{container:title}}</h2>", band),
-                "<h2>Trips & <b>more</b></h2>", "markup renders verbatim (validated at save)");
+                "<h2>Trips &amp; <b>more</b></h2>", "markup is kept, cleaned (the ampersand is spelled out)");
         Assert.assertEquals(ContentRenderer.fillContainerTokens("<h2>{{container:title}}</h2>",
                 child("b1", "  Trips & more ")), "<h2>Trips &amp; more</h2>", "plain text is escaped and trimmed");
         Assert.assertEquals(ContentRenderer.fillContainerTokens("<h2>{{container:title}}</h2>", child("b1", " ")),

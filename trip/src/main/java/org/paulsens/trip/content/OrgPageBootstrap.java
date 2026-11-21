@@ -420,7 +420,7 @@ public final class OrgPageBootstrap {
         hero.put("secondaryText", "About");
         hero.put("secondaryUrl", "#" + tripRowId(trip, "about"));
         final boolean described = hasDescription(trip);
-        final String about = described ? trip.getDescription() : ABOUT_PLACEHOLDER;
+        final String about = described ? PageHtml.clean(trip.getDescription()) : ABOUT_PLACEHOLDER;
         return List.of(
                 tripRow(trip, "hero", key, "", StarterTemplates.BAND_HERO_ID, templateVersion, 0, hero, null),
                 tripRow(trip, "about", key, "About", StarterTemplates.BAND_TEXT_ID, templateVersion, 1,
@@ -431,13 +431,14 @@ public final class OrgPageBootstrap {
 
     /**
      * The ONE row a legacy trip's page starts from (docs/conference.md, "Legacy trips"): the stored description,
-     * verbatim, as a text-only section with no title, so the page reads as the old description page did. Never a
-     * placeholder (no "Show until"), so it is neither dimmed nor rewritten on its first save.
+     * through the allowlist like any typed HTML ({@link PageHtml}), as a text-only section with no title, so the
+     * page reads as the old description page did. Never a placeholder (no "Show until"), so it is neither dimmed
+     * nor rewritten on its first save.
      */
     public static List<ContentInstance> legacyRows(final Trip trip, final ToIntFunction<String> templateVersion) {
         return List.of(tripRow(trip, "legacy-description", tripPageKey(trip.getId()), "",
                 StarterTemplates.TEXT_ONLY_ID, templateVersion, 0,
-                Map.of("body", trip.getDescription() == null ? "" : trip.getDescription()), null));
+                Map.of("body", PageHtml.clean(trip.getDescription())), null));
     }
 
     private static final String ABOUT_PLACEHOLDER =
@@ -479,7 +480,7 @@ public final class OrgPageBootstrap {
         hero.put("secondaryText", "Schedule");
         hero.put("secondaryUrl", "#" + schedule);
         final boolean described = hasDescription(trip);
-        final String about = described ? trip.getDescription() : ABOUT_PLACEHOLDER;
+        final String about = described ? PageHtml.clean(trip.getDescription()) : ABOUT_PLACEHOLDER;
         return List.of(
                 tripRow(trip, "hero", key, "", StarterTemplates.BAND_HERO_ID, templateVersion, 0, hero, null),
                 tripRow(trip, "about", key, "About", StarterTemplates.BAND_TEXT_ID, templateVersion, 1,

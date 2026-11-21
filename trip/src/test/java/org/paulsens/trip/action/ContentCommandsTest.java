@@ -66,6 +66,60 @@ public class ContentCommandsTest {
         return content;
     }
 
+    private static final String DIRTY = "<p class=\"k\">kept</p><script>x()</script><p onclick=\"y()\">also</p>";
+
+    private static ContentInstance richItem(final ContentCommands content, final String section) {
+        final ContentTemplate tpl = new ContentTemplate("cc-clean-tpl", 0, "CC Rich", null,
+                "<div>{{body}}</div>",
+                List.of(new Placeholder("body", Placeholder.Type.RICH_TEXT, "Body", null, false)), null, null);
+        DAO.getInstance().saveTemplate(tpl, 5);
+        final ContentInstance item = content.createContent(section, "cc-clean-tpl");
+        item.setTitle("<b onmouseover=\"z()\">Rich</b>");
+        item.getValues().put("body", DIRTY);
+        return item;
+    }
+
+    /** medjugorje#158: what is typed goes through the allowlist on its way to storage, title and values alike. */
+    @Test
+    public void aSaveStoresWhatIsTypedCleaned() {
+        final ContentCommands content = as(ADMIN, false);
+        final ContentInstance item = richItem(content, "cc.section-clean");
+        Assert.assertEquals(content.wouldRemove(item), List.of(
+                "Title: the onmouseover attribute on <b>: an event handler runs script, which cannot be saved here.",
+                "Body: the <script> tag and everything inside it: script cannot be saved here.",
+                "Body: the onclick attribute on <p>: an event handler runs script, which cannot be saved here."));
+        Assert.assertEquals(item.getValues().get("body"), DIRTY, "asking what would go changes nothing typed");
+        Assert.assertTrue(content.saveContent(item));
+        final ContentInstance stored = DAO.getInstance().getContentRecord(item.getId(), Cached.NO).orElseThrow()
+                .getCurrent();
+        Assert.assertEquals(stored.getValues().get("body"), "<p class=\"k\">kept</p><p>also</p>");
+        Assert.assertEquals(stored.getTitle(), "<b>Rich</b>");
+        Assert.assertEquals(content.wouldRemove(stored), List.of(), "a stored row has nothing left to remove");
+        Assert.assertEquals(content.wouldRemove(null), List.of());
+    }
+
+    /** The drawer's Apply never removes anything without the author's OK to that exact list. */
+    @Test
+    public void theDrawersApplyAsksBeforeItRemovesAnything() {
+        final ContentCommands content = as(ADMIN, false);
+        final ContentInstance item = richItem(content, "cc.section-ask");
+        Assert.assertFalse(content.applyFromDrawer(item, null, null), "the first Apply only asks");
+        Assert.assertFalse(content.applyFromDrawer(item, null, "not-the-key"), "an OK to another list is no OK");
+        Assert.assertTrue(DAO.getInstance().getContentRecord(item.getId(), Cached.NO).isEmpty(), "nothing saved");
+        final String key = content.removalsKey(item);
+        item.getValues().put("body", DIRTY + "<form>more</form>");
+        Assert.assertFalse(content.applyFromDrawer(item, null, key), "typing more that would go is asked again");
+        Assert.assertTrue(content.applyFromDrawer(item, null, content.removalsKey(item)));
+        Assert.assertEquals(DAO.getInstance().getContentRecord(item.getId(), Cached.NO).orElseThrow().getCurrent()
+                .getValues().get("body"), "<p class=\"k\">kept</p><p>also</p>more");
+
+        final ContentInstance clean = richItem(content, "cc.section-ask");
+        clean.setTitle("Plain");
+        clean.getValues().put("body", "<p>fine</p>");
+        Assert.assertEquals(content.removalsKey(clean), "");
+        Assert.assertTrue(content.applyFromDrawer(clean, null, null), "nothing to remove, nothing to ask");
+    }
+
     @Test
     public void createSeedsValuesAndPinsTheTemplateVersion() {
         final ContentCommands content = as(ADMIN, false);

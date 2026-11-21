@@ -28,6 +28,7 @@ import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.checkout.CheckoutValidator;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.content.EmbedStyles;
+import org.paulsens.trip.content.PageHtml;
 import org.paulsens.trip.theme.ThemeResources;
 import org.paulsens.trip.content.OrgPageBootstrap;
 import org.paulsens.trip.dynamo.DAO;
@@ -778,5 +779,13 @@ public class TripPageCommands {
 
     private <T> T memo(final String key, final Supplier<T> compute) {
         return RequestMemo.get(requestMap.get(), key, compute);
+    }
+
+    /**
+     * A trip's description as its pages write it: through the allowlist ({@link PageHtml}, medjugorje#158), so
+     * a row stored before the cleaner existed, or written past it, is still clean on the page. "" for none.
+     */
+    public String descriptionHtml(final Trip trip) {
+        return trip == null ? "" : PageHtml.clean(trip.getDescription());
     }
 }

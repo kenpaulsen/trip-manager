@@ -25,6 +25,7 @@ import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.content.ContentRenderer;
+import org.paulsens.trip.content.PageHtml;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.model.BindingType;
@@ -268,6 +269,8 @@ public class TripCommands {
             PageFeedback.warn(UNNAMED_OPTION);
             return false;
         }
+        // Typed HTML that pages write unescaped (medjugorje#158): every save path meets the allowlist here.
+        trip.setDescription(PageHtml.cleanOrNull(trip.getDescription()));
         final List<String> pricing = trip.checkoutProblems();
         if (!pricing.isEmpty()) {
             // The Pricing fieldset's Done refuses these too, but closing the dialog with its X skips Done.

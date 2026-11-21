@@ -28,11 +28,13 @@ import org.paulsens.trip.content.ContentRenderer;
 import org.paulsens.trip.content.HtmlFragmentValidator;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.content.OrgPageBootstrap;
+import org.paulsens.trip.content.PageHtml;
 import org.paulsens.trip.content.PersonType;
 import org.paulsens.trip.content.ProgrammaticContentTemplate;
 import org.paulsens.trip.content.ProgrammaticTypes;
 import org.paulsens.trip.content.RichTextRules;
 import org.paulsens.trip.content.StarterTemplates;
+import org.paulsens.trip.content.StripNotes;
 import org.paulsens.trip.content.TemplateValueMigrator;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.AuditAction;
@@ -160,7 +162,7 @@ public class ContentCommands {
             PageFeedback.error("Not saved", problem);
             return false;
         }
-        normalizeRichText(instance);
+        final List<String> removed = cleanAuthoredHtml(instance);
         publishIfSeededPlaceholder(instance);
         instance.setModifiedBy(caller.auditActor().email());
         final boolean saved;
@@ -176,12 +178,51 @@ public class ContentCommands {
                             + "again.");
         }
         if (saved) {
+            warnOfRemovals(removed);
             audit(caller, instance.getId(),
                     "Saved v" + instance.getVersion() + " of '" + instance.getTitle() + "' in "
                             + instance.getSection());
             publishContainerOf(caller, instance);
         }
         return saved;
+    }
+
+    /**
+     * The content drawer's Apply. A save that would remove anything from what was typed does not happen on the
+     * first press: the drawer is told to ask ({@code args.stripAsk}), shows exactly what would go, and saves only
+     * when the author answers "Remove it and save", which sends back the key of THAT list
+     * ({@link #removalsKey}). Typing something else that would be removed changes the key, so it is asked again;
+     * "Go back" leaves the form holding what was typed. Markup that is broken is refused by the save itself,
+     * with its own message, before any of this.
+     *
+     * @return whether the item was saved
+     */
+    public boolean applyFromDrawer(final ContentInstance working, final String beforeId, final String okKey) {
+        if (working != null && validateAuthoredHtml(working) == null) {
+            final List<String> removed = wouldRemove(working);
+            if (!removed.isEmpty() && !keyOf(removed).equals(okKey)) {
+                PageFeedback.callbackParam("stripAsk", true);
+                return false;
+            }
+        }
+        return saveNewContentAt(working, beforeId);
+    }
+
+    /** Names one exact list of removals, so that an author's OK covers that list and no other. */
+    public String removalsKey(final ContentInstance working) {
+        return keyOf(wouldRemove(working));
+    }
+
+    private static String keyOf(final List<String> removed) {
+        return removed.isEmpty() ? "" : Integer.toHexString(removed.hashCode());
+    }
+
+    /** Says after a save exactly what the allowlist took out, so that it is never a surprise found later. */
+    private static void warnOfRemovals(final List<String> removed) {
+        if (!removed.isEmpty()) {
+            // All in the summary: the growl shows no detail for a message raised from Java.
+            PageFeedback.warn("Saved, with some markup removed. " + String.join(" ", removed));
+        }
     }
 
     /**
@@ -324,28 +365,65 @@ public class ContentCommands {
     }
 
     /**
-     * Cleans every RICH_TEXT value the WYSIWYG editor produced, AFTER validation so the author's own markup
-     * is what got checked. Runs on the way to storage rather than at render time on purpose: the stored row
-     * is what the Source view, the REST API and the next editor all read, and a value that renders clean but
-     * reads dirty is the same trap twice.
+     * Cleans the title (when it carries markup) and every RICH_TEXT value, AFTER validation so the author's own
+     * markup is what got checked: the editor's tidy-up ({@link RichTextRules}) and then the allowlist
+     * ({@link PageHtml}, medjugorje#158). Runs on the way to storage as well as at render time on purpose: the
+     * stored row is what the Source view, the REST API and the next editor all read, and a value that renders
+     * clean but reads dirty is the same trap twice.
+     *
+     * @return what the allowlist removed, in the author's words ({@link StripNotes}); empty when nothing was
      */
-    private void normalizeRichText(final ContentInstance instance) {
+    private List<String> cleanAuthoredHtml(final ContentInstance instance) {
+        final List<String> removed = new ArrayList<>();
+        if (hasMarkup(instance.getTitle())) {
+            final PageHtml.Cleaned title = PageHtml.cleanNoting(instance.getTitle());
+            instance.setTitle(title.body());
+            removed.addAll(StripNotes.lines("Title", title));
+        }
         final ContentTemplate template = resolveTemplate(instance);
         if (template == null) {
-            return;
+            return removed;
         }
         for (final Placeholder ph : ProgrammaticTypes.placeholdersOf(template)) {
             if (ph.getType() == Placeholder.Type.RICH_TEXT) {
-                normalizeValue(instance, ph.getName());
+                removed.addAll(cleanValue(instance, ph));
             }
         }
+        return removed;
     }
 
-    private void normalizeValue(final ContentInstance instance, final String name) {
-        final String stored = instance.getValues().get(name);
-        final String cleaned = RichTextRules.normalize(stored);
-        if (cleaned != null && !cleaned.equals(stored)) {
-            instance.getValues().put(name, cleaned);
+    private static List<String> cleanValue(final ContentInstance instance, final Placeholder ph) {
+        final String stored = instance.getValues().get(ph.getName());
+        final String tidied = RichTextRules.normalize(stored);
+        if (tidied == null) {
+            return List.of();
+        }
+        final PageHtml.Cleaned cleaned = PageHtml.cleanNoting(tidied);
+        if (!cleaned.body().equals(stored)) {
+            instance.getValues().put(ph.getName(), cleaned.body());
+        }
+        return StripNotes.lines(ph.getLabel(), cleaned);
+    }
+
+    private static boolean hasMarkup(final String title) {
+        return title != null && title.indexOf('<') >= 0;
+    }
+
+    /**
+     * What a save of this working copy WOULD remove, in the author's words: the content drawer shows it under
+     * the form while the author types (the owner's rule, 2026-11-21: say exactly what is going, while they can
+     * still go back and change it; never strip silently later). Works on a copy, so the form keeps what was
+     * typed. Empty when nothing would go.
+     */
+    public List<String> wouldRemove(final ContentInstance working) {
+        if (working == null) {
+            return List.of();
+        }
+        try {
+            return cleanAuthoredHtml(working.copy());
+        } catch (final RuntimeException ex) {
+            log.warn("Unable to preview what a save of content " + working.getId() + " would remove", ex);
+            return List.of();
         }
     }
 
@@ -1388,6 +1466,8 @@ public class ContentCommands {
             restored.setEventDate(null);
         }
         restored.setModifiedBy(caller.auditActor().email());
+        // A version stored before the allowlist existed comes back through it, like anything saved today.
+        final List<String> removed = cleanAuthoredHtml(restored);
         final boolean saved;
         try {
             saved = DAO.getInstance().saveContent(restored, retainCount());
@@ -1396,6 +1476,7 @@ public class ContentCommands {
             return false;
         }
         if (saved) {
+            warnOfRemovals(removed);
             audit(caller, id, "Restored '" + restored.getTitle() + "' to v" + version
                     + " (saved as v" + restored.getVersion() + ")");
         }

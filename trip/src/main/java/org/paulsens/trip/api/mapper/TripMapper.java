@@ -8,6 +8,7 @@ import org.paulsens.trip.api.dto.TripDto;
 import org.paulsens.trip.api.dto.TripEventDto;
 import org.paulsens.trip.api.dto.TripPageOptionsDto;
 import org.paulsens.trip.api.dto.TripPaymentConfigDto;
+import org.paulsens.trip.content.PageHtml;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripEvent;
 import org.paulsens.trip.model.TripPageOptions;
@@ -25,12 +26,13 @@ import org.paulsens.trip.model.TripPaymentConfig;
  * medjugorje#156): every client renders them as HTML, a row stored before notes were cleaned may hold anything,
  * and cleaning in the one mapper means no resource can send an event without it.
  */
-@Mapper(uses = ValueMappers.class, imports = RichTextHtml.class)
+@Mapper(uses = ValueMappers.class, imports = {RichTextHtml.class, PageHtml.class})
 public interface TripMapper {
 
     TripMapper INSTANCE = Mappers.getMapper(TripMapper.class);
 
     @Mapping(target = "people", source = "people")
+    @Mapping(target = "description", expression = "java(PageHtml.cleanOrNull(trip.getDescription()))")
     @Mapping(target = "detailsUrl", ignore = true)
     @Mapping(target = "pictures", ignore = true)
     @Mapping(target = "tagLabels", ignore = true)

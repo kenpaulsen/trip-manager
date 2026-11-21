@@ -579,6 +579,18 @@ public final class DAO {
     public Map<String, String> rawTripEventContents() {
         return tripEventDao.rawTripEventContents();
     }
+    /**
+     * Every row's stored JSON by row id, in one of the three tables that hold hand-authored page HTML
+     * ({@code trips}, {@code content}, {@code todo_items}), uncached: for one-time migrations only ({@link RawRows}).
+     */
+    public Map<String, String> rawRows(final String table) {
+        return new RawRows(persistence).read(table);
+    }
+    /** Rewrites one such row only if it still holds {@code expected}; touches no cache ({@link RawRows}). */
+    public boolean replaceRawRow(final String table, final String rowId, final String expected,
+            final String replacement) {
+        return new RawRows(persistence).replace(table, rowId, expected, replacement);
+    }
     /** Rewrites one event row's stored JSON only if it still holds {@code expected}; for data repairs only. */
     public boolean replaceTripEventContent(final String id, final String expected, final String replacement) {
         return tripEventDao.replaceTripEventContent(id, expected, replacement);
