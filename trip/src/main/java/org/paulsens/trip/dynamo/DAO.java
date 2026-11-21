@@ -993,9 +993,10 @@ public final class DAO {
     public Boolean deleteChatDraft(final ChatChannel.Id channelId, final Person.Id personId) {
         return chatDao.deleteDraft(channelId, personId);
     }
+    /** Raw oldest-first rows after a cursor, for the unread count; never refills the chat's hot buffer. */
     public List<ChatMessage> getRawChatMessagesAfter(
-            final ChatChannel.Id channelId, final ChatMessage.Id after, final int limit) {
-        return chatDao.rawMessagesAfter(channelId, after, limit);
+            final ChatChannel.Id channelId, final ChatMessage.Id after, final int limit, final Cached cached) {
+        return NearCacheContext.call(cached, () -> chatDao.rawMessagesAfter(channelId, after, limit));
     }
     public Optional<ChatMessage.Id> getChatCursor(
             final ChatChannel.Id channelId, final Person.Id personId, final Cached cached) {

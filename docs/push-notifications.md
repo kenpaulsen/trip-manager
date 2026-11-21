@@ -94,7 +94,7 @@ target = the person, actor = the caller when known, else `System`.
    same person twice for one event. Event keys: the chat message id; `reg:{tripId}:{personId}`;
    `pay:{paymentId}`; `sup:{msgId}`. A null key (the test endpoint) skips the claim.
 3. **Quiet hours** → the alert stays an alert with `interruption-level: passive` and no `sound`.
-4. **Badge** = unread messages across every chat (`ChatCommands.unreadCount` summed over `myChats`), computed
+4. **Badge** = unread messages across every chat (`unreadCount` summed over `ChatCommands.myChatsCounted`), computed
    once per recipient per alert, iOS only; a failing count sends without a badge.
 5. One gateway send per device; `DROP_DEVICE` prunes the device under the lock. After any delivered alert
    the silent marker is claimed too (the alert already woke the app).

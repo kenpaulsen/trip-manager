@@ -610,7 +610,8 @@ photos).
 
 See the plan and the backend docs; wired in the next phases. Chat: `GET /api/chat/my-channels` (`unread` is a
 boolean; `unreadCount`, 2026-11-20, is the number of other people's unread messages, at most 100, which the apps'
-badges show as "99+" above 99, and 0 when `unread` is false);
+badges show as "99+" above 99, and 0 when `unread` is false; a chat with no read cursor, never opened or not read in
+the last week, reports exactly 1, the old dot, however many messages it holds);
 `/api/chat/channels/trip:{tripId}/messages?since&before&order=newest&wait≤25&limit&rver&mver`; `POST messages` with
 `Content-Type: application/vnd.trip.chat.v1+json` `{body, clientMessageId, replyTo, attachments[{key,title,hidden}],
 onBehalfOf?}`. `onBehalfOf` (2026-10-10) is a family manager acting as a member: the message is still authored by the

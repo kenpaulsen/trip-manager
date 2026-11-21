@@ -191,7 +191,8 @@ public class PushSender {
 
     /** The app badge: unread messages from others across every chat, the number the apps' Chats tab shows. */
     static int unreadMessages(final Person.Id person) {
-        final ChatCommands chat = ChatCommands.getChatCommands();
-        return chat.myChats(person).stream().mapToInt(summary -> chat.unreadCount(summary, person)).sum();
+        return ChatCommands.getChatCommands().myChatsCounted(person).stream()
+                .mapToInt(ChatCommands.ChatSummary::unreadCount)
+                .sum();
     }
 }

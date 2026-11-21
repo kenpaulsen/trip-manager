@@ -16,6 +16,7 @@ import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.chat.ChatChannel;
+import org.paulsens.trip.model.chat.ChatMembership;
 import org.paulsens.trip.model.chat.ChatMessage;
 import org.testng.Assert;
 import org.testng.annotations.BeforeMethod;
@@ -67,10 +68,20 @@ public class ChatUnreadCountTest {
     }
 
     private int unreadFor(final Person.Id who) {
-        return chat.myChats(who).stream()
+        return summaryFor(chat.myChatsCounted(who)).unreadCount();
+    }
+
+    private ChatCommands.ChatSummary summaryFor(final List<ChatCommands.ChatSummary> summaries) {
+        return summaries.stream()
                 .filter(summary -> tripId.equals(summary.channel().getTripId()))
-                .mapToInt(summary -> chat.unreadCount(summary, who))
-                .sum();
+                .findFirst()
+                .orElseThrow();
+    }
+
+    /** Reads up to the writer's first message, so what follows is measured against a real cursor. */
+    private void readerCaughtUp() {
+        Assert.assertTrue(chat.markRead(tripId, reader, send(writer, "read up to here").getId()));
+        Assert.assertEquals(unreadFor(reader), 0, "caught up");
     }
 
     @Test
@@ -99,9 +110,48 @@ public class ChatUnreadCountTest {
     }
 
     @Test
-    public void noChannelOrNoReaderCountsNothing() {
-        Assert.assertEquals(ChatUnreadCounter.count(DAO.getInstance(), null, null, reader, Instant.now()), 0);
-        Assert.assertEquals(chat.unreadCount(new ChatCommands.ChatSummary(null, "None", 0L, false, false), reader), 0);
+    public void theUncountedListShowsTheDotAndReadsNoRows() {
+        readerCaughtUp();
+        Assert.assertEquals(summaryFor(chat.myChats(reader)).unreadCount(), 0, "caught up: nothing");
+        send(writer, "one");
+        send(writer, "two");
+        final ChatCommands.ChatSummary dot = summaryFor(chat.myChats(reader));
+        Assert.assertTrue(dot.unread());
+        Assert.assertEquals(dot.unreadCount(), 1, "the web list and account deletion only need the dot");
+        Assert.assertEquals(unreadFor(reader), 2);
+    }
+
+    @Test
+    public void aDeletedMessageIsNotUnread() {
+        readerCaughtUp();
+        send(writer, "stays");
+        final ChatMessage gone = send(writer, "deleted");
+        Assert.assertTrue(chat.deleteMessage(tripId, gone.getId(),
+                Caller.forActor(new AuditActor("unread@test", writer.getValue()))));
+        Assert.assertEquals(unreadFor(reader), 1, "the tombstone is not counted");
+    }
+
+    @Test
+    public void historyBeforeJoiningIsNotUnread() {
+        readerCaughtUp();
+        send(writer, "before joining one");
+        final ChatMessage before = send(writer, "before joining two");
+        final ChatChannel channel = chat.getChannel(tripId);
+        final Instant joined = before.getSentAt().plusMillis(1);
+        Assert.assertTrue(DAO.getInstance().saveChatMembership(
+                ChatMembership.joining(channel.getId(), reader, joined)));
+        Assert.assertTrue(DAO.getInstance().saveChatChannel(channel.withSettings(
+                channel.getSettings().toBuilder().fullHistoryForNewMembers(false).build())));
+        Assert.assertEquals(unreadFor(reader), 0, "only what the feed would show them counts");
+        waitPast(joined);
+        send(writer, "after joining");
+        Assert.assertEquals(unreadFor(reader), 1);
+    }
+
+    private static void waitPast(final Instant instant) {
+        while (!Instant.now().isAfter(instant)) {
+            Thread.onSpinWait();
+        }
     }
 
     private ChatMessage saveDirect(final Person.Id author, final String body) {
@@ -114,12 +164,21 @@ public class ChatUnreadCountTest {
 
     @Test
     public void aHundredOrMoreSinceTheCursorIsTheCap() {
-        final ChatMessage read = send(writer, "read up to here");
-        Assert.assertTrue(chat.markRead(tripId, reader, read.getId()));
+        readerCaughtUp();
         for (int i = 0; i < ChatUnreadCounter.CAP + 20; i++) {
             saveDirect(writer, "flood " + i);
         }
         Assert.assertEquals(unreadFor(reader), ChatUnreadCounter.CAP, "the apps draw this as 99+");
+    }
+
+    @Test
+    public void aFullPageReportsOnlyTheRowsThatPass() {
+        readerCaughtUp();
+        send(writer, "the only one from someone else");
+        for (int i = 0; i < ChatUnreadCounter.CAP + 10; i++) {
+            saveDirect(reader, "my own " + i);
+        }
+        Assert.assertEquals(unreadFor(reader), 1, "a full page is filtered before anything is reported");
     }
 
     @Test

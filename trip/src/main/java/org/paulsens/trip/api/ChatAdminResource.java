@@ -9,7 +9,6 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.ChatCommands;
-import org.paulsens.trip.model.Person;
 
 /**
  * The chats this caller belongs to.
@@ -42,9 +41,9 @@ public class ChatAdminResource extends BaseResource {
     @GET
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response myChannels() {
-        final ChatCommands chat = ChatCommands.getChatCommands();
-        final Person.Id me = personId();
-        return ok(chat.myChats(me).stream().map(summary -> toDto(summary, chat.unreadCount(summary, me))).toList());
+        return ok(ChatCommands.getChatCommands().myChatsCounted(personId()).stream()
+                .map(ChatAdminResource::toDto)
+                .toList());
     }
 
     /**
@@ -54,7 +53,7 @@ public class ChatAdminResource extends BaseResource {
      * and retention -- administrative detail that has no business in the list a traveller renders to pick a
      * conversation.
      */
-    private static Map<String, Object> toDto(final ChatCommands.ChatSummary summary, final int unreadCount) {
+    private static Map<String, Object> toDto(final ChatCommands.ChatSummary summary) {
         final Map<String, Object> result = new LinkedHashMap<>();
         result.put("channelId", summary.channel() == null || summary.channel().getId() == null
                 ? null : summary.channel().getId().getValue());
@@ -62,7 +61,7 @@ public class ChatAdminResource extends BaseResource {
         result.put("lastActivityMillis", summary.lastActivityMillis());
         result.put("unread", summary.unread());
         // The badge number (2026-11-20); "unread" stays for app builds that predate it.
-        result.put("unreadCount", unreadCount);
+        result.put("unreadCount", summary.unreadCount());
         return result;
     }
 }

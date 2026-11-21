@@ -1551,19 +1551,8 @@ public class ChatCommands {
     private boolean unreadAgainst(
             final ChatChannel channel, final Person.Id me, final Map<String, String> lastActivity) {
         final long activity = parseLong(lastActivity.get(channel.getId().getValue()), 0L);
-        if (activity <= 0L) {
-            return false;
-        }
-        final ChatMessage.Id cursor = dao().getChatCursor(channel.getId(), me, Cached.NO).orElse(null);
-        // No cursor means they have never opened this chat. Anything at all is unread -- which is the correct
-        // first-time signal, and it is also why an absent cursor must not be read as "caught up".
-        return cursor == null || cursor.getEpochMilli() < activity;
-    }
-
-    /** Unread messages from others in one of {@link #myChats}' chats, at most 100 ("99+"); 0 when caught up. */
-    public int unreadCount(final ChatSummary summary, final Person.Id me) {
-        return summary.unread() ? ChatUnreadCounter.count(dao(), summary.channel(), tripOf(summary.channel()), me,
-                Instant.now()) : 0;
+        return activity > 0L && ChatUnreadCounter.isUnread(activity,
+                dao().getChatCursor(channel.getId(), me, Cached.NO).orElse(null));
     }
 
     /** Unread state for the trip tab, addressed by trip id so the XHTML needs no person id. */
@@ -2699,6 +2688,15 @@ public class ChatCommands {
     // --- my chats ---
 
     public List<ChatSummary> myChats(final Person.Id personId) {
+        return myChats(personId, false);
+    }
+
+    /** {@link #myChats} with each unread chat's message count, for the apps' badges ({@link ChatUnreadCounter}). */
+    public List<ChatSummary> myChatsCounted(final Person.Id personId) {
+        return myChats(personId, true);
+    }
+
+    private List<ChatSummary> myChats(final Person.Id personId, final boolean counted) {
         // Union of my own trips, my whole family's trips, and my invite-guest channels (deduped): anyone in
         // a family with an on-trip member has full chat membership (isTripMember), so their My Chats must
         // list that trip too -- and a guest's channel is reachable through no trip of theirs at all, only
@@ -2731,8 +2729,8 @@ public class ChatCommands {
                 continue;
             }
             final long activity = parseLong(lastAct.get(cid.getValue()), 0L);
-            out.add(new ChatSummary(channel, trip.getTitle(), activity,
-                    unreadAgainst(channel, personId, lastAct), hasDraft(trip.getId(), personId)));
+            out.add(ChatUnreadCounter.summarize(dao(), channel, trip, personId, activity,
+                    hasDraft(trip.getId(), personId), counted));
         }
         out.sort(Comparator.comparingLong(ChatSummary::lastActivityMillis).reversed());
         return out;
@@ -2912,9 +2910,12 @@ public class ChatCommands {
      * SAVE throw, so the response is torn down after the page has already rendered -- and then every later
      * request on that session fails too. The visible symptom is a site-wide outage, not a chat bug. Every field
      * here must stay serializable as well ({@link ChatChannel} already is).
+     *
+     * <p>{@code unreadCount} (2026-11-20) is 0 when caught up, the real count only from {@link #myChatsCounted},
+     * and otherwise 1, the dot; a session row written before it reads as 0, which nothing on the page uses.
      */
-    public record ChatSummary(
-            ChatChannel channel, String tripTitle, long lastActivityMillis, boolean unread, boolean draft)
+    public record ChatSummary(ChatChannel channel, String tripTitle, long lastActivityMillis, boolean unread,
+            boolean draft, int unreadCount)
             implements java.io.Serializable {
         @java.io.Serial
         private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.

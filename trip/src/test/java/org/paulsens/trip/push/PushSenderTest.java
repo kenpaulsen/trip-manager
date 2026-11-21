@@ -1,18 +1,27 @@
 package org.paulsens.trip.push;
 
+import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
+import org.paulsens.trip.action.ChatCommands;
 import org.paulsens.trip.action.ConfigCommands;
+import org.paulsens.trip.action.PersonCommands;
+import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.cache.CacheClient;
 import org.paulsens.trip.cache.CacheKeys;
 import org.paulsens.trip.config.KnownSettings;
+import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.model.Trip;
+import org.paulsens.trip.model.chat.ChatMessage;
 import org.testng.Assert;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
@@ -217,6 +226,47 @@ public class PushSenderTest {
         Mockito.when(config.getBoolean(KnownSettings.PUSH_ENABLED)).thenReturn(true);
         Mockito.when(devices.prefsOf(ME)).thenReturn(new PushPrefs(true, null, null, null, List.of(PHONE)));
         Assert.assertFalse(sender.sendSilent(ME), "nothing delivered");
+    }
+
+    @Test
+    public void theBadgeSumsUnreadMessagesAcrossChats() throws IOException {
+        DAO.getInstance();
+        final ChatCommands chat = ChatCommands.getChatCommands();
+        final Person.Id reader = person("Reader");
+        final Person.Id writer = person("Writer");
+        final String counted = trip(reader, writer);
+        final String neverOpened = trip(reader, writer);
+        final AuditActor actor = new AuditActor("badge@test", writer.getValue());
+        final ChatMessage read = chat.send(counted, writer, "read", null, null, actor).getMessageObj();
+        Assert.assertTrue(chat.markRead(counted, reader, read.getId()));
+        chat.send(counted, writer, "new one", null, null, actor);
+        chat.send(counted, writer, "new two", null, null, actor);
+        chat.send(neverOpened, writer, "no cursor: the dot", null, null, actor);
+        chat.send(neverOpened, writer, "still the dot", null, null, actor);
+
+        Assert.assertEquals(PushSender.unreadMessages(reader), 3, "2 messages + 1 for the chat with no cursor");
+    }
+
+    private static Person.Id person(final String first) {
+        final PersonCommands people = new PersonCommands();
+        final Person who = people.createPerson();
+        who.setFirst(first);
+        who.setLast("Badge");
+        Assert.assertTrue(people.savePerson(who));
+        return who.getId();
+    }
+
+    private static String trip(final Person.Id... people) throws IOException {
+        final Trip trip = Trip.builder()
+                .id(UUID.randomUUID().toString())
+                .title("Badge trip")
+                .openToPublic(false)
+                .startDate(LocalDateTime.now())
+                .endDate(LocalDateTime.now().plusDays(14))
+                .people(new ArrayList<>(List.of(people)))
+                .build();
+        Assert.assertTrue(DAO.getInstance().saveTrip(trip));
+        return trip.getId();
     }
 
     @Test

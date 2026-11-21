@@ -472,7 +472,7 @@ public class SerializationCompatibilityTest {
     private static ChatCommands.ChatSummary chatSummary() {
         final ChatChannel channel = new ChatChannel(ChatChannel.Id.forTrip("trip-rome"), "trip-rome",
                 ChatChannel.Kind.TRIP, "Rome 2027", null, null, null, WHEN, "person-ada", null, null);
-        return new ChatCommands.ChatSummary(channel, "Rome 2027", WHEN.toEpochMilli(), true, false);
+        return new ChatCommands.ChatSummary(channel, "Rome 2027", WHEN.toEpochMilli(), true, false, 3);
     }
 
     private static PrivacyView privacyView() {

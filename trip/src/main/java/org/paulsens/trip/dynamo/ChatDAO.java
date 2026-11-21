@@ -859,24 +859,18 @@ public class ChatDAO {
             final ChatChannel channel,
             final Trip trip,
             final Instant now) {
-        final Read read = new Read(channelId.getValue(), since, limit <= 0 ? 200 : Math.min(limit, 200),
-                member, channel, trip, now);
-        final boolean covered = bufferCoversCursor(read.channelId(), read.sinceMillis());
-        return withReactionMeta(channelId, covered ? bufferedSince(read) : dynamoSince(read));
+        final Read read = new Read(channelId.getValue(), since, limit <= 0 ? 200 : Math.min(limit, 200), channel,
+                true);
+        final List<ChatMessage> msgs = rowsSince(read);
+        return withReactionMeta(channelId, toPage(filterVisible(msgs, member, channel, trip, now), msgs,
+                msgs.size() >= read.limit(), OLDEST_FIRST, now));
     }
 
     /**
-     * Everything a paged read needs, grouped so the legs below can be separate methods without a seven-argument
-     * signature repeated at each hand-off.
+     * Everything a since-read needs, grouped so the legs below can be separate methods. {@code repopulate} is
+     * false only for the unread count ({@link #rawMessagesAfter}): see there for why it must never refill the buffer.
      */
-    private record Read(
-            String channelId,
-            ChatMessage.Id since,
-            int limit,
-            ChatMembership member,
-            ChatChannel channel,
-            Trip trip,
-            Instant now) {
+    private record Read(String channelId, ChatMessage.Id since, int limit, ChatChannel channel, boolean repopulate) {
 
         long sinceMillis() {
             return since == null ? -1L : since.getEpochMilli();
@@ -887,44 +881,28 @@ public class ChatDAO {
         }
     }
 
-    /** The buffer has been proven complete for this cursor, so it may answer the read on its own. */
-    private ChatPage bufferedSince(final Read read) {
-        final List<String> ids = cacheClient.getRangeByScore(CacheKeys.chatLogKey(read.channelId()),
-                read.sinceMillis() + 1, Double.POSITIVE_INFINITY, false, read.limit());
-        return ids.isEmpty() ? nothingNew(read) : bufferedBodies(read, ids);
-    }
-
     /**
-     * The buffer is complete for this cursor and holds nothing newer, so "nothing new" is an authoritative
-     * answer. This is what keeps an idle poll off DynamoDB entirely.
+     * Raw rows after the cursor, oldest first: from the buffer when it has been proven complete for this cursor
+     * (an empty answer there is authoritative, which is what keeps an idle poll off DynamoDB entirely), otherwise
+     * from DynamoDB.
      */
-    private ChatPage nothingNew(final Read read) {
-        return toPage(List.of(), List.of(), false, OLDEST_FIRST, read.now());
-    }
-
-    private ChatPage bufferedBodies(final Read read, final List<String> ids) {
-        final List<ChatMessage> msgs = loadBodies(read.channelId(), ids);
-        if (msgs.size() == ids.size()) {
-            return bufferPage(read, msgs, ids.size() >= read.limit());
+    private List<ChatMessage> rowsSince(final Read read) {
+        if (bufferCoversCursor(read.channelId(), read.sinceMillis())) {
+            final List<String> ids = cacheClient.getRangeByScore(CacheKeys.chatLogKey(read.channelId()),
+                    read.sinceMillis() + 1, Double.POSITIVE_INFINITY, false, read.limit());
+            final List<ChatMessage> msgs = ids.isEmpty() ? List.of() : loadBodies(read.channelId(), ids);
+            if (msgs.size() == ids.size()) {
+                return msgs;
+            }
+            // A body went missing independently of its log entry (the hash and the ZSET have separate
+            // lifetimes and only the ZSET is trimmed). Dropping it here would hide the message *and*
+            // advance the cursor past it, losing it for good.
         }
-        // A body went missing independently of its log entry (the hash and the ZSET have separate
-        // lifetimes and only the ZSET is trimmed). Dropping it here would hide the message *and*
-        // advance the cursor past it, losing it for good.
-        return dynamoSince(read);
-    }
-
-    private ChatPage bufferPage(final Read read, final List<ChatMessage> msgs, final boolean hasMore) {
-        return toPage(filterVisible(msgs, read.member(), read.channel(), read.trip(), read.now()), msgs,
-                hasMore, OLDEST_FIRST, read.now());
-    }
-
-    private ChatPage dynamoSince(final Read read) {
-        return dynamoPage(read, queryMessages(read.channelId(), read.sinceValue(), null, true, read.limit()));
-    }
-
-    private ChatPage dynamoPage(final Read read, final List<ChatMessage> msgs) {
-        repopulateBuffer(read.channelId(), msgs, read.channel());
-        return bufferPage(read, msgs, msgs.size() >= read.limit());
+        final List<ChatMessage> msgs = queryMessages(read.channelId(), read.sinceValue(), null, true, read.limit());
+        if (read.repopulate()) {
+            repopulateBuffer(read.channelId(), msgs, read.channel());
+        }
+        return msgs;
     }
 
     /**
@@ -965,8 +943,9 @@ public class ChatDAO {
     }
 
     /**
-     * Raw rows after {@code after} (exclusive), oldest first, <b>unfiltered</b>, for the unread count. Read-only on
-     * purpose: unlike {@link #getMessagesSince} it never refills the hot buffer, because an unread count is not a
+     * Raw rows after {@code after} (exclusive), oldest first, <b>unfiltered</b>, for the unread count: the same
+     * buffer-or-DynamoDB legs as {@link #getMessagesSince} ({@link #rowsSince}), but read-only on purpose: it never
+     * refills the hot buffer, because an unread count is not a
      * reader's poll, and rows it pulled from DynamoDB would sit in the buffer with a gap above them that
      * {@link #bufferCoversCursor} cannot see, so another reader's poll would skip the gap (review of the count).
      */
@@ -975,17 +954,7 @@ public class ChatDAO {
         if (channelId == null || after == null) {
             return List.of();
         }
-        final String cId = channelId.getValue();
-        final int capped = limit <= 0 ? 200 : Math.min(limit, 200);
-        if (bufferCoversCursor(cId, after.getEpochMilli())) {
-            final List<String> ids = cacheClient.getRangeByScore(CacheKeys.chatLogKey(cId),
-                    after.getEpochMilli() + 1, Double.POSITIVE_INFINITY, false, capped);
-            final List<ChatMessage> msgs = loadBodies(cId, ids);
-            if (msgs.size() == ids.size()) {
-                return msgs;
-            }
-        }
-        return queryMessages(cId, after.getValue(), null, true, capped);
+        return rowsSince(new Read(channelId.getValue(), after, limit <= 0 ? 200 : Math.min(limit, 200), null, false));
     }
 
     /**
