@@ -169,6 +169,43 @@ public class TodosResourceTest extends ResourceTestSupport {
                 + "%20tag%20and%20everything%20inside%20it%3A%20script%20cannot%20be%20saved%20here.");
     }
 
+    /** An update is a write too: it stores the cleaned text and names what went. */
+    @Test
+    public void anUpdateNamesTheMarkupItRemoved() {
+        signedInAsSiteAdmin(ME);
+        final TodoItem existing = todoItem("d1");
+        Mockito.when(todos.getTodo(ArgumentMatchers.eq(TRIP), ArgumentMatchers.any())).thenReturn(existing);
+        Mockito.when(todos.saveTodo(ArgumentMatchers.any())).thenReturn(true);
+
+        assertOk(resource.update(TRIP, "d1", CSRF_OK,
+                new TodoDto(null, null, null, "<p onclick=\"x()\">keep</p>", null)));
+
+        Assert.assertEquals(existing.getMoreDetails(), "<p>keep</p>");
+        Mockito.verify(response).addHeader(ArgumentMatchers.eq(BaseResource.MARKUP_REMOVED_HEADER),
+                ArgumentMatchers.startsWith("moreDetails%3A%20the%20onclick%20attribute%20on%20%3Cp%3E"));
+    }
+
+    /**
+     * A pasted page can lose dozens of kinds of thing; the header names the first ten and then how many more, so
+     * that a write which succeeded is never answered with an error for the size of its own account.
+     */
+    @Test
+    public void theRemovalsNamedInTheHeaderAreCapped() {
+        signedInAsSiteAdmin(ME);
+        Mockito.when(todos.createTodo(TRIP)).thenReturn(todoItem("d1"));
+        Mockito.when(todos.saveTodo(ArgumentMatchers.any())).thenReturn(true);
+        final StringBuilder pasted = new StringBuilder();
+        for (int i = 0; i < 25; i++) {
+            pasted.append("<p onkey").append((char) ('a' + i)).append("=\"x()\">p</p>");
+        }
+
+        assertOk(resource.create(TRIP, CSRF_OK, new TodoDto(null, null, "Bring a coat", pasted.toString(), null)));
+
+        Mockito.verify(response, Mockito.times(BaseResource.MARKUP_REMOVED_MAX + 1))
+                .addHeader(ArgumentMatchers.eq(BaseResource.MARKUP_REMOVED_HEADER), ArgumentMatchers.anyString());
+        Mockito.verify(response).addHeader(BaseResource.MARKUP_REMOVED_HEADER, "moreDetails%3A%20and%2015%20more.");
+    }
+
     @Test
     public void aFailedStoreIsReportedRatherThanSwallowed() {
         signedInAsSiteAdmin(ME);

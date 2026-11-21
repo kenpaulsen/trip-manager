@@ -74,7 +74,8 @@ hides another host (`//host`, `/\host`).
 CSS is the author's (owner, 2026-11-21). An inline `style` attribute is kept exactly as typed: it holds
 declarations only, and nothing in it can leave the attribute. A `style` block is kept as typed and is not confined
 to its section; `content/PageCss` takes out only a rule that loads another stylesheet (`@import`) and a rule whose
-selector tests a form field's `value`, and reports each. The library's own CSS schema is not used: it edits inside
+selector reads the page (it tests a form field's `value`, or names a `data-` attribute the site's own pages use),
+and reports each. The library's own CSS schema is not used: it edits inside
 a value (`margin:-10px auto 0 -5px` came out as `margin:auto 0`) and reports nothing it removes.
 
 Any `data-` attribute is the author's too, except a name a script on the site's pages acts on
@@ -155,8 +156,10 @@ counting by itself.
 ../medjugorje/scripts/html-clean.sh rollback --out <dir> --apply   # WRITES; puts back applied.json's rows
 ```
 
-- **Order.** Deploy the code first, so that no uncleaned row can be saved behind the migration; then `plan`,
-  `visual`, the owner's approvals, `rehearse`, `apply`, `verify`.
+- **Order.** `plan`, `visual` and the owner's approvals come BEFORE the deploy: the picture comparison swaps each
+  cleaned value into the page as it is served, which only works while the page still writes values as stored.
+  Then deploy, so that no uncleaned row can be saved behind the migration; then `rehearse`, `apply`, `verify`. (An
+  edit made in between moves that unit's fingerprint, and the apply stops there.)
 - **A row is written as text** (`dynamo/RawRows`): read as a JSON tree, only the cleaned fields replaced, written
   back only if the row still holds what was read. A row saved by someone meanwhile is refused and reported, never
   overwritten. Content rows' undo history is cleaned too. A row a script stored in another JSON spelling (four in
@@ -173,6 +176,14 @@ Rehearsal on production, 2026-11-21 (read-only, with the owner's four approvals)
 content, 25 to-dos), no unit stops, and the rehearsed result verifies. Before any apply, 133 stored values would
 still be changed by cleaning. The run's directory is `html-clean-migration/` in the workspace root (not a
 repository, mode 700).
+
+## After the migration (2026-11-21)
+
+Applied on production that day: 121 rows (47 trips, 49 content rows, 25 to-dos), verified. The pre-push review of
+the stage had found two holes in the cleaner, which the owner chose to ship with and fix straight after: a comment
+or `style` block typed inside an attribute's name, and a `style` block inside `svg`, each put back where a
+browser reads it as markup. Both are closed (nothing is put back inside a tag or inside `svg`), and
+`PageHtmlTest`'s attack list holds the reviewers' inputs.
 
 ## Still to come
 

@@ -634,6 +634,37 @@ public class TripsResourceTest extends ResourceTestSupport {
         Mockito.verify(trips, Mockito.never()).saveTrip(ArgumentMatchers.any(), ArgumentMatchers.any());
     }
 
+    /**
+     * medjugorje#158: a description is typed HTML. A create and an update both store it cleaned and name what
+     * went in the response, so that a REST write never loses markup in silence.
+     */
+    @Test
+    public void aDescriptionWriteStoresCleanedTextAndNamesWhatItRemoved() {
+        signedInAsSiteAdmin(ME);
+        final Trip existing = trip(TRIP_ID, ME);
+        tripExists(existing);
+        Mockito.when(trips.saveTrip(ArgumentMatchers.any(), ArgumentMatchers.any())).thenReturn(true);
+        final TripDto update = new TripDto(null, null, "<p>keep</p><script>x()</script>", null, false, null, null,
+                null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+
+        assertOk(resource.update(TRIP_ID, CSRF_OK, update));
+
+        Assert.assertEquals(existing.getDescription(), "<p>keep</p>");
+        Mockito.verify(response).addHeader(ArgumentMatchers.eq(BaseResource.MARKUP_REMOVED_HEADER),
+                ArgumentMatchers.startsWith("description%3A%20the%20%3Cscript%3E%20tag"));
+
+        final Trip created = trip(java.util.UUID.randomUUID().toString(), ME);
+        Mockito.when(trips.createTrip()).thenReturn(created);
+        final TripDto create = new TripDto(null, "Rome 2027", "<b onclick=\"x()\">Ten days</b>", null, false, null,
+                null, 40, null, existing.getOrgId() == null ? java.util.UUID.randomUUID().toString()
+                        : existing.getOrgId(), null, null, null, null, null, null, null, null, null, null, null, null);
+        signedInAsSiteAdmin(ME);
+        assertOk(resource(new TripsResource()).create(CSRF_OK, create));
+        Assert.assertEquals(created.getDescription(), "<b>Ten days</b>");
+        Mockito.verify(response).addHeader(ArgumentMatchers.eq(BaseResource.MARKUP_REMOVED_HEADER),
+                ArgumentMatchers.startsWith("description%3A%20the%20onclick%20attribute%20on%20%3Cb%3E"));
+    }
+
     /** The DAO-copies rule: what gets saved must be the very object that was read. */
     @Test
     public void updateMutatesAndSavesTheObjectItRead() {

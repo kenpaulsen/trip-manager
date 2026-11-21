@@ -22,7 +22,7 @@ import org.paulsens.trip.model.Placeholder;
  * ({@link #requireLinkUrl}), and all are attribute-escaped; RICH_TEXT, and a title that carries markup, go
  * through the allowlist cleaner ({@link PageHtml}, medjugorje#158) here as well as when they are saved, so a row
  * that reached storage some other way (a script, a restore, a row older than the cleaner) is still clean on the
- * page. The template BODY is written as stored: see docs/content-templates.md, "Trust tiers".
+ * page. The template BODY is written as stored: see docs/content-templates.md, "Typed HTML and the allowlist".
  *
  * <p>A token with no matching declared placeholder, or a missing value, renders as the empty string: a
  * public page must never leak a literal <code>{{token}}</code>.
@@ -142,7 +142,7 @@ public final class ContentRenderer {
         if (title == null || title.isBlank()) {
             return "";
         }
-        return title.indexOf('<') >= 0 ? PageHtml.clean(title) : escapeHtml(title.trim());
+        return PageHtml.titleHasMarkup(title) ? PageHtml.clean(title) : escapeHtml(title.trim());
     }
 
     /**
@@ -154,7 +154,7 @@ public final class ContentRenderer {
         if (title == null || title.isBlank()) {
             return "";
         }
-        if (title.indexOf('<') >= 0) {
+        if (PageHtml.titleHasMarkup(title)) {
             return PageHtml.clean(title);
         }
         return "<h3 class=\"contentTitle\">" + escapeHtml(title.trim()) + "</h3>";

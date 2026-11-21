@@ -18,12 +18,24 @@ public class PageHtmlTest {
      * {@code </style}.
      */
     private static void assertInert(final String cleaned) {
+        // Inside svg a browser parses a style element's content as markup, so nothing may be exempt there.
+        Assert.assertFalse(cleaned.matches("(?is).*<svg\\b(?:(?!</svg>).)*<(?:style|!--).*"),
+                "a style block or comment was put back inside svg: " + cleaned);
+        // A comment or style block restored inside a tag would end the tag at its first ">".
+        Assert.assertFalse(cleaned.matches("(?is).*<[a-z][^<>]*<(?:!--|style).*"),
+                "a comment or style block was put back inside a tag: " + cleaned);
         final String lower = cleaned.replaceAll("(?s)<!--.*?-->", "")
                 .replaceAll("(?is)<style(?: media=\"[^\"<>]*\")?>.*?</style>", "").toLowerCase(java.util.Locale.ROOT);
         for (final String never : List.of("<script", "onerror", "onload", "onclick", "onmouseover", "javascript:",
                 "srcdoc", "<form", "<input", "<base", "<meta", "<link", "<style", "<object", "<embed", "data:text")) {
             Assert.assertFalse(lower.contains(never), "\"" + never + "\" survived in: " + cleaned);
         }
+    }
+
+    /** Each kind of thing a clean removed, once, by its short name: what these tests compare. */
+    private static String named(final PageHtml.Cleaned cleaned) {
+        return cleaned.drops().stream().map(PageHtml.Drop::describe).distinct()
+                .collect(java.util.stream.Collectors.joining(", "));
     }
 
     @DataProvider
@@ -95,12 +107,13 @@ public class PageHtmlTest {
                 + "allow=\"accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; "
                 + "picture-in-picture; web-share\" allowfullscreen=\"true\"></iframe>";
         final PageHtml.Cleaned kept = PageHtml.cleanNoting(video);
-        Assert.assertFalse(kept.dropped(), kept.summary(5));
+        Assert.assertFalse(kept.dropped(), named(kept));
         Assert.assertTrue(kept.body().contains("picture-in-picture; web-share"), kept.body());
         final PageHtml.Cleaned asking = PageHtml.cleanNoting(
                 "<iframe src=\"https://evil.example/\" allow=\"camera; microphone\"></iframe>");
         Assert.assertFalse(asking.body().contains("camera"), asking.body());
-        Assert.assertEquals(asking.drops(), List.of(new PageHtml.Drop(PageHtml.Drop.ATTRIBUTE, "iframe", "allow")));
+        Assert.assertEquals(asking.drops(),
+                List.of(new PageHtml.Drop(PageHtml.Drop.Kind.ATTRIBUTE, "iframe", "allow")));
     }
 
     /** An id may not be one the page looks up for itself, or shaped like a Faces client id. */
@@ -121,8 +134,7 @@ public class PageHtmlTest {
                 + "Hi<script>x()</script><script>y()</script></p>");
         Assert.assertEquals(cleaned.body(), "<p style=\"color:red\">Hi</p>");
         Assert.assertTrue(cleaned.dropped());
-        Assert.assertEquals(cleaned.summary(5), "onclick on <p>, data-ph on <p>, <script>");
-        Assert.assertEquals(cleaned.summary(1), "onclick on <p> and 2 more");
+        Assert.assertEquals(named(cleaned), "onclick on <p>, data-ph on <p>, <script>");
     }
 
     /**
@@ -160,7 +172,7 @@ public class PageHtmlTest {
         final String stored = "<div class=\"c\" data-src=\"a b&amp;c=d%20e\" data-my-thing=\"{&#34;k&#34;:[1,2]}\" "
                 + "data-empty=\"\" data-id=\"7\">x</div>";
         final PageHtml.Cleaned cleaned = PageHtml.cleanNoting(stored);
-        Assert.assertFalse(cleaned.dropped(), cleaned.summary(5));
+        Assert.assertFalse(cleaned.dropped(), named(cleaned));
         Assert.assertEquals(HtmlShape.of(cleaned.body()), HtmlShape.of(stored));
         Assert.assertEquals(PageHtml.clean(cleaned.body()), cleaned.body(), "cleaning twice changes nothing");
         Assert.assertTrue(cleaned.body().contains("data-src=\"a b&amp;c=d%20e\""), cleaned.body());
@@ -243,7 +255,7 @@ public class PageHtmlTest {
         final PageHtml.Cleaned cleaned = PageHtml.cleanNoting("<p title=\"<!-- hidden away -->\">y</p>"
                 + "<!--[if IE]>old<![endif]-->");
         Assert.assertEquals(cleaned.body(), "<p title=\"\">y</p>");
-        Assert.assertEquals(cleaned.summary(5), "the comment \"[if IE]>old<![endif]\", the comment \"hidden away\"");
+        Assert.assertEquals(named(cleaned), "the comment \"[if IE]>old<![endif]\", the comment \"hidden away\"");
     }
 
     /** The owner's decision, 2026-11-21: a style block is the author's, and may restyle the page around it. */
@@ -255,7 +267,7 @@ public class PageHtmlTest {
                 + "<!-- .old{position:fixed;z-index:9} -->\n</style><p class=\"fit-width\">Hi</p>";
         final PageHtml.Cleaned cleaned = PageHtml.cleanNoting(stored);
         Assert.assertEquals(cleaned.body(), stored);
-        Assert.assertFalse(cleaned.dropped(), cleaned.summary(5));
+        Assert.assertFalse(cleaned.dropped(), named(cleaned));
         Assert.assertEquals(PageHtml.clean(cleaned.body()), cleaned.body(), "cleaning twice changes nothing");
     }
 
@@ -276,7 +288,7 @@ public class PageHtmlTest {
         final PageHtml.Cleaned cleaned = PageHtml.cleanNoting("<style>@import url(https://evil.example/x.css);"
                 + ".a{color:red}input[value^=\"a\"]{background:url(https://evil.example/a)}.b{margin:0}</style>");
         Assert.assertEquals(cleaned.body(), "<style>.a{color:red}.b{margin:0}</style>");
-        Assert.assertEquals(cleaned.summary(5),
+        Assert.assertEquals(named(cleaned),
                 "the rule \"@import url(https://evil.example/x.css);\" in a <style> block, "
                 + "the rule \"input[value^=\"a\"]\" in a <style> block");
         Assert.assertEquals(PageHtml.clean("<p>a</p><style>@import 'x.css';</style>"), "<p>a</p>",
@@ -299,6 +311,17 @@ public class PageHtmlTest {
             {"<textarea><style>p{}</style></textarea><img src=x onerror=alert(1)>"},
             {"<svg><style>p{}</style><script>alert(1)</script></svg>"},
             {"<style onload=\"alert(1)\" media=\"print\" onerror=alert(1)>p{}</style>"},
+            // Pre-push review 12e43432 F2: inside svg, a style element's content is markup to a browser.
+            {"<svg><style><img src=x onerror=alert(1)></style></svg>"},
+            {"<svg viewBox=\"0 0 1 1\"><path d=\"M0 0\"></path><style>a{}<img src=x onerror=alert(1)></style></svg>"},
+            {"<svg><path d=\"M0 0\"><style><script>alert(1)</script></style></path></svg>"},
+            {"<svg><!--><img src=x onerror=alert(1)>--></svg>"},
+            // Pre-push review 12e43432 F1: a piece typed in the middle of an attribute's NAME.
+            {"<p data-a<!--x><img src=y onerror=alert(1)>-->=\"1\">hi</p>"},
+            {"<p data-a<style><img src=y onerror=alert(1)></style>=\"1\">hi</p>"},
+            {"<a href=\"/x\" data-foo<!--\"><script>alert(1)</script>-->=\"1\">l</a>"},
+            {"<p<!--x><img src=y onerror=alert(1)>--> class=\"a\">hi</p>"},
+            {"<p class<!--x><img src=y onerror=alert(1)>-->=\"a\">hi</p>"},
         };
     }
 
@@ -309,6 +332,47 @@ public class PageHtmlTest {
         assertInert(cleaned);
         Assert.assertFalse(cleaned.matches("(?s).*tripc[0-9a-f]{32}x.*"), "a marker was left behind: " + cleaned);
         Assert.assertEquals(PageHtml.clean(cleaned), cleaned, "cleaning twice changes nothing");
+    }
+
+    /**
+     * A title is markup when it holds a "<", and a title whose "<" was only text must come back as the text it is:
+     * stored as cleaned HTML it would hold no "<", be taken for text on the next render and be escaped twice.
+     */
+    @Test
+    public void aTitleThatIsOnlyTextIsStoredAsText() {
+        Assert.assertTrue(PageHtml.titleHasMarkup("I <3 trips"));
+        Assert.assertFalse(PageHtml.titleHasMarkup("Trips & more"));
+        Assert.assertFalse(PageHtml.titleHasMarkup(null));
+        for (final String text : List.of("I <3 trips & more", "a < b", "Tom & Jerry", "")) {
+            final PageHtml.Cleaned stored = PageHtml.storedTitle(text);
+            Assert.assertEquals(stored.body(), text, "text is stored as typed");
+            Assert.assertEquals(PageHtml.storedTitle(stored.body()).body(), stored.body(), "and stays put");
+        }
+        Assert.assertEquals(PageHtml.storedTitle(null).body(), "");
+        Assert.assertEquals(PageHtml.storedTitle("<html>Tom & Jerry</html>").body(), "Tom & Jerry",
+                "every tag dropped: what is left is text again, with its ampersand");
+        Assert.assertEquals(named(PageHtml.storedTitle("<html>Tom & Jerry</html>")), "<html>");
+        Assert.assertEquals(PageHtml.storedTitle("<b onclick=\"x()\">A & B</b>").body(), "<b>A &amp; B</b>",
+                "still markup: stored as cleaned HTML");
+        // What the page then shows, by the renderer's own rule, is the title's words and nothing escaped twice.
+        Assert.assertEquals(ContentRenderer.titleText(PageHtml.storedTitle("I <3 trips & more").body()),
+                "I &lt;3 trips &amp; more");
+    }
+
+    /** What goes with the two holes the pre-push review found is REPORTED, never dropped in silence. */
+    @Test
+    public void aPieceThatCannotGoBackSafelyIsReported() {
+        final PageHtml.Cleaned inSvg = PageHtml.cleanNoting("<svg><style><img src=x onerror=alert(1)></style></svg>");
+        Assert.assertEquals(inSvg.body(), "<svg></svg>");
+        Assert.assertEquals(named(inSvg), "<style>");
+        final PageHtml.Cleaned inName = PageHtml.cleanNoting(
+                "<p data-a<!--x><img src=y onerror=alert(1)>-->=\"1\" class=\"k\">hi</p>");
+        Assert.assertEquals(inName.body(), "<p class=\"k\">hi</p>");
+        Assert.assertTrue(inName.dropped(), "the attribute and its comment are both named");
+        // A style block beside an svg, and a comment in ordinary text, are untouched by either rule.
+        final String fine = "<style>.i{width:1em}</style><svg class=\"i\" viewBox=\"0 0 1 1\"><path d=\"M0 0\"></path>"
+                + "</svg><p>a<!-- parked --></p>";
+        Assert.assertEquals(PageHtml.clean(fine), fine);
     }
 
     /** Between a table's rows the sanitizer keeps no text, so a block there moves on, as a comment does. */
@@ -397,7 +461,7 @@ public class PageHtmlTest {
     @Test(dataProvider = "inUse")
     public void whatProductionHoldsLosesNothing(final String stored) {
         final PageHtml.Cleaned cleaned = PageHtml.cleanNoting(stored);
-        Assert.assertFalse(cleaned.dropped(), "dropped " + cleaned.summary(10) + " from " + stored);
+        Assert.assertFalse(cleaned.dropped(), "dropped " + named(cleaned) + " from " + stored);
         Assert.assertEquals(PageHtml.clean(cleaned.body()), cleaned.body());
         Assert.assertEquals(HtmlShape.of(cleaned.body()), HtmlShape.of(stored));
     }
@@ -429,6 +493,6 @@ public class PageHtmlTest {
         final PageHtml.Cleaned odd = PageHtml.cleanNoting("<a href=\"/x\" rel=\"a&lt;b\" "
                 + PageHtml.CHECKED_REL + "=\"opener\">a</a>");
         Assert.assertEquals(odd.body(), "<a href=\"/x\">a</a>");
-        Assert.assertEquals(odd.drops(), List.of(new PageHtml.Drop(PageHtml.Drop.ATTRIBUTE, "a", "rel")));
+        Assert.assertEquals(odd.drops(), List.of(new PageHtml.Drop(PageHtml.Drop.Kind.ATTRIBUTE, "a", "rel")));
     }
 }

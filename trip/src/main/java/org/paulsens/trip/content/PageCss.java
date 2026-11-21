@@ -26,16 +26,21 @@ final class PageCss {
     /** {@code [value...]}, with or without a namespace bar in front of the name. */
     private static final Pattern VALUE_TEST = Pattern.compile(
             "\\[\\s*(?:\\*\\||[a-z0-9_-]{1,40}\\||\\|)?value(?![a-z0-9_-])");
+    /** {@code [data-...}: the attribute a selector tests, whatever follows its name. */
+    private static final Pattern DATA_TEST = Pattern.compile(
+            "\\[\\s*(?:\\*\\||[a-z0-9_-]{1,40}\\||\\|)?(data-[a-z0-9_.-]{1,60})");
     private static final int OPENING_MAX = 80;
 
     private PageCss() {
     }
 
     /**
-     * The CSS of a {@code style} block, with only the two things the owner refuses taken out (2026-11-21): a rule
-     * that loads another stylesheet ({@code @import}: what it holds can change after anyone looked), and a rule
-     * whose selector tests a form field's {@code value}, the one thing CSS does that READS the page rather than
-     * restyling it (with a picture fetched per match it sends a hidden field's value off, a character at a time).
+     * The CSS of a {@code style} block, with only what the owner refuses taken out (2026-11-21): a rule that loads
+     * another stylesheet ({@code @import}: what it holds can change after anyone looked), and a rule whose
+     * selector READS the page rather than restyling it: one that tests a form field's {@code value}, or names a
+     * {@code data-} attribute the site's own pages use (with a picture fetched per match, either sends what it
+     * finds off, a character at a time). This is not every attribute selector: one on a class, a link's address
+     * or an author's own {@code data-} attribute is styling, and stays.
      * Everything else is the author's, kept exactly as typed: the people who write these blocks hold a granted
      * role, and restyling the page around their section is what they use it for.
      *
@@ -121,7 +126,24 @@ final class PageCss {
 
     private static boolean refused(final String statement) {
         final String read = unescaped(CSS_COMMENT.matcher(statement).replaceAll(" ")).toLowerCase(Locale.ROOT);
-        return IMPORT.matcher(read).find() || VALUE_TEST.matcher(read).find();
+        return IMPORT.matcher(read).find() || VALUE_TEST.matcher(read).find() || testsASiteAttribute(read);
+    }
+
+    /**
+     * Whether a selector names a {@code data-} attribute the site's own pages use ({@link PageHtml#dataAllowed}).
+     * Those hold what the pages hand their scripts, some of it the visitor's own (the trip page carries the
+     * signed-in person's id in one), and a selector on one with a picture fetched per match sends it off just as
+     * a selector on a field's value does. An author cannot type such an attribute, so no rule of theirs has a
+     * reason to name one.
+     */
+    private static boolean testsASiteAttribute(final String read) {
+        final Matcher named = DATA_TEST.matcher(read);
+        while (named.find()) {
+            if (!PageHtml.dataAllowed(named.group(1), "")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** The text with each CSS escape replaced by the character it spells. */

@@ -1,23 +1,21 @@
 package org.paulsens.trip.migrate;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.paulsens.trip.content.HtmlShape;
 import org.paulsens.trip.content.PageHtml;
 import org.paulsens.trip.content.ProgrammaticTypes;
+import org.paulsens.trip.dynamo.RawRows;
 import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.ContentRecord;
 import org.paulsens.trip.model.ContentTemplate;
@@ -49,7 +47,25 @@ public final class HtmlClean {
     /** Deeper than any real nesting; a bound so two rows naming each other cannot loop forever. */
     private static final int MAX_DEPTH = 20;
 
+    /** The version name of the one a page shows; every other is {@link #previous}. */
+    static final String CURRENT = "current";
+    private static final String PREVIOUS_PREFIX = "previous ";
+    /** A content row's title, as a {@link Value}'s field. */
+    static final String TITLE = "title";
+    /** What a rich-text value's field starts with; the placeholder's name follows. */
+    static final String VALUE_PREFIX = "value ";
+
     private final Store store;
+
+    /** The name of a content row's retained version: its place among all of them, the current one being 0. */
+    static String previous(final int placeAmongAll) {
+        return PREVIOUS_PREFIX + placeAmongAll;
+    }
+
+    /** The place {@link #previous} was given; only for a version that is not {@link #CURRENT}. */
+    static int placeOf(final String previousVersion) {
+        return Integer.parseInt(previousVersion.substring(PREVIOUS_PREFIX.length()));
+    }
 
     public HtmlClean(final Store store) {
         this.store = store;
@@ -89,7 +105,7 @@ public final class HtmlClean {
 
         /** Whether a page shows this value today; undo history is stored but never rendered. */
         public boolean shown() {
-            return "current".equals(version);
+            return CURRENT.equals(version);
         }
     }
 
@@ -121,9 +137,11 @@ public final class HtmlClean {
         for (final Trip trip : store.trips()) {
             trips.put(trip.getId(), trip);
             final List<Value> values = byUnit.computeIfAbsent(trip.getId(), key -> new ArrayList<>());
-            addValue(values, "trips", trip.getId(), "current", "description", trip.getDescription());
-            store.todos(trip.getId()).forEach(todo -> addValue(values, "todo_items",
-                    trip.getId() + "/" + todo.getDataId().getValue(), "current", "moreDetails", todo.getMoreDetails()));
+            addValue(values, RawRows.TRIPS, trip.getId(), CURRENT, "description", trip.getDescription(),
+                    PageHtml::cleanNoting);
+            store.todos(trip.getId()).forEach(todo -> addValue(values, RawRows.TODO_ITEMS,
+                    RawRows.todoRowId(trip.getId(), todo.getDataId().getValue()), CURRENT, "moreDetails",
+                    todo.getMoreDetails(), PageHtml::cleanNoting));
         }
         final List<ContentRecord> records = store.contentRecords();
         final Map<String, String> sections = sectionsById(records);
@@ -203,13 +221,17 @@ public final class HtmlClean {
         final List<ContentInstance> versions = record.getAllVersions();
         for (int i = 0; i < versions.size(); i++) {
             final ContentInstance instance = versions.get(i);
-            final String version = i == 0 && instance == record.getCurrent() ? "current" : "previous " + i;
-            // A title with no markup is escaped where it is written, so it is text, not HTML to clean.
-            if (instance.getTitle() != null && instance.getTitle().indexOf('<') >= 0) {
-                addValue(values, "content", record.getId(), version, "title", instance.getTitle());
+            final String version = i == 0 && instance == record.getCurrent() ? CURRENT : previous(i);
+            // A title with no markup is escaped where it is written, so it is text, not HTML to clean; and one
+            // with markup is stored the way a save stores it (PageHtml.storedTitle), so that a title a save would
+            // leave alone is not a change here either.
+            if (PageHtml.titleHasMarkup(instance.getTitle())) {
+                addValue(values, RawRows.CONTENT_ROWS, record.getId(), version, TITLE, instance.getTitle(),
+                        PageHtml::storedTitle);
             }
             for (final String name : richTextNames(instance)) {
-                addValue(values, "content", record.getId(), version, "value " + name, instance.getValues().get(name));
+                addValue(values, RawRows.CONTENT_ROWS, record.getId(), version, VALUE_PREFIX + name,
+                        instance.getValues().get(name), PageHtml::cleanNoting);
             }
         }
     }
@@ -230,11 +252,12 @@ public final class HtmlClean {
     }
 
     private static void addValue(final List<Value> values, final String table, final String rowId,
-            final String version, final String field, final String stored) {
+            final String version, final String field, final String stored,
+            final Function<String, PageHtml.Cleaned> cleaner) {
         if (stored == null || stored.isBlank()) {
             return;
         }
-        final PageHtml.Cleaned cleaned = PageHtml.cleanNoting(stored);
+        final PageHtml.Cleaned cleaned = cleaner.apply(stored);
         final HtmlShape before = HtmlShape.of(stored);
         final HtmlShape after = HtmlShape.of(cleaned.body());
         final List<String> lostTags = new ArrayList<>(before.tagsMissingFrom(after));
@@ -245,7 +268,7 @@ public final class HtmlClean {
         final List<String> drops = cleaned.drops().stream().map(PageHtml.Drop::describe).distinct().toList();
         values.add(new Value(table, rowId, version, field,
                 verdict(stored, cleaned, lostTags, textDiffers, before, after), drops, lostTags, textDiffers,
-                sha256(stored), sha256(cleaned.body()), stored, cleaned.body()));
+                LedgerData.sha256(stored), LedgerData.sha256(cleaned.body()), stored, cleaned.body()));
     }
 
     private static Verdict verdict(final String stored, final PageHtml.Cleaned cleaned, final List<String> lostTags,
@@ -255,15 +278,5 @@ public final class HtmlClean {
         }
         final boolean same = !cleaned.dropped() && lostTags.isEmpty() && !textDiffers && before.equals(after);
         return same ? Verdict.EQUIVALENT : Verdict.CHANGED;
-    }
-
-    /** The fingerprint an approval is tied to: it stops counting the moment the stored or the cleaned text moves. */
-    static String sha256(final String text) {
-        try {
-            return HexFormat.of().formatHex(
-                    MessageDigest.getInstance("SHA-256").digest(text.getBytes(StandardCharsets.UTF_8)));
-        } catch (final NoSuchAlgorithmException ex) {
-            throw new IllegalStateException("Every Java runtime has SHA-256", ex);
-        }
     }
 }

@@ -1,5 +1,6 @@
 package org.paulsens.trip.migrate;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectWriter;
@@ -57,6 +58,8 @@ public final class HtmlCleanCli {
     static final String APPROVALS = "approvals.json";
     static final String APPLIED = "applied.json";
     static final String VISUAL = "visual/visual.json";
+    private static final TypeReference<List<HtmlCleanMigration.Approval>> APPROVAL_LIST = new TypeReference<>() { };
+    private static final TypeReference<List<HtmlCleanMigration.RowChange>> ROW_LIST = new TypeReference<>() { };
 
     private final ObjectMapper mapper;
     private final ObjectWriter files;
@@ -156,12 +159,13 @@ public final class HtmlCleanCli {
 
     // ------------------------------------------------------------------ what clears a unit
 
-    private JsonNode evaluatedPlan(final Path dir) throws IOException {
+    /** The evaluation the owner's tools ran, read back into the records it was written from. */
+    private HtmlClean.Plan evaluatedPlan(final Path dir) throws IOException {
         final Path file = dir.resolve(PLAN);
         if (!Files.exists(file)) {
             throw new IllegalArgumentException("No " + file + ": run plan --out " + dir + " first.");
         }
-        return mapper.readTree(file.toFile());
+        return mapper.readValue(file.toFile(), HtmlClean.Plan.class);
     }
 
     /** What the evaluation in DIR said of each unit: the fingerprint it judged, and its pictures' verdict. */
@@ -169,29 +173,22 @@ public final class HtmlCleanCli {
         final Map<String, String> pictures = new HashMap<>();
         final Path visual = dir.resolve(VISUAL);
         if (Files.exists(visual)) {
+            // The private repo's comparison writes this one, so it is read as the JSON it is, not as a record.
             for (final JsonNode unit : mapper.readTree(visual.toFile())) {
                 pictures.put(unit.path("key").asText(), unit.path("verdict").asText());
             }
         }
         final Map<String, HtmlCleanMigration.Evaluated> evaluated = new HashMap<>();
-        for (final JsonNode unit : evaluatedPlan(dir).path("units")) {
-            final String key = unit.path("key").asText();
-            evaluated.put(key, new HtmlCleanMigration.Evaluated(HtmlCleanMigration.fingerprint(unit),
-                    pictures.getOrDefault(key, "")));
+        for (final HtmlClean.Unit unit : evaluatedPlan(dir).units()) {
+            evaluated.put(unit.key(), new HtmlCleanMigration.Evaluated(HtmlCleanMigration.fingerprint(unit),
+                    pictures.getOrDefault(unit.key(), "")));
         }
         return evaluated;
     }
 
     private List<HtmlCleanMigration.Approval> approvals(final Path dir) throws IOException {
-        final List<HtmlCleanMigration.Approval> approvals = new ArrayList<>();
         final Path file = dir.resolve(APPROVALS);
-        if (Files.exists(file)) {
-            for (final JsonNode node : mapper.readTree(file.toFile())) {
-                approvals.add(new HtmlCleanMigration.Approval(node.path("key").asText(), node.path("title").asText(),
-                        node.path("fingerprint").asText(), node.path("words").asText(), node.path("date").asText()));
-            }
-        }
-        return approvals;
+        return Files.exists(file) ? mapper.readValue(file.toFile(), APPROVAL_LIST) : List.of();
     }
 
     /**
@@ -204,10 +201,8 @@ public final class HtmlCleanCli {
         if (key.isBlank() || words.isBlank()) {
             throw new IllegalArgumentException("approve needs --unit KEY and --words \"what the owner said\".");
         }
-        JsonNode found = null;
-        for (final JsonNode unit : evaluatedPlan(dir).path("units")) {
-            found = key.equals(unit.path("key").asText()) ? unit : found;
-        }
+        final HtmlClean.Unit found = evaluatedPlan(dir).units().stream()
+                .filter(unit -> key.equals(unit.key())).findFirst().orElse(null);
         final String fingerprint = found == null ? "" : HtmlCleanMigration.fingerprint(found);
         if (fingerprint.isEmpty()) {
             throw new IllegalArgumentException(found == null ? "plan.json has no unit " + key + "."
@@ -215,10 +210,10 @@ public final class HtmlCleanCli {
         }
         final List<HtmlCleanMigration.Approval> approvals = new ArrayList<>(approvals(dir));
         approvals.removeIf(approval -> approval.key().equals(key));
-        approvals.add(new HtmlCleanMigration.Approval(key, found.path("title").asText(), fingerprint, words,
+        approvals.add(new HtmlCleanMigration.Approval(key, found.title(), fingerprint, words,
                 LocalDate.now().toString()));
         files.writeValue(dir.resolve(APPROVALS).toFile(), approvals);
-        out.println("Approved " + key + " (" + found.path("title").asText() + ") for the texts in " + PLAN + ".");
+        out.println("Approved " + key + " (" + found.title() + ") for the texts in " + PLAN + ".");
         return 0;
     }
 
@@ -237,7 +232,7 @@ public final class HtmlCleanCli {
         final Map<String, Map<String, String>> raw = HtmlCleanMigration.readAll(requireRows());
         final MemoryRows memory = new MemoryRows(raw);
         final HtmlCleanMigration.Outcome outcome = migration.apply(migration.work(planOver(raw), raw),
-                evaluated(dir), approvals(dir), memory, false, row -> { }, applied -> { });
+                evaluated(dir), approvals(dir), memory, false, HtmlCleanCli::noBackup, HtmlCleanCli::noRecord);
         final List<String> lines = new ArrayList<>();
         lines.add("REHEARSAL, nothing was written. Rows an apply would write: " + outcome.applied().size() + ".");
         outcome.applied().forEach(row -> lines.add("  write " + row.table() + " " + row.rowId() + " (unit "
@@ -279,7 +274,7 @@ public final class HtmlCleanCli {
     private void backUp(final Path dir, final HtmlCleanMigration.RowChange row) {
         try {
             Files.writeString(dir.resolve("before").resolve(row.table() + "-"
-                    + HtmlClean.sha256(row.rowId()).substring(0, 16) + "-" + System.nanoTime() + ".json"),
+                    + LedgerData.sha256(row.rowId()).substring(0, 16) + "-" + System.nanoTime() + ".json"),
                     row.before());
         } catch (final IOException ex) {
             throw new UncheckedIOException("Cannot write the backup of " + row.table() + " " + row.rowId(), ex);
@@ -287,18 +282,21 @@ public final class HtmlCleanCli {
     }
 
     private List<HtmlCleanMigration.RowChange> appliedSoFar(final Path dir) throws IOException {
-        final List<HtmlCleanMigration.RowChange> applied = new ArrayList<>();
         final Path file = dir.resolve(APPLIED);
-        if (Files.exists(file)) {
-            for (final JsonNode node : mapper.readTree(file.toFile())) {
-                applied.add(new HtmlCleanMigration.RowChange(node.path("unit").asText(), node.path("table").asText(),
-                        node.path("rowId").asText(), node.path("before").asText(), node.path("after").asText()));
-            }
-        }
-        return applied;
+        return Files.exists(file) ? mapper.readValue(file.toFile(), ROW_LIST) : List.of();
     }
 
-    /** Every row written by this run and the runs before it, rewritten after each unit. */
+    /** A rehearsal writes nothing, so it backs nothing up. */
+    private static void noBackup(final HtmlCleanMigration.RowChange row) {
+        // Nothing to do: the rows a rehearsal "writes" are its own copies.
+    }
+
+    /** A rehearsal leaves no applied.json: there is nothing to roll back. */
+    private static void noRecord(final List<HtmlCleanMigration.RowChange> applied) {
+        // Nothing to do.
+    }
+
+    /** Every row written by this run and the runs before it, rewritten after EACH row. */
     private void recordApplied(final Path dir, final List<HtmlCleanMigration.RowChange> earlier,
             final List<HtmlCleanMigration.RowChange> now) {
         final List<HtmlCleanMigration.RowChange> all = new ArrayList<>(earlier);

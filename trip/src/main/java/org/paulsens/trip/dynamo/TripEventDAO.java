@@ -14,7 +14,6 @@ import org.paulsens.trip.cache.PointCache;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripEvent;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
-import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
 import software.amazon.awssdk.services.dynamodb.model.GetItemResponse;
 
 @Slf4j
@@ -82,16 +81,7 @@ public class TripEventDAO {
      * so it can write back only rows that still hold exactly this text ({@link #replaceTripEventContent}).
      */
     protected Map<String, String> rawTripEventContents() {
-        final Map<String, String> contents = new HashMap<>();
-        for (final Map<String, AttributeValue> item
-                : persistence.scanAll(b -> b.tableName(TRIP_EVENT_TABLE).consistentRead(true).build())) {
-            final AttributeValue id = item.get(ID);
-            final AttributeValue content = item.get(CONTENT);
-            if (id != null && content != null && content.s() != null) {
-                contents.put(id.s(), content.s());
-            }
-        }
-        return contents;
+        return new RawRows(persistence).read(RawRows.TRIP_EVENTS);
     }
 
     /**
@@ -100,19 +90,11 @@ public class TripEventDAO {
      * event): a repair must never overwrite an edit it did not see.
      */
     protected boolean replaceTripEventContent(final String id, final String expected, final String replacement) {
-        final Map<String, AttributeValue> item = new HashMap<>();
-        item.put(ID, persistence.toStrAttr(id));
-        item.put(CONTENT, persistence.toStrAttr(replacement));
-        try {
-            persistence.putItem(b -> b.tableName(TRIP_EVENT_TABLE).item(item)
-                    .conditionExpression("#c = :expected")
-                    .expressionAttributeNames(Map.of("#c", CONTENT))
-                    .expressionAttributeValues(Map.of(":expected", persistence.toStrAttr(expected))));
-        } catch (final ConditionalCheckFailedException ex) {
-            return false;
+        final boolean replaced = new RawRows(persistence).replace(RawRows.TRIP_EVENTS, id, expected, replacement);
+        if (replaced) {
+            cache.remove(id);
         }
-        cache.remove(id);
-        return true;
+        return replaced;
     }
 
     /** Hard-deletes one event row. Events carry no tripId, so the caller must resolve ids via the Trip FIRST. */

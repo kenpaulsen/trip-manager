@@ -201,12 +201,19 @@ public class ContentCommands {
         if (working != null && validateAuthoredHtml(working) == null) {
             final List<String> removed = wouldRemove(working);
             if (!removed.isEmpty() && !keyOf(removed).equals(okKey)) {
+                // The drawer is NOT redrawn for the question: redrawing rebuilds its editors, and an author who
+                // typed in the HTML view would come back from "Go back and change it" to the Visual view, where
+                // the script or handler they were told about is not shown and an edit rewrites their markup.
                 PageFeedback.callbackParam("stripAsk", true);
                 return false;
             }
         }
+        PageFeedback.alsoRender(DRAWER);
         return saveNewContentAt(working, beforeId);
     }
+
+    /** The content drawer's client id: redrawn after a save or a refusal, never for the question above. */
+    private static final String DRAWER = "form:contentDlg";
 
     /** Names one exact list of removals, so that an author's OK covers that list and no other. */
     public String removalsKey(final ContentInstance working) {
@@ -220,8 +227,7 @@ public class ContentCommands {
     /** Says after a save exactly what the allowlist took out, so that it is never a surprise found later. */
     private static void warnOfRemovals(final List<String> removed) {
         if (!removed.isEmpty()) {
-            // All in the summary: the growl shows no detail for a message raised from Java.
-            PageFeedback.warn("Saved, with some markup removed. " + String.join(" ", removed));
+            PageFeedback.warn(StripNotes.savedNotice(removed));
         }
     }
 
@@ -375,8 +381,8 @@ public class ContentCommands {
      */
     private List<String> cleanAuthoredHtml(final ContentInstance instance) {
         final List<String> removed = new ArrayList<>();
-        if (hasMarkup(instance.getTitle())) {
-            final PageHtml.Cleaned title = PageHtml.cleanNoting(instance.getTitle());
+        if (PageHtml.titleHasMarkup(instance.getTitle())) {
+            final PageHtml.Cleaned title = PageHtml.storedTitle(instance.getTitle());
             instance.setTitle(title.body());
             removed.addAll(StripNotes.lines("Title", title));
         }
@@ -403,10 +409,6 @@ public class ContentCommands {
             instance.getValues().put(ph.getName(), cleaned.body());
         }
         return StripNotes.lines(ph.getLabel(), cleaned);
-    }
-
-    private static boolean hasMarkup(final String title) {
-        return title != null && title.indexOf('<') >= 0;
     }
 
     /**
@@ -986,7 +988,7 @@ public class ContentCommands {
 
     /** The title (when it carries markup) and every RICH_TEXT value must be structurally sound HTML. */
     private String validateAuthoredHtml(final ContentInstance instance) {
-        if (instance.getTitle() != null && instance.getTitle().indexOf('<') >= 0) {
+        if (PageHtml.titleHasMarkup(instance.getTitle())) {
             final String titleProblem = HtmlFragmentValidator.validate(instance.getTitle());
             if (titleProblem != null) {
                 return "Title: " + titleProblem;

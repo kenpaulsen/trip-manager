@@ -17,21 +17,25 @@ import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedExce
  * unchanged". So a row is read as the string it is stored as and replaced only while it still holds that string.
  *
  * <p>The caches are NOT touched here: a migration runs with the shared cache off, and its script drops the app's
- * caches afterwards. Three tables, each a key and one {@code content} attribute: {@code trips} and
- * {@code content} keyed by {@code id}, {@code todo_items} by {@code tripId} and {@code dataId} (a row id here is
- * {@code tripId/dataId}).
+ * caches afterwards (a caller with a cache of its own drops its entry itself). Four tables, each a key and one
+ * {@code content} attribute: {@code trips}, {@code content} and {@code trip_events} keyed by {@code id}, and
+ * {@code todo_items} by {@code tripId} and {@code dataId} (a row id here is {@link #todoRowId}).
  */
-final class RawRows {
+public final class RawRows {
 
-    static final String TRIPS = "trips";
-    static final String CONTENT_ROWS = "content";
-    static final String TODO_ITEMS = "todo_items";
-    static final List<String> TABLES = List.of(TRIPS, CONTENT_ROWS, TODO_ITEMS);
+    public static final String TRIPS = "trips";
+    public static final String CONTENT_ROWS = "content";
+    public static final String TODO_ITEMS = "todo_items";
+    /** Trip events too: the note repair ({@code migrate.NoteElFlattenCli}) reads and rewrites them the same way. */
+    static final String TRIP_EVENTS = "trip_events";
+    static final List<String> TABLES = List.of(TRIPS, CONTENT_ROWS, TODO_ITEMS, TRIP_EVENTS);
 
     private static final String ID = "id";
     private static final String TRIP_ID = "tripId";
     private static final String DATA_ID = "dataId";
     private static final String CONTENT = "content";
+    /** Never part of a trip id (a UUID), so the first one in a row id ends the trip's part. */
+    private static final char TODO_ID_SEPARATOR = '/';
 
     private final Persistence persistence;
 
@@ -74,6 +78,16 @@ final class RawRows {
         return true;
     }
 
+    /** A to-do row's id here: its two key parts, the trip's id first. */
+    public static String todoRowId(final String tripId, final String dataId) {
+        return tripId + TODO_ID_SEPARATOR + dataId;
+    }
+
+    /** What every to-do row id of one trip starts with. */
+    public static String todoRowIdPrefix(final String tripId) {
+        return tripId + TODO_ID_SEPARATOR;
+    }
+
     private static void requireKnown(final String table) {
         if (!TABLES.contains(table)) {
             throw new IllegalArgumentException("Not a table this migration may read or write: " + table);
@@ -86,14 +100,14 @@ final class RawRows {
         }
         final AttributeValue trip = item.get(TRIP_ID);
         final AttributeValue data = item.get(DATA_ID);
-        return trip == null || data == null ? null : trip.s() + "/" + data.s();
+        return trip == null || data == null ? null : todoRowId(trip.s(), data.s());
     }
 
     private Map<String, AttributeValue> key(final String table, final String rowId) {
         if (!TODO_ITEMS.equals(table)) {
             return Map.of(ID, persistence.toStrAttr(rowId));
         }
-        final int slash = rowId.indexOf('/');
+        final int slash = rowId.indexOf(TODO_ID_SEPARATOR);
         if (slash <= 0) {
             throw new IllegalArgumentException("A to-do row id is tripId/dataId, not: " + rowId);
         }

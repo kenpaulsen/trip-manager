@@ -172,6 +172,21 @@ public class ContentRendererTest {
         Assert.assertEquals(out, "<p>&lt;script&gt;alert(&#39;&amp;&#39;)&lt;/script&gt;</p>");
     }
 
+    /**
+     * medjugorje#158: a rich-text value is cleaned where it is written out, whatever reached storage. Without
+     * this, a row stored before the cleaner (or written past it) would go to the page as it is.
+     */
+    @Test
+    public void richTextIsCleanedWhereItIsRendered() {
+        final ContentTemplate tpl = template("<div>{{body}}</div>", ph("body", Placeholder.Type.RICH_TEXT));
+        final String out = ContentRenderer.render(tpl,
+                instance(Map.of("body", "<p onclick=\"x()\">a</p><script>x()</script>")));
+        Assert.assertEquals(out, "<div><p>a</p></div>");
+        Assert.assertEquals(ContentRenderer.renderContainerTitle("<b onclick=\"x()\">T</b><script>x()</script>"),
+                "<b>T</b>");
+        Assert.assertEquals(ContentRenderer.titleText("<i onmouseover=\"x()\">T</i>"), "<i>T</i>");
+    }
+
     @Test
     public void richTextPassesThroughVerbatim() {
         final ContentTemplate tpl = template("<div>{{body}}</div>", ph("body", Placeholder.Type.RICH_TEXT));

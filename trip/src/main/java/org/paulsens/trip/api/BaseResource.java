@@ -14,6 +14,7 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Collection;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -56,11 +57,14 @@ public abstract class BaseResource {
 
     /**
      * Names what the allowlist removed from typed HTML a write carried (medjugorje#158): one header value per
-     * removal, percent-encoded, each a sentence fit to show the person who typed it ({@code StripNotes}). Absent
+     * removal, percent-encoded, each a sentence fit to show the person who typed it ({@code StripNotes}), at most
+     * {@value #MARKUP_REMOVED_MAX} per field and then one value saying how many more. Absent
      * when nothing was removed. A client that edits HTML shows these; one that does not can ignore them, and the
      * body it gets back holds the cleaned text either way.
      */
     public static final String MARKUP_REMOVED_HEADER = "X-Markup-Removed";
+    /** The most removals one field names in the header; one more value then says how many were left out. */
+    static final int MARKUP_REMOVED_MAX = 10;
 
     @Context
     protected HttpServletRequest request;
@@ -450,12 +454,19 @@ public abstract class BaseResource {
             return null;
         }
         final PageHtml.Cleaned cleaned = PageHtml.cleanNoting(html);
+        final List<String> lines = StripNotes.lines(field, cleaned);
         if (response != null) {
-            for (final String line : StripNotes.lines(field, cleaned)) {
-                response.addHeader(MARKUP_REMOVED_HEADER,
-                        URLEncoder.encode(line, StandardCharsets.UTF_8).replace("+", "%20"));
+            // Capped: a pasted page can lose fifty kinds of thing, and a response's headers share a small buffer
+            // (8 KB by default); overflowing it would answer a write that SUCCEEDED with a 500.
+            lines.stream().limit(MARKUP_REMOVED_MAX).forEach(this::addMarkupRemoved);
+            if (lines.size() > MARKUP_REMOVED_MAX) {
+                addMarkupRemoved(field + ": and " + (lines.size() - MARKUP_REMOVED_MAX) + " more.");
             }
         }
         return cleaned.body();
+    }
+
+    private void addMarkupRemoved(final String line) {
+        response.addHeader(MARKUP_REMOVED_HEADER, URLEncoder.encode(line, StandardCharsets.UTF_8).replace("+", "%20"));
     }
 }

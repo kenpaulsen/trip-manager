@@ -11,6 +11,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import org.owasp.html.Encoding;
 import org.owasp.html.Handler;
 import org.owasp.html.HtmlChangeListener;
 import org.owasp.html.HtmlPolicyBuilder;
@@ -39,8 +40,7 @@ import org.owasp.html.PolicyFactory;
  * {@code data:} address, a frame's {@code srcdoc}.
  *
  * <p>The parsing, the tag balancing and the writing are the OWASP Java HTML Sanitizer's, not ours: a wide list is
- * where a hand-written scanner goes wrong. Three things are ours, each for a reason the 2026-11-17 trial of the
- * library showed:
+ * where a hand-written scanner goes wrong. What follows is ours, each for a reason a trial of the library showed:
  * <ul>
  *   <li>An inline style is kept as typed and never sees the library's CSS schema, which edits inside a value and
  *       reports nothing ({@link PageCss}). The library treats the name {@code style} specially, so the style
@@ -99,26 +99,33 @@ public final class PageHtml {
      * The {@code data-} names an author may NOT type, because a script on the site's pages acts on them: content
      * that carried one could make that script treat the author's markup as its own (PrimeFaces runs the text of
      * {@code data-pfconfirmcommand} as script). Every other {@code data-} name is the author's (the owner's
-     * decision, 2026-11-21). The list is every name the private repo's pages and scripts mention, kept current by
-     * its {@code DataAttributePolicyIT}, which fails when a page starts to use a name an author can still type.
+     * decision, 2026-11-21). The list is every name the private repo's pages, scripts and theme scripts mention,
+     * kept current by its {@code DataAttributePolicyIT}, which fails when a page starts to use a name an author can
+     * still type. PrimeFaces' own names are NOT scanned (its jars name about two hundred, most for widgets no page
+     * here uses, and many as plain as {@code data-src}): its two prefixes are reserved whole, and the names its
+     * core script reads on any page are listed by hand ({@code data-ri}, {@code data-rk}, {@code data-rowkey},
+     * {@code data-prk}, {@code data-widget}, {@code data-item-value}, {@code data-item-label},
+     * {@code data-token-value}, {@code data-bui-overlay}, {@code data-bui-content}). A PrimeFaces upgrade is the
+     * time to look at that list again.
      */
     private static final Set<String> DATA_RESERVED = Set.of(
-            "data-act", "data-album", "data-aliases", "data-auto", "data-before", "data-brand", "data-busy",
-            "data-client-secret", "data-colors", "data-contrast-exempt", "data-count", "data-covered", "data-ctx",
-            "data-dark", "data-draft", "data-due", "data-email", "data-epoch", "data-fallback", "data-fits",
-            "data-flickr-embed", "data-fmt", "data-full", "data-handle", "data-hint", "data-holds", "data-input",
-            "data-insert-editor", "data-insert-input", "data-item-id", "data-jsqr", "data-key", "data-kind",
-            "data-la-bound", "data-label", "data-lang", "data-light", "data-low", "data-max", "data-me", "data-mode",
+            "data-act", "data-album", "data-aliases", "data-auto", "data-before", "data-brand", "data-bui-content",
+            "data-bui-overlay", "data-busy", "data-client-secret", "data-colors", "data-contrast-exempt",
+            "data-count", "data-covered", "data-ctx", "data-dark", "data-draft", "data-due", "data-email",
+            "data-epoch", "data-fallback", "data-fits", "data-flickr-embed", "data-fmt", "data-full", "data-handle",
+            "data-hint", "data-holds", "data-input", "data-insert-editor", "data-insert-input", "data-item-id",
+            "data-item-label", "data-item-value", "data-jsqr", "data-key", "data-kind", "data-la-bound",
+            "data-label", "data-lang", "data-light", "data-low", "data-manual", "data-max", "data-me", "data-mode",
             "data-name", "data-new", "data-on", "data-open", "data-org", "data-overridden-browser-behavior-msg",
             "data-overrides", "data-page", "data-pairs", "data-palette", "data-palettes", "data-party",
             "data-pay-total", "data-person", "data-person-id", "data-ph", "data-photo", "data-picker-for",
-            "data-plan-id", "data-publishable-key", "data-pv-keys", "data-reactions-for", "data-ready", "data-real",
-            "data-region-id", "data-reprice-url", "data-reservation-id", "data-return-url", "data-room",
-            "data-room-id", "data-rot-key", "data-rotatable", "data-rule", "data-scope", "data-search", "data-self",
-            "data-setting", "data-signed-in", "data-source", "data-start", "data-state", "data-status", "data-step",
-            "data-tag", "data-tall", "data-template", "data-ticket-origin", "data-title", "data-token",
-            "data-tooltip", "data-tx", "data-userid", "data-utc", "data-value", "data-var", "data-wired",
-            "data-widget", "data-ri", "data-rk");
+            "data-plan-id", "data-prk", "data-publishable-key", "data-pv-keys", "data-reactions-for", "data-ready",
+            "data-real", "data-region-id", "data-reprice-url", "data-reservation-id", "data-return-url", "data-ri",
+            "data-rk", "data-room", "data-room-id", "data-rot-key", "data-rotatable", "data-rowkey", "data-rule",
+            "data-scope", "data-search", "data-self", "data-setting", "data-signed-in", "data-source", "data-start",
+            "data-state", "data-status", "data-step", "data-tag", "data-tall", "data-template", "data-ticket-origin",
+            "data-title", "data-token", "data-token-value", "data-tooltip", "data-tx", "data-userid", "data-utc",
+            "data-value", "data-var", "data-widget", "data-wired");
 
     /** Whole families a script owns: PrimeFaces ({@code data-pf...}, {@code data-p-...}), and this site's own. */
     private static final List<String> DATA_RESERVED_PREFIXES = List.of("data-pf", "data-p-", "data-trip",
@@ -151,13 +158,13 @@ public final class PageHtml {
     private static final HtmlChangeListener<List<Drop>> NOTING = new HtmlChangeListener<>() {
         @Override
         public void discardedTag(final List<Drop> drops, final String element) {
-            drops.add(new Drop(Drop.TAG, element, ""));
+            drops.add(new Drop(Drop.Kind.TAG, element, ""));
         }
 
         @Override
         public void discardedAttributes(final List<Drop> drops, final String element, final String... attributes) {
             for (final String attribute : attributes) {
-                drops.add(new Drop(Drop.ATTRIBUTE, element, attribute));
+                drops.add(new Drop(Drop.Kind.ATTRIBUTE, element, attribute));
             }
         }
     };
@@ -171,25 +178,22 @@ public final class PageHtml {
     /**
      * One thing a clean removed that its writer could have seen or relied on.
      *
-     * @param kind    {@link #TAG}, {@link #ATTRIBUTE}, {@link #CSS_RULE} or {@link #COMMENT}
-     * @param element the tag it was, or was on
+     * @param element the tag it was, or was on; blank for a comment
      * @param detail  the attribute's name, a comment's first words, or the start of a style block's rule;
      *                blank for a tag
      */
-    public record Drop(String kind, String element, String detail) {
-        public static final String TAG = "tag";
-        public static final String ATTRIBUTE = "attribute";
-        public static final String COMMENT = "comment";
-        /** A whole rule of a {@code style} block. */
-        public static final String CSS_RULE = "cssRule";
+    public record Drop(Kind kind, String element, String detail) {
 
-        /** How a save names it to the person who typed it. */
+        /** What kind of thing went; an enum so that whoever words a removal cannot forget one. */
+        public enum Kind { TAG, ATTRIBUTE, COMMENT, CSS_RULE }
+
+        /** The short name a report uses; {@link StripNotes} words it for the person who typed it. */
         public String describe() {
             return switch (kind) {
                 case TAG -> "<" + element + ">";
                 case ATTRIBUTE -> detail + " on <" + element + ">";
                 case COMMENT -> "the comment \"" + detail + "\"";
-                default -> "the rule \"" + detail + "\" in a <style> block";
+                case CSS_RULE -> "the rule \"" + detail + "\" in a <style> block";
             };
         }
     }
@@ -200,18 +204,40 @@ public final class PageHtml {
         public boolean dropped() {
             return !drops.isEmpty();
         }
-
-        /** The drops for a message: each kind of thing once, at most {@code max} of them, then how many more. */
-        public String summary(final int max) {
-            final List<String> named = drops.stream().map(Drop::describe).distinct().toList();
-            final String shown = named.stream().limit(max).collect(Collectors.joining(", "));
-            return named.size() > max ? shown + " and " + (named.size() - max) + " more" : shown;
-        }
     }
 
-    /** The HTML with only allowlisted markup left; null becomes blank. Cleaning a cleaned body changes nothing. */
+    /**
+     * The HTML with only allowlisted markup left; null becomes blank. Cleaning a cleaned body changes nothing.
+     * This is what a page calls on every render, so the answer is remembered ({@link CleanMemo}): a page writes
+     * the same few stored values to every visitor.
+     */
     public static String clean(final String html) {
-        return cleanNoting(html).body();
+        return html == null || html.isEmpty() ? "" : MEMO.get(html, PageHtml::cleanNow).body();
+    }
+
+    /**
+     * Whether a TITLE is markup or text: it is markup when it holds a {@code <}. THE one test: a title that is
+     * markup is cleaned where it is saved, judged and written out, and one that is text is escaped where it is
+     * written out, so save, render and migration must all ask it here.
+     */
+    public static boolean titleHasMarkup(final String title) {
+        return title != null && title.indexOf('<') >= 0;
+    }
+
+    /**
+     * A title as it is STORED: as typed when it is text; cleaned when it is markup. With one catch, which is why
+     * this is not just {@link #clean}: when cleaning leaves no tag (the {@code <} was text, as in "I <3 trips",
+     * or every tag was dropped), what is left is text again, and it is stored AS text, entities decoded. Stored
+     * as the cleaned HTML ("I &amp;lt;3 trips") it would hold no {@code <}, be taken for text on the next render
+     * and be escaped a second time, and the page would show the entity.
+     */
+    public static Cleaned storedTitle(final String title) {
+        if (!titleHasMarkup(title)) {
+            return new Cleaned(title == null ? "" : title, List.of());
+        }
+        final Cleaned cleaned = cleanNoting(title);
+        return titleHasMarkup(cleaned.body()) ? cleaned
+                : new Cleaned(Encoding.decodeHtml(cleaned.body()), cleaned.drops());
     }
 
     /** {@link #clean}, but a null stays null: for a DTO field whose absence means something to its reader. */
@@ -221,14 +247,13 @@ public final class PageHtml {
 
     /**
      * {@link #clean}, noting what it removed ({@link Cleaned}): ONE pass, so a save that stores the body and
-     * warns about what it lost judges both on the same input. What is invisible is not noted: a comment, and
-     * the rewriting the library always does (quotes, entity spellings, an end tag a browser would have implied).
+     * warns about what it lost judges both on the same input. Everything removed is noted, a comment that could
+     * not be kept included; only the respelling the library always does is not (quotes, entity spellings, an end
+     * tag a browser would have implied). NOT remembered: this is what a save and the editor's as-you-type preview
+     * call, each time with a body nobody has seen before, and remembering those would fill the memo with drafts.
      */
     public static Cleaned cleanNoting(final String html) {
-        if (html == null || html.isEmpty()) {
-            return new Cleaned("", List.of());
-        }
-        return MEMO.get(html, PageHtml::cleanNow);
+        return html == null || html.isEmpty() ? new Cleaned("", List.of()) : cleanNow(html);
     }
 
     private static Cleaned cleanNow(final String html) {
@@ -457,6 +482,13 @@ public final class PageHtml {
                         || CHECKED_DATA.equalsIgnoreCase(name)) {
                     continue;
                 }
+                if (comments.marks(name)) {
+                    // A comment or style block typed in the MIDDLE of an attribute's name: its marker would be
+                    // written as part of the name and the raw text put back inside the tag, where its first ">"
+                    // ends the tag and the rest is live markup. No such attribute goes any further.
+                    drops.add(new Drop(Drop.Kind.ATTRIBUTE, element, comments.without(name)));
+                    continue;
+                }
                 final String lower = name.toLowerCase(Locale.ROOT);
                 if (lower.startsWith("data-") && dataAllowed(lower, value)) {
                     data.putIfAbsent(lower, value);
@@ -494,7 +526,7 @@ public final class PageHtml {
                 out.add(CHECKED_REL);
                 out.add(rel);
             } else {
-                drops.add(new Drop(Drop.ATTRIBUTE, element, REL));
+                drops.add(new Drop(Drop.Kind.ATTRIBUTE, element, REL));
             }
         }
 
@@ -512,11 +544,18 @@ public final class PageHtml {
      * wearing the checked names), and makes sure a link that opens a new tab says {@code noopener}, so the page
      * it opens gets no handle on this one.
      *
-     * <p>It is also the last word on where a comment's marker may be ({@link PageAsides}): whatever happened
-     * upstream, none leaves here inside an attribute value or inside a frame, whose content a browser reads raw,
-     * so that a comment put back there would be live markup.
+     * <p>It is also the last word on where a marker may be ({@link PageAsides}): whatever happened upstream, none
+     * leaves here inside an attribute's name or value, inside a frame, or inside {@code svg}
+     * ({@link #NO_ASIDES_INSIDE}), where what is put back would be live markup.
      */
     private static final class StyleRestorer extends HtmlStreamEventReceiverWrapper {
+        /**
+         * Where a browser does not read a restored piece as what it was typed as: a frame's content is read raw,
+         * and inside {@code svg} a {@code style} element's content is parsed as MARKUP, not CSS, so an
+         * {@code <img onerror>} typed in one would come alive there.
+         */
+        private static final Set<String> NO_ASIDES_INSIDE = Set.of("iframe", "svg");
+
         private final PageAsides comments;
         private int frames;
 
@@ -527,7 +566,7 @@ public final class PageHtml {
 
         @Override
         public void closeTag(final String element) {
-            if ("iframe".equals(element) && frames > 0) {
+            if (NO_ASIDES_INSIDE.contains(element) && frames > 0) {
                 frames--;
             }
             underlying.closeTag(element);
@@ -540,8 +579,8 @@ public final class PageHtml {
 
         @Override
         public void openTag(final String element, final List<String> attributes) {
-            final List<String> out = unpacked(attributes);
-            if ("iframe".equals(element)) {
+            final List<String> out = withoutMarkedNames(unpacked(attributes));
+            if (NO_ASIDES_INSIDE.contains(element)) {
                 frames++;
             }
             int rel = -1;
@@ -561,6 +600,18 @@ public final class PageHtml {
                 addNoOpener(out, rel);
             }
             underlying.openTag(element, out);
+        }
+
+        /** The last word on an attribute NAME: whatever happened upstream, none leaves here holding a marker. */
+        private List<String> withoutMarkedNames(final List<String> attributes) {
+            final List<String> out = new ArrayList<>(attributes.size());
+            for (int i = 0; i + 1 < attributes.size(); i += 2) {
+                if (!comments.marks(attributes.get(i))) {
+                    out.add(attributes.get(i));
+                    out.add(attributes.get(i + 1));
+                }
+            }
+            return out;
         }
 
         /** The attributes with the author's {@code data-} ones back under their own names, where they were. */

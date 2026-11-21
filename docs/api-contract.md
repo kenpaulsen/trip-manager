@@ -15,7 +15,8 @@ writes into its pages, so both go through the server's allowlist: a write stores
 body holds it, and every read returns cleaned text even for a row stored before the rule. When a write loses
 anything, the response carries one `X-Markup-Removed` header value per kind of thing removed, percent-encoded, each a
 sentence fit to show whoever typed it ("description: the <script> tag and everything inside it: script cannot be
-saved here."). No header means nothing was removed. A client that does not edit HTML can ignore it.
+saved here."). At most ten values per field, then one more saying how many were left out. No header means
+nothing was removed. A client that does not edit HTML can ignore it.
 
 ## Auth (`/api/auth`)
 

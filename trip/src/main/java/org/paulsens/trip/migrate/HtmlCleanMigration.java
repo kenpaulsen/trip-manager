@@ -10,6 +10,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.TreeSet;
+import java.util.function.Consumer;
+import org.paulsens.trip.dynamo.RawRows;
 import org.paulsens.trip.model.ContentRecord;
 import org.paulsens.trip.model.ContentTemplate;
 import org.paulsens.trip.model.TodoItem;
@@ -42,10 +44,8 @@ import org.paulsens.trip.model.Trip;
  */
 public final class HtmlCleanMigration {
 
-    static final String TRIPS = "trips";
-    static final String CONTENT = "content";
-    static final String TODO_ITEMS = "todo_items";
-    static final List<String> TABLES = List.of(TRIPS, CONTENT, TODO_ITEMS);
+    /** The three tables whose rows hold hand-authored page HTML, in the order they are read. */
+    static final List<String> TABLES = List.of(RawRows.TRIPS, RawRows.CONTENT_ROWS, RawRows.TODO_ITEMS);
 
     /** What a picture comparison says of a unit that looks the same before and after. */
     static final String PICTURES_SAME = "SAME";
@@ -130,20 +130,7 @@ public final class HtmlCleanMigration {
                         value.afterSha()));
             }
         }
-        return lines.isEmpty() ? "" : HtmlClean.sha256(String.join("\n", lines));
-    }
-
-    /** The same fingerprint, from a unit as an evaluation wrote it to plan.json. */
-    public static String fingerprint(final JsonNode unit) {
-        final TreeSet<String> lines = new TreeSet<>();
-        for (final JsonNode value : unit.path("values")) {
-            if (!HtmlClean.Verdict.IDENTICAL.name().equals(value.path("verdict").asText())) {
-                lines.add(line(value.path("table").asText(), value.path("rowId").asText(),
-                        value.path("version").asText(), value.path("field").asText(),
-                        value.path("beforeSha").asText(), value.path("afterSha").asText()));
-            }
-        }
-        return lines.isEmpty() ? "" : HtmlClean.sha256(String.join("\n", lines));
+        return lines.isEmpty() ? "" : LedgerData.sha256(String.join("\n", lines));
     }
 
     private static String line(final String table, final String rowId, final String version, final String field,
@@ -231,9 +218,9 @@ public final class HtmlCleanMigration {
     /** The JSON object that holds a value's field: the row itself, a content version, or that version's values. */
     private static ObjectNode holderOf(final JsonNode row, final HtmlClean.Value value) {
         JsonNode holder = row;
-        if (CONTENT.equals(value.table())) {
+        if (RawRows.CONTENT_ROWS.equals(value.table())) {
             holder = versionOf(row, value.version());
-            if (value.field().startsWith("value ")) {
+            if (value.field().startsWith(HtmlClean.VALUE_PREFIX)) {
                 holder = holder.path("values");
             }
         }
@@ -245,15 +232,16 @@ public final class HtmlCleanMigration {
      * retained version with the current one first ({@code ContentRecord.getAllVersions}).
      */
     private static JsonNode versionOf(final JsonNode row, final String version) {
-        if ("current".equals(version)) {
-            return row.path("current");
+        if (HtmlClean.CURRENT.equals(version)) {
+            return row.path(HtmlClean.CURRENT);
         }
-        final int all = Integer.parseInt(version.substring(version.indexOf(' ') + 1));
-        return row.path("previous").path(row.hasNonNull("current") ? all - 1 : all);
+        final int all = HtmlClean.placeOf(version);
+        return row.path("previous").path(row.hasNonNull(HtmlClean.CURRENT) ? all - 1 : all);
     }
 
     private static String fieldName(final HtmlClean.Value value) {
-        return value.field().startsWith("value ") ? value.field().substring("value ".length()) : value.field();
+        return value.field().startsWith(HtmlClean.VALUE_PREFIX)
+                ? value.field().substring(HtmlClean.VALUE_PREFIX.length()) : value.field();
     }
 
     /**
@@ -293,13 +281,13 @@ public final class HtmlCleanMigration {
      * @param stopAtFirst the real apply's rule: stop at the first unit that is not cleared, having written
      *                    nothing of it. A rehearsal passes false, to list every unit that would stop.
      * @param beforeWrite called with each row just before it is written, so a backup exists before the write
-     * @param afterUnit   called after each unit with what has been applied so far, so a run cut short still
-     *                    leaves an account of itself
+     * @param afterWrite  called after EVERY row written, with all that has been written so far, so that a run
+     *                    that dies part way through a unit (a timeout on its third row) has still recorded the
+     *                    two it wrote: a rollback reads that record and nothing else
      */
     public Outcome apply(final List<Work> works, final Map<String, Evaluated> evaluated,
             final List<Approval> approvals, final Rows rows, final boolean stopAtFirst,
-            final java.util.function.Consumer<RowChange> beforeWrite,
-            final java.util.function.Consumer<List<RowChange>> afterUnit) {
+            final Consumer<RowChange> beforeWrite, final Consumer<List<RowChange>> afterWrite) {
         final List<RowChange> applied = new ArrayList<>();
         final List<String> refused = new ArrayList<>();
         final List<String> held = new ArrayList<>();
@@ -316,12 +304,12 @@ public final class HtmlCleanMigration {
                 beforeWrite.accept(row);
                 if (rows.replace(row.table(), row.rowId(), row.before(), row.after())) {
                     applied.add(row);
+                    afterWrite.accept(List.copyOf(applied));
                 } else {
                     refused.add(row.table() + " " + row.rowId() + " (" + work.title() + "): saved by someone since"
                             + " it was read");
                 }
             }
-            afterUnit.accept(List.copyOf(applied));
         }
         return new Outcome(List.copyOf(applied), List.copyOf(refused), List.copyOf(held), "");
     }
@@ -371,17 +359,17 @@ public final class HtmlCleanMigration {
 
         @Override
         public List<Trip> trips() {
-            return parsed(TRIPS, "", Trip.class);
+            return parsed(RawRows.TRIPS, "", Trip.class);
         }
 
         @Override
         public List<ContentRecord> contentRecords() {
-            return parsed(CONTENT, "", ContentRecord.class);
+            return parsed(RawRows.CONTENT_ROWS, "", ContentRecord.class);
         }
 
         @Override
         public List<TodoItem> todos(final String tripId) {
-            return parsed(TODO_ITEMS, tripId + "/", TodoItem.class);
+            return parsed(RawRows.TODO_ITEMS, RawRows.todoRowIdPrefix(tripId), TodoItem.class);
         }
 
         @Override

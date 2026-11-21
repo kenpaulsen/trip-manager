@@ -34,11 +34,21 @@ public class StripNotesTest {
             {"<a href=\"javascript:x()\">a</a>", "Body: the href attribute on <a>: that address is not allowed (use "
                 + "https, or a path on this site that starts with /)."},
             {"<p id=\"form:save\">a</p>",
-                "Body: the id attribute on <p>: use letters, digits, - and _ only, starting with a letter."},
+                "Body: the id attribute on <p>: use letters, digits, - and _ only, starting with a letter, and not an "
+                + "id the page itself uses."},
+            {"<p id=\"form\">a</p>", "Body: the id attribute on <p>: use letters, digits, - and _ only, starting with "
+                + "a letter, and not an id the page itself uses."},
             {"<iframe src=\"https://x.example\" srcdoc=\"<p>x</p>\"></iframe>",
                 "Body: the srcdoc attribute on <iframe>: a frame shows an https address, not markup typed here."},
             {"<p data-pfconfirmcommand=\"x()\">a</p>", "Body: the data-pfconfirmcommand attribute on <p>: a script on "
-                + "this site's pages uses that name, so pick another data- name."},
+                + "this site's pages uses that name (pick another data- name), or its value is too long, or a comment "
+                + "or style block was typed inside the name."},
+            {"<img src=\"/a.png\" name=\"x\">",
+                "Body: the name attribute on <img>: only a link (<a>) takes a name here."},
+            {"<a name=\"a:b\">x</a>", "Body: the name attribute on <a>: use letters, digits, - and _ only, starting "
+                + "with a letter, and not an id the page itself uses."},
+            {"<style>[data-me^=a]{color:red}</style>", "Body: the rule \"[data-me^=a]\" in a <style> block: a rule "
+                + "cannot test a data- attribute this site's own pages use."},
             {"<p contenteditable=\"true\">a</p>",
                 "Body: the contenteditable attribute on <p>: that attribute, or its value, is not allowed there."},
             {"<style>@import 'x.css';</style>", "Body: the rule \"@import 'x.css';\" in a <style> block: a stylesheet "
@@ -73,24 +83,10 @@ public class StripNotesTest {
         Assert.assertEquals(said(null), List.of());
     }
 
-    /** A second clean of one body is the first one's answer, and a body too long to hold is still cleaned. */
     @Test
-    public void aCleanIsRememberedButNeverABodyTooLongToHold() {
-        final CleanMemo memo = new CleanMemo();
-        final int[] cleans = {0};
-        final java.util.function.Function<String, PageHtml.Cleaned> counting = html -> {
-            cleans[0]++;
-            return new PageHtml.Cleaned(html, List.of());
-        };
-        Assert.assertSame(memo.get("<p>a</p>", counting), memo.get("<p>a</p>", counting));
-        Assert.assertEquals(cleans[0], 1);
-        final String huge = "a".repeat(CleanMemo.MAX_LENGTH + 1);
-        memo.get(huge, counting);
-        memo.get(huge, counting);
-        Assert.assertEquals(cleans[0], 3);
-        for (int i = 0; i < CleanMemo.MAX_ENTRIES + 50; i++) {
-            memo.get("<p>" + i + "</p>", counting);
-        }
-        Assert.assertEquals(memo.size(), CleanMemo.MAX_ENTRIES, "the least recently used go first");
+    public void theSavedNoticeIsOneSentenceOrNothing() {
+        Assert.assertEquals(StripNotes.savedNotice(List.of()), "");
+        Assert.assertEquals(StripNotes.savedNotice(List.of("Body: a.", "Title: b.")),
+                "Saved, with some markup removed. Body: a. Title: b.");
     }
 }

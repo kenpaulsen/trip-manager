@@ -373,7 +373,8 @@ registry never changes at runtime.
   that swaps Quill for a textarea (`WEB-INF/quillEditor.xhtml`, patched onto the widget prototype, so
   editors created later by ajax get it too). While in Source mode the textarea writes straight into the
   widget's hidden input, so markup Quill has no format for (wrapper divs, iframes, inline styles,
-  data-attributes) reaches the server VERBATIM. Switching back to visual re-parses through Quill and
+  data-attributes) reaches the server as typed, where it goes through the allowlist like any typed HTML
+  ("Typed HTML and the allowlist", below). Switching back to visual re-parses through Quill and
   therefore simplifies such markup, so that pass runs only when the text actually changed. A template
   BODY additionally has the model-bound "Edit raw HTML" mode in `templateDialog` (no Quill parse at all
   in either direction) -- the right choice for structural template bodies. **The content drawer's editors**
@@ -551,6 +552,29 @@ merge) is a `mailEditor` and gets the plain `#rrggbb`. `HtmlFragmentValidator`, 
 `WaiverHtml.sanitize` keep these inline styles; `RichTextHtml` drops all styles, and the Communications editor has no
 color buttons. Doc for the brand colors themselves: `org-admin.md`, "Brand colors".
 
+## Typed HTML and the allowlist (2026-11, medjugorje#158)
+
+What an author TYPES is never written to a page as stored. A rich-text value, a title that carries markup, a
+speaker's biography, and outside this feature a trip's description and a to-do's details, all go through ONE
+allowlist cleaner, `content/PageHtml` (the OWASP Java HTML Sanitizer), on every save and again where a page or the
+API writes them out, so a row that reached storage some other way is still clean on the page.
+
+- **Kept:** layout tags, classes, ids, tables, figures, pictures and media by http(s) or from this site, https
+  frames, `svg`/`path` icons, links, comments, inline styles as typed, `style` blocks (only `@import` and a selector
+  that reads the page are refused), and any `data-` attribute except a name the site's own pages use
+  (`PageHtml.DATA_RESERVED`; the private repo's `DataAttributePolicyIT` keeps that list current).
+- **Removed:** script, any `on...` attribute, form controls, `base`, `meta`, `link`, `srcdoc`, a script or
+  `data:` address. A feature that needs a tag or attribute not kept must add it to the allowlist, with a test.
+- **A title** is markup when it holds a `<` (`PageHtml.titleHasMarkup`, the one test save, render and migration
+  share); a title whose `<` was only text is stored and shown as text.
+- **The author is told.** `content/StripNotes` words each removal. The content drawer lists what a save would
+  remove while the author types and Apply asks first (`ContentCommands.wouldRemove`, `applyFromDrawer`); the to-do
+  page says it on save; a REST write names it in `X-Markup-Removed` (`docs/api-contract.md`).
+- **A template BODY is different.** It is written as stored, tokens and all: the sanitizer rewrites `{{` and moves
+  text out of tables, so a body cannot pass through it. That is why writing a template is the power to put script
+  on a page. Cleaning what a template COMPOSES to, and a separate privilege for raw bodies, are the next stage
+  (`docs/migrations/html-clean.md`, which also holds the one-time migration of rows stored before the rule).
+
 ## A container's row (the body of a CONTAINER template)
 
 A container's body is **the row wrapped around EACH child**, not the container's own markup — the
@@ -566,7 +590,7 @@ named `child` and "Detect from body" never offers one:
 | `{{child:id}}` | the child instance's id, escaped — an anchor target |
 | `{{child:index}}` | its 1-based position in the container |
 | `{{children:start}}` / `{{children:end}}` | optional pair delimiting the repeated row; everything outside them is emitted ONCE, before and after the whole list |
-| `{{container:title}}` | the container INSTANCE's own title, wherever the body puts it (plain text escaped, markup verbatim, blank as ""). A body that carries this slot renders NO separate heading above itself: `ContentCommands.renderTitle` answers "" for it, so the title is written exactly once. The band containers use it to center their heading inside the band |
+| `{{container:title}}` | the container INSTANCE's own title, wherever the body puts it (plain text escaped, markup through the allowlist, blank as ""). A body that carries this slot renders NO separate heading above itself: `ContentCommands.renderTitle` answers "" for it, so the title is written exactly once. The band containers use it to center their heading inside the band |
 
 The default, seeded and used whenever the body is blank, reproduces exactly what the page markup used to
 hardcode, so adopting this changed no rendered byte:
@@ -713,8 +737,9 @@ datastore).
 
 ## Bootstrap (production, one-time — scripts in `medjugorje/scripts/`)
 
-1. Privilege rows (hand-created in `/admin/editPrivs.jsf`): `contentAdmin` (raw-HTML power — grant like
-   script access), `eventAdmin`, `mediaAdmin`.
+1. Privilege rows (hand-created in `/admin/editPrivs.jsf`): `contentAdmin` (writes template BODIES,
+   which reach pages as stored: grant like script access; typed values go through the allowlist),
+   `eventAdmin`, `mediaAdmin`.
 2. `install-starter-templates.sh` — the THIRTY-THREE starters (JSON generated from `StarterTemplates` by
    the test-scope `BootstrapScriptJson` tool: the originals, the seven MAIL bodies, the four reminder texts, the
    eleven bands and the two conference types). It never overwrites a row; `refresh-starter-templates.py` brings

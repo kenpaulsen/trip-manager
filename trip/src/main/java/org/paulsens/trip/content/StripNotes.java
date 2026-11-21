@@ -48,11 +48,11 @@ public final class StripNotes {
     /** One removal in an author's words: what it is, as they typed it, then why. */
     static String explain(final PageHtml.Drop drop) {
         return switch (drop.kind()) {
-            case PageHtml.Drop.TAG -> tag(drop.element().toLowerCase(Locale.ROOT));
-            case PageHtml.Drop.ATTRIBUTE -> attribute(drop.detail().toLowerCase(Locale.ROOT), drop.element());
-            case PageHtml.Drop.COMMENT -> "the comment \"" + drop.detail()
+            case TAG -> tag(drop.element().toLowerCase(Locale.ROOT));
+            case ATTRIBUTE -> attribute(drop.detail().toLowerCase(Locale.ROOT), drop.element());
+            case COMMENT -> "the comment \"" + drop.detail()
                     + "\": it is written in a way a browser could read as markup.";
-            default -> cssRule(drop.detail());
+            case CSS_RULE -> cssRule(drop.detail());
         };
     }
 
@@ -87,22 +87,39 @@ public final class StripNotes {
         if (ADDRESSES.contains(name)) {
             return named + ": that address is not allowed (use https, or a path on this site that starts with /).";
         }
-        if ("id".equals(name) || "name".equals(name)) {
-            return named + ": use letters, digits, - and _ only, starting with a letter.";
+        final boolean linkName = "name".equals(name) && "a".equalsIgnoreCase(element);
+        if ("id".equals(name) || linkName) {
+            return named + ": use letters, digits, - and _ only, starting with a letter, and not an id the page"
+                    + " itself uses.";
+        }
+        if ("name".equals(name)) {
+            return named + ": only a link (<a>) takes a name here.";
         }
         if ("srcdoc".equals(name)) {
             return named + ": a frame shows an https address, not markup typed here.";
         }
         if (name.startsWith("data-")) {
-            return named + ": a script on this site's pages uses that name, so pick another data- name.";
+            return named + ": a script on this site's pages uses that name (pick another data- name), or its value"
+                    + " is too long, or a comment or style block was typed inside the name.";
         }
         return named + ": that attribute, or its value, is not allowed there.";
     }
 
     private static String cssRule(final String opening) {
-        final boolean imports = opening.toLowerCase(Locale.ROOT).contains("import");
-        return "the rule \"" + opening + "\" in a <style> block: " + (imports
-                ? "a stylesheet cannot load another one (@import)."
-                : "a rule cannot test a form field's value ([value...]).");
+        final String lower = opening.toLowerCase(Locale.ROOT);
+        final String why;
+        if (lower.contains("import")) {
+            why = "a stylesheet cannot load another one (@import).";
+        } else if (lower.contains("data-") && !lower.contains("[value")) {
+            why = "a rule cannot test a data- attribute this site's own pages use.";
+        } else {
+            why = "a rule cannot test a form field's value ([value...]).";
+        }
+        return "the rule \"" + opening + "\" in a <style> block: " + why;
+    }
+
+    /** The one sentence a page says after a save that removed something; empty lines, no sentence. */
+    public static String savedNotice(final List<String> lines) {
+        return lines.isEmpty() ? "" : "Saved, with some markup removed. " + String.join(" ", lines);
     }
 }

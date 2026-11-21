@@ -249,6 +249,40 @@ public class HtmlCleanMigrationTest {
     }
 
     /**
+     * A write that fails part way through a unit (a timeout on its second row) leaves an applied.json that names
+     * the row already written: a rollback reads that file and nothing else.
+     */
+    @Test
+    public void anApplyThatDiesMidUnitHasRecordedWhatItWrote() throws IOException {
+        run("plan");
+        pictures(TRIP_RESPELLED, TRIP_LOOKS_DIFFERENT);
+        final HtmlCleanMigration.Rows failing = new HtmlCleanMigration.Rows() {
+            @Override
+            public Map<String, String> read(final String table) {
+                return rows.read(table);
+            }
+
+            @Override
+            public boolean replace(final String table, final String rowId, final String expected,
+                    final String replacement) {
+                if ("todo_items".equals(table)) {
+                    throw new IllegalStateException("the table did not answer");
+                }
+                return rows.replace(table, rowId, expected, replacement);
+            }
+        };
+
+        Assert.assertEquals(run(failing, "apply", "--yes"), 1, printed);
+        Assert.assertTrue(printed.contains("ERROR: the table did not answer"), printed);
+        final JsonNode applied = mapper.readTree(Files.readString(dir.resolve(HtmlCleanCli.APPLIED)));
+        Assert.assertEquals(applied.size(), 1, "the trip row was written before the to-do row failed");
+        Assert.assertEquals(applied.get(0).path("rowId").asText(), TRIP_RESPELLED);
+
+        Assert.assertEquals(run("rollback", "--yes"), 0, printed);
+        Assert.assertEquals(HtmlCleanMigration.readAll(rows), original, "and so it can be put back");
+    }
+
+    /**
      * A row a script wrote in its own JSON spelling (production has some with escaped letters) is cleaned like any
      * other: it says the same after as before apart from the cleaned field, and a rollback restores its bytes.
      */
@@ -280,6 +314,37 @@ public class HtmlCleanMigrationTest {
         Assert.assertEquals(run("plan"), 1, printed);
         Assert.assertTrue(printed.contains("trips " + TRIP_SAME + " cannot be read as a Trip"), printed);
         Assert.assertEquals(run("apply", "--yes"), 1, printed);
+    }
+
+    /**
+     * The rows are judged from one read and written from the same one. Should the two ever part (a row gone, or
+     * holding other text than was judged), the unit is not written at all, and says why.
+     */
+    @Test
+    public void aRowThatIsNotWhatWasJudgedIsNeverWritten() throws IOException {
+        final HtmlCleanMigration migration = new HtmlCleanMigration(mapper);
+        final HtmlClean.Plan judged = new HtmlClean(migration.storeOver(original, LOOKUPS)).plan();
+        final Map<String, Map<String, String>> since = HtmlCleanMigration.readAll(rows);
+        since.get("trips").remove(TRIP_RESPELLED);
+        since.get("trips").put(TRIP_LOOKS_DIFFERENT, json(trip(TRIP_LOOKS_DIFFERENT, "Charlie", "<P>Other</P>")));
+        since.get("content").put("hero", "{\"id\":\"hero\",\"current\":\"not an object\"}");
+
+        final List<HtmlCleanMigration.Work> works = migration.work(judged, since);
+
+        final List<String> problems = works.stream().flatMap(work -> work.problems().stream()).toList();
+        Assert.assertTrue(problems.contains("trips " + TRIP_RESPELLED + ": the row is gone"), problems.toString());
+        Assert.assertTrue(problems.contains("trips " + TRIP_LOOKS_DIFFERENT + " description [current]: the row no"
+                + " longer holds the text that was judged"), problems.toString());
+        Assert.assertTrue(problems.stream().anyMatch(problem -> problem.startsWith("content hero ")),
+                problems.toString());
+        final HtmlCleanMigration.Work gone = works.stream()
+                .filter(work -> work.key().equals(TRIP_LOOKS_DIFFERENT)).findFirst().orElseThrow();
+        Assert.assertTrue(gone.rows().isEmpty(), "nothing of it is offered for writing");
+        Assert.assertFalse(HtmlCleanMigration.clearance(gone, null, List.of()).cleared());
+        Assert.assertTrue(HtmlCleanMigration.clearance(gone, null, List.of()).why()
+                .startsWith("cannot be written as judged: "));
+        Assert.assertFalse(migration.respelled(new HtmlCleanMigration.RowChange("u", "trips", "x", "{not json", "")),
+                "a row that cannot be read is not called respelled");
     }
 
     @Test

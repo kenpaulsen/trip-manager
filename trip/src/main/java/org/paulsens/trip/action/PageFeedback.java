@@ -122,4 +122,28 @@ public final class PageFeedback {
             pf.ajax().addCallbackParam(name, value);
         }
     }
+
+    /**
+     * Makes the messages of THIS request show on the page it redirects to. For a command that saves and then
+     * redirects (the to-do page), where a message raised the usual way would be gone before anyone saw it.
+     */
+    public static void keepForNextPage() {
+        final FacesContext faces = FacesContext.getCurrentInstance();
+        if (faces != null) {
+            faces.getExternalContext().getFlash().setKeepMessages(true);
+        }
+    }
+
+    /**
+     * Adds a component to what THIS ajax request re-renders, by its client id ({@code form:contentDlg}). For a
+     * command that must decide in the bean whether a region is redrawn: a region named in the page's own
+     * {@code update=} is redrawn every time.
+     */
+    public static void alsoRender(final String clientId) {
+        final FacesContext faces = FacesContext.getCurrentInstance();
+        // Plain Faces, not PrimeFaces' search expressions: the id given is already the client id.
+        if (faces != null && faces.getPartialViewContext().isAjaxRequest()) {
+            faces.getPartialViewContext().getRenderIds().add(clientId);
+        }
+    }
 }

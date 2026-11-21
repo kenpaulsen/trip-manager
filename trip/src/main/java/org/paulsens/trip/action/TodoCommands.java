@@ -393,14 +393,10 @@ public class TodoCommands {
      * redirects after this save, so the message is kept for the page that follows.
      */
     private static void warnOfRemovals(final List<String> removed) {
-        if (removed.isEmpty()) {
-            return;
+        if (!removed.isEmpty()) {
+            PageFeedback.keepForNextPage();
+            PageFeedback.warn(StripNotes.savedNotice(removed));
         }
-        final FacesContext faces = FacesContext.getCurrentInstance();
-        if (faces != null) {
-            faces.getExternalContext().getFlash().setKeepMessages(true);
-        }
-        PageFeedback.warn("Saved, with some markup removed. " + String.join(" ", removed));
     }
 
     /** A to-do's details as the page writes them: through the allowlist ({@link PageHtml}). "" for none. */

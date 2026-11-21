@@ -127,7 +127,7 @@ public class HtmlCleanTest {
         Assert.assertEquals(value.verdict(), HtmlClean.Verdict.EQUIVALENT);
         Assert.assertTrue(value.drops().isEmpty());
         Assert.assertNotEquals(value.beforeSha(), value.afterSha());
-        Assert.assertEquals(value.beforeSha(), HtmlClean.sha256("<P class='b a'>Tom & Jerry<BR></P>"));
+        Assert.assertEquals(value.beforeSha(), LedgerData.sha256("<P class='b a'>Tom & Jerry<BR></P>"));
     }
 
     /** A trip's sections, the children of its containers and its to-dos are all the trip's to judge. */

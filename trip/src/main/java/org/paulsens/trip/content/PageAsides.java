@@ -31,8 +31,11 @@ import java.util.regex.Pattern;
  *       occur: a body is what precedes the first {@code -->}.) A block ends at the first {@code </style} in any
  *       case, which is where its CSS is cut here too, so the CSS never holds one.</li>
  *   <li>It only goes where text goes. Each piece travels through the sanitizer as a MARKER, a random word in
- *       the text, and the marker is removed from every attribute value and from inside a frame, whose content a
- *       browser reads raw. What the sanitizer writes for a marker in text is that same word, in a place where a
+ *       the text, and the marker is removed from every attribute (an attribute whose NAME holds one is dropped
+ *       whole), from inside a frame, whose content a browser reads raw, and from inside {@code svg}, where a
+ *       browser parses a {@code style} element's content as markup. As the last word, {@link #restoreInto} puts
+ *       nothing back inside a tag, wherever the marker came from.
+ *       What the sanitizer writes for a marker in text is that same word, in a place where a
  *       comment is a comment and a style block is a style block.</li>
  *   <li>A comment is not the old Internet Explorer's conditional comment ({@code [if ...]}), which was markup to
  *       that browser and is nobody's parked text.</li>
@@ -169,7 +172,7 @@ final class PageAsides {
             return -1;
         }
         final String css = PageCss.block(html.substring(tagEnd + 1, close),
-                rule -> drops.add(new PageHtml.Drop(PageHtml.Drop.CSS_RULE, PageHtml.STYLE, rule)));
+                rule -> drops.add(new PageHtml.Drop(PageHtml.Drop.Kind.CSS_RULE, PageHtml.STYLE, rule)));
         if (css.isBlank()) {
             taken = "";
         } else {
@@ -177,7 +180,7 @@ final class PageAsides {
             final String attribute = media.find()
                     ? " media=\"" + (media.group(1) == null ? media.group(2) : media.group(1)) + "\"" : "";
             keep(STYLE_OPEN + attribute + ">" + css + STYLE_CLOSE + ">",
-                    new PageHtml.Drop(PageHtml.Drop.TAG, PageHtml.STYLE, ""));
+                    new PageHtml.Drop(PageHtml.Drop.Kind.TAG, PageHtml.STYLE, ""));
         }
         final int end = html.indexOf('>', close);
         return end < 0 ? html.length() : end + 1;
@@ -196,8 +199,13 @@ final class PageAsides {
 
     private static PageHtml.Drop dropOf(final String body) {
         final String shown = body.strip().replaceAll("\\s+", " ");
-        return new PageHtml.Drop(PageHtml.Drop.COMMENT, "",
+        return new PageHtml.Drop(PageHtml.Drop.Kind.COMMENT, "",
                 shown.length() > 40 ? shown.substring(0, 40) + "..." : shown);
+    }
+
+    /** Whether the text holds a marker: an attribute's NAME that does is not an attribute anyone meant. */
+    boolean marks(final String text) {
+        return any() && text.contains(prefix) && marker.matcher(text).find();
     }
 
     /** The text with no marker in it: for an attribute value, and for the inside of a frame. */
@@ -241,7 +249,11 @@ final class PageAsides {
         final Matcher found = marker.matcher(cleaned);
         while (found.find()) {
             found.appendReplacement(out, "");
-            write(Integer.parseInt(found.group(1)), written, out);
+            // Text only. The sanitizer escapes every "<" and ">" it writes as text or inside an attribute, so a
+            // marker that follows an unclosed "<" is inside a tag, whatever let it get there: it is not restored.
+            if (out.lastIndexOf("<") <= out.lastIndexOf(">")) {
+                write(Integer.parseInt(found.group(1)), written, out);
+            }
         }
         found.appendTail(out);
         for (final String held : waiting) {
