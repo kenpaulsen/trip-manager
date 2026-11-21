@@ -58,6 +58,11 @@ kept under an anonymized id showed as a pending registration on the home page an
 could act on; it is the person's own filing, not the organization's books. Every trip is walked, not the membership
 index, because a PENDING registration is not membership.
 
+Chat is read AS STORED (2026-11-20), never through the person's own view: a message the channel's retention or join
+date now hides is still a row, and an admin lengthening the retention would bring it back. Each trip chat's album
+is swept too (`ChatPhotos.deleteAlbumPhotosBy`): album photos outlive retention, so a photo whose message expired is
+found only there, and the person's comments and reactions on the album's other photos are erased with it.
+
 **Kept, under an anonymized record:** every transaction. Money rows are never destroyed
 (user-locked payments rule) and the organization's books must still add up; ledgers are per person, not per
 registration, so nothing there depends on the deleted rows. The `Person` row stays with

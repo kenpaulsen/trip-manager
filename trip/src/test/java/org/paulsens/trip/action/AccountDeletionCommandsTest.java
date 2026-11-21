@@ -215,6 +215,54 @@ public class AccountDeletionCommandsTest {
                 "their reaction on the hidden photo went with the account");
     }
 
+    /**
+     * Retention hides; it does not remove. A message posted while the chat kept everything has no expiry, so when
+     * an admin later shortens the retention it is hidden but stored, and lengthening it again would bring the
+     * deleted person's words back. Album photos outlive retention by design, so a photo whose message expired is
+     * reachable only through the album.
+     */
+    @Test
+    public void messagesAndPhotosThatRetentionHidesAreErasedToo() throws IOException {
+        final Person me = saved("Hidden");
+        final Person witness = saved("Witness");
+        final Organization org = savedOrg("Pilgrims Inc", "office@example.org", null);
+        join(me, org);
+        final Trip trip = savedTrip("Past pilgrimage", -30, -20, org, me, witness);
+        final ChatChannel channel = chat.ensureChannel(trip.getId(), actor(me));
+        final String sent = "chat/" + trip.getId() + "/" + RandomData.genAlpha(8) + ".jpg";
+        final ChatAttachment photo = new ChatAttachment("image", sent, "image/jpeg", 1234L, 1600, 900, null, null,
+                null, null, null, 1, Boolean.FALSE);
+        final ChatMessage.Id msgId = dao.saveChatMessage(new ChatMessage(null, channel.getId(), me.getId(), null,
+                ChatMessage.MessageKind.TEXT, "remember this", null, List.of(photo), null, null, null, null, null,
+                null, null), channel, trip).orElseThrow().getId();
+        ChatPhotos.getChatPhotos().recordAlbumRows(trip.getId(), trip.getTitle(), me.getId(), "Hidden Person",
+                List.of(photo), actor(me));
+        final String expired = "chat/" + trip.getId() + "/" + RandomData.genAlpha(8) + ".jpg";
+        final String theirs = "chat/" + trip.getId() + "/" + RandomData.genAlpha(8) + ".jpg";
+        Assert.assertTrue(dao.saveMedia(new MediaItem(RandomData.genAlpha(12), expired, null, null, "image/jpeg",
+                1234L, ChatPhotos.slotFor(trip.getId()), 0, LocalDateTime.now(), me.getId().getValue(), null)));
+        Assert.assertTrue(dao.saveMedia(new MediaItem(RandomData.genAlpha(12), theirs, null, null, "image/jpeg",
+                1234L, ChatPhotos.slotFor(trip.getId()), 0, LocalDateTime.now(), witness.getId().getValue(), null)));
+        Assert.assertTrue(dao.putChatReaction(new ChatReaction(ChatChannel.Id.forPhoto(theirs),
+                PhotoChatMeta.PHOTO_ROOT, me.getId(), "👍", null, null)));
+        Assert.assertTrue(dao.saveChatChannel(channel.withSettings(
+                channel.getSettings().toBuilder().retentionDaysAfterTripEnd(1).build())));
+        Assert.assertTrue(chat.history(trip.getId(), me.getId(), null, 50).getMessages().isEmpty(),
+                "precondition: retention hides the message");
+
+        final AccountDeletionCommands.Outcome outcome = deletion.deleteOwnAccount(me.getId(),
+                AccountDeletionCommands.CONFIRMATION, actor(me));
+
+        Assert.assertTrue(outcome.ok(), outcome.message());
+        Assert.assertTrue(dao.getChatMessage(channel.getId(), msgId, Cached.NO).orElseThrow().isDeleted(),
+                "the hidden message is a tombstone");
+        final List<String> album = dao.getMediaInSlot(ChatPhotos.slotFor(trip.getId()), Cached.NO).stream()
+                .map(MediaItem::getS3Key).toList();
+        Assert.assertEquals(album, List.of(theirs), "both of their photos left the album; the witness's stayed");
+        Assert.assertEquals(dao.deleteChatReactionsBy(ChatChannel.Id.forPhoto(theirs), me.getId()), 0,
+                "their reaction on a photo whose message expired went with the account");
+    }
+
     /** The record of reminder emails holds a name and an address; deletion erases both and keeps the row. */
     @Test
     public void theReminderSendHistoryLosesTheNameAndAddress() throws IOException {

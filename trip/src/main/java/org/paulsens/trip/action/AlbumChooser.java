@@ -152,10 +152,9 @@ public class AlbumChooser {
     // ------------------------------------------------------------------ what the dialog sends
 
     /** The dialog's Add, for a use that takes several: the host re-checks every pick and reports albumAdded. */
-    @SuppressWarnings("checkstyle:MissingSwitchDefault")
     public void add(final String use, final String picks) {
         // The case null label is what makes the compiler insist on every Use, so a new one cannot fall through; a
-        // default arm would give that up, which is why checkstyle's MissingSwitchDefault is suppressed here.
+        // default arm would give that up.
         switch (Use.of(use).orElse(null)) {
             case TRIP_PICTURES -> tripPictures.addFromAlbumUi(picks);
             case LIBRARY -> library.addFromAlbumUi(picks);
@@ -168,7 +167,6 @@ public class AlbumChooser {
      * A one-photo pick: the host takes it and reports albumPicked. A host on the shared crop dialog has then parked
      * the photo, so that dialog's two step panels are re-rendered here for it to open on its cropper.
      */
-    @SuppressWarnings("checkstyle:MissingSwitchDefault") // exhaustive through case null, as in add
     public void pick(final String use, final String mediaId) {
         switch (Use.of(use).orElse(null)) {
             case BADGE -> pickToCrop(badgePhotos, mediaId);

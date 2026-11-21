@@ -13,6 +13,7 @@ import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -734,14 +735,43 @@ public class ChatPhotos {
     public void deleteRenditions(final List<ChatAttachment> removed) {
         final List<String> paths = new ArrayList<>();
         for (final ChatAttachment attachment : owned(removed)) {
-            deleteStored(attachment.getS3Key());
-            paths.add("/" + attachment.getS3Key());
-            if (attachment.getThumbKey() != null && !attachment.getThumbKey().equals(attachment.getS3Key())) {
-                deleteStored(attachment.getThumbKey());
-                paths.add("/" + attachment.getThumbKey());
-            }
+            deleteStored(attachment.getS3Key(), attachment.getThumbKey(), paths);
         }
         invalidate(paths);
+    }
+
+    private void deleteStored(final String key, final String smallKey, final List<String> paths) {
+        deleteStored(key);
+        paths.add("/" + key);
+        if (smallKey != null && !smallKey.equals(key)) {
+            deleteStored(smallKey);
+            paths.add("/" + smallKey);
+        }
+    }
+
+    /**
+     * Account deletion's sweep of one trip's chat album: every photo this person sent is removed everywhere, as a
+     * removed message's photos are. Album photos outlive chat retention, so a photo whose message has expired, or
+     * is stored but hidden by the channel's retention, is found only here.
+     *
+     * @return the keys of the album's other photos, whose threads may still hold this person's comments.
+     */
+    public Set<String> deleteAlbumPhotosBy(final String tripId, final Person.Id uploader) {
+        final Set<String> others = new LinkedHashSet<>();
+        final List<String> paths = new ArrayList<>();
+        for (final MediaItem row : DAO.getInstance().getMediaInSlot(slotFor(tripId), Cached.NO)) {
+            if (!uploader.getValue().equals(row.getUploadedBy())) {
+                others.add(row.getS3Key());
+                continue;
+            }
+            deleteStored(row.getS3Key(), row.getSmallKey(), paths);
+            deleteAlbumRow(row);
+            PhotoChatCommands.purgePhotoThread(row.getS3Key());
+        }
+        if (!paths.isEmpty()) {
+            invalidate(paths);
+        }
+        return others;
     }
 
     /**

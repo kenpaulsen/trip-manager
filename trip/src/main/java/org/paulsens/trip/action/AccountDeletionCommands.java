@@ -321,11 +321,14 @@ public class AccountDeletionCommands {
             if (tripId == null) {
                 continue;
             }
+            // Read as stored, not as the person would see it: a message the channel's retention or join date now
+            // hides is still a row, and would come back into view if an admin later lengthened the retention.
             final Set<String> photoKeys = new LinkedHashSet<>();
             ChatMessage.Id before = null;
             for (int page = 0; page < MAX_PAGES; page++) {
-                final ChatPage history = chat.storedHistory(tripId, me, before, PAGE);
-                for (final ChatMessage message : history.getMessages()) {
+                final List<ChatMessage> batch =
+                        dao().getRawChatMessagesBefore(summary.channel().getId(), before, PAGE, Cached.NO);
+                for (final ChatMessage message : batch) {
                     for (final ChatAttachment attachment : message.getAttachments()) {
                         if (attachment.getS3Key() != null) {
                             photoKeys.add(attachment.getS3Key());
@@ -335,11 +338,12 @@ public class AccountDeletionCommands {
                         chat.deleteMessage(tripId, message.getId(), self);
                     }
                 }
-                if (!history.isHasMore() || history.getCursor() == null) {
+                if (batch.size() < PAGE) {
                     break;
                 }
-                before = history.getCursor();
+                before = batch.getLast().getId();
             }
+            photoKeys.addAll(ChatPhotos.getChatPhotos().deleteAlbumPhotosBy(tripId, me));
             for (final String key : photoKeys) {
                 eraseComments(photoChat, key, me, self);
                 dao().deleteChatReactionsBy(ChatChannel.Id.forPhoto(key), me);
