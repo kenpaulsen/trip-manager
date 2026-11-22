@@ -324,7 +324,10 @@ public class MailTemplateVersionsTest {
 
     // ================================================================ the shipped versions
 
-    /** Every shipped version keeps its English starter's tokens exactly, says it is a draft, and is installed. */
+    /**
+     * Every shipped version keeps its English starter's tokens exactly, is installed, and its description names
+     * its language and starter (the translations are reviewed: no draft note).
+     */
     @Test
     public void theShippedVersionsKeepTheirStartersTokens() {
         Assert.assertEquals(StarterTranslations.VERSIONS.size(), 22, "eleven emails, in Spanish and Croatian");
@@ -336,7 +339,9 @@ public class MailTemplateVersionsTest {
                     tokens(english.getName() + english.getBody()), version.id());
             final ContentTemplate installed = templates.getTemplate(version.id());
             Assert.assertEquals(installed.getKind(), TemplateKind.MAIL, version.id());
-            Assert.assertTrue(installed.getDescription().startsWith("DRAFT"), version.id());
+            Assert.assertTrue(installed.getDescription().startsWith(
+                    version.language().getDisplayName() + " version of " + version.baseId()), version.id());
+            Assert.assertFalse(installed.getDescription().contains("DRAFT"), version.id());
             Assert.assertFalse((version.subject() + version.body()).contains("—"), "no em dash: " + version.id());
         }
         Assert.assertNull(StarterTranslations.of(StarterTemplates.ORG_INVITE_ID, Language.English));

@@ -31,7 +31,7 @@ public enum TripKind {
     }
 
     /** {@link #getDisplayValue()} in {@code locale}: for a reader named outright (a Discover facet). */
-    public String displayValueIn(final Locale locale) {
+    public String getDisplayValue(final Locale locale) {
         return EnumLabels.of(this, locale);
     }
 
@@ -44,7 +44,7 @@ public enum TripKind {
      * {@link #getRegisterLabel()} in {@code locale}: the button text a seeded trip page STORES, which is written
      * in the page's own language, not in the language of whoever happened to create the trip.
      */
-    public String registerLabelIn(final Locale locale) {
+    public String getRegisterLabel(final Locale locale) {
         return EnumLabels.ofIn(locale, "labels.tripKind.register", this);
     }
 

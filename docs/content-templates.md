@@ -281,8 +281,11 @@ preview on `admin/tripRegistrations.xhtml`. The code-built token values inside t
 amounts blocks, dates) are not yet in the recipient's language.
 
 **Shipped versions.** `content/StarterTranslations` holds Spanish and Croatian versions of the seven
-transactional starters and the four reminder starting texts. They are DRAFT translations: each installed row's
-description starts "DRAFT translation, not yet reviewed by a native speaker." Their tokens are the English
+transactional starters and the four reminder starting texts, reviewed and approved by the owner with the bundles
+(`docs/i18n.md`). Each installed row's description names its language and starter ("Español version of
+registration-received; the tokens are the same."). Rows installed before the review keep their old "DRAFT
+translation, not yet reviewed" description until they are reinstalled (an install never rewrites a row, so the
+old row has to go first) or the description is edited on the Templates page. Their tokens are the English
 starters' character for character (`MailTemplateVersionsTest` checks). They install exactly as the starters do,
 after them (`StarterTemplates.all()` / `IDS`, so the Install button, `FakeData` and
 `install-starter-templates.sh`), and a later install never rewrites one. A count inside a sentence cannot use

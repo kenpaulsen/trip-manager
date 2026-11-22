@@ -423,7 +423,7 @@ public final class OrgPageBootstrap {
         hero.put("eyebrow", orgName == null ? "" : orgName);
         hero.put("headline", trip.getShortTitle());
         hero.put("subheadline", dateRange(trip));
-        hero.put("primaryText", trip.getKind().registerLabelIn(pageLocaleOf(trip)));
+        hero.put("primaryText", trip.getKind().getRegisterLabel(pageLocaleOf(trip)));
         hero.put("primaryUrl", register);
         hero.put("secondaryText", "About");
         hero.put("secondaryUrl", "#" + tripRowId(trip, "about"));
@@ -496,7 +496,7 @@ public final class OrgPageBootstrap {
         // Stored as OUR registration page even for an external trip: the render resolves it to where the trip
         // registers now (TripPageCommands.contentLink), so a URL added or changed after seeding still applies.
         final String register = TripPageCommands.JOIN_URL + trip.getId();
-        final String registerLabel = trip.getKind().registerLabelIn(pageLocaleOf(trip));
+        final String registerLabel = trip.getKind().getRegisterLabel(pageLocaleOf(trip));
         final String speakers = tripRowId(trip, "speakers");
         final String schedule = tripRowId(trip, "schedule");
         final String faq = tripRowId(trip, "faq");

@@ -1,10 +1,10 @@
 package org.paulsens.trip.pay;
 
-import java.time.temporal.TemporalAccessor;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
@@ -147,25 +147,11 @@ public class PaymentMailer {
         final boolean allConfirmed = rows.stream().allMatch(row -> row.getStatus() == Registration.Status.CONFIRMED);
         values.put("statusNote", Text.forLocale(locale, allConfirmed ? "mail.payment.statusConfirmed"
                 : "mail.payment.statusReceived") + balanceNote(payment, trip, rows, locale));
-        values.put("tripDates", tripDates(trip, locale));
+        values.put("tripDates", trip == null ? ""
+                : Objects.toString(Formats.longDateSpan(trip.getStartDate(), trip.getEndDate(), locale), ""));
         values.put("paymentMethod", payment.getTotalChargedCents() == 0
                 ? Text.forLocale(locale, "mail.payment.noCharge") : processorName);
         return values;
-    }
-
-    /** "March 1, 2027 to March 9, 2027", the start alone when there is no end; "" for an undated trip. */
-    private static String tripDates(final Trip trip, final Locale locale) {
-        if (trip == null || trip.getStartDate() == null) {
-            return "";
-        }
-        return trip.getEndDate() == null ? longDate(trip.getStartDate(), locale)
-                : Text.forLocale(locale, "common.range", longDate(trip.getStartDate(), locale),
-                        longDate(trip.getEndDate(), locale));
-    }
-
-    /** A date written out in the reader's language: "March 1, 2027" in English, as these mails always said. */
-    private static String longDate(final TemporalAccessor when, final Locale locale) {
-        return Formats.longDate(when, locale);
     }
 
     /**
@@ -185,7 +171,7 @@ public class PaymentMailer {
         final java.time.LocalDate due = trip == null ? null : trip.getCheckout().getBalanceDueOn();
         final String balance = MoneyMath.formatCents(prices - credited);
         return " " + (due == null ? Text.forLocale(locale, "mail.payment.balance", balance)
-                : Text.forLocale(locale, "mail.payment.balanceDue", balance, longDate(due, locale)));
+                : Text.forLocale(locale, "mail.payment.balanceDue", balance, Formats.longDate(due, locale)));
     }
 
     private MailTemplates.Raw registrantsBlock(final Trip trip, final List<Registration> rows, final Locale locale) {
@@ -258,7 +244,7 @@ public class PaymentMailer {
         values.put("captureId", payment.getCaptureId() == null ? "" : payment.getCaptureId());
         values.put("processorName", processorName);
         values.put("paymentDate", payment.getCapturedAt() == null ? ""
-                : longDate(payment.getCapturedAt(), locale));
+                : Formats.longDate(payment.getCapturedAt(), locale));
         values.put("orgName", orgName);
         values.put("amountsBlock", amountsBlock(payment));
         return values;

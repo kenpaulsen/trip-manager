@@ -191,7 +191,7 @@ public final class DiscoverSearch {
     }
 
     private static String kindLabel(final String name, final Locale language) {
-        return TripKind.named(name).map(kind -> kind.displayValueIn(language)).orElse(name);
+        return TripKind.named(name).map(kind -> kind.getDisplayValue(language)).orElse(name);
     }
 
     private static List<Choice> organizationOf(final Entry entry, final Locale language) {

@@ -11,14 +11,11 @@ import org.paulsens.trip.model.Language;
  * ({@code registration-received@es}, the {@link PageVersions} convention), so an administrator edits it on the
  * Templates page like any other row, and an installed row is never rewritten by a later install.
  *
- * <p>DRAFT translations, not yet reviewed by a native speaker ({@code docs/i18n.md}, the glossary): every row's
- * description says so. The {@code {{tokens}}} are the English starters' own, character for character: the
- * senders fill the same names whatever the language.
+ * <p>Reviewed and approved by the owner with the bundles ({@code docs/i18n.md}): every row's description says
+ * which language and which starter it is. The {@code {{tokens}}} are the English starters' own, character for
+ * character: the senders fill the same names whatever the language.
  */
 public final class StarterTranslations {
-
-    /** What each installed version's description starts with, so an editor sees the text is unreviewed. */
-    static final String DRAFT_NOTE = "DRAFT translation, not yet reviewed by a native speaker.";
 
     /** One version: the English starter it translates, its language, its subject (the row's NAME) and body. */
     public record Version(String baseId, Language language, String subject, String body) {
@@ -273,9 +270,9 @@ public final class StarterTranslations {
         return null;
     }
 
-    /** The installed row's description: the draft note, then which starter it translates. */
+    /** The installed row's description: which language, and which starter it translates. */
     static String descriptionOf(final Version version) {
-        return DRAFT_NOTE + " " + version.language().getDisplayName() + " version of " + version.baseId()
+        return version.language().getDisplayName() + " version of " + version.baseId()
                 + "; the tokens are the same.";
     }
 }

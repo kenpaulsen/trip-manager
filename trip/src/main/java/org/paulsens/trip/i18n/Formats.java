@@ -34,7 +34,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class Formats {
 
     /** CLDR's separator before AM/PM; a typed time and every existing English string use a plain space. */
-    private static final char NARROW_NO_BREAK_SPACE = ' ';
+    private static final char NARROW_NO_BREAK_SPACE = '\u202F';
     private static final Map<String, String> PATTERNS = new ConcurrentHashMap<>();
     private static final Map<String, DateTimeFormatter> FORMATTERS = new ConcurrentHashMap<>();
 
@@ -49,6 +49,30 @@ public final class Formats {
     /** A calendar date written out: September 3, 2026 / 3 de septiembre de 2026. */
     public static String longDate(final TemporalAccessor when, final Locale locale) {
         return format(when, "yMMMMd", locale);
+    }
+
+    /**
+     * A span of days in {@link #date}'s width, as {@code common.range} words it: "Sep 20, 2026 to Oct 5, 2026";
+     * the start alone when there is no end; null with no start. A trip's dates on a page or a PDF.
+     */
+    public static String dateSpan(final TemporalAccessor start, final TemporalAccessor end, final Locale locale) {
+        return span(start, end, "yMMMd", locale);
+    }
+
+    /** {@link #dateSpan} in {@link #longDate}'s width: "March 1, 2027 to March 9, 2027". A trip's dates in mail. */
+    public static String longDateSpan(final TemporalAccessor start, final TemporalAccessor end,
+            final Locale locale) {
+        return span(start, end, "yMMMMd", locale);
+    }
+
+    private static String span(final TemporalAccessor start, final TemporalAccessor end, final String skeleton,
+            final Locale locale) {
+        if (start == null) {
+            return null;
+        }
+        return end == null ? format(start, skeleton, locale)
+                : Text.forLocale(locale, "common.range", format(start, skeleton, locale),
+                        format(end, skeleton, locale));
     }
 
     /** A time of day: 3:05 PM / 15:05. */

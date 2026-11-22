@@ -61,7 +61,9 @@ public class PageVersionCommandsTest {
 
     /**
      * A version marked with what is NOW the page's own language (the site's default changed after it was
-     * written): readers of that language get it, and the bar still lists it as a version, not the unmarked page.
+     * written): readers of that language get it, and the bar still lists it as a version. The unmarked page,
+     * written in what used to be the default, keeps a tab of its own, the original page, which is current while
+     * it is the page shown; the other languages' tabs still open their own (empty) versions.
      */
     @Test
     public void aVersionInWhatBecameTheOwnLanguageIsStillServedAndListed() {
@@ -72,11 +74,64 @@ public class PageVersionCommandsTest {
         try {
             Assert.assertEquals(on(Language.English, () -> PageVersionCommands.forThisRequest(page, null)),
                     page + "@en", "English is Beta's default, and an @en version was written: it is served");
-            final PageVersionCommands.Tab tab = on(Language.English, () -> versions.tabs(page)).get(0);
+            final List<PageVersionCommands.Tab> onlyVersion = on(Language.English, () -> versions.tabs(page + "@en"));
+            final PageVersionCommands.Tab tab = onlyVersion.get(0);
             Assert.assertEquals(tab.key(), page + "@en", "the bar opens the version, so it can be edited");
             Assert.assertTrue(tab.written());
             Assert.assertFalse(tab.own(), "a version, which can be deleted");
+            Assert.assertTrue(onlyVersion.get(0).current());
+            Assert.assertEquals(onlyVersion.size(), 3, "no original-page tab while the unmarked page is empty");
+            final PageVersionCommands.Tab emptyOriginal = on(Language.English, () -> versions.tabs(page)).get(3);
+            Assert.assertTrue(emptyOriginal.current(), "but it keeps one while it is the page shown");
+            Assert.assertFalse(emptyOriginal.written());
+            Assert.assertEquals(versions.languageTagOf(page + "@en"), "en");
         } finally {
+            DAO.getInstance().deleteContent(english.getId());
+        }
+    }
+
+    /**
+     * The unmarked page written in what used to be the default (Spanish, say) beside a version in what is now
+     * the default (English): an editor reading the unmarked page sees the original-page tab marked current, not
+     * some language's, and every other language's tab still opens its own version.
+     */
+    @Test
+    public void theUnmarkedPageKeepsItsOwnTabOnceTheOwnLanguageHasAVersion() {
+        final String page = "page:org:" + FakeData.BETA_ORG_ID + ":pv-original";
+        final ContentInstance original = new ContentInstance("pv-orig-" + UUID.randomUUID(), page, "Hola",
+                "text-only", 1, new HashMap<>(Map.of("body", "<p>Hola</p>")), null, 0, 0, null, "t");
+        final ContentInstance english = new ContentInstance("pv-orig-" + UUID.randomUUID(), page + "@en", "Hi",
+                "text-only", 1, new HashMap<>(Map.of("body", "<p>Hi</p>")), null, 0, 0, null, "t");
+        Assert.assertTrue(DAO.getInstance().saveContent(original, 5));
+        Assert.assertTrue(DAO.getInstance().saveContent(english, 5));
+        try {
+            Assert.assertEquals(on(Language.Croatian, () -> PageVersionCommands.forThisRequest(page, null)), page,
+                    "Croatian has no version: it falls back to the unmarked page");
+            final List<PageVersionCommands.Tab> tabs = on(Language.Croatian, () -> versions.tabs(page));
+            Assert.assertEquals(tabs.stream().map(PageVersionCommands.Tab::key).toList(),
+                    List.of(page + "@en", page + "@es", page + "@hr", page),
+                    "every language opens its own version; the unmarked page has the last tab");
+            Assert.assertEquals(tabs.stream().filter(PageVersionCommands.Tab::current).toList(), List.of(tabs.get(3)),
+                    "only the original-page tab is current while the unmarked page is shown");
+            final PageVersionCommands.Tab originalTab = tabs.get(3);
+            Assert.assertEquals(originalTab.tag(), "", "its language is not known");
+            Assert.assertEquals(originalTab.name(), "Izvorna stranica");
+            Assert.assertTrue(originalTab.own(), "never deleted as a version");
+            Assert.assertTrue(originalTab.written());
+            Assert.assertFalse(tabs.get(1).written(), "Spanish has no version of its own");
+            Assert.assertFalse(tabs.get(1).current());
+            Assert.assertEquals(on(Language.English, () -> versions.current(page + "@en")).tag(), "en");
+            Assert.assertEquals(on(Language.English, () -> versions.languageTagOf(page)), "",
+                    "the unmarked text is in whatever the default used to be");
+
+            final String link = versions.editUrl("/page.jsf", "name=pv-original&version=en", originalTab.tag());
+            Assert.assertEquals(link, "/page.jsf?name=pv-original&version=original&edit=true");
+            Assert.assertEquals(on(Language.English, () -> PageVersionCommands.forVersion(page, null,
+                    PageVersionCommands.ORIGINAL)), page, "the original-page link opens the unmarked page");
+            Assert.assertEquals(on(Language.English, () -> PageVersionCommands.forVersion(page, null, "es")),
+                    page + "@es", "a language named outright still opens its version, empty or not");
+        } finally {
+            DAO.getInstance().deleteContent(original.getId());
             DAO.getInstance().deleteContent(english.getId());
         }
     }

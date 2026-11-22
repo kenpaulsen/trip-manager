@@ -8,7 +8,6 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.time.temporal.TemporalAccessor;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -209,13 +208,13 @@ public class ExpenseCommands {
         page.setStatus(report.getStatus().getLabel(locale));
         page.setStatusKey(report.getStatus().name().toLowerCase(Locale.ROOT));
         page.setTripTitle(trip.getTitle());
-        page.setTripDates(tripDates(trip, locale));
+        page.setTripDates(Formats.dateSpan(trip.getStartDate(), trip.getEndDate(), locale));
         page.setOrgName(orgName(trip));
         page.setSubmittedBy(report.getSubmittedBy());
         page.setSubmitted(report.getSubmittedOn() != null);
         if (report.getSubmittedOn() != null) {
             page.setSubmittedLine(Text.forLocale(locale, "feedback.expenseCommands.submittedLine",
-                    nameOr(report.getSubmittedBy(), noName(locale)), day(report.getSubmittedOn(), locale)));
+                    nameOr(report.getSubmittedBy(), noName(locale)), Formats.date(report.getSubmittedOn(), locale)));
         }
         fillAdvances(page, report, locale);
         page.setPaymentInstructions(report.getPaymentInstructions());
@@ -233,7 +232,7 @@ public class ExpenseCommands {
         page.setTreasurerEmail(treasurerEmail(trip));
         if (report.getEmailedOn() != null) {
             page.setEmailedLine(Text.forLocale(locale, "feedback.expenseCommands.emailedLine",
-                    report.getEmailedTo(), day(report.getEmailedOn(), locale)));
+                    report.getEmailedTo(), Formats.date(report.getEmailedOn(), locale)));
         }
         warnMissingRates(page, report, locale);
         return page;
@@ -257,7 +256,7 @@ public class ExpenseCommands {
         row.setId(entry.getId());
         row.setNumber(number);
         row.setTypeLabel(entry.getType().getLabel(locale));
-        row.setDateText((entry.getDate() == null) ? "" : day(entry.getDate(), locale));
+        row.setDateText((entry.getDate() == null) ? "" : Formats.date(entry.getDate(), locale));
         row.setParty((entry.getType() == AdvanceType.PARTICIPANT) ? participantNames(entry, locale)
                 : entry.getParty());
         row.setAmount(entry.isUsd() ? money(entry.getAmountMinor())
@@ -291,7 +290,7 @@ public class ExpenseCommands {
         return (tx.getRecordedOn() == null)
                 ? Text.forLocale(locale, "feedback.expenseCommands.paymentRecordedFor", amount, name)
                 : Text.forLocale(locale, "feedback.expenseCommands.paymentRecordedForOn", amount, name,
-                        day(tx.getRecordedOn(), locale));
+                        Formats.date(tx.getRecordedOn(), locale));
     }
 
     /** {@link #personName(String, Locale)} in the request's language. */
@@ -371,7 +370,7 @@ public class ExpenseCommands {
             final Locale locale) {
         final PaymentRow row = new PaymentRow();
         row.setId(payment.getId());
-        row.setDateText((payment.getDate() == null) ? "" : day(payment.getDate(), locale));
+        row.setDateText((payment.getDate() == null) ? "" : Formats.date(payment.getDate(), locale));
         row.setAmount(money(payment.getAmountCents()));
         row.setNegative(payment.getAmountCents() < 0);
         row.setMethod(payment.getMethod());
@@ -388,7 +387,7 @@ public class ExpenseCommands {
         row.setLineCount(names.size());
         if (payment.getRecordedOn() != null) {
             row.setRecordedLine(Text.forLocale(locale, "feedback.expenseCommands.recordedLine",
-                    nameOr(payment.getRecordedBy(), noName(locale)), day(payment.getRecordedOn(), locale)));
+                    nameOr(payment.getRecordedBy(), noName(locale)), Formats.date(payment.getRecordedOn(), locale)));
         }
         return row;
     }
@@ -476,7 +475,7 @@ public class ExpenseCommands {
             final ExpenseLine line = lines.get(i);
             final ExpenseRow row = new ExpenseRow();
             row.setId(line.getId());
-            row.setDateText((line.getDate() == null) ? various(locale) : day(line.getDate(), locale));
+            row.setDateText((line.getDate() == null) ? various(locale) : Formats.date(line.getDate(), locale));
             row.setCategory(line.getCategory().getLabel(locale));
             row.setDescription(line.getDescription());
             row.setForeign(!line.isUsd());
@@ -1185,7 +1184,7 @@ public class ExpenseCommands {
             final boolean mine = editing != null && editing.getLineIds().contains(line.getId());
             if (mine || (line.isOutOfPocket() && !report.isPaid(line.getId()))) {
                 choices.add(choice(line.getId(), ((line.getDate() == null) ? various()
-                        : day(line.getDate(), RequestContext.currentLocale()))
+                        : Formats.date(line.getDate(), RequestContext.currentLocale()))
                         + ", " + nameOr(line.getDescription(), unnamedExpense()) + ", "
                         + money(ExpenseMath.lineUsd(report, line))));
             }
@@ -1811,7 +1810,7 @@ public class ExpenseCommands {
         final String name = personName(tx.getPersonId());
         warn((tx.getRecordedOn() == null) ? Text.get("feedback.expenseCommands.txWarningEarlier", amount, name)
                 : Text.get("feedback.expenseCommands.txWarning", amount, name,
-                        day(tx.getRecordedOn(), RequestContext.currentLocale())));
+                        Formats.date(tx.getRecordedOn(), RequestContext.currentLocale())));
     }
 
     /** Deletes a worksheet entry; one that recorded a transaction leaves it in the ledger and warns. */
@@ -1887,22 +1886,6 @@ public class ExpenseCommands {
     private static String orgName(final Trip trip) {
         final Organization org = trip.getOrganization();
         return (org == null) ? null : org.getName();
-    }
-
-    /** "Sep 20, 2026 to Oct 5, 2026"; just the start when there is no end; null with no dates. */
-    static String tripDates(final Trip trip, final Locale locale) {
-        final LocalDateTime start = trip.getStartDate();
-        final LocalDateTime end = trip.getEndDate();
-        if (start == null) {
-            return null;
-        }
-        return (end == null) ? day(start, locale)
-                : Text.forLocale(locale, "common.range", day(start, locale), day(end, locale));
-    }
-
-    /** "Oct 30, 2026": a date the way the reader's language writes it (English's is the one these always used). */
-    private static String day(final TemporalAccessor date, final Locale locale) {
-        return Formats.date(date, locale);
     }
 
     /** "23.00 EUR": hundredths of a foreign currency with its code. */

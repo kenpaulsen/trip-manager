@@ -155,8 +155,8 @@ public class DisplayLabelsTest {
         final List<ContentInstance> conference = in(Language.Croatian,
                 () -> OrgPageBootstrap.tripRows(trip, "CFPW", id -> 2, LocalDateTime.of(2027, 1, 1, 0, 0)));
         Assert.assertEquals(conference.get(0).getValues().get("primaryText"), "Register");
-        Assert.assertEquals(TripKind.CONFERENCE.registerLabelIn(Language.Spanish.getLocale()), "Inscribirse");
-        Assert.assertEquals(TripKind.PILGRIMAGE.displayValueIn(Language.Croatian.getLocale()), "Hodočašće");
+        Assert.assertEquals(TripKind.CONFERENCE.getRegisterLabel(Language.Spanish.getLocale()), "Inscribirse");
+        Assert.assertEquals(TripKind.PILGRIMAGE.getDisplayValue(Language.Croatian.getLocale()), "Hodočašće");
     }
 
     @Test
