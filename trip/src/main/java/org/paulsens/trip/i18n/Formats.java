@@ -53,7 +53,9 @@ public final class Formats {
 
     /**
      * A span of days in {@link #date}'s width, as {@code common.range} words it: "Sep 20, 2026 to Oct 5, 2026";
-     * the start alone when there is no end; blank with no start. A trip's dates on a page, a PDF or a reminder.
+     * the start alone when there is no end, and also when the end prints the same as the start (a one-day trip
+     * names its day once, not "Jun 1, 2027 to Jun 1, 2027"); blank with no start. A trip's dates on a page, a PDF
+     * or a reminder.
      * Two full dates in EVERY language, English included; {@link #dateRange} is the other shape (CLDR's interval,
      * shared parts written once: "3–12 sept 2026"), which only non-English readers get, so pick this one wherever
      * English must read the same.
@@ -73,9 +75,10 @@ public final class Formats {
         if (start == null) {
             return "";
         }
-        return end == null ? format(start, skeleton, locale)
-                : Text.forLocale(locale, "common.range", format(start, skeleton, locale),
-                        format(end, skeleton, locale));
+        final String first = format(start, skeleton, locale);
+        final String last = format(end, skeleton, locale);
+        // Compared as printed, not as values: a one-day trip's end is often a later hour of the same day.
+        return (last.isEmpty() || last.equals(first)) ? first : Text.forLocale(locale, "common.range", first, last);
     }
 
     /** A time of day: 3:05 PM / 15:05. */

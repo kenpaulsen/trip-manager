@@ -1440,7 +1440,7 @@ public class ExpenseCommands {
         final ExpensePage page = reportPageIn(trip.getId(), locale);
         final String who = esc(nameOr(report.getSubmittedBy(), Text.forLocale(locale, "common.someone")));
         final StringBuilder html = new StringBuilder();
-        html.append("<p>").append((page.getTripDates() == null)
+        html.append("<p>").append((page.getTripDates() == null || page.getTripDates().isBlank())
                 ? Text.forLocale(locale, "mail.expenseReport.submitted", who, esc(trip.getTitle()))
                 : Text.forLocale(locale, "mail.expenseReport.submittedDates", who, esc(trip.getTitle()),
                         esc(page.getTripDates()))).append("</p>");

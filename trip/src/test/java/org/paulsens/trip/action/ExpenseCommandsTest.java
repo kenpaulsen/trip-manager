@@ -1009,6 +1009,36 @@ public class ExpenseCommandsTest {
         assertTrue(DAO.getInstance().saveOrganization(org));
     }
 
+    /** A trip with no start date has no dates to name: the sentence without them, never an empty "()". */
+    @Test
+    public void anUndatedTripsTreasurerMailLeavesTheDatesOut() throws IOException {
+        final Trip trip = newTrip();
+        trip.setStartDate(null);
+        trip.setEndDate(null);
+        assertTrue(DAO.getInstance().saveTrip(trip));
+        final String id = trip.getId();
+        assertEquals(admin.reportPage(id).getTripDates(), "");
+        final MailCommands mail = Mockito.mock(MailCommands.class);
+        Mockito.when(mail.sendWithAttachment(ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any())).thenReturn(true);
+        final ExpenseCommands bean = new ExpenseCommands(TestCallers::siteAdmin);
+        bean.mailForTest(mail);
+        try {
+            treasurer("treasurer@example.org");
+            assertTrue(bean.emailTreasurer(id));
+            final ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
+            Mockito.verify(mail).sendWithAttachment(ArgumentMatchers.any(), ArgumentMatchers.any(),
+                    ArgumentMatchers.any(), ArgumentMatchers.any(), body.capture(), ArgumentMatchers.any(),
+                    ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any());
+            assertTrue(body.getValue().contains("submitted the expense report for <b>Holy Angels</b>.</p>"),
+                    body.getValue());
+            assertFalse(body.getValue().contains("()"), body.getValue());
+        } finally {
+            treasurer(null);
+        }
+    }
+
     @Test
     public void theTreasurerSettingMustBeAnAddress() throws IOException {
         final String id = newTrip().getId();

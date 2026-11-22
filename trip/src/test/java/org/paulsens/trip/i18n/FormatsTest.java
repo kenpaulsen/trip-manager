@@ -65,6 +65,17 @@ public class FormatsTest {
     }
 
     @Test
+    public void aOneDaySpanNamesItsDayOnce() {
+        final LocalDateTime start = LocalDateTime.of(2027, 6, 1, 8, 0);
+        final LocalDateTime end = LocalDateTime.of(2027, 6, 1, 17, 0);
+        Assert.assertEquals(Formats.dateSpan(start, end, Locale.ENGLISH), "Jun 1, 2027");
+        Assert.assertEquals(Formats.longDateSpan(start, end, Locale.ENGLISH), "June 1, 2027");
+        Assert.assertEquals(Formats.dateSpan(start, start.toLocalDate(), HR), Formats.date(start, HR));
+        Assert.assertEquals(Formats.longDateSpan(start, end, ES), "1 de junio de 2027");
+        Assert.assertEquals(Formats.dateSpan(start, end.plusDays(1), Locale.ENGLISH), "Jun 1, 2027 to Jun 2, 2027");
+    }
+
+    @Test
     public void aNumberGroupsTheWayTheLanguageDoes() {
         Assert.assertEquals(Formats.number(1234567, Locale.ENGLISH), "1,234,567");
         Assert.assertEquals(Formats.number(1234567, HR), "1.234.567");

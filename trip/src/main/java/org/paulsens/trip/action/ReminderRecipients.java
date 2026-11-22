@@ -266,13 +266,11 @@ public final class ReminderRecipients {
         final Map<String, String> facts = new LinkedHashMap<>();
         final String base = baseUrl.apply(trip);
         final String id = trip.getId();
-        final Locale locale = (trip.getLanguage() == null) ? Locale.ENGLISH : trip.getLanguage().getLocale();
+        final Locale locale = TripCommands.languageOf(trip).getLocale();
         final LocalDate start = (trip.getStartDate() == null) ? null : trip.getStartDate().toLocalDate();
         final LocalDate end = (trip.getEndDate() == null) ? null : trip.getEndDate().toLocalDate();
         facts.put(ReminderText.TRIP_TITLE, trip.getTitle());
-        // A one-day trip names its day once, not "Jun 1, 2027 to Jun 1, 2027".
-        facts.put(ReminderText.TRIP_DATES, Formats.dateSpan(start, start != null && start.equals(end) ? null : end,
-                locale));
+        facts.put(ReminderText.TRIP_DATES, Formats.dateSpan(start, end, locale));
         facts.put(ReminderText.DAYS_UNTIL, (start == null || today == null) ? ""
                 : Long.toString(Math.max(0, ChronoUnit.DAYS.between(today, start))));
         facts.put(ReminderText.BALANCE_DUE_ON, Formats.date(trip.getCheckout().getBalanceDueOn(), locale));
