@@ -1538,9 +1538,25 @@ public class TripCommands {
     // data- attribute and a small script computes the number client-side. A server-computed count was tried
     // and read one day low for most of each day (elapsed-period truncation + the container's UTC clock).
 
-    /** The languages a trip can be offered in, for the trip editor's menu (replaces a hardcoded list). */
+    /** Every language the product knows, in registry order. */
     public List<Language> getLanguages() {
         return List.of(Language.values());
+    }
+
+    /**
+     * The languages the trip editor offers for {@code theTrip}: English and Spanish, which every build has
+     * always read, plus a language its organization's site offers, plus the trip's own. A language newer than
+     * that (Croatian, added 2026-11-21) is stored only where a site has switched it on, so a rollback to a build
+     * that cannot read it never meets a row it cannot parse (an unparseable trip vanishes from every list).
+     */
+    public List<Language> languagesFor(final Trip theTrip) {
+        final List<Language> offered = new ConfigCommands().siteLanguages(theTrip == null ? null
+                : theTrip.getOrganization());
+        final Language own = theTrip == null ? null : theTrip.getLanguage();
+        return getLanguages().stream()
+                .filter(language -> language == Language.English || language == Language.Spanish
+                        || offered.contains(language) || language == own)
+                .toList();
     }
 
     /** The question types for the registration-options editor's Type menu. */

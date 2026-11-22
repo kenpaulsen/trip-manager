@@ -24,6 +24,7 @@ import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.content.MarketingPageBootstrap;
 import org.paulsens.trip.content.OrgPageBootstrap;
+import org.paulsens.trip.content.PageVersions;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.model.ContentInstance;
@@ -225,6 +226,10 @@ public class SitePageCommandsTest {
         assertTrue(dao.saveContent(new ContentInstance("kid-" + tag, containerId, "Kid " + tag, "text-only", 1,
                 new HashMap<>(), null, 0, 0, null, "t"), 5));
 
+        final String spanish = PageVersions.keyFor(key, Language.Spanish);
+        assertTrue(dao.saveContent(new ContentInstance("es-" + tag, spanish, "Es " + tag, "text-only", 1,
+                new HashMap<>(), null, 0, 0, null, "t"), 5));
+
         // The audit trail as the console sink prints it: synchronous, and present whichever sinks this JVM built.
         final PrintStream original = System.out;
         final ByteArrayOutputStream captured = new ByteArrayOutputStream();
@@ -237,12 +242,14 @@ public class SitePageCommandsTest {
         }
         assertTrue(deleted, "...but deleting the page deletes them");
         assertEquals(dao.getContentForSection(key, Cached.NO), List.of());
+        assertEquals(dao.getContentForSection(spanish, Cached.NO), List.of(),
+                "its Spanish version went too: a new page of the same name must not serve it");
         assertEquals(dao.getContentForSection(containerId, Cached.NO), List.of());
         final List<String> lines = captured.toString(StandardCharsets.UTF_8).lines()
                 .filter(line -> line.contains(orgAdmin.getEmail() + " | CONTENT | Deleted '"))
                 .filter(line -> Character.isDigit(line.charAt(0))) // not a sink's prefixed fallback copy
                 .toList();
-        assertEquals(lines.size(), 3, "one CONTENT line per deleted row, as the org admin: " + lines);
+        assertEquals(lines.size(), 4, "one CONTENT line per deleted row, the Spanish version's too: " + lines);
         assertTrue(lines.stream().anyMatch(line -> line.contains("'Introduction' from " + key)), "the starter text");
         assertTrue(lines.stream().anyMatch(line -> line.contains("'Box " + tag + "' from " + key)), "the container");
         assertTrue(lines.stream().anyMatch(line -> line.contains("'Kid " + tag + "' with its container")),

@@ -262,6 +262,11 @@ public class MailTemplateVersionsTest {
             Assert.assertTrue(DAO.getInstance().getTemplate(id + "@es", Cached.NO).isEmpty());
             planted.setOrgId(null);
             Assert.assertTrue(templates.saveTemplate(planted), "in the template's scope it saves");
+            final ContentTemplate orphan = new ContentTemplate("no-such-" + id + "@es", 0, "Beta's", "x",
+                    "<p>x</p>", List.of(), null, null, TemplateKind.MAIL, null, null, null);
+            orphan.setOrgId(BETA);
+            Assert.assertFalse(betaEditor().saveTemplate(orphan),
+                    "no template to translate: the version id cannot be claimed before its template exists");
         } finally {
             delete(id + "@es", id);
         }
@@ -287,6 +292,30 @@ public class MailTemplateVersionsTest {
 
             Assert.assertTrue(templates.revertToSiteDefault(betaCopy, BETA));
             Assert.assertTrue(DAO.getInstance().getTemplate(betaCopy + "@es", Cached.NO).isEmpty());
+            Assert.assertTrue(DAO.getInstance().getTemplate(id + "@es", Cached.NO).isPresent(), "the shared one stays");
+        } finally {
+            delete(betaCopy + "@es", betaCopy, id + "@es", id);
+        }
+    }
+
+    /**
+     * Deleting a template takes its language versions in its own scope: left behind, Beta's Spanish copy would
+     * still reach Spanish readers after Beta deleted the English one, and no screen lists a version alone.
+     */
+    @Test
+    public void deletingATemplateDeletesItsVersions() {
+        final String id = uniqueId();
+        final String betaCopy = id + "-beta";
+        try {
+            mail(id, "Shared", null);
+            mail(id + "@es", "Compartida", null);
+            Assert.assertEquals(templates.customize(id, BETA), betaCopy);
+            Assert.assertTrue(DAO.getInstance().getTemplate(betaCopy + "@es", Cached.NO).isPresent());
+
+            Assert.assertTrue(templates.deleteTemplate(betaCopy));
+            Assert.assertTrue(DAO.getInstance().getTemplate(betaCopy + "@es", Cached.NO).isEmpty(),
+                    "Beta's Spanish went with Beta's template");
+            Assert.assertEquals(subject(id, BETA, ES), "Compartida", "Beta's Spanish readers get the shared Spanish");
             Assert.assertTrue(DAO.getInstance().getTemplate(id + "@es", Cached.NO).isPresent(), "the shared one stays");
         } finally {
             delete(betaCopy + "@es", betaCopy, id + "@es", id);

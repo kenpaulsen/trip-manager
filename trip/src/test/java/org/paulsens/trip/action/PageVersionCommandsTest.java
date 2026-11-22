@@ -59,6 +59,28 @@ public class PageVersionCommandsTest {
         Assert.assertTrue(on(Language.Spanish, versions::isOffered));
     }
 
+    /**
+     * A version marked with what is NOW the page's own language (the site's default changed after it was
+     * written): readers of that language get it, and the bar still lists it as a version, not the unmarked page.
+     */
+    @Test
+    public void aVersionInWhatBecameTheOwnLanguageIsStillServedAndListed() {
+        final String page = "page:org:" + FakeData.BETA_ORG_ID + ":pv-own";
+        final ContentInstance english = new ContentInstance("pv-own-" + UUID.randomUUID(), page + "@en", "Hi",
+                "text-only", 1, new HashMap<>(Map.of("body", "<p>Hi</p>")), null, 0, 0, null, "t");
+        Assert.assertTrue(DAO.getInstance().saveContent(english, 5));
+        try {
+            Assert.assertEquals(on(Language.English, () -> PageVersionCommands.forThisRequest(page, null)),
+                    page + "@en", "English is Beta's default, and an @en version was written: it is served");
+            final PageVersionCommands.Tab tab = on(Language.English, () -> versions.tabs(page)).get(0);
+            Assert.assertEquals(tab.key(), page + "@en", "the bar opens the version, so it can be edited");
+            Assert.assertTrue(tab.written());
+            Assert.assertFalse(tab.own(), "a version, which can be deleted");
+        } finally {
+            DAO.getInstance().deleteContent(english.getId());
+        }
+    }
+
     @Test
     public void theBarsLinksNameAVersionAndKeepThePagesOwnParameters() {
         Assert.assertEquals(versions.editUrl("/page.jsf", "name=about&edit=true&version=hr", "es"),

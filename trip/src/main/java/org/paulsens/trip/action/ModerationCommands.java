@@ -221,7 +221,7 @@ public class ModerationCommands {
             }
             // The report recipient is staff: their own language when the address is one person's, else English.
             final Locale locale = ReaderLanguage.ofStaffAddress(to, trip);
-            final String tripTitle = trip == null ? Text.forLocale(locale, "mail.moderation.unknownTrip")
+            final String tripTitle = trip == null ? Text.forLocale(locale, "common.unknownTrip")
                     : Util.orDefault(trip.getTitle(), "");
             mailSource.get().send(from, to, bcc == null || bcc.isBlank() ? null : bcc, null,
                     Text.forLocale(locale, "mail.moderation.subject", tripTitle),

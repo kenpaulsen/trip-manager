@@ -153,9 +153,14 @@ public class PageVersionCommands {
     }
 
     private static Tab tab(final String base, final Language language, final Language own, final Language shown) {
-        final String key = language == own ? base : PageVersions.keyFor(base, language);
-        return new Tab(language.getTag(), language.getDisplayName(), key, language == own || hasRows(key),
-                language == shown, language == own);
+        // A version marked with the own language (written before the site's default or the trip's language
+        // changed) is that language's page, as PageVersions.resolve serves it: it keeps its tab, and stays a
+        // version that can be deleted.
+        final String version = PageVersions.keyFor(base, language);
+        final boolean ownPage = language == own && !hasRows(version);
+        final String key = ownPage ? base : version;
+        return new Tab(language.getTag(), language.getDisplayName(), key, ownPage || hasRows(key),
+                language == shown, ownPage);
     }
 
     /** A trip page is in {@link OrgPageBootstrap#pageLanguageOf}; every other page in its site's default language. */

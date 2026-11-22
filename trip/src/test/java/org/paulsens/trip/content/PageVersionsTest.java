@@ -46,6 +46,8 @@ public class PageVersionsTest {
         Assert.assertEquals(resolve(Language.Croatian, true, written), ABOUT + "@hr",
                 "an editor who names a version gets its key while it is still empty");
         Assert.assertEquals(resolve(null, false, written), ABOUT);
+        Assert.assertEquals(PageVersions.resolve(ABOUT, Language.Spanish, Language.Spanish, false, written::contains),
+                ABOUT + "@es", "the site's default became Spanish: its written Spanish version is still served");
         Assert.assertNull(PageVersions.resolve(null, Language.English, Language.Spanish, true, written::contains));
     }
 

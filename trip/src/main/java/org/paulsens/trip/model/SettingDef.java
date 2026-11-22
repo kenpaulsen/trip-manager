@@ -109,11 +109,12 @@ public class SettingDef implements Serializable {
     boolean analyticsId;
     /**
      * Whether an organization may give this setting one value per language its site offers ({@code docs/i18n.md},
-     * "Language versions of a page"): display text such as the footer line, stored beside the plain override
-     * under {@link #keyIn the name with a language mark} ({@code site.footer.text@es}) and read before it for a
-     * reader in that language. Only an org-overridable STRING can be one: the translations live on the org row,
-     * and a number, a color or a URL means the same thing in every language ({@code KnownSettingsTest} holds every
-     * declaration to that, and the readers ignore the mark on anything else).
+     * "Short texts an organization writes per language"): display text such as the footer line, stored beside
+     * the plain override under {@link #keyIn the name with a language mark} ({@code site.footer.text@es}) and read
+     * before it for a reader in that language. Only an org-overridable STRING can be one: the translations live
+     * on the org row, and a number, a color or a URL means the same thing in every language
+     * ({@code TranslatedSettingsTest} holds every declaration to that, and the readers ignore the mark on anything
+     * else).
      */
     boolean translatable;
 

@@ -1070,7 +1070,7 @@ public class RegistrationCommands {
                 addresses.fromFor(org.paulsens.trip.config.KnownSettings.REG_NOTIFY_FROM.getName()), office,
                 null, null, Text.forLocale(locale, "mail.reg.cancelled.subject", trip.getTitle()),
                 Text.forLocale(locale, "mail.reg.cancelled.body", AuditCommands.describe(person),
-                        trip.getTitle() == null ? "(unknown trip)" : trip.getTitle()),
+                        trip.getTitle() == null ? Text.forLocale(locale, "common.unknownTrip") : trip.getTitle()),
                 org.paulsens.trip.audit.AuditActor.current());
         return true;
     }

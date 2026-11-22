@@ -152,7 +152,8 @@ public class PushNotifications {
     /** One admin's copy, in that admin's language; the subject is the requester's own words and is not ours. */
     private PushPayload supportPayload(final ChatMessage stored, final Person requester, final String subject,
             final Person admin) {
-        final Locale locale = ReaderLanguage.of(admin, null);
+        // Staff read their own saved choice or English, never a site default: the same as the email.
+        final Locale locale = ReaderLanguage.ofStaff(admin, null);
         final String who = requester == null || requester.getPreferredName() == null
                 ? Text.forLocale(locale, "common.someone") : requester.getPreferredName();
         return PushPayload.alert(PushPayload.KIND_SUPPORT_REQUEST, Text.forLocale(locale, "push.support.title"),

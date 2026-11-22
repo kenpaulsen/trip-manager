@@ -149,6 +149,16 @@ public class TripPublicListingTest {
     }
 
     @Test
+    public void theEditorOffersANewerLanguageOnlyWhereItsSiteDoesOrTheTripHasIt() {
+        final Trip english = Trip.builder().id("lang-en").title("English").language(Language.English).build();
+        Assert.assertEquals(trip.languagesFor(english), List.of(Language.English, Language.Spanish),
+                "a site offering English alone: the two languages every build reads");
+        final Trip croatian = Trip.builder().id("lang-hr").title("Croatian").language(Language.Croatian).build();
+        Assert.assertEquals(trip.languagesFor(croatian), List.of(Language.values()), "the trip's own is kept");
+        Assert.assertEquals(trip.languagesFor(null), List.of(Language.English, Language.Spanish));
+    }
+
+    @Test
     public void registrationChipHelpers() {
         final RegistrationCommands reg = new RegistrationCommands();
         // Anonymous and unregistered viewers see the call to action; nulls never throw on a public page.

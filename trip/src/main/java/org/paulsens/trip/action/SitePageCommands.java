@@ -22,6 +22,7 @@ import org.paulsens.trip.audit.RequestContext;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.content.ContentRenderer;
 import org.paulsens.trip.content.OrgPageBootstrap;
+import org.paulsens.trip.content.PageVersions;
 import org.paulsens.trip.content.OrgPageBootstrap.StarterPage;
 import org.paulsens.trip.content.StarterTemplates;
 import org.paulsens.trip.dynamo.DAO;
@@ -421,7 +422,14 @@ public class SitePageCommands {
         if (!saved || removed[0].isLink()) {
             return saved;
         }
-        return deleteContent(OrgPageBootstrap.pageKey(Organization.Id.from(orgId.trim()), removed[0].name()));
+        // Its language versions go with it: left behind, a new page of the same name would serve the deleted
+        // page's Spanish (PageVersions.resolve picks any version that has rows).
+        final String key = OrgPageBootstrap.pageKey(Organization.Id.from(orgId.trim()), removed[0].name());
+        boolean all = deleteContent(key);
+        for (final Language language : Language.values()) {
+            all &= deleteContent(PageVersions.keyFor(key, language));
+        }
+        return all;
     }
 
     /**

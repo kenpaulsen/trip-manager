@@ -523,8 +523,11 @@ public class TemplateCommands {
         if (PageVersions.languageOf(template.getId()).isEmpty()) {
             return true;
         }
+        // No template under the base id: refused. Allowed, an organization's editor could claim another
+        // organization's (or the shared) version id before that template exists, and its owner could then
+        // never add that language (the id is taken) while its readers kept reading English.
         final ContentTemplate base = storedTemplate(PageVersions.baseOf(template.getId()));
-        return base == null || Objects.equals(base.getOrgId(), template.getOrgId());
+        return base != null && Objects.equals(base.getOrgId(), template.getOrgId());
     }
 
     // ================================================================ language versions on the manager page
@@ -649,18 +652,9 @@ public class TemplateCommands {
             PageFeedback.error(Text.get("feedback.templateCommands.notReverted", id));
             return false;
         }
-        if (!deleteTemplate(id)) {
-            return false;
-        }
-        // The organization's language versions go too: kept, they would still outrank the site default's
-        // translations for their readers, and revert means the site's wording in every language.
-        for (final Language language : otherLanguages()) {
-            final String versionId = PageVersions.keyFor(id, language);
-            if (ownedBy(scope, storedTemplate(versionId)) != null) {
-                deleteTemplate(versionId);
-            }
-        }
-        return true;
+        // deleteTemplate takes the organization's language versions too: kept, they would still outrank the site
+        // default's translations for their readers, and revert means the site's wording in every language.
+        return deleteTemplate(id);
     }
 
     /**
@@ -807,8 +801,25 @@ public class TemplateCommands {
         }
         if (deleted) {
             audit(caller, id, "Deleted template '" + id + "'");
+            deleteVersionsOf(stored);
         }
         return deleted;
+    }
+
+    /**
+     * A deleted template's language versions in its own scope ({@code {id}@es}): kept, they would still reach
+     * their readers (resolveForOrg serves a version without asking for its template), and no screen lists them.
+     */
+    private void deleteVersionsOf(final ContentTemplate deleted) {
+        if (PageVersions.languageOf(deleted.getId()).isPresent()) {
+            return;
+        }
+        for (final Language language : otherLanguages()) {
+            final ContentTemplate version = storedTemplate(PageVersions.keyFor(deleted.getId(), language));
+            if (version != null && Objects.equals(deleted.getOrgId(), version.getOrgId())) {
+                deleteTemplate(version.getId());
+            }
+        }
     }
 
     /** Every retained version, current first, for the history dialog. */

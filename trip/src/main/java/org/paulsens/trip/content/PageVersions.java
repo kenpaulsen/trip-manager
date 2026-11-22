@@ -42,7 +42,10 @@ public final class PageVersions {
      * The key a reader who wants {@code wanted} is shown.
      *
      * <ul>
-     *   <li>The page's own language reads the page's own key.</li>
+     *   <li>The page's own language reads the page's own key, unless a version marked with that language has
+     *       been written: the own language is worked out from settings that can change (the site's default, a
+     *       trip's language), so a version written while Spanish was "another language" stays Spanish readers'
+     *       page after Spanish becomes the default.</li>
      *   <li>Another language reads its version when one has been written.</li>
      *   <li>Otherwise the WHOLE page falls back to the page's own key: a page is never half one language and
      *       half another.</li>
@@ -55,10 +58,13 @@ public final class PageVersions {
      */
     public static String resolve(final String baseKey, final Language ownLanguage, final Language wanted,
             final boolean explicit, final Predicate<String> hasRows) {
-        if (baseKey == null || wanted == null || wanted == ownLanguage) {
+        if (baseKey == null || wanted == null) {
             return baseKey;
         }
         final String version = keyFor(baseKey, wanted);
+        if (wanted == ownLanguage) {
+            return hasRows.test(version) ? version : baseKey;
+        }
         return explicit || hasRows.test(version) ? version : baseKey;
     }
 }
