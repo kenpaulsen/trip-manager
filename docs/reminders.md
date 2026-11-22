@@ -147,6 +147,9 @@ bodies it passes unchanged (`RichTextHtmlTest` pins them).
 Tokens: `firstName`, `travelerName`, `tripTitle`, `tripDates`, `daysUntilDeparture`, `balanceDue`,
 `balanceDueOn`, `documentList`, `passportIssue`, `orgName`, `tripLink`, `paymentLink`, `documentsLink`,
 `itineraryLink`, `profileLink`. Links are built on the trip's owning organization's site (`SiteUrls`).
+`tripDates` and `balanceDueOn` are written in the trip's language, the one its messages are written in
+(`Formats.dateSpan` / `Formats.date`; a one-day trip names its day once); `passportIssue` is still an English
+sentence.
 
 The four starter texts (`content/ReminderDefaults`) are also MAIL starter templates (`reminder-balance-due`,
 `reminder-waiver`, `reminder-passport`, `reminder-countdown`), so an organization can reword its own starting

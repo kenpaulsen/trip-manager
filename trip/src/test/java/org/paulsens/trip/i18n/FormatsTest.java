@@ -44,6 +44,27 @@ public class FormatsTest {
     }
 
     @Test
+    public void aSpanIsTwoFullDatesInTheLanguagesOwnWords() {
+        final LocalDate start = LocalDate.of(2026, 9, 20);
+        final LocalDate end = LocalDate.of(2026, 10, 5);
+        Assert.assertEquals(Formats.dateSpan(start, end, Locale.ENGLISH), "Sep 20, 2026 to Oct 5, 2026");
+        Assert.assertEquals(Formats.longDateSpan(start, end, Locale.ENGLISH),
+                "September 20, 2026 to October 5, 2026");
+        Assert.assertEquals(Formats.longDateSpan(start, end, ES), "20 de septiembre de 2026 a 5 de octubre de 2026");
+        Assert.assertEquals(Formats.dateSpan(start, end, HR),
+                Formats.date(start, HR) + " do " + Formats.date(end, HR));
+    }
+
+    @Test
+    public void aSpanWithNoEndIsTheStartAloneAndWithNoStartIsBlank() {
+        final LocalDateTime start = LocalDateTime.of(2026, 9, 20, 8, 0);
+        Assert.assertEquals(Formats.dateSpan(start, null, Locale.ENGLISH), "Sep 20, 2026");
+        Assert.assertEquals(Formats.longDateSpan(start, null, Locale.ENGLISH), "September 20, 2026");
+        Assert.assertEquals(Formats.dateSpan(null, null, Locale.ENGLISH), "");
+        Assert.assertEquals(Formats.longDateSpan(null, start, ES), "");
+    }
+
+    @Test
     public void aNumberGroupsTheWayTheLanguageDoes() {
         Assert.assertEquals(Formats.number(1234567, Locale.ENGLISH), "1,234,567");
         Assert.assertEquals(Formats.number(1234567, HR), "1.234.567");

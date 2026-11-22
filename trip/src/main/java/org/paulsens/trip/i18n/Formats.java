@@ -53,7 +53,10 @@ public final class Formats {
 
     /**
      * A span of days in {@link #date}'s width, as {@code common.range} words it: "Sep 20, 2026 to Oct 5, 2026";
-     * the start alone when there is no end; null with no start. A trip's dates on a page or a PDF.
+     * the start alone when there is no end; blank with no start. A trip's dates on a page, a PDF or a reminder.
+     * Two full dates in EVERY language, English included; {@link #dateRange} is the other shape (CLDR's interval,
+     * shared parts written once: "3–12 sept 2026"), which only non-English readers get, so pick this one wherever
+     * English must read the same.
      */
     public static String dateSpan(final TemporalAccessor start, final TemporalAccessor end, final Locale locale) {
         return span(start, end, "yMMMd", locale);
@@ -68,7 +71,7 @@ public final class Formats {
     private static String span(final TemporalAccessor start, final TemporalAccessor end, final String skeleton,
             final Locale locale) {
         if (start == null) {
-            return null;
+            return "";
         }
         return end == null ? format(start, skeleton, locale)
                 : Text.forLocale(locale, "common.range", format(start, skeleton, locale),
@@ -141,7 +144,8 @@ public final class Formats {
     /**
      * Two calendar days as one range in the language's own shape, the shared parts written once: "3–12 sept
      * 2026", "28. ruj – 2. lis 2026.". For a language other than English: each English caller keeps the exact
-     * range it has always printed, and those differ from one another and from CLDR's.
+     * range it has always printed, and those differ from one another and from CLDR's. Where every language,
+     * English included, writes two full dates joined by {@code common.range}, use {@link #dateSpan} instead.
      */
     public static String dateRange(final LocalDate start, final LocalDate end, final String skeleton,
             final Locale locale) {

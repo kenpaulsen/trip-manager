@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
+import java.util.regex.Pattern;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
 import org.paulsens.trip.audit.AuditActor;
@@ -34,6 +35,13 @@ public class MailTemplateVersionsTest {
     private static final String BETA = FakeData.BETA_ORG_ID;
     private static final Locale ES = Language.Spanish.getLocale();
     private static final Locale HR = Language.Croatian.getLocale();
+    /**
+     * The informal ("ti") imperatives the starter mails have shipped, and the informal possessive. The formal
+     * forms ("Pogledajte", "vaš") do not match, since each word must end where the informal form does. Only
+     * words that are nothing else: "prijavi", "odgovori" and "provjeri" are also nouns ("na prijavi").
+     */
+    private static final Pattern INFORMAL_CROATIAN =
+            Pattern.compile("(?iU)\\b(pogledaj|izvrši|pročitaj|potpiši|ažuriraj|tvoj\\w*)\\b");
     /** A content editor for Beta Corp's site only. */
     private static final Person.Id BETA_EDITOR = Person.Id.from("mtv-beta-editor");
 
@@ -343,6 +351,10 @@ public class MailTemplateVersionsTest {
                     version.language().getDisplayName() + " version of " + version.baseId()), version.id());
             Assert.assertFalse(installed.getDescription().contains("DRAFT"), version.id());
             Assert.assertFalse((version.subject() + version.body()).contains("—"), "no em dash: " + version.id());
+            if (version.language() == Language.Croatian) {
+                Assert.assertFalse(INFORMAL_CROATIAN.matcher(version.subject() + version.body()).find(),
+                        "Croatian mail says \"vi\" (docs/i18n.md): " + version.id());
+            }
         }
         Assert.assertNull(StarterTranslations.of(StarterTemplates.ORG_INVITE_ID, Language.English));
         Assert.assertNull(StarterTranslations.of(StarterTemplates.TEXT_ONLY_ID, Language.Spanish));

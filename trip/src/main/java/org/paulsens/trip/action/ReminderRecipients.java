@@ -16,6 +16,7 @@ import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.i18n.Formats;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Passport;
 import org.paulsens.trip.model.Person;
@@ -38,6 +39,7 @@ import org.paulsens.trip.util.EmailAddresses;
 public final class ReminderRecipients {
     /** A passport must outlast the trip's end by this long, the rule most countries apply at the border. */
     static final int PASSPORT_MONTHS_AFTER_RETURN = 6;
+    /** The passport sentence's date: that sentence is still English (docs/i18n.md), so its date is too. */
     private static final DateTimeFormatter DAY = DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.US);
 
     /**
@@ -255,32 +257,31 @@ public final class ReminderRecipients {
     /**
      * The token values every message of this trip shares (title, dates, links, organization). The mail merge
      * asks once per send ({@code MergeValues}).
+     *
+     * <p>The dates are written in the TRIP's language, not each recipient's: a trip's messages are written once,
+     * in the trip's language, and are not versioned per reader ({@code docs/i18n.md}), so a date in any other
+     * language would sit inside a sentence of the wrong one. English reads exactly as it always has.
      */
     Map<String, String> tripFacts(final Trip trip, final LocalDate today) {
         final Map<String, String> facts = new LinkedHashMap<>();
         final String base = baseUrl.apply(trip);
         final String id = trip.getId();
+        final Locale locale = (trip.getLanguage() == null) ? Locale.ENGLISH : trip.getLanguage().getLocale();
         final LocalDate start = (trip.getStartDate() == null) ? null : trip.getStartDate().toLocalDate();
         final LocalDate end = (trip.getEndDate() == null) ? null : trip.getEndDate().toLocalDate();
-        final LocalDate balanceDue = trip.getCheckout().getBalanceDueOn();
         facts.put(ReminderText.TRIP_TITLE, trip.getTitle());
-        facts.put(ReminderText.TRIP_DATES, dates(start, end));
+        // A one-day trip names its day once, not "Jun 1, 2027 to Jun 1, 2027".
+        facts.put(ReminderText.TRIP_DATES, Formats.dateSpan(start, start != null && start.equals(end) ? null : end,
+                locale));
         facts.put(ReminderText.DAYS_UNTIL, (start == null || today == null) ? ""
                 : Long.toString(Math.max(0, ChronoUnit.DAYS.between(today, start))));
-        facts.put(ReminderText.BALANCE_DUE_ON, (balanceDue == null) ? "" : DAY.format(balanceDue));
+        facts.put(ReminderText.BALANCE_DUE_ON, Formats.date(trip.getCheckout().getBalanceDueOn(), locale));
         facts.put(ReminderText.ORG_NAME, orgName(trip));
         facts.put(ReminderText.TRIP_LINK, base + TripCommands.DETAIL_URL + id);
         facts.put(ReminderText.PAYMENT_LINK, base + "/trip/pay.jsf?trip=" + id);
         facts.put(ReminderText.DOCUMENTS_LINK, base + TripPageCommands.JOIN_URL + id);
         facts.put(ReminderText.ITINERARY_LINK, base + "/trip/itinerary.jsf?trip=" + id);
         return facts;
-    }
-
-    private static String dates(final LocalDate start, final LocalDate end) {
-        if (start == null) {
-            return "";
-        }
-        return (end == null || end.equals(start)) ? DAY.format(start) : DAY.format(start) + " to " + DAY.format(end);
     }
 
     private static String orgName(final Trip trip) {

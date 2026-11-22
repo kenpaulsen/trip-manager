@@ -4,7 +4,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Objects;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
@@ -147,8 +146,8 @@ public class PaymentMailer {
         final boolean allConfirmed = rows.stream().allMatch(row -> row.getStatus() == Registration.Status.CONFIRMED);
         values.put("statusNote", Text.forLocale(locale, allConfirmed ? "mail.payment.statusConfirmed"
                 : "mail.payment.statusReceived") + balanceNote(payment, trip, rows, locale));
-        values.put("tripDates", trip == null ? ""
-                : Objects.toString(Formats.longDateSpan(trip.getStartDate(), trip.getEndDate(), locale), ""));
+        values.put("tripDates",
+                trip == null ? "" : Formats.longDateSpan(trip.getStartDate(), trip.getEndDate(), locale));
         values.put("paymentMethod", payment.getTotalChargedCents() == 0
                 ? Text.forLocale(locale, "mail.payment.noCharge") : processorName);
         return values;

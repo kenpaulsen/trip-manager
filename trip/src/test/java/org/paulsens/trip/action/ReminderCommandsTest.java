@@ -20,6 +20,7 @@ import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.model.BindingType;
 import org.paulsens.trip.model.ContentTemplate;
 import org.paulsens.trip.model.Family;
+import org.paulsens.trip.model.Language;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Passport;
 import org.paulsens.trip.model.Person;
@@ -604,6 +605,22 @@ public class ReminderCommandsTest {
         assertEquals(waiting.get(0).getReason(), "Awaiting approval");
         assertTrue(new ReminderRecipients().targets(null, balance, TODAY).isEmpty());
         assertTrue(new ReminderRecipients().targets(trip, null, TODAY).isEmpty());
+    }
+
+    /** The dates read in the language the trip's messages are written in; a one-day trip names its day once. */
+    @Test
+    public void tripDatesAreWrittenInTheTripsLanguage() throws IOException {
+        final Trip trip = newTrip();
+        final ReminderRecipients recipients = new ReminderRecipients((tripId, id) -> 0L, (t, id) -> List.of(),
+                person -> List.of(), t -> "https://org.example");
+        trip.setLanguage(Language.Spanish);
+        assertEquals(recipients.tripFacts(trip, TODAY).get(ReminderText.TRIP_DATES), "1 jun 2027 a 10 jun 2027");
+        trip.setLanguage(Language.English);
+        trip.setEndDate(START.plusHours(3));
+        assertEquals(recipients.tripFacts(trip, TODAY).get(ReminderText.TRIP_DATES), "Jun 1, 2027");
+        trip.setStartDate(null);
+        assertEquals(recipients.tripFacts(trip, TODAY).get(ReminderText.TRIP_DATES), "");
+        assertEquals(recipients.tripFacts(trip, TODAY).get(ReminderText.BALANCE_DUE_ON), "");
     }
 
     @Test

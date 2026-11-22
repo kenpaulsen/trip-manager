@@ -23,7 +23,6 @@ import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.FakeData;
-import org.paulsens.trip.i18n.Formats;
 import org.mockito.ArgumentCaptor;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
@@ -1251,9 +1250,6 @@ public class ExpenseCommandsTest {
         assertEquals(ExpenseCommands.micros(null), 0L);
         assertEquals(ExpenseCommands.micros(Double.POSITIVE_INFINITY), 0L);
         assertEquals(ExpenseCommands.micros(0.83), 830_000L);
-        assertNull(Formats.dateSpan(null, null, Locale.ENGLISH));
-        assertEquals(Formats.dateSpan(START, null, Locale.ENGLISH), "Sep 20, 2026");
-        assertEquals(Formats.longDateSpan(START, null, Locale.ENGLISH), "September 20, 2026");
         assertEquals(admin.categories().size(), ExpenseCategory.values().length);
         assertEquals(admin.categories().get(7).getLabel(), "Postage");
     }

@@ -47,7 +47,7 @@ public final class StarterTranslations {
                     {{travelersBlock}}
                     <p>Sljedeći korak je odobrenje: pregledavamo svaku prijavu i javit ćemo vam se čim vaša
                     bude potvrđena.</p>
-                    <p><a href="{{tripUrl}}">Pogledaj pojedinosti putovanja</a></p>
+                    <p><a href="{{tripUrl}}">Pogledajte pojedinosti putovanja</a></p>
                     <p>Imate pitanja? Samo odgovorite na ovaj e-mail i javit ćemo vam se.</p>
                     """),
             // ---------------------------------------------------------------- registration-approved
@@ -68,7 +68,7 @@ public final class StarterTranslations {
                     <p>{{firstName}}, dobro došli na <b>{{tripTitle}}</b>!</p>
                     <p>Vaša prijava je odobrena. Jako nam je drago što dolazite.</p>
                     {{ticketBlock}}
-                    <p><a href="{{itineraryUrl}}">Pogledaj svoje putovanje</a></p>
+                    <p><a href="{{itineraryUrl}}">Pogledajte svoje putovanje</a></p>
                     <p>Provjerite je li <a href="{{profileUrl}}">vaš profil</a> potpun (putovnica, datum
                     rođenja, kontakt za hitne slučajeve): trebamo ga za organizaciju putovanja.</p>
                     <p>Imate pitanja? Samo odgovorite na ovaj e-mail i javit ćemo vam se.</p>
@@ -198,7 +198,7 @@ public final class StarterTranslations {
                     <p>Podsjećamo vas na stanje za <b>{{tripTitle}}</b>.</p>
                     <p>Stanje za putnika {{travelerName}}: <b>{{balanceDue}}</b><br/>
                     Rok: {{balanceDueOn}}</p>
-                    <p><a href="{{paymentLink}}">Izvrši uplatu</a></p>
+                    <p><a href="{{paymentLink}}">Izvršite uplatu</a></p>
                     <p>Ako ste već platili, hvala vam; odgovorite na ovaj e-mail da provjerimo svoju evidenciju.</p>
                     """),
             // ---------------------------------------------------------------- reminder-waiver
@@ -215,7 +215,7 @@ public final class StarterTranslations {
                     """
                     <p>Pozdrav, {{firstName}},</p>
                     <p>Za <b>{{tripTitle}}</b> potreban je potpis putnika {{travelerName}} na: {{documentList}}.</p>
-                    <p><a href="{{documentsLink}}">Pročitaj i potpiši</a></p>
+                    <p><a href="{{documentsLink}}">Pročitajte i potpišite</a></p>
                     <p>Imate pitanja? Samo odgovorite na ovaj e-mail.</p>
                     """),
             // ---------------------------------------------------------------- reminder-passport
@@ -253,7 +253,7 @@ public final class StarterTranslations {
                     """
                     <p>Pozdrav, {{firstName}},</p>
                     <p>Dana do početka putovanja <b>{{tripTitle}}</b>: {{daysUntilDeparture}} ({{tripDates}}).</p>
-                    <p><a href="{{itineraryLink}}">Pogledaj plan puta</a></p>
+                    <p><a href="{{itineraryLink}}">Pogledajte plan puta</a></p>
                     <p>Imate pitanja prije polaska? Samo odgovorite na ovaj e-mail.</p>
                     """));
 
