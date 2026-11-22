@@ -29,6 +29,9 @@ import org.testng.annotations.Test;
  */
 public class PhotoChatResourceTest extends ResourceTestSupport {
 
+    /** The refusal a blocked word gets; the resource passes the chat's own sentence through. */
+    private static final String BLOCKED = "That message contains language this chat doesn't allow. Please reword it.";
+
     private static final String KEY = "chat/trip-x/20260809-a.jpg";
     private static final Person.Id ME = Person.Id.from("photo-rest-me");
 
@@ -396,7 +399,7 @@ public class PhotoChatResourceTest extends ResourceTestSupport {
         signedInAs(ME);
         Mockito.when(photoChat.comment(ArgumentMatchers.eq(KEY), ArgumentMatchers.eq(ME), ArgumentMatchers.any(),
                 ArgumentMatchers.any(), ArgumentMatchers.any()))
-                .thenReturn(ChatCommands.SendResult.fail("blocked_content", ChatCommands.BLOCKED_CONTENT_MESSAGE));
+                .thenReturn(ChatCommands.SendResult.fail("blocked_content", BLOCKED));
         assertError(resource.comment(CSRF_OK, Map.of("key", KEY, "body", "darn")), 400, ChatErrors.BLOCKED_CONTENT);
     }
 }

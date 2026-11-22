@@ -12,6 +12,7 @@ import org.paulsens.trip.cache.CacheClient;
 import org.paulsens.trip.cache.CacheKeys;
 import org.paulsens.trip.cache.WindowCounter;
 import org.paulsens.trip.config.KnownSettings;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.Person;
@@ -325,14 +326,17 @@ public class ChatRateLimiter {
             if (allowed) {
                 return null;
             }
+            // Each count goes in twice: as a number, which picks the plural form, and as text, which is what
+            // shows (a number would gain a thousands separator: "every 3,600 seconds").
+            final String retry = String.valueOf(retryAfterSeconds);
             if ("slow_mode".equals(reason)) {
-                return "Slow mode is on: wait " + retryAfterSeconds + " seconds between messages.";
+                return Text.get("server.chatRateLimit.slowMode", retryAfterSeconds, retry);
             }
             if (limit > 0 && windowSeconds > 0) {
-                return "Slow down: you can send " + limit + " messages every " + windowSeconds
-                        + " seconds. Try again in " + retryAfterSeconds + " seconds.";
+                return Text.get("server.chatRateLimit.limited", limit, windowSeconds, retryAfterSeconds,
+                        String.valueOf(limit), String.valueOf(windowSeconds), retry);
             }
-            return "Slow down: try again in " + retryAfterSeconds + " seconds.";
+            return Text.get("server.chatRateLimit.wait", retryAfterSeconds, retry);
         }
     }
 }

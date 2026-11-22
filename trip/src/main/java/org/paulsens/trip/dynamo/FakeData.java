@@ -895,6 +895,10 @@ public final class FakeData {
             overrides.put("site.contact.phone", "555-0100");
             overrides.put("site.donate.url", "https://example.com/give");
             overrides.put("site.analytics.id", "G-BETAFIXTURE");
+            // Beta is the one local site that offers every language (docs/i18n.md): the language switcher,
+            // the profile preference and the browser tests all need a site with a choice, and keeping it an
+            // ORG override leaves the shared site, and so every other test, English-only.
+            overrides.put("site.languages", "en,es,hr");
             if (!DAO.getInstance().saveOrganization(beta)) {
                 throw new IllegalStateException("Fake org seed: could not save Beta Corp's branding");
             }

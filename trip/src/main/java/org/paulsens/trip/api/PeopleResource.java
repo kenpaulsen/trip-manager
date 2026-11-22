@@ -15,6 +15,7 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -37,9 +38,11 @@ import org.paulsens.trip.api.dto.PrivacyDto;
 import org.paulsens.trip.api.dto.ProfilePhotoDto;
 import org.paulsens.trip.api.dto.RotateRequest;
 import org.paulsens.trip.api.mapper.PersonMapper;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.media.PhotoProcessor;
 import org.paulsens.trip.media.QuarterTurn;
 import org.paulsens.trip.model.DataId;
+import org.paulsens.trip.model.Language;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.PersonDataValue;
@@ -87,7 +90,7 @@ public class PeopleResource extends BaseResource {
             @QueryParam("limit") @DefaultValue("25") final int limit) {
         final OrgCommands orgs = new OrgCommands(this::caller);
         if (!privileges().isSiteAdmin() && !orgs.holdsAnywhere(ApiPrivileges.PEOPLE_ADMIN)) {
-            return error(403, ApiErrors.FORBIDDEN, "Not permitted to search people.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.people.searchNotPermitted"));
         }
         final int capped = Math.min(Math.max(limit, 1), MAX_SEARCH_RESULTS);
         // The website's admin People search, as this request's caller: a site admin searches the directory, an
@@ -114,7 +117,7 @@ public class PeopleResource extends BaseResource {
         final Person.Id personId = Person.Id.from(id);
         final Person person = findPerson(personId);
         if (person == null) {
-            return error(404, ApiErrors.NOT_FOUND, "No such person.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.shared.noSuchPerson"));
         }
         return ok(dto(person, levelFor(personId, tripId)));
     }
@@ -130,34 +133,33 @@ public class PeopleResource extends BaseResource {
     public Response create(@HeaderParam(CSRF_HEADER) final String csrf,
             @QueryParam("org") final String orgId, final PersonDto body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         final OrgCommands orgs = new OrgCommands(this::caller);
         final boolean siteAdmin = privileges().isSiteAdmin();
         if (!siteAdmin && (orgId == null || orgId.isBlank())) {
-            return error(400, ApiErrors.VALIDATION_FAILED, "org is required to create a person.");
+            return error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.people.orgRequired"));
         }
         if (!siteAdmin && !caller().has(ApiPrivileges.PEOPLE_ADMIN, orgId)) {
-            return error(403, ApiErrors.FORBIDDEN, "Not permitted to create people in this organization.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.people.createNotPermitted"));
         }
         if (sexUnparseable(body)) {
-            return error(400, ApiErrors.VALIDATION_FAILED, "sex must be Male or Female.");
+            return error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.shared.sexInvalid"));
         }
         final PersonCommands people = Beans.get(PersonCommands.class);
         final Person person = people.createPerson();
         apply(body, person, AccessLevel.SITE_ADMIN);
         if (people.emailTakenByAnother(person)) {
-            return error(409, ApiErrors.CONFLICT, "That email already belongs to another person.");
+            return error(409, ApiErrors.CONFLICT, Text.get("api.people.emailTaken"));
         }
         if (!people.savePerson(person)) {
-            return error(500, ApiErrors.STORE_FAILED, "Could not save the person.");
+            return error(500, ApiErrors.STORE_FAILED, Text.get("api.people.notSaved"));
         }
         // savePerson does not audit -- the XHTML pages call audit.person() themselves, so this edge must too.
         Beans.get(AuditCommands.class).person(person, "CREATED", actor());
         if (orgId != null && !orgId.isBlank() && !orgs.addCreatedPerson(orgId, person.getId())) {
             // The person exists but is untenanted; report it rather than silently succeeding.
-            return error(500, ApiErrors.STORE_FAILED, "Person created, but adding them to the organization "
-                    + "failed.");
+            return error(500, ApiErrors.STORE_FAILED, Text.get("api.people.createdButNotInOrg"));
         }
         return ok(dto(person, AccessLevel.SITE_ADMIN));
     }
@@ -180,7 +182,7 @@ public class PeopleResource extends BaseResource {
             @HeaderParam(CSRF_HEADER) final String csrf,
             final PersonDto body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         final PersonCommands people = Beans.get(PersonCommands.class);
         final Person.Id personId = Person.Id.from(id);
@@ -189,16 +191,16 @@ public class PeopleResource extends BaseResource {
         // the latter invents a blank Person on a miss, which this would then populate and save as a junk row.
         final Person person = findPerson(personId);
         if (person == null) {
-            return error(404, ApiErrors.NOT_FOUND, "No such person.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.shared.noSuchPerson"));
         }
         final AccessLevel level = levelFor(personId, null);
         if (!canEdit(level)) {
-            return error(403, ApiErrors.FORBIDDEN, "Not permitted to edit this person.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.people.editNotPermitted"));
         }
         if (sexUnparseable(body)) {
             // Pre-checked so the answer is a validation failure naming the field, not the generic
             // BAD_REQUEST JsonExceptionMapper makes of an IllegalArgumentException.
-            return error(400, ApiErrors.VALIDATION_FAILED, "sex must be Male or Female.");
+            return error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.shared.sexInvalid"));
         }
         apply(body, person, level);
         // Being able to edit this profile is not enough to change the address its sign-in codes go to
@@ -212,15 +214,58 @@ public class PeopleResource extends BaseResource {
         }
         // Likewise refused by the funnel; checking here turns an opaque 500 into a clear 409.
         if (people.emailTakenByAnother(person)) {
-            return error(409, ApiErrors.CONFLICT, "That email already belongs to another person.");
+            return error(409, ApiErrors.CONFLICT, Text.get("api.people.emailTaken"));
         }
         if (!people.savePerson(person, reach)) {
-            return error(500, ApiErrors.STORE_FAILED, "Could not save the person.");
+            return error(500, ApiErrors.STORE_FAILED, Text.get("api.people.notSaved"));
         }
         Beans.get(AuditCommands.class).person(person, "EDITED", actor());
         // Echo what was just saved rather than re-reading it. Cache invalidation is async, so a read here can
         // still return the pre-save value -- in production only, which is the worst place to discover it.
         return ok(dto(person, level));
+    }
+
+    /**
+     * Sets the language the person's mail and push are written in, and the one a browser falls back to when it
+     * carries no explicit choice (self only; {@code docs/i18n.md}). Blank clears it, back to "decide from the
+     * request". An app calls this when the person picks a language, so their mail follows their phone.
+     */
+    @PUT
+    @Path("{id}/language")
+    @Consumes({V1, MediaType.APPLICATION_JSON})
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response setLanguage(
+            @PathParam("id") final String id,
+            @HeaderParam(CSRF_HEADER) final String csrf,
+            final Map<String, Object> body) {
+        if (csrfMissing(csrf)) {
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
+        }
+        final Person.Id personId = Person.Id.from(id);
+        if (!personId.equals(personId()) || viewingAs()) {
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.people.languageIsOwnChoice"));
+        }
+        final Object asked = body == null ? null : body.get("language");
+        final String tag = asked == null ? "" : String.valueOf(asked).trim();
+        final Optional<Language> language = Language.forTag(tag);
+        if (!tag.isEmpty() && language.isEmpty()) {
+            return error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.people.languageInvalid"));
+        }
+        // Seeded fresh, never from the near cache: the whole row is saved back, and a cached copy would undo an
+        // edit made to another field moments earlier.
+        final Person person = Beans.get(PersonCommands.class).getPersonForEdit(personId);
+        if (!personId.equals(person.getId())) {
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.shared.noSuchPerson"));
+        }
+        person.setLanguage(language.map(Language::getTag).orElse(null));
+        if (!Beans.get(PersonCommands.class).savePerson(person)) {
+            return error(500, ApiErrors.STORE_FAILED, Text.get("api.people.notSaved"));
+        }
+        Beans.get(AuditCommands.class).person(person, "EDITED", actor());
+        final Map<String, Object> result = new LinkedHashMap<>();
+        result.put("id", id);
+        result.put("language", person.getLanguage());
+        return ok(result);
     }
 
     /**
@@ -237,36 +282,36 @@ public class PeopleResource extends BaseResource {
             @HeaderParam(CSRF_HEADER) final String csrf,
             final Map<String, Object> body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         final Person.Id personId = Person.Id.from(id);
         if (!personId.equals(personId())) {
-            return error(403, ApiErrors.FORBIDDEN, "Only the person themselves can choose their organization.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.people.orgIsOwnChoice"));
         }
         if (findPerson(personId) == null) {
-            return error(404, ApiErrors.NOT_FOUND, "No such person.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.shared.noSuchPerson"));
         }
         final String orgId = body == null || body.get("orgId") == null ? null : String.valueOf(body.get("orgId"));
         if (orgId == null || orgId.isBlank()) {
-            return error(400, ApiErrors.VALIDATION_FAILED, "orgId is required.");
+            return error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.people.orgIdRequired"));
         }
         final OrgCommands orgs = new OrgCommands(this::caller);
         if (orgs.findOrganization(orgId) == null) {
-            return error(404, ApiErrors.NOT_FOUND, "No such organization.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.shared.noSuchOrganization"));
         }
         if (!orgs.joinAsDefault(orgId, personId)) {
-            return error(500, ApiErrors.STORE_FAILED, "Could not join the organization.");
+            return error(500, ApiErrors.STORE_FAILED, Text.get("api.people.orgNotJoined"));
         }
         // Re-read AFTER the join: the membership write updates the person's derived orgIds, and saving the
         // copy read before it would put the stale list back.
         final Person person = findPerson(personId);
         if (person == null) {
-            return error(404, ApiErrors.NOT_FOUND, "No such person.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.shared.noSuchPerson"));
         }
         person.setDefaultOrgId(Organization.Id.from(orgId));
         final PersonCommands people = Beans.get(PersonCommands.class);
         if (!people.savePerson(person)) {
-            return error(500, ApiErrors.STORE_FAILED, "Could not save the person.");
+            return error(500, ApiErrors.STORE_FAILED, Text.get("api.people.notSaved"));
         }
         Beans.get(AuditCommands.class).person(person, "EDITED", actor());
         return ok(Map.of("id", id, "defaultOrgId", orgId));
@@ -304,18 +349,18 @@ public class PeopleResource extends BaseResource {
             @QueryParam("cropH") final Integer cropH,
             final InputStream body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         final Person subject = findPerson(Person.Id.from(id));
         if (subject == null) {
-            return error(404, ApiErrors.NOT_FOUND, "No such person.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.shared.noSuchPerson"));
         }
         final ProfilePhotoCommands photos = Beans.get(ProfilePhotoCommands.class);
         if (!photos.mayEdit(caller(), subject)) {
-            return error(403, ApiErrors.FORBIDDEN, "Not permitted to change this person's photo.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.people.photoNotPermitted"));
         }
         if (slot != null && (slot < 1 || slot > ProfilePhotos.MAX_SLOTS)) {
-            return error(400, ApiErrors.VALIDATION_FAILED, "slot must be 1-" + ProfilePhotos.MAX_SLOTS + ".");
+            return error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.people.slotInvalid", ProfilePhotos.MAX_SLOTS));
         }
         final PhotoProcessor.CropRect rect;
         try {
@@ -327,14 +372,14 @@ public class PeopleResource extends BaseResource {
         try {
             bytes = readUpload(body, contentLength, PhotoUploadBean.MAX_UPLOAD_BYTES);
         } catch (final IOException ex) {
-            return error(400, ApiErrors.BAD_REQUEST, "The upload could not be read.");
+            return error(400, ApiErrors.BAD_REQUEST, Text.get("api.shared.uploadUnreadable"));
         }
         if (bytes.isEmpty()) {
             return error(413, ApiErrors.PAYLOAD_TOO_LARGE,
-                    "A profile picture can be at most " + (PhotoUploadBean.MAX_UPLOAD_BYTES / (1024 * 1024)) + " MB.");
+                    Text.get("api.people.photoTooLarge", PhotoUploadBean.MAX_UPLOAD_BYTES / (1024 * 1024)));
         }
         if (bytes.get().length == 0) {
-            return error(400, ApiErrors.VALIDATION_FAILED, "The upload was empty.");
+            return error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.shared.uploadEmpty"));
         }
         final ProfilePhotoCommands.PhotoResult result = photos.storeFor(caller(), subject, bytes.get(), rect, slot);
         if (!result.isOk()) {
@@ -352,14 +397,14 @@ public class PeopleResource extends BaseResource {
             @PathParam("slot") final int slot,
             @HeaderParam(CSRF_HEADER) final String csrf) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         final Person subject = findPerson(Person.Id.from(id));
         if (subject == null) {
-            return error(404, ApiErrors.NOT_FOUND, "No such person.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.shared.noSuchPerson"));
         }
         if (slot < 1 || slot > ProfilePhotos.MAX_SLOTS) {
-            return error(400, ApiErrors.VALIDATION_FAILED, "slot must be 1-" + ProfilePhotos.MAX_SLOTS + ".");
+            return error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.people.slotInvalid", ProfilePhotos.MAX_SLOTS));
         }
         final ProfilePhotoCommands.PhotoResult result =
                 Beans.get(ProfilePhotoCommands.class).deleteSlotFor(caller(), subject, slot);
@@ -385,18 +430,18 @@ public class PeopleResource extends BaseResource {
             @HeaderParam(CSRF_HEADER) final String csrf,
             final RotateRequest body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         final Person subject = findPerson(Person.Id.from(id));
         if (subject == null) {
-            return error(404, ApiErrors.NOT_FOUND, "No such person.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.shared.noSuchPerson"));
         }
         if (slot < 1 || slot > ProfilePhotos.MAX_SLOTS) {
-            return error(400, ApiErrors.VALIDATION_FAILED, "slot must be 1-" + ProfilePhotos.MAX_SLOTS + ".");
+            return error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.people.slotInvalid", ProfilePhotos.MAX_SLOTS));
         }
         final Optional<QuarterTurn> turn = (body == null) ? Optional.empty() : body.turn();
         if (turn.isEmpty()) {
-            return error(400, ApiErrors.VALIDATION_FAILED, "direction must be left or right.");
+            return error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.shared.directionInvalid"));
         }
         final ProfilePhotoCommands.PhotoResult result =
                 Beans.get(ProfilePhotoCommands.class).rotateFor(caller(), subject, slot, turn.get());
@@ -416,26 +461,26 @@ public class PeopleResource extends BaseResource {
             @HeaderParam(CSRF_HEADER) final String csrf,
             final Map<String, Object> body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         final Person subject = findPerson(Person.Id.from(id));
         if (subject == null) {
-            return error(404, ApiErrors.NOT_FOUND, "No such person.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.shared.noSuchPerson"));
         }
         if (!Beans.get(ProfilePhotoCommands.class).mayEdit(caller(), subject)) {
-            return error(403, ApiErrors.FORBIDDEN, "Not permitted to change this person's photo.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.people.photoNotPermitted"));
         }
         final Object raw = body == null ? null : body.get("slot");
         final int slot = raw instanceof Number number ? number.intValue() : 0;
         if (slot < 1 || slot > ProfilePhotos.MAX_SLOTS) {
-            return error(400, ApiErrors.VALIDATION_FAILED, "slot must be 1-" + ProfilePhotos.MAX_SLOTS + ".");
+            return error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.people.slotInvalid", ProfilePhotos.MAX_SLOTS));
         }
         final ProfilePhotos photos = Beans.get(ProfilePhotos.class);
         if (photos.getSlots(id).stream().noneMatch(occupied -> occupied.number() == slot)) {
-            return error(404, ApiErrors.NOT_FOUND, "That slot holds no picture.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.people.slotEmpty"));
         }
         if (!Beans.get(PersonCommands.class).selectProfilePhoto(subject, slot)) {
-            return error(500, ApiErrors.STORE_FAILED, "Could not save the choice.");
+            return error(500, ApiErrors.STORE_FAILED, Text.get("api.people.choiceNotSaved"));
         }
         return ok(profilePhotoDto(id, null));
     }
@@ -450,7 +495,7 @@ public class PeopleResource extends BaseResource {
             case ProfilePhotoCommands.PhotoResult.REJECTED ->
                     error(422, ApiErrors.VALIDATION_FAILED, result.message());
             case ProfilePhotoCommands.PhotoResult.EMPTY_SLOT ->
-                    error(404, ApiErrors.NOT_FOUND, "That slot holds no picture.");
+                    error(404, ApiErrors.NOT_FOUND, Text.get("api.people.slotEmpty"));
             default -> error(500, ApiErrors.STORE_FAILED, result.message());
         };
     }
@@ -475,7 +520,7 @@ public class PeopleResource extends BaseResource {
     public Response data(@PathParam("id") final String id) {
         final Person.Id personId = Person.Id.from(id);
         if (!canEdit(levelFor(personId, null))) {
-            return error(403, ApiErrors.FORBIDDEN, "Not permitted to read this person's data.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.people.dataReadNotPermitted"));
         }
         final Map<DataId, PersonDataValue> values = PersonDataValueCommands.getPersonDataValues(personId);
         return ok(values.values().stream().map(PeopleResource::toDto).toList());
@@ -487,11 +532,11 @@ public class PeopleResource extends BaseResource {
     public Response dataValue(@PathParam("id") final String id, @PathParam("dataId") final String dataId) {
         final Person.Id personId = Person.Id.from(id);
         if (!canEdit(levelFor(personId, null))) {
-            return error(403, ApiErrors.FORBIDDEN, "Not permitted to read this person's data.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.people.dataReadNotPermitted"));
         }
         final PersonDataValue value = PersonDataValueCommands.getPersonDataValue(personId, DataId.from(dataId));
         if (value == null) {
-            return error(404, ApiErrors.NOT_FOUND, "No such data value.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.people.noSuchDataValue"));
         }
         return ok(toDto(value));
     }
@@ -506,21 +551,21 @@ public class PeopleResource extends BaseResource {
             @HeaderParam(CSRF_HEADER) final String csrf,
             final PersonDataValueDto body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         final Person.Id personId = Person.Id.from(id);
         if (!canEdit(levelFor(personId, null))) {
-            return error(403, ApiErrors.FORBIDDEN, "Not permitted to edit this person's data.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.people.dataEditNotPermitted"));
         }
         // PersonDataValue.type is @NonNull: without this an empty body is a NullPointerException and a 500.
         if (body == null || body.type() == null || body.type().isBlank()) {
-            return error(400, ApiErrors.BAD_REQUEST, "A data value needs a type.");
+            return error(400, ApiErrors.BAD_REQUEST, Text.get("api.people.dataTypeRequired"));
         }
         final PersonDataValue value = PersonDataValueCommands.createPersonDataValue(
                 personId, DataId.from(dataId), body.type());
         value.setContent(body.content());
         if (!PersonDataValueCommands.savePersonDataValue(value)) {
-            return error(500, ApiErrors.STORE_FAILED, "Could not save the data value.");
+            return error(500, ApiErrors.STORE_FAILED, Text.get("api.people.dataValueNotSaved"));
         }
         return ok(toDto(value));
     }

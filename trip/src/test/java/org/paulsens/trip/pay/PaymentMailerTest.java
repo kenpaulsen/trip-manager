@@ -3,6 +3,7 @@ package org.paulsens.trip.pay;
 import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import org.mockito.ArgumentCaptor;
 import org.mockito.ArgumentMatchers;
@@ -32,6 +33,7 @@ public class PaymentMailerTest {
     public void sendsThroughTheEffectiveConfigWithTheOrgBcc() {
         final MailCommands mail = Mockito.mock(MailCommands.class);
         Mockito.when(mail.sendManagedTemplateForOrg(ArgumentMatchers.anyString(), ArgumentMatchers.any(),
+                ArgumentMatchers.any(),
                 ArgumentMatchers.anyMap(), ArgumentMatchers.anyString(), ArgumentMatchers.anyString(),
                 ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any())).thenReturn(true);
         final Person payer = person("Joe", "joe@example.com");
@@ -46,7 +48,8 @@ public class PaymentMailerTest {
 
         final ArgumentCaptor<String> bcc = ArgumentCaptor.forClass(String.class);
         Mockito.verify(mail).sendManagedTemplateForOrg(ArgumentMatchers.eq("payment-confirmation"),
-                ArgumentMatchers.any(), ArgumentMatchers.anyMap(), ArgumentMatchers.eq("joe@example.com"),
+                ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.anyMap(), ArgumentMatchers.eq("joe@example.com"),
                 ArgumentMatchers.eq("CFPW <no-reply@unitetrip.com>"), ArgumentMatchers.eq("info@x.org"),
                 bcc.capture(), ArgumentMatchers.any());
         assertEquals(bcc.getValue(), "books@x.org,notify@x.org",
@@ -57,6 +60,7 @@ public class PaymentMailerTest {
     public void theFailureNoticeUsesTheFixedStarterAndCarriesTheReason() {
         final MailCommands mail = Mockito.mock(MailCommands.class);
         Mockito.when(mail.sendManagedTemplateForOrg(ArgumentMatchers.anyString(), ArgumentMatchers.any(),
+                ArgumentMatchers.any(),
                 ArgumentMatchers.anyMap(), ArgumentMatchers.anyString(), ArgumentMatchers.anyString(),
                 ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any())).thenReturn(true);
         final Person payer = person("Joe", "joe@example.com");
@@ -69,7 +73,8 @@ public class PaymentMailerTest {
         @SuppressWarnings("unchecked")
         final ArgumentCaptor<java.util.Map<String, Object>> values = ArgumentCaptor.forClass(java.util.Map.class);
         Mockito.verify(mail).sendManagedTemplateForOrg(ArgumentMatchers.eq("payment-failed"),
-                ArgumentMatchers.any(), values.capture(), ArgumentMatchers.eq("joe@example.com"),
+                ArgumentMatchers.any(), ArgumentMatchers.any(), values.capture(),
+                ArgumentMatchers.eq("joe@example.com"),
                 ArgumentMatchers.eq("CFPW <no-reply@unitetrip.com>"), ArgumentMatchers.any(),
                 ArgumentMatchers.eq("books@x.org"), ArgumentMatchers.any());
         assertEquals(values.getValue().get("failureReason"), "the bank returned the debit");
@@ -90,6 +95,7 @@ public class PaymentMailerTest {
     public void theOrganizationThreadedIntoTheSendComesFromThePayment() {
         final MailCommands mail = Mockito.mock(MailCommands.class);
         Mockito.when(mail.sendManagedTemplateForOrg(ArgumentMatchers.anyString(), ArgumentMatchers.any(),
+                ArgumentMatchers.any(),
                 ArgumentMatchers.anyMap(), ArgumentMatchers.anyString(), ArgumentMatchers.anyString(),
                 ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any())).thenReturn(true);
         final Person payer = person("Joe", "joe@example.com");
@@ -101,7 +107,7 @@ public class PaymentMailerTest {
         assertTrue(new PaymentMailer(mail, id -> payer).sendConfirmation(ownedPayment, trip(), effective,
                 "CFPW", "PayPal", null, AuditActor.system()));
         Mockito.verify(mail).sendManagedTemplateForOrg(ArgumentMatchers.anyString(),
-                ArgumentMatchers.eq("org-of-the-payment"), ArgumentMatchers.anyMap(),
+                ArgumentMatchers.eq("org-of-the-payment"), ArgumentMatchers.any(), ArgumentMatchers.anyMap(),
                 ArgumentMatchers.anyString(), ArgumentMatchers.anyString(), ArgumentMatchers.any(),
                 ArgumentMatchers.any(), ArgumentMatchers.any());
 
@@ -124,6 +130,7 @@ public class PaymentMailerTest {
         DAO.getInstance();
         final MailCommands mail = Mockito.mock(MailCommands.class);
         Mockito.when(mail.sendManagedTemplateForOrg(ArgumentMatchers.anyString(), ArgumentMatchers.any(),
+                ArgumentMatchers.any(),
                 ArgumentMatchers.anyMap(), ArgumentMatchers.anyString(), ArgumentMatchers.anyString(),
                 ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any())).thenReturn(true);
         final Person payer = person("Joe", "joe@example.com");
@@ -140,6 +147,7 @@ public class PaymentMailerTest {
         assertTrue(mailer.sendConfirmation(payment(payer), moved, carried, "Beta", "PayPal", null,
                 AuditActor.system()));
         Mockito.verify(mail).sendManagedTemplateForOrg(ArgumentMatchers.anyString(), ArgumentMatchers.any(),
+                ArgumentMatchers.any(),
                 ArgumentMatchers.anyMap(), ArgumentMatchers.anyString(), ArgumentMatchers.eq(fallback),
                 ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any());
 
@@ -206,8 +214,8 @@ public class PaymentMailerTest {
         assertEquals(values.get("tripTitle"), "Golden Trip");
         assertEquals(values.get("totalPaid"), "$2,500.00");
         assertEquals(values.get("donationAmount"), "$1,000.00");
-        assertTrue(String.valueOf(values.get("donationNote")).contains("donation of $1,000.00"));
-        assertTrue(String.valueOf(values.get("feeNote")).contains("$75.00 PayPal fee"));
+        assertEquals(values.get("donationNote"), "Thank you for your donation of $1,000.00 to CFPW!");
+        assertEquals(values.get("feeNote"), "Includes a $75.00 PayPal fee on the trip portion.");
         assertEquals(values.get("captureId"), "123447384");
         assertEquals(values.get("paymentDate"), "June 9, 2026");
         assertEquals(values.get("officePhone"), "555-1212", "Extra tokens merge in");
@@ -220,7 +228,7 @@ public class PaymentMailerTest {
         orgPays.setDonationCents(0L);
         final Map<String, Object> orgValues =
                 mailer.values(orgPays, trip(), effective, joe, "CFPW", "PayPal");
-        assertTrue(String.valueOf(orgValues.get("feeNote")).contains("CFPW covered"));
+        assertEquals(orgValues.get("feeNote"), "CFPW covered the PayPal processing fee.");
         assertEquals(orgValues.get("donationNote"), "");
     }
 
@@ -228,6 +236,7 @@ public class PaymentMailerTest {
     public void bccCombinationsAndNameFallbacksHold() {
         final MailCommands mail = Mockito.mock(MailCommands.class);
         Mockito.when(mail.sendManagedTemplateForOrg(ArgumentMatchers.anyString(), ArgumentMatchers.any(),
+                ArgumentMatchers.any(),
                 ArgumentMatchers.anyMap(), ArgumentMatchers.anyString(), ArgumentMatchers.anyString(),
                 ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any())).thenReturn(true);
         final Person payer = person("Joe", "joe@example.com");
@@ -242,7 +251,7 @@ public class PaymentMailerTest {
         assertTrue(mailer.sendConfirmation(payment(payer), trip(), noBcc, "CFPW", "PayPal",
                 null, AuditActor.system()));
         Mockito.verify(mail, Mockito.times(2)).sendManagedTemplateForOrg(ArgumentMatchers.anyString(),
-                ArgumentMatchers.any(), ArgumentMatchers.anyMap(), ArgumentMatchers.anyString(),
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.anyMap(), ArgumentMatchers.anyString(),
                 ArgumentMatchers.anyString(), ArgumentMatchers.any(), bcc.capture(),
                 ArgumentMatchers.any());
         assertEquals(bcc.getAllValues().get(0), "notify@x.org", "Notify alone still rides as bcc");
@@ -261,6 +270,7 @@ public class PaymentMailerTest {
     public void aCheckoutConfirmationListsEveryRegistrant() {
         final MailCommands mail = Mockito.mock(MailCommands.class);
         Mockito.when(mail.sendManagedTemplateForOrg(ArgumentMatchers.anyString(), ArgumentMatchers.any(),
+                ArgumentMatchers.any(),
                 ArgumentMatchers.anyMap(), ArgumentMatchers.anyString(), ArgumentMatchers.anyString(),
                 ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any())).thenReturn(true);
         final Person payer = person("Ann", "ann@example.com");
@@ -283,7 +293,8 @@ public class PaymentMailerTest {
         @SuppressWarnings("unchecked")
         final ArgumentCaptor<java.util.Map<String, Object>> values = ArgumentCaptor.forClass(java.util.Map.class);
         Mockito.verify(mail).sendManagedTemplateForOrg(ArgumentMatchers.eq("checkout-confirmation"),
-                ArgumentMatchers.any(), values.capture(), ArgumentMatchers.eq("ann@example.com"),
+                ArgumentMatchers.any(), ArgumentMatchers.any(), values.capture(),
+                ArgumentMatchers.eq("ann@example.com"),
                 ArgumentMatchers.anyString(), ArgumentMatchers.any(), ArgumentMatchers.eq("office@x.org"),
                 ArgumentMatchers.any());
         final String block = ((MailTemplates.Raw) values.getValue().get("registrantsBlock")).html();
@@ -291,7 +302,8 @@ public class PaymentMailerTest {
         assertTrue(block.contains("ticket <a href=\"https://") && block.contains(
                 "/trip/ticket.jsf?trip=golden&amp;t=ABCDEFGH\"><b>ABCD-EFGH</b></a>"),
                 "the code links to the ticket page, the QR check-in scans: " + block);
-        assertEquals(PaymentMailer.ticketLink(null, "ABCDEFGH"), "ticket <b>ABCD-EFGH</b>", "no trip, no link");
+        assertEquals(PaymentMailer.ticketLink(null, "ABCDEFGH", Locale.ENGLISH), "ticket <b>ABCD-EFGH</b>",
+                "no trip, no link");
         assertTrue(block.contains("Kid Tester</b>: Registered, $50.00 (Pending)"), block);
         assertTrue(values.getValue().get("statusNote").toString().contains("awaiting confirmation"),
                 "one registrant still waits for approval");
@@ -303,23 +315,66 @@ public class PaymentMailerTest {
         payment.setAllocations(List.of(new Payment.Allocation(payer.getId(), 5000L)));
         trip.getCheckout().setDepositCents(5000L);
         trip.getCheckout().setBalanceDueOn(java.time.LocalDate.of(2027, 3, 1));
-        assertEquals(PaymentMailer.balanceNote(payment, trip, payment.getCheckout().getRows()),
+        assertEquals(PaymentMailer.balanceNote(payment, trip, payment.getCheckout().getRows(), Locale.ENGLISH),
                 " A balance of $150.00 remains on your trip account, due by March 1, 2027; pay it from the trip's"
                         + " Pay page.");
-        assertEquals(PaymentMailer.balanceNote(payment, null, payment.getCheckout().getRows()),
+        assertEquals(PaymentMailer.balanceNote(payment, null, payment.getCheckout().getRows(), Locale.ENGLISH),
                 " A balance of $150.00 remains on your trip account; pay it from the trip's Pay page.");
-        assertTrue(mailer.checkoutValues(payment, trip, "PayPal").get("statusNote").toString()
+        assertTrue(mailer.checkoutValues(payment, trip, "PayPal", Locale.ENGLISH).get("statusNote").toString()
                 .endsWith("due by March 1, 2027; pay it from the trip's Pay page."));
         payment.setAllocations(List.of(new Payment.Allocation(payer.getId(), 20000L)));
-        assertEquals(PaymentMailer.balanceNote(payment, trip, payment.getCheckout().getRows()), "", "paid in full");
+        assertEquals(PaymentMailer.balanceNote(payment, trip, payment.getCheckout().getRows(), Locale.ENGLISH), "",
+                "paid in full");
 
         payment.setTotalChargedCents(0L);
-        assertEquals(mailer.checkoutValues(payment, trip, "Offline payment").get("paymentMethod"), "no charge");
-        assertEquals(mailer.checkoutValues(payment, null, "x").get("tripDates"), "");
+        assertEquals(mailer.checkoutValues(payment, trip, "Offline payment", Locale.ENGLISH).get("paymentMethod"),
+                "no charge");
+        assertEquals(mailer.checkoutValues(payment, null, "x", Locale.ENGLISH).get("tripDates"), "");
         assertFalse(mailer.sendCheckoutConfirmation(payment, trip, TripPaymentConfig.builder().build(), "CFPW",
                 "PayPal", null, AuditActor.system()), "no From = unsendable, quietly");
         assertFalse(new PaymentMailer(mail, id -> null).sendCheckoutConfirmation(payment, trip, effective, "CFPW",
                 "PayPal", null, AuditActor.system()), "no payer = unsendable, quietly");
+    }
+
+    /**
+     * The payer reads the mail, so the values the code writes into it (the notes, the dates, a registrant's
+     * status and the ticket's words) are in the payer's language: here a payer with no saved choice on a Spanish
+     * trip of Beta Corp's, the seeded site that offers Spanish. Money stays in US format.
+     */
+    @Test
+    public void thePayersLanguageWritesTheValues() {
+        DAO.getInstance();
+        FakeData.addFakeData();
+        final Person payer = person("Ana", "ana@example.com");
+        final Person kid = person("Kid", "kid@example.com");
+        final Map<Person.Id, Person> people = Map.of(payer.getId(), payer, kid.getId(), kid);
+        final PaymentMailer mailer = new PaymentMailer(Mockito.mock(MailCommands.class), people::get);
+        final Trip trip = trip();
+        trip.setOrgId(FakeData.BETA_ORG_ID);
+        trip.setLanguage(org.paulsens.trip.model.Language.Spanish);
+        trip.setStartDate(LocalDateTime.of(2027, 3, 5, 8, 0));
+        trip.setEndDate(LocalDateTime.of(2027, 3, 7, 17, 0));
+        final TripPaymentConfig effective = TripPaymentConfig.builder().build();
+
+        final Map<String, Object> values = mailer.values(payment(payer), trip, effective, payer, "CFPW", "PayPal");
+        assertEquals(values.get("donationNote"), "¡Gracias por tu donativo de $1,000.00 a CFPW!");
+        assertEquals(values.get("feeNote"), "Incluye una comisión de PayPal de $75.00 sobre la parte del viaje.");
+        assertEquals(values.get("paymentDate"), "9 de junio de 2026");
+
+        final Payment payment = payment(payer);
+        payment.setCheckout(new org.paulsens.trip.model.PendingParty("party", payer.getId(), List.of(
+                row(payer, org.paulsens.trip.model.Registration.Status.CONFIRMED, "Fin de semana", 15000L, null),
+                row(kid, org.paulsens.trip.model.Registration.Status.PENDING, null, 5000L, null)), null, null));
+        final Locale spanish = org.paulsens.trip.model.Language.Spanish.getLocale();
+        final Map<String, Object> checkout = mailer.checkoutValues(payment, trip, "PayPal", spanish);
+        final String block = ((MailTemplates.Raw) checkout.get("registrantsBlock")).html();
+        assertTrue(block.contains("Ana Tester</b>: Fin de semana, $150.00 (Confirmada)"), block);
+        assertTrue(block.contains("Kid Tester</b>: Inscrito, $50.00 (Pendiente)"), block);
+        assertEquals(checkout.get("tripDates"), "5 de marzo de 2027 a 7 de marzo de 2027");
+        assertTrue(checkout.get("statusNote").toString().startsWith("Recibimos tu inscripción"),
+                checkout.get("statusNote").toString());
+        assertEquals(PaymentMailer.ticketLink(null, "ABCDEFGH", spanish), "entrada <b>ABCD-EFGH</b>");
+        assertTrue(PaymentMailer.qrImage("https://x/qr", spanish).contains("alt=\"Código QR para el registro"));
     }
 
     private static org.paulsens.trip.model.Registration row(final Person person,
@@ -329,6 +384,44 @@ public class PaymentMailerTest {
                 null, cents, type, null);
         return new org.paulsens.trip.model.Registration("golden", person.getId()).withStatus(status)
                 .withRegistrationType(type).withPriceBreakdown(breakdown).withTicketCode(ticket);
+    }
+
+    /**
+     * The PAYER's language picks the template's version (docs/content-templates.md): on Beta Corp's site, which
+     * offers English, Spanish and Croatian, a payer who chose Spanish gets the shipped Spanish payment-failed
+     * starter, and one who chose English the English row.
+     */
+    @Test
+    public void aSpanishPayerOnBetasSiteGetsTheSpanishVersion() {
+        DAO.getInstance();
+        FakeData.addFakeData();
+        final MailCommands mail = Mockito.spy(new MailCommands());
+        Mockito.doReturn(null).when(mail).send(ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any(), ArgumentMatchers.any());
+        final Person payer = person("Ana", "ana@example.com");
+        payer.setLanguage("es");
+        final Trip trip = Trip.builder().id("pm-es-" + System.nanoTime()).title("Roma 2027").build();
+        trip.setOrgId(FakeData.BETA_ORG_ID);
+        final TripPaymentConfig effective = TripPaymentConfig.builder()
+                .mailFrom("Beta <no-reply@unitetrip.com>").build();
+        final PaymentMailer mailer = new PaymentMailer(mail, id -> payer);
+
+        assertTrue(mailer.sendPaymentFailed(payment(payer), trip, effective, "Beta Corp", "Stripe", "returned",
+                AuditActor.system()));
+        Mockito.verify(mail).send(ArgumentMatchers.any(), ArgumentMatchers.eq("ana@example.com"),
+                ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.eq("Pago no completado - Roma 2027"),
+                ArgumentMatchers.contains("Lamentablemente"), ArgumentMatchers.any());
+
+        Mockito.clearInvocations(mail);
+        payer.setLanguage("en");
+        assertTrue(mailer.sendPaymentFailed(payment(payer), trip, effective, "Beta Corp", "Stripe", "returned",
+                AuditActor.system()));
+        Mockito.verify(mail).send(ArgumentMatchers.any(), ArgumentMatchers.eq("ana@example.com"),
+                ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.eq("Payment not completed - Roma 2027"),
+                ArgumentMatchers.contains("Unfortunately"), ArgumentMatchers.any());
     }
 
     private static Person person(final String first, final String email) {

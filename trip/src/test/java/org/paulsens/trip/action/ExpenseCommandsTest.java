@@ -5,6 +5,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 import org.paulsens.trip.action.BudgetViews.Choice;
 import org.paulsens.trip.action.ExpenseViews.AdvanceForm;
@@ -954,6 +955,60 @@ public class ExpenseCommandsTest {
         }
     }
 
+    /**
+     * The treasurer reads the mail and its PDF in their own language (staff: their saved choice where the
+     * organization's site offers it), not the submitter's: one language throughout, totals' labels included.
+     */
+    @Test
+    public void aSpanishTreasurerGetsTheReportAndItsPdfInSpanish() throws IOException {
+        final String id = newTrip().getId();
+        assertTrue(admin.saveLine(id, line(null, "GUIDE", "Guide", "USD", 1_440.0)));
+        final Person tesorera = Person.builder().first("Tesorera").last("Ruiz")
+                .email("tesorera-" + RandomData.genAlpha(8).toLowerCase(Locale.ROOT) + "@example.org").build();
+        tesorera.setLanguage("es");
+        assertTrue(DAO.getInstance().savePerson(tesorera));
+        final MailCommands mail = Mockito.mock(MailCommands.class);
+        Mockito.when(mail.sendWithAttachment(ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any())).thenReturn(true);
+        final ExpenseCommands bean = new ExpenseCommands(TestCallers::siteAdmin);
+        bean.mailForTest(mail);
+        try {
+            orgLanguages("en,es,hr");
+            treasurer(tesorera.getEmail());
+            assertTrue(bean.emailTreasurer(id));
+            final ArgumentCaptor<String> subject = ArgumentCaptor.forClass(String.class);
+            final ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
+            final ArgumentCaptor<byte[]> pdf = ArgumentCaptor.forClass(byte[].class);
+            Mockito.verify(mail).sendWithAttachment(ArgumentMatchers.any(), ArgumentMatchers.eq(tesorera.getEmail()),
+                    ArgumentMatchers.any(), subject.capture(), body.capture(), ArgumentMatchers.any(), pdf.capture(),
+                    ArgumentMatchers.any(), ArgumentMatchers.any());
+            assertTrue(subject.getValue().startsWith("Informe de gastos: Holy Angels"), subject.getValue());
+            for (final String expected : List.of("envió el informe de gastos de <b>Holy Angels</b>",
+                    "Total gastado: $1,440.00", "Efectivo anticipado: $0.00", "con sus recibos a continuación")) {
+                assertTrue(body.getValue().contains(expected), "missing '" + expected + "' in " + body.getValue());
+            }
+            assertFalse(body.getValue().contains("Total spent"), body.getValue());
+            final String text = String.join("\n", PdfText.pages(pdf.getValue()));
+            assertTrue(text.contains("Holy Angels: Informe de gastos"), text);
+            assertFalse(text.contains("Expense Report"), text);
+        } finally {
+            treasurer(null);
+            orgLanguages(null);
+        }
+    }
+
+    private void orgLanguages(final String tags) throws IOException {
+        final Organization org = DAO.getInstance().getOrganization(Organization.Id.from(orgId), Cached.NO)
+                .orElseThrow();
+        if (tags == null) {
+            org.getSettingsOverrides().remove(KnownSettings.SITE_LANGUAGES.getName());
+        } else {
+            org.getSettingsOverrides().put(KnownSettings.SITE_LANGUAGES.getName(), tags);
+        }
+        assertTrue(DAO.getInstance().saveOrganization(org));
+    }
+
     @Test
     public void theTreasurerSettingMustBeAnAddress() throws IOException {
         final String id = newTrip().getId();
@@ -1197,10 +1252,10 @@ public class ExpenseCommandsTest {
         assertEquals(ExpenseCommands.micros(0.83), 830_000L);
         final Trip undated = Trip.builder().build();
         undated.setStartDate(null);
-        assertNull(ExpenseCommands.tripDates(undated));
+        assertNull(ExpenseCommands.tripDates(undated, Locale.ENGLISH));
         undated.setStartDate(START);
         undated.setEndDate(null);
-        assertEquals(ExpenseCommands.tripDates(undated), "Sep 20, 2026");
+        assertEquals(ExpenseCommands.tripDates(undated, Locale.ENGLISH), "Sep 20, 2026");
         assertEquals(admin.categories().size(), ExpenseCategory.values().length);
         assertEquals(admin.categories().get(7).getLabel(), "Postage");
     }

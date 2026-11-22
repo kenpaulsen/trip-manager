@@ -11,6 +11,7 @@ import jakarta.faces.event.ExceptionQueuedEventContext;
 import java.util.Iterator;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.PageFeedback;
+import org.paulsens.trip.i18n.Text;
 
 /**
  * Keeps an unhandled exception during an AJAX postback on the page it happened on.
@@ -47,7 +48,10 @@ public class TripAjaxExceptionHandler extends ExceptionHandlerWrapper {
      */
     static final String GROWL_ID = "form:growl";
 
-    /** Deliberately vague: whatever failed, the actionable part for the user is that nothing was lost. */
+    /**
+     * Deliberately vague: whatever failed, the actionable part for the user is that nothing was lost. This is the
+     * English wording, kept for the test to compare with; what shows is {@code server.ajaxFailure.message}.
+     */
     static final String MESSAGE =
             "Something went wrong and that action did not complete. Your unsaved changes are still here, so you "
             + "can try again. If it keeps happening, please report it.";
@@ -87,7 +91,7 @@ public class TripAjaxExceptionHandler extends ExceptionHandlerWrapper {
 
     /** Adds the growl, makes sure it is actually re-rendered, and skips straight to rendering the response. */
     private void report(final FacesContext ctx) {
-        ctx.addMessage(null, new FacesMessage(FacesMessage.SEVERITY_ERROR, MESSAGE, ""));
+        ctx.addMessage(null, new FacesMessage(FacesMessage.SEVERITY_ERROR, Text.get("server.ajaxFailure.message"), ""));
         // Best effort: a page without the standard template still gets the message in its own message list.
         ctx.getPartialViewContext().getRenderIds().add(GROWL_ID);
         PageFeedback.callbackParam("actionFailed", true);

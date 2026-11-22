@@ -2,13 +2,16 @@ package org.paulsens.trip.action;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.Locale;
 import java.util.function.Function;
+import org.paulsens.trip.audit.RequestContext;
+import org.paulsens.trip.i18n.Formats;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.Accommodation;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Reservation;
@@ -27,8 +30,6 @@ import org.paulsens.trip.pay.LodgingPricing;
  * {@code [start, end)} on calendar dates, times informational.
  */
 final class RoomAvailability {
-    private static final DateTimeFormatter DAY = DateTimeFormatter.ofPattern("MMM d");
-    private static final DateTimeFormatter DAY_YEAR = DateTimeFormatter.ofPattern("MMM d, yyyy");
 
     private RoomAvailability() {
     }
@@ -86,7 +87,9 @@ final class RoomAvailability {
         if (block.getStart() == null || block.getEnd() == null) {
             return "";
         }
-        return block.getStart().format(DAY) + " – " + block.getEnd().format(DAY);
+        final Locale reader = RequestContext.currentLocale();
+        return Formats.format(block.getStart(), "MMMd", reader) + " – "
+                + Formats.format(block.getEnd(), "MMMd", reader);
     }
 
     /**
@@ -100,8 +103,7 @@ final class RoomAvailability {
             return null;
         }
         for (final RoomBlock block : blocksOn(room.getId(), blocks, start, end)) {
-            return "Room " + room.getRoomNumber() + " is not available " + describe(block)
-                    + ". Change the block on the hotel's Availability tab first.";
+            return Text.get("feedback.roomAvailability.blocked", room.getRoomNumber(), describe(block));
         }
         return null;
     }
@@ -131,11 +133,13 @@ final class RoomAvailability {
                 continue;
             }
             final ReservationOffer theirs = offers.apply(LodgingCommands.idValue(other.getOfferId()));
-            return "Room " + room.getRoomNumber() + " already holds "
-                    + LodgingPricing.joinNames(other.sortedOccupants(), names) + " under "
-                    + (theirs == null ? "another lodging option" : "'" + theirs.getName() + "'") + " for "
-                    + other.getStart().format(DAY) + " - " + other.getEnd().format(DAY_YEAR)
-                    + "; a room's nights are priced under one lodging option. Pick another room, or move them first.";
+            final String who = LodgingPricing.joinNames(other.sortedOccupants(), names);
+            final String from = Formats.format(other.getStart(), "MMMd", RequestContext.currentLocale());
+            final String to = Formats.format(other.getEnd(), "yMMMd", RequestContext.currentLocale());
+            return theirs == null
+                    ? Text.get("feedback.roomAvailability.heldUnderAnother", room.getRoomNumber(), who, from, to)
+                    : Text.get("feedback.roomAvailability.heldUnderOption", room.getRoomNumber(), who, theirs.getName(),
+                            from, to);
         }
         return null;
     }
@@ -146,9 +150,8 @@ final class RoomAvailability {
      */
     static String hotelProblem(final Accommodation here, final String roomId) {
         final Room room = (here == null) ? null : here.room(roomId);
-        return (room == null) ? "That room is not at the accommodation."
-                : "Room " + room.getRoomNumber() + " is at " + here.getName()
-                        + "; pick an option at that hotel, or take them out of the room first.";
+        return (room == null) ? Text.get("feedback.lodgingCommands.roomNotHere")
+                : Text.get("feedback.roomAvailability.roomElsewhere", room.getRoomNumber(), here.getName());
     }
 
     /**

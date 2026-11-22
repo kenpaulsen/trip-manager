@@ -29,6 +29,9 @@ import org.paulsens.trip.checkout.CheckoutValidator;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.content.EmbedStyles;
 import org.paulsens.trip.content.PageHtml;
+import org.paulsens.trip.audit.RequestContext;
+import org.paulsens.trip.i18n.Formats;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.theme.ThemeResources;
 import org.paulsens.trip.content.OrgPageBootstrap;
 import org.paulsens.trip.dynamo.DAO;
@@ -144,7 +147,7 @@ public class TripPageCommands {
 
     private static List<AgendaDay> buildAgenda(final Trip trip) {
         final Locale locale = localeOf(trip);
-        final DateTimeFormatter dayFormat = DateTimeFormatter.ofPattern("EEEE, MMMM d", locale);
+        final DateTimeFormatter dayFormat = Formats.formatter("MMMMEEEEd", locale);
         final DateTimeFormatter timeFormat = DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT).withLocale(locale);
         final Map<LocalDate, List<AgendaItem>> byDay = new LinkedHashMap<>();
         trip.getTripEvents().stream()
@@ -215,18 +218,19 @@ public class TripPageCommands {
 
         /** The opening day as the registration block says it, "Monday, December 1"; null unless NOT_OPEN. */
         public String opensDay() {
-            return opensOn == null ? null : OPENS_DAY.format(opensOn);
+            return opensOn == null ? null : Formats.format(opensOn, OPENS_DAY, RequestContext.currentLocale());
         }
 
         /** The opening day as a card chip says it, "Dec 1"; null unless NOT_OPEN. */
         public String opensDate() {
-            return opensOn == null ? null : OPENS_DATE.format(opensOn);
+            return opensOn == null ? null : Formats.format(opensOn, OPENS_DATE, RequestContext.currentLocale());
         }
     }
 
-    // English, like every other word of the block and the chips; no year, as the owner wrote the copy.
-    private static final DateTimeFormatter OPENS_DAY = DateTimeFormatter.ofPattern("EEEE, MMMM d", Locale.US);
-    private static final DateTimeFormatter OPENS_DATE = DateTimeFormatter.ofPattern("MMM d", Locale.US);
+    // In the reader's language, like the sentences around them; no year, as the owner wrote the copy. The
+    // registration info is built once per request, so the day is formatted when it is read, not when it is built.
+    private static final String OPENS_DAY = "MMMMEEEEd";
+    private static final String OPENS_DATE = "MMMd";
 
     /** The registration block for a conference (or any trip), or null for none. */
     public RegistrationInfo registrationInfo(final Trip trip) {
@@ -293,7 +297,8 @@ public class TripPageCommands {
     }
 
     private static String priceLine(final OptionChoice choice) {
-        return choice.getLabel() + ": " + (choice.isPriced() ? MoneyMath.formatCents(choice.getPriceCents()) : "free");
+        return choice.isPriced() ? choice.getLabel() + ": " + MoneyMath.formatCents(choice.getPriceCents())
+                : Text.get("feedback.tripPageCommands.priceLineFree", choice.getLabel());
     }
 
     /** The registration page for a trip: an external trip registers on its provider's site. */
@@ -428,7 +433,7 @@ public class TripPageCommands {
         if (css != null && problems.stream().noneMatch(problem -> problem.contains("stylesheet"))) {
             final MediaItem item = new MediaCommands().libraryItemFor(trip.getOrgId(), css);
             if (item == null || !MediaCommands.isStylesheet(item)) {
-                problems.add(STYLESHEET_RULE);
+                problems.add(Text.get("feedback.tripPageCommands.stylesheetRule"));
             }
         }
         return problems;
@@ -449,25 +454,27 @@ public class TripPageCommands {
     public String pageSummary(final Trip trip) {
         final TripPageOptions options = trip == null ? null : trip.pageOrNull();
         if (options == null || options.isEmpty()) {
-            return "the organization's look";
+            return Text.get("feedback.tripPageCommands.lookOrganization");
         }
         final List<String> parts = new ArrayList<>();
         if (options.getLayout() != null) {
-            parts.add(KnownSettings.LAYOUT_FULL_WIDTH.equals(options.getLayout()) ? "full width" : "classic");
+            parts.add(KnownSettings.LAYOUT_FULL_WIDTH.equals(options.getLayout())
+                    ? Text.get("feedback.tripPageCommands.lookFullWidth")
+                    : Text.get("feedback.tripPageCommands.lookClassic"));
         }
         if (options.getBackgroundUrl() != null) {
-            parts.add("background image");
+            parts.add(Text.get("feedback.tripPageCommands.lookBackgroundImage"));
         } else if (options.getBackgroundColor() != null) {
-            parts.add("background " + options.getBackgroundColor());
+            parts.add(Text.get("feedback.tripPageCommands.lookBackgroundColor", options.getBackgroundColor()));
         }
         if (options.isTitleShown()) {
-            parts.add("title shown");
+            parts.add(Text.get("feedback.tripPageCommands.lookTitleShown"));
         }
         if (!options.isNavShown()) {
-            parts.add("section links hidden");
+            parts.add(Text.get("feedback.tripPageCommands.lookLinksHidden"));
         }
         if (options.getStylesheetUrl() != null) {
-            parts.add("own stylesheet");
+            parts.add(Text.get("feedback.tripPageCommands.lookOwnStylesheet"));
         }
         return String.join(", ", parts);
     }
@@ -591,17 +598,17 @@ public class TripPageCommands {
             return false;
         }
         if (!OrgPageBootstrap.isTripId(tripId.trim())) {
-            PageFeedback.warn("This trip cannot carry a page.");
+            PageFeedback.warn(Text.get("feedback.tripPageCommands.cannotCarryPage"));
             return false;
         }
         final Trip trip = DAO.getInstance().getTrip(tripId.trim(), Cached.NO).orElse(null);
         if (trip == null) {
-            PageFeedback.warn("Unknown trip.");
+            PageFeedback.warn(Text.get("feedback.shared.unknownTrip"));
             return false;
         }
         final String key = OrgPageBootstrap.tripPageKey(trip.getId());
         if (!new ContentCommands().canEditPage(key, userId)) {
-            PageFeedback.warn("Only this trip's managers may edit its page.");
+            PageFeedback.warn(Text.get("feedback.tripPageCommands.onlyManagersEdit"));
             return false;
         }
         if (trip.getPageSeededAt() != null) {
@@ -612,8 +619,7 @@ public class TripPageCommands {
                 : OrgPageBootstrap.tripRowTemplateIds();
         final String missing = needed.stream().filter(id -> !starterInstalled(id)).findFirst().orElse(null);
         if (missing != null) {
-            PageFeedback.warn("The page could not be created: the starter template '" + missing
-                    + "' is not installed.");
+            PageFeedback.warn(Text.get("feedback.tripPageCommands.starterMissing", missing));
             return false;
         }
         try {
@@ -625,14 +631,14 @@ public class TripPageCommands {
             OrgCommands.seedIfEmpty(key, rows);
             trip.setPageSeededAt(now);
             if (!DAO.getInstance().saveTrip(trip)) {
-                PageFeedback.warn("The page was created but the trip could not be saved. Try again.");
+                PageFeedback.warn(Text.get("feedback.tripPageCommands.createdButTripNotSaved"));
                 return false;
             }
             log.info("Trip {} given its page from its {}", trip.getId(), described ? "description" : "starters");
             return true;
         } catch (final RuntimeException | IOException ex) {
             log.error("Unable to create the page of trip {}", trip.getId(), ex);
-            PageFeedback.warn("The page could not be created. Try again.");
+            PageFeedback.warn(Text.get("feedback.tripPageCommands.notCreated"));
             return false;
         }
     }

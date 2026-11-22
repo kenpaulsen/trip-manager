@@ -3,6 +3,7 @@ package org.paulsens.trip.checkout;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.DiscountCode;
 import org.paulsens.trip.model.OptionChoice;
 import org.paulsens.trip.model.PriceBreakdown;
@@ -37,9 +38,8 @@ public final class CheckoutCapacity {
                 : existing.stream().filter(CheckoutCapacity::holdsPlace).toList();
         final Integer limit = trip.getRegLimit();
         if (limit != null && holding.size() + party.size() > limit) {
-            final String name = (trip.getTitle() == null || trip.getTitle().isBlank()) ? "This trip" : trip.getTitle();
             problems.add(new CheckoutProblem(CheckoutProblem.CAPACITY_FULL, null, trip.getId(),
-                    fullMessage(name, limit - holding.size(), party.size(), "your party has")));
+                    tripFull(trip.getTitle(), limit - holding.size(), party.size())));
         }
         for (final RegistrationOption question : trip.getRegOptions()) {
             for (final OptionChoice choice : question.getOfferedChoices()) {
@@ -85,9 +85,8 @@ public final class CheckoutCapacity {
                 .filter(reg -> picks(question, choice, reg.getOptions()))
                 .count();
         if (taken + wanted > choice.getCapacity()) {
-            final String name = "\"" + choice.getLabel() + "\" (" + question.getShortDesc() + ")";
             problems.add(new CheckoutProblem(CheckoutProblem.CAPACITY_FULL, null, choice.getId(),
-                    fullMessage(name, choice.getCapacity() - taken, wanted, "your party picked it for")));
+                    choiceFull(choice.getLabel(), question.getShortDesc(), choice.getCapacity() - taken, wanted)));
         }
     }
 
@@ -96,19 +95,19 @@ public final class CheckoutCapacity {
         return answers != null && question.choiceIdsOf(answers.get(question.getKey())).contains(choice.getId());
     }
 
-    /** "X is full." or "X has only 2 places left, but your party has 3 people." */
-    private static String fullMessage(final String name, final long left, final long needed, final String partyVerb) {
-        if (left <= 0) {
-            return name + " is full.";
+    /** "X is full." or "X has only 2 places left, but your party has 3 people."; an untitled trip is "This trip". */
+    private static String tripFull(final String title, final long left, final long needed) {
+        if (title == null || title.isBlank()) {
+            return left <= 0 ? Text.get("server.checkout.thisTripFull")
+                    : Text.get("server.checkout.thisTripPlacesShort", left, needed);
         }
-        return name + " has only " + places(left) + " left, but " + partyVerb + " " + people(needed) + ".";
+        return left <= 0 ? Text.get("server.checkout.tripFull", title)
+                : Text.get("server.checkout.tripPlacesShort", title, left, needed);
     }
 
-    private static String places(final long count) {
-        return count == 1 ? "1 place" : count + " places";
-    }
-
-    private static String people(final long count) {
-        return count == 1 ? "1 person" : count + " people";
+    /** The same for one choice of a question: "... but your party picked it for 3 people." */
+    private static String choiceFull(final String label, final String question, final long left, final long needed) {
+        return left <= 0 ? Text.get("server.checkout.choiceFull", label, question)
+                : Text.get("server.checkout.choicePlacesShort", label, question, left, needed);
     }
 }

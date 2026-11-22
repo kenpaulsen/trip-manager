@@ -5,6 +5,7 @@ import jakarta.inject.Named;
 import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -12,15 +13,19 @@ import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.Audit;
 import org.paulsens.trip.audit.AuditEventBuilder;
+import org.paulsens.trip.audit.RequestContext;
 import org.paulsens.trip.cache.NearCacheClient;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.config.OrgSettingsTabs;
 import org.paulsens.trip.content.ContentRenderer;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.i18n.SiteLanguages;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.util.EmailAddresses;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.Config;
+import org.paulsens.trip.model.Language;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.SettingDef;
 import org.paulsens.trip.model.SettingSection;
@@ -199,13 +204,73 @@ public class ConfigCommands {
         return getString(def.getName(), def.getDefaultValue());
     }
 
-    /** The org's override, else (unless org-only) the site row; null when nothing is set at either rung. */
+    /**
+     * The org's override, else (unless org-only) the site row; null when nothing is set at either rung. For a
+     * {@link SettingDef#isTranslatable() translatable} setting the org's text in the reader's language comes
+     * first ({@code site.footer.text@es}), so a Spanish reader of Beta's site gets Beta's Spanish footer and
+     * every other reader the plain one. Both rungs are this org's own row: no language ever reaches across.
+     */
     private String rawFor(final SettingDef def, final Organization org) {
+        final String translated = def.isTranslatable()
+                ? org.settingOverride(def.keyIn(RequestContext.currentLanguage())) : null;
+        if (translated != null) {
+            return translated;
+        }
         final String override = org.settingOverride(def.getName());
         if (override != null) {
             return override;
         }
         return def.isOrgOnly() ? null : getString(def.getName(), null);
+    }
+
+    /**
+     * The org settings editor's map ({@code OrgCommands.orgSettingsEdit}): setting name to the org's stored
+     * override, "" when it inherits, for every org-overridable setting; then, for each translatable one, its
+     * key in every other language the org's site offers ({@code site.footer.text@es}), "" while the plain text
+     * applies to readers of that language. Every name, and nothing for an unknown org (all "").
+     */
+    public Map<String, String> overridesEdit(final Organization org) {
+        final Map<String, String> edit = new LinkedHashMap<>();
+        for (final SettingDef def : KnownSettings.orgOverridable()) {
+            edit.put(def.getName(), storedOverride(org, def.getName()));
+        }
+        for (final SettingDef def : KnownSettings.translatable()) {
+            for (final Language language : otherSiteLanguages(org)) {
+                edit.put(def.keyIn(language), storedOverride(org, def.keyIn(language)));
+            }
+        }
+        return edit;
+    }
+
+    /**
+     * THE read of the languages this request's site offers, default first ({@code site.languages},
+     * org-overridable): every caller asks here, so what a site offers is decided in one place.
+     */
+    public List<Language> siteLanguages() {
+        return SiteLanguages.parse(getString(KnownSettings.SITE_LANGUAGES));
+    }
+
+    /** {@link #siteLanguages()} for {@code org}'s site; the shared site's for null. */
+    public List<Language> siteLanguages(final Organization org) {
+        return SiteLanguages.parse(getString(KnownSettings.SITE_LANGUAGES, org));
+    }
+
+    /**
+     * The languages {@code org}'s site offers besides its default, in the order its setting lists them: one
+     * extra field each for a translatable setting and for a Site Page's title. Empty for a one-language site and
+     * for no organization.
+     */
+    public List<Language> otherSiteLanguages(final Organization org) {
+        if (org == null) {
+            return List.of();
+        }
+        final List<Language> offered = siteLanguages(org);
+        return offered.subList(1, offered.size());
+    }
+
+    private static String storedOverride(final Organization org, final String key) {
+        final String value = (org == null) ? null : org.settingOverride(key);
+        return value == null ? "" : value;
     }
 
     /**
@@ -412,13 +477,13 @@ public class ConfigCommands {
      */
     public boolean save(final Config config, final String modifiedBy) {
         if (config == null || config.getName() == null || config.getName().isBlank()) {
-            PageFeedback.error("Not saved", "A setting needs a name.");
+            PageFeedback.error(Text.get("feedback.shared.notSaved"), Text.get("feedback.configCommands.needsName"));
             return false;
         }
         final String rejection = rejection(config);
         if (rejection != null) {
             log.warn("Refusing config '{}': {}", config.getName(), rejection);
-            PageFeedback.error("Not saved", rejection);
+            PageFeedback.error(Text.get("feedback.shared.notSaved"), rejection);
             return false;
         }
         final Config stamped = new Config(config.getName().trim(), config.getValue(), config.getType(),
@@ -441,7 +506,7 @@ public class ConfigCommands {
             return saved;
         } catch (final RuntimeException ex) {
             log.error("Unable to save config: " + stamped.getName(), ex);
-            PageFeedback.failure("Not saved");
+            PageFeedback.failure(Text.get("feedback.shared.notSaved"));
             return false;
         }
     }
@@ -458,8 +523,8 @@ public class ConfigCommands {
             DAO.getInstance().clearAllCaches();
         } catch (final RuntimeException ex) {
             log.error("Unable to clear the shared caches", ex);
-            PageFeedback.error("Caches NOT cleared",
-                    "The cache could not be reached; see the server log.");
+            PageFeedback.error(Text.get("feedback.configCommands.cachesNotCleared"),
+                    Text.get("feedback.configCommands.cacheUnreachable"));
             return false;
         }
         Audit.builder(AuditAction.CONFIG, AuditOutcome.SUCCESS)
@@ -467,8 +532,8 @@ public class ConfigCommands {
                 .target(AuditEventBuilder.TARGET_CONFIG, "caches")
                 .message("Cleared the shared data-cache namespace (all instances)")
                 .log();
-        PageFeedback.info("Caches cleared",
-                "Pages now reload their data from DynamoDB as they are viewed.");
+        PageFeedback.info(Text.get("feedback.configCommands.cachesCleared"),
+                Text.get("feedback.configCommands.cachesClearedDetail"));
         return true;
     }
 
@@ -490,7 +555,7 @@ public class ConfigCommands {
             return null;
         }
         if (!parsesAs(raw, config.getType())) {
-            return "'" + raw + "' is not a valid " + config.getType() + ".";
+            return Text.get("feedback.configCommands.invalidType", raw, config.getType());
         }
         return KnownSettings.find(config.getName()).map(def -> declarationRejection(def, raw)).orElse(null);
     }
@@ -508,22 +573,20 @@ public class ConfigCommands {
     /** The declaration's own rules on a non-blank, type-valid value; null when it passes. */
     private String declarationRejection(final SettingDef def, final String raw) {
         if (!def.allows(raw)) {
-            return "'" + raw + "' is not one of the choices for " + def.getLabel() + ": "
-                    + String.join(", ", def.getChoices()) + ".";
+            return Text.get("feedback.configCommands.notAChoice", raw, def.getLabel(),
+                    String.join(", ", def.getChoices()));
         }
         if (def.isHttpUrl() && ContentRenderer.requireHttpUrl(raw).isEmpty()) {
-            return "'" + raw + "' is not an http(s) URL, which " + def.getLabel() + " requires.";
+            return Text.get("feedback.configCommands.notHttpUrl", raw, def.getLabel());
         }
         if (def.isEmail() && !EmailAddresses.isValid(raw.trim())) {
-            return "'" + raw + "' is not an email address, which " + def.getLabel() + " requires.";
+            return Text.get("feedback.configCommands.notEmail", raw, def.getLabel());
         }
         if (def.isHexColor() && SettingDef.hexColor(raw) == null) {
-            return "'" + raw + "' is not a hex color like #333333 or #fc0, which " + def.getLabel()
-                    + " requires.";
+            return Text.get("feedback.configCommands.notHexColor", raw, def.getLabel());
         }
         if (def.isAnalyticsId() && SettingDef.analyticsId(raw) == null) {
-            return "'" + raw + "' is not one analytics id like G-ABC123 (letters, digits and hyphens only), which "
-                    + def.getLabel() + " requires.";
+            return Text.get("feedback.configCommands.notAnalyticsId", raw, def.getLabel());
         }
         return def.isSiteFrom() ? siteFromRejection(def, raw) : null;
     }
@@ -536,9 +599,8 @@ public class ConfigCommands {
     private String siteFromRejection(final SettingDef def, final String raw) {
         final MailAddressCommands addresses = new MailAddressCommands(this);
         final List<String> allowed = addresses.getSendingDomains();
-        return addresses.isSendable(raw, allowed) ? null : "'" + raw + "' must be an address on a verified, shared "
-                + "sending domain (" + String.join(", ", allowed) + "), which " + def.getLabel() + " requires: it "
-                + "goes out for every organization.";
+        return addresses.isSendable(raw, allowed) ? null
+                : Text.get("feedback.configCommands.notSharedFrom", raw, String.join(", ", allowed), def.getLabel());
     }
 
     private static boolean parses(final String raw, final java.util.function.Function<String, Number> parser) {

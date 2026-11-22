@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.AuditActor;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.push.PushDevice;
 import org.paulsens.trip.push.PushDevices;
@@ -80,7 +81,7 @@ public class PushCommands {
         if (outcome.ok()) {
             return true;
         }
-        PageFeedback.error("Notification settings not saved", outcome.message());
+        PageFeedback.error(Text.get("feedback.pushCommands.prefsNotSaved"), outcome.message());
         return false;
     }
 
@@ -88,9 +89,9 @@ public class PushCommands {
     public boolean removeDeviceFromUi(final Person.Id me, final String id) {
         final boolean removed = devices().remove(me, id, AuditActor.current());
         if (removed) {
-            PageFeedback.info("Device removed.");
+            PageFeedback.info(Text.get("feedback.pushCommands.deviceRemoved"));
         } else {
-            PageFeedback.warn("That device was already gone.");
+            PageFeedback.warn(Text.get("feedback.pushCommands.deviceGone"));
         }
         return removed;
     }

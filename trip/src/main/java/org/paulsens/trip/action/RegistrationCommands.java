@@ -9,11 +9,14 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.i18n.ReaderLanguage;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.DataId;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.PersonDataValue;
@@ -38,11 +41,6 @@ public class RegistrationCommands {
     private final java.util.function.Supplier<LodgingCommands> lodgingSource;
     /** The required-documents gate ({@code WAIVERS_REQUIRED}), bound to this bean's caller. */
     private final java.util.function.Supplier<WaiverCommands> waiverSource;
-
-    /** The refusal for a staff filing outside {@link #withinStaffReach}; the REST doors answer it too. */
-    public static final String OUT_OF_REACH =
-            "That person is not on this trip and is not one of its organization's people. Add them to the"
-            + " organization first.";
 
     public RegistrationCommands() {
         this(Caller::current);
@@ -95,17 +93,16 @@ public class RegistrationCommands {
         final org.paulsens.trip.model.Trip from = existingTrip(fromTripId);
         final org.paulsens.trip.model.Trip to = existingTrip(toTripId);
         if (from == null || to == null || userId == null || from.getId().equals(to.getId())) {
-            return PageFeedback.refuse("Not moved: choose another existing trip to move this registration to.");
+            return PageFeedback.refuse(Text.get("feedback.registrationCommands.notMovedChooseTrip"));
         }
         final boolean administersBoth = caller.isSiteAdmin()
                 || caller.has(PrivilegeCommands.REGISTRATION_ADMIN, from.getId())
                         && caller.has(PrivilegeCommands.REGISTRATION_ADMIN, to.getId());
         if (!administersBoth) {
-            return PageFeedback.refuse("Not moved: you can move a registration only to a trip whose registrations"
-                    + " you administer.");
+            return PageFeedback.refuse(Text.get("feedback.registrationCommands.notMovedNotAdmin"));
         }
         if (!withinStaffReach(to, userId)) {
-            return PageFeedback.refuse("Not moved: " + OUT_OF_REACH);
+            return PageFeedback.refuse(Text.get("feedback.registrationCommands.notMovedOutOfReach"));
         }
         return true;
     }
@@ -150,11 +147,13 @@ public class RegistrationCommands {
             // The backstop for the CONFIRMED => ticket invariant: whatever path confirmed it, the stored row has one.
             result = DAO.getInstance().saveRegistration(withTicket(reg));
         } catch (final RuntimeException ex) {
-            PageFeedback.failure("Error saving registration for '" + reg.getUserId() + "': " + reg.getTripId());
+            PageFeedback.failure(Text.get("feedback.registrationCommands.errorSaving",
+                    String.valueOf(reg.getUserId()), reg.getTripId()));
             log.error("Error while saving registration: ", ex);
             result = false;
         } catch (final IOException ex) {
-            PageFeedback.failure("Unable to save registration '" + reg.getUserId() + "': " + reg.getTripId());
+            PageFeedback.failure(Text.get("feedback.registrationCommands.unableToSave",
+                    String.valueOf(reg.getUserId()), reg.getTripId()));
             log.warn("Error while saving registration: ", ex);
             result = false;
         }
@@ -301,8 +300,8 @@ public class RegistrationCommands {
             final java.util.Map<String, Object> digests,
             final java.util.Map<String, Object> waiverChecks) {
         if (trip == null || currentPerson() == null || selected == null || regs == null) {
-            PageFeedback.error("Nothing registered",
-                    "Select at least one traveler.");
+            PageFeedback.error(Text.get("feedback.registrationCommands.nothingRegistered"),
+                    Text.get("feedback.registrationCommands.selectTraveler"));
             return new java.util.ArrayList<>();
         }
         final PartyOutcome outcome = registerPartyOutcome(trip, selected, regs, digests,
@@ -311,26 +310,29 @@ public class RegistrationCommands {
         for (final java.util.Map.Entry<String, String> refusal : outcome.refused().entrySet()) {
             final String name = people.getPerson(Person.Id.from(refusal.getKey())).getPreferredName();
             if (PartyOutcome.NOT_ALLOWED.equals(refusal.getValue())) {
-                PageFeedback.error("Not registered", "You cannot register " + name + ".");
+                PageFeedback.error(Text.get("feedback.registrationCommands.notRegistered"),
+                        Text.get("api.registrations.cannotRegister", name));
             } else if (PartyOutcome.CANNOT_JOIN.equals(refusal.getValue())) {
-                PageFeedback.warn("Not registered", name + " cannot join this trip.");
+                PageFeedback.warn(Text.get("feedback.registrationCommands.notRegistered"),
+                        Text.get("feedback.registrationCommands.cannotJoin", name));
             } else if (PartyOutcome.WAIVERS_REQUIRED.equals(refusal.getValue())) {
-                PageFeedback.warn("Not registered", name + " must agree to every required document: tick both "
-                        + "boxes under each one.");
+                PageFeedback.warn(Text.get("feedback.registrationCommands.notRegistered"),
+                        Text.get("feedback.registrationCommands.waiversRequired", name));
             } else if (PartyOutcome.CHECKOUT_REQUIRED.equals(refusal.getValue())) {
-                PageFeedback.warn("Not registered",
-                        name + " registers through checkout, which takes payment first.");
+                PageFeedback.warn(Text.get("feedback.registrationCommands.notRegistered"),
+                        Text.get("feedback.registrationCommands.checkoutRequired", name));
             } else if (PartyOutcome.ANSWERS_REQUIRED.equals(refusal.getValue())) {
-                PageFeedback.warn("Not registered: " + name + " has unanswered required questions ("
-                        + String.join(", ", missingAnswers(trip, regs.get(refusal.getKey()))) + ").");
+                PageFeedback.warn(Text.get("feedback.registrationCommands.answersRequired", name,
+                        String.join(", ", missingAnswers(trip, regs.get(refusal.getKey())))));
             }
         }
         if (outcome.registered().isEmpty() && outcome.updated().isEmpty()) {
-            PageFeedback.warn("Nothing registered",
-                    "No travelers were registered.");
+            PageFeedback.warn(Text.get("feedback.registrationCommands.nothingRegistered"),
+                    Text.get("feedback.registrationCommands.noTravelersRegistered"));
         } else if (!outcome.updated().isEmpty()) {
-            PageFeedback.info("Changes saved", "Updated responses for "
-                    + String.join(", ", outcome.updated().stream().map(Person::getPreferredName).toList()) + ".");
+            final List<String> names = outcome.updated().stream().map(Person::getPreferredName).toList();
+            PageFeedback.info(Text.get("feedback.registrationCommands.changesSaved"),
+                    Text.get("feedback.registrationCommands.updatedResponses", String.join(", ", names)));
         }
         return outcome.registered();
     }
@@ -461,10 +463,15 @@ public class RegistrationCommands {
         final MailAddressCommands addresses = mailAddrSource.get();
         final org.paulsens.trip.audit.AuditActor actor = callerSource.get().auditActor();
         try {
-            mail.send(addresses.fromFor("reg.notify.from"), addresses.recipientFor("reg.notify.email", trip),
-                    null, null, "New Registration - " + trip.getTitle(), partySummary(registered, trip), actor);
+            final String office = addresses.recipientFor("reg.notify.email", trip);
+            final Locale officeLanguage = ReaderLanguage.ofStaffAddress(office, trip);
+            mail.send(addresses.fromFor("reg.notify.from"), office, null, null,
+                    Text.forLocale(officeLanguage, "mail.reg.notify.subject", trip.getTitle()),
+                    partySummary(registered, trip, officeLanguage), actor);
+            // In the registrant's own language (the email's version in it, when one is written).
             mail.sendManagedTemplateForOrg("registration-received", trip.getOrgId() == null ? "" : trip.getOrgId(),
-                    receivedMailValues(trip, registered), me == null ? null : me.getEmail(),
+                    org.paulsens.trip.i18n.ReaderLanguage.of(me, trip), receivedMailValues(trip, registered),
+                    me == null ? null : me.getEmail(),
                     addresses.fromFor("reg.mail.from"), addresses.replyToFor("reg.mail.replyTo", trip), null, actor);
         } catch (final RuntimeException ex) {
             log.error("Registration mail for trip {} failed after the rows were saved", trip.getId(), ex);
@@ -628,10 +635,10 @@ public class RegistrationCommands {
         return false;
     }
 
-    /** Plain-text summary of a party submit, for the ONE internal notification email. */
-    public String partySummary(final List<Person> travelers, final org.paulsens.trip.model.Trip trip) {
-        final StringBuilder text = new StringBuilder("New registration for '")
-                .append(trip == null ? "?" : trip.getTitle()).append("':\n");
+    /** Plain-text summary of a party submit, for the ONE internal notification email, in its reader's language. */
+    String partySummary(final List<Person> travelers, final org.paulsens.trip.model.Trip trip, final Locale locale) {
+        final StringBuilder text = new StringBuilder(Text.forLocale(locale, "mail.reg.notify.summary",
+                trip == null ? "?" : trip.getTitle())).append('\n');
         for (final Person traveler : travelers) {
             text.append(" - ").append(AuditCommands.describe(traveler)).append('\n');
         }
@@ -669,13 +676,14 @@ public class RegistrationCommands {
         final String code = approved == null || !trip.isConference() ? null : approved.getTicketCode();
         final ConfigCommands config = new ConfigCommands();
         final String url = org.paulsens.trip.site.SiteUrls.ticketUrl(trip, code, config);
+        // The approval mail's reader: the person, or for a child without a mailbox the managers it goes to.
+        final Locale locale = ReaderLanguage.of(person, trip);
         // The QR image under the link (PaymentMailer.qrImage, the checkout confirmation's shape): mail clients
         // render no inline SVG, so the email embeds the PNG the ticket-qr servlet serves for this code.
-        final String ticket = url.isEmpty() ? "" : "<p>Your ticket for check-in: <a href=\""
-                + org.paulsens.trip.chat.MailTemplates.escape(url) + "\"><b>"
-                + org.paulsens.trip.security.TicketCodes.grouped(code) + "</b></a><br/>"
-                + org.paulsens.trip.pay.PaymentMailer.qrImage(
-                        org.paulsens.trip.site.SiteUrls.ticketQrUrl(trip, code, config)) + "</p>";
+        final String ticket = url.isEmpty() ? "" : "<p>" + org.paulsens.trip.chat.MailTemplates.html(locale,
+                "mail.reg.approved.ticketLine", url, org.paulsens.trip.security.TicketCodes.grouped(code)).html()
+                + "<br/>" + org.paulsens.trip.pay.PaymentMailer.qrImage(
+                        org.paulsens.trip.site.SiteUrls.ticketQrUrl(trip, code, config), locale) + "</p>";
         return java.util.Map.of(
                 "ticketBlock", new org.paulsens.trip.chat.MailTemplates.Raw(ticket),
                 "tripTitle", trip.getTitle() == null ? "" : trip.getTitle(),
@@ -742,17 +750,16 @@ public class RegistrationCommands {
         }
         final String name = displayName(person);
         if (org.paulsens.trip.util.EmailAddresses.isValid(person.getEmail())) {
-            return "Send approval email to " + name + " (" + person.getEmail() + ")";
+            return Text.get("feedback.registrationCommands.approvalEmailTo", name, person.getEmail());
         }
         final List<Person> managers = mailableManagers(person);
         if (managers.isEmpty()) {
-            return name + " will not receive an email because they do not have a valid email address.";
+            return Text.get("feedback.registrationCommands.approvalEmailNone", name);
         }
         final String managerList = managers.stream()
                 .map(this::nameAndAddress)
                 .collect(java.util.stream.Collectors.joining(", "));
-        return "Send approval email for " + name + " to family manager"
-                + (managers.size() > 1 ? "s " : " ") + managerList;
+        return Text.get("feedback.registrationCommands.approvalEmailToManagers", name, managerList, managers.size());
     }
 
     private String nameAndAddress(final Person manager) {
@@ -867,6 +874,29 @@ public class RegistrationCommands {
         public RegRow(final String userId, final LocalDateTime created, final String status, final String party) {
             this(userId, created, status, party, null, null, null);
         }
+
+        /**
+         * The status as people read it. {@link #getStatus()} stays the stored English description because the
+         * status menu submits it and the pages and the API compare it.
+         */
+        public String getStatusLabel() {
+            return labelOf(status);
+        }
+    }
+
+    /** {@link #labelOf} for a page: the status menu's labels and the status dialog's question. */
+    public String statusLabel(final String description) {
+        return labelOf(description);
+    }
+
+    /**
+     * A status description ("Pending", the stored and submitted value) as people read it, in the language of the
+     * request; text that names no status is shown as it is.
+     */
+    public static String labelOf(final String description) {
+        final Registration.Status status = description == null ? null
+                : Registration.Status.fromDescription(description);
+        return status == null ? (description == null ? "" : description) : status.getLabel();
     }
 
     /** The view-held rows for the admin registrations table -- scalars only, see {@link RegRow}. */
@@ -922,13 +952,14 @@ public class RegistrationCommands {
             return false;   // the row already moved on (or a bad status name): nothing to do
         }
         if (!allowedStatuses(current.getStatus().getDescription()).contains(newStatus)) {
-            PageFeedback.warn("Cannot change " + current.getStatus().getDescription() + " to " + newStatus + ".");
+            PageFeedback.warn(Text.get("feedback.registrationCommands.cannotChangeStatus",
+                    current.getStatus().getLabel(), labelOf(newStatus)));
             return false;
         }
         if (current.getStatus() == Registration.Status.NOT_REGISTERED && !withinStaffReach(
                 DAO.getInstance().getTrip(tripId, Cached.YES).orElse(null), userId)) {
             // A crafted row id must not turn a stranger into a traveler (withinStaffReach).
-            PageFeedback.warn(OUT_OF_REACH);
+            PageFeedback.warn(Text.get("feedback.registrationCommands.outOfReach"));
             return false;
         }
         return switch (to) {
@@ -943,7 +974,7 @@ public class RegistrationCommands {
         final TripCommands trips = tripSource.get();
         final org.paulsens.trip.model.Trip trip = trips.getTripForEdit(reg.getTripId());
         if (!trip.canJoin(reg.getUserId())) {
-            PageFeedback.warn("User lacks permission to join: " + reg.getUserId().getValue());
+            PageFeedback.warn(Text.get("feedback.registrationCommands.lacksPermission", reg.getUserId().getValue()));
             return false;
         }
         final Registration confirmed = withTicket(reg.withStatus(Registration.Status.CONFIRMED));
@@ -962,8 +993,10 @@ public class RegistrationCommands {
             final MailAddressCommands addresses = mailAddrSource.get();
             // The TRIP's organization picks the copy: an org that customized its approval email sends its
             // own wording whichever site the admin happens to be approving from.
+            // The traveler's language picks the version, also when their family's managers are the ones mailed.
             mailSource.get().sendManagedTemplateForOrg(
                     org.paulsens.trip.content.StarterTemplates.REGISTRATION_APPROVED_ID, trip.getOrgId(),
+                    org.paulsens.trip.i18n.ReaderLanguage.of(person, trip),
                     approvedMailValues(trip, person, confirmed), approvalRecipients(person),
                     addresses.fromFor(org.paulsens.trip.config.KnownSettings.REG_MAIL_FROM.getName()),
                     addresses.replyToFor(
@@ -1025,15 +1058,19 @@ public class RegistrationCommands {
             return false;
         }
         final Person person = PersonCommands.getPersonCommands().getPerson(reg.getUserId());
-        final String msg = auditSource.get().registrationRemoved(person, trip);
+        auditSource.get().registrationRemoved(person, trip);
         final MailAddressCommands addresses = mailAddrSource.get();
         // Internal notice only (there is no registrant-facing removal template, by decision 2026-08-30):
-        // addresses resolve through the Email addresses settings section (org/site/custom).
+        // addresses resolve through the Email addresses settings section (org/site/custom). The body says what
+        // the audit line says, in the office's language; the audit line itself stays English.
+        final String office = addresses.recipientFor(
+                org.paulsens.trip.config.KnownSettings.REG_NOTIFY_EMAIL.getName(), trip);
+        final Locale locale = ReaderLanguage.ofStaffAddress(office, trip);
         mailSource.get().send(
-                addresses.fromFor(org.paulsens.trip.config.KnownSettings.REG_NOTIFY_FROM.getName()),
-                addresses.recipientFor(
-                        org.paulsens.trip.config.KnownSettings.REG_NOTIFY_EMAIL.getName(), trip),
-                null, null, "Registration Cancelled - " + trip.getTitle(), msg,
+                addresses.fromFor(org.paulsens.trip.config.KnownSettings.REG_NOTIFY_FROM.getName()), office,
+                null, null, Text.forLocale(locale, "mail.reg.cancelled.subject", trip.getTitle()),
+                Text.forLocale(locale, "mail.reg.cancelled.body", AuditCommands.describe(person),
+                        trip.getTitle() == null ? "(unknown trip)" : trip.getTitle()),
                 org.paulsens.trip.audit.AuditActor.current());
         return true;
     }
@@ -1204,7 +1241,7 @@ public class RegistrationCommands {
             return false;
         }
         if (reservedRoomLabel(tripId, userId) != null) {
-            PageFeedback.error("This room is set by a lodging reservation: change it on the trip's Lodging page.");
+            PageFeedback.error(Text.get("feedback.registrationCommands.roomSetByReservation"));
             return false;
         }
         final PersonDataValue pdv = getRoomPDV(tripId, userId);

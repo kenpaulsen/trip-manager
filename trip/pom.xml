@@ -403,6 +403,16 @@
             </exclusions>
         </dependency>
         <!--
+            ICU4J (Unicode License v3, a permissive MIT-style license, no runtime dependencies): plural-aware
+            message formatting for i18n/MessageText. The JDK's own MessageFormat and ChoiceFormat know only
+            "one or many", and Croatian has three plural forms (docs/i18n.md).
+        -->
+        <dependency>
+            <groupId>com.ibm.icu</groupId>
+            <artifactId>icu4j</artifactId>
+            <version>79.1</version>
+        </dependency>
+        <!--
             jakarta.servlet.jsp.jstl-api was declared here for years but is vestigial: the webapp is
             XHTML/Facelets only, and Facelets' JSTL namespaces (xmlns:c, used by trip/todo.xhtml) are
             implemented inside Mojarra; the JSTL API jar is only consulted by actual JSP pages, of which

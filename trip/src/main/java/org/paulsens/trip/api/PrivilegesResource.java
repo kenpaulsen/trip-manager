@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.PrivilegeCommands;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Privilege;
 
@@ -47,7 +48,7 @@ public class PrivilegesResource extends BaseResource {
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response list(@QueryParam("trip") final String tripId) {
         if (!privileges().has(ApiPrivileges.PRIVILEGE_ADMIN)) {
-            return error(403, ApiErrors.FORBIDDEN, "Privilege administration required.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.privileges.adminRequired"));
         }
         final PrivilegeCommands commands = Beans.get(PrivilegeCommands.class);
         final List<Privilege> found = (tripId == null || tripId.isBlank())
@@ -60,11 +61,11 @@ public class PrivilegesResource extends BaseResource {
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response get(@PathParam("name") final String name, @QueryParam("trip") final String tripId) {
         if (!privileges().has(ApiPrivileges.PRIVILEGE_ADMIN)) {
-            return error(403, ApiErrors.FORBIDDEN, "Privilege administration required.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.privileges.adminRequired"));
         }
         final Privilege privilege = Beans.get(PrivilegeCommands.class).getPrivilege(name, tripId);
         if (privilege == null || privilege == Privilege.NONE) {
-            return error(404, ApiErrors.NOT_FOUND, "No such privilege.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.privileges.noSuchPrivilege"));
         }
         return ok(toDto(privilege));
     }
@@ -78,7 +79,7 @@ public class PrivilegesResource extends BaseResource {
             @PathParam("personId") final String personIdParam,
             @QueryParam("trip") final String tripId) {
         if (!privileges().has(ApiPrivileges.PRIVILEGE_ADMIN)) {
-            return error(403, ApiErrors.FORBIDDEN, "Privilege administration required.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.privileges.adminRequired"));
         }
         final boolean held = Beans.get(PrivilegeCommands.class)
                 .check(name, tripId, Person.Id.from(personIdParam));
@@ -96,10 +97,10 @@ public class PrivilegesResource extends BaseResource {
             @QueryParam("trip") final String tripId,
             final PrivilegeBody body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         if (!privileges().has(ApiPrivileges.PRIVILEGE_ADMIN)) {
-            return error(403, ApiErrors.FORBIDDEN, "Privilege administration required.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.privileges.adminRequired"));
         }
         final PrivilegeCommands commands = Beans.get(PrivilegeCommands.class);
         final String description = (body == null || body.description() == null)
@@ -110,7 +111,7 @@ public class PrivilegesResource extends BaseResource {
         // The actor-taking overload: the no-arg one resolves through FacesContext and would record every grant
         // made over this API as having no actor at all.
         if (!commands.savePrivilege(privilege, actor())) {
-            return error(500, ApiErrors.STORE_FAILED, "Could not save the privilege.");
+            return error(500, ApiErrors.STORE_FAILED, Text.get("api.privileges.notSaved"));
         }
         return ok(toDto(privilege));
     }
@@ -125,18 +126,19 @@ public class PrivilegesResource extends BaseResource {
             @HeaderParam(CSRF_HEADER) final String csrf,
             @QueryParam("trip") final String tripId) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         if (!privileges().has(ApiPrivileges.PRIVILEGE_ADMIN)) {
-            return error(403, ApiErrors.FORBIDDEN, "Privilege administration required.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.privileges.adminRequired"));
         }
         final PrivilegeCommands commands = Beans.get(PrivilegeCommands.class);
         // Existence is checked FIRST because add() answers false for two opposite reasons: "already held"
         // (the caller's intent is satisfied) and "no such privilege" (the grant silently did not happen).
         // Before this check, a grant against a privilege nobody created reported {"alreadyHeld": true}.
         if (commands.getPrivilege(name, tripId).getId().isEmpty()) {
-            return error(404, ApiErrors.NOT_FOUND, "No privilege named '" + name + "' exists"
-                    + (tripId == null || tripId.isBlank() ? "." : " for that trip."));
+            return error(404, ApiErrors.NOT_FOUND, tripId == null || tripId.isBlank()
+                    ? Text.get("api.privileges.noneNamed", name)
+                    : Text.get("api.privileges.noneNamedForTrip", name));
         }
         final boolean added = commands.add(name, tripId, Person.Id.from(personIdParam));
         return ok(Map.of("granted", added, "alreadyHeld", !added));
@@ -151,10 +153,10 @@ public class PrivilegesResource extends BaseResource {
             @HeaderParam(CSRF_HEADER) final String csrf,
             @QueryParam("trip") final String tripId) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         if (!privileges().has(ApiPrivileges.PRIVILEGE_ADMIN)) {
-            return error(403, ApiErrors.FORBIDDEN, "Privilege administration required.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.privileges.adminRequired"));
         }
         final boolean removed = Beans.get(PrivilegeCommands.class)
                 .remove(name, tripId, Person.Id.from(personIdParam));

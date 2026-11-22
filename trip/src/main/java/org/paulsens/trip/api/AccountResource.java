@@ -11,6 +11,7 @@ import jakarta.ws.rs.core.Response;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import org.paulsens.trip.action.AccountDeletionCommands;
+import org.paulsens.trip.i18n.Text;
 
 /**
  * The caller's own account: what deleting it would do, and doing it ({@code docs/moderation.md}).
@@ -41,7 +42,7 @@ public class AccountResource extends BaseResource {
     public Response deletionPreview() {
         final AccountDeletionCommands.Preview preview = Beans.get(AccountDeletionCommands.class).preview(personId());
         if (preview == null) {
-            return error(404, ApiErrors.NOT_FOUND, "No such account.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.account.noSuchAccount"));
         }
         return ok(AccountDeletionCommands.previewBody(preview));
     }
@@ -59,7 +60,7 @@ public class AccountResource extends BaseResource {
             @HeaderParam(CSRF_HEADER) final String csrf,
             final Map<String, Object> body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         final Object confirm = body == null ? null : body.get("confirm");
         final AccountDeletionCommands.Outcome outcome = Beans.get(AccountDeletionCommands.class)

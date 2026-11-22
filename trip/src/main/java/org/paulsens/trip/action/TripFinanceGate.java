@@ -4,6 +4,7 @@ import java.util.function.Consumer;
 import java.util.function.Supplier;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.BindingType;
 import org.paulsens.trip.model.CompositeKey;
 import org.paulsens.trip.model.Person;
@@ -258,12 +259,12 @@ public final class TripFinanceGate {
 
     private Trip tripForEdit(final String tripId, final Object form, final Consumer<String> refusal) {
         if (form == null) {
-            refuse("Nothing to save.");
+            refuse(Text.get("feedback.shared.nothingToSave"));
             return null;
         }
         final Trip trip = tripSource.get().getTripForEdit(tripId);
         if (trip == null || !tripId.equals(trip.getId())) {
-            refusal.accept("Unknown trip.");
+            refusal.accept(Text.get("feedback.shared.unknownTrip"));
             return null;
         }
         return trip;

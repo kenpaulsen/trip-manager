@@ -236,8 +236,15 @@ public final class PageHtml {
             return new Cleaned(title == null ? "" : title, List.of());
         }
         final Cleaned cleaned = cleanNoting(title);
-        return titleHasMarkup(cleaned.body()) ? cleaned
-                : new Cleaned(Encoding.decodeHtml(cleaned.body()), cleaned.drops());
+        if (titleHasMarkup(cleaned.body())) {
+            return cleaned;
+        }
+        // Decoded only when the text reads back the same: an escaped "&lt;b&gt;" the author typed inside a
+        // dropped tag would decode to a real "<b>", and the next render would take it for markup. Such a title
+        // stays the cleaned HTML, wrapped so it is still markup and its entities show as typed.
+        final String text = Encoding.decodeHtml(cleaned.body());
+        return clean(text).equals(cleaned.body()) ? new Cleaned(text, cleaned.drops())
+                : new Cleaned("<span>" + cleaned.body() + "</span>", cleaned.drops());
     }
 
     /** {@link #clean}, but a null stays null: for a DTO field whose absence means something to its reader. */

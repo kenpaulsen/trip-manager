@@ -8,6 +8,7 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
 import lombok.ToString;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.TripEvent;
 
@@ -122,20 +123,21 @@ public class TripEventForm extends DateSpanForm implements Serializable {
 
     /** The dialog's heading: "Add Flight", "Edit Ground Transport", "Add Lodging", "Edit Event". */
     public String getHeading() {
-        return (isEditing() ? "Edit " : "Add ") + kindLabel();
+        return isEditing() ? Text.get("common.editNamed", kindLabel())
+                : Text.get("feedback.tripEventForm.addHeading", kindLabel());
     }
 
     private String kindLabel() {
         if (type == null) {
-            return "Event";
+            return Text.get("labels.enum.TripEvent.Type.EVENT");
         }
         if (TripEvent.Type.GROUND.name().equals(type)) {
-            return "Ground Transport";
+            return Text.get("feedback.tripEventForm.kindGroundTransport");
         }
         try {
             return TripEvent.Type.valueOf(type).getDisplayValue();
         } catch (final IllegalArgumentException ex) {
-            return "Event";
+            return Text.get("labels.enum.TripEvent.Type.EVENT");
         }
     }
 }

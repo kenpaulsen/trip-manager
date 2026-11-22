@@ -17,6 +17,7 @@ import java.util.function.Supplier;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.cache.Cached;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.site.ListingScope;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.PaymentDAO;
@@ -200,16 +201,18 @@ public class PaymentCommands {
             final Object rawDonation, final boolean sandbox, final String pageUrl) {
         final Person payer = currentPerson();
         if (payer == null || trip == null) {
-            return failNull("Not signed in", "Sign in to make a payment.");
+            return failNull(Text.get("feedback.shared.notSignedIn"),
+                    Text.get("feedback.paymentCommands.signInToPay"));
         }
         final TripPaymentConfig effective = orgs.effectivePaymentConfig(trip);
         final PaymentProcessorConfig config = resolveConfig(trip, effective);
         if (config == null) {
-            return failNull("Payments not configured", "This trip is not set up to take payments.");
+            return failNull(Text.get("feedback.paymentCommands.notConfigured"),
+                    Text.get("feedback.paymentCommands.tripTakesNoPayments"));
         }
         if (sandbox && !isSandboxAllowed(trip)) {
-            return failNull("Not allowed", "Sandbox mode requires the paymentsAdmin privilege for this "
-                    + "trip's organization.");
+            return failNull(Text.get("feedback.shared.notAllowed"),
+                    Text.get("feedback.paymentCommands.sandboxNeedsPrivilege"));
         }
         final List<Payment.Allocation> allocations = parseAllocations(payer, rawAmounts);
         if (allocations == null) {
@@ -217,11 +220,13 @@ public class PaymentCommands {
         }
         final long donation = effective.isDonationOn() ? parseStrict(rawDonation) : 0L;
         if (donation < 0) {
-            return failNull("Bad amount", "The donation amount is not a valid dollar amount.");
+            return failNull(Text.get("feedback.paymentCommands.badAmount"),
+                    Text.get("feedback.paymentCommands.badDonationAmount"));
         }
         final long credits = allocations.stream().mapToLong(Payment.Allocation::getAmountCents).sum();
         if (credits <= 0 && donation <= 0) {
-            return failNull("Nothing to pay", "Enter an amount for at least one traveler, or a donation.");
+            return failNull(Text.get("feedback.paymentCommands.nothingToPay"),
+                    Text.get("feedback.paymentCommands.enterAnAmount"));
         }
         final Payment payment = newPayment(trip, payer, config, effective, allocations, donation, sandbox);
         return startPrepared(trip, payment, config, payer, pageUrl, trip.getTitle() + " - payment");
@@ -294,7 +299,8 @@ public class PaymentCommands {
             DAO.getInstance().createPayment(payment);
         } catch (final RuntimeException | IOException ex) {
             log.error("Unable to persist payment for {}", payer.getId(), ex);
-            return failNull("Unable to start", "The payment could not be started; nothing was charged.");
+            return failNull(Text.get("feedback.paymentCommands.unableToStart"),
+                    Text.get("feedback.paymentCommands.notStartedNothingCharged"));
         }
         audit.payment(payment, true, sandboxTag(payment) + "Payment started by "
                 + payer.getEmail() + ": " + MoneyMath.formatCents(payment.getTotalChargedCents())
@@ -311,10 +317,12 @@ public class PaymentCommands {
             DAO.getInstance().transitionPayment(payment, Payment.Status.CREATED);
             return Start.of(payment, order, orgNameOf(payment), payer.getEmail());
         } catch (final PaymentProcessor.ProcessorException ex) {
-            return startFailed(payment, current, ex.getMessage());
+            return startFailed(payment, current, ex.getMessage(),
+                    Text.get("feedback.paymentCommands.startFailedNothingCharged", ex.getMessage()));
         } catch (final RuntimeException | IOException ex) {
             log.error("Order creation failed for payment {}", payment.getPaymentId(), ex);
-            return startFailed(payment, current, "The payment processor could not be reached.");
+            return startFailed(payment, current, "The payment processor could not be reached.",
+                    Text.get("feedback.paymentCommands.processorUnreachableNothingCharged"));
         }
     }
 
@@ -325,7 +333,7 @@ public class PaymentCommands {
         final Caller current = caller();
         final Payment payment = DAO.getInstance().getPayment(paymentId).orElse(null);
         if (payment == null || !mayComplete(current, payment)) {
-            return Completion.of("notfound", "Unknown payment.");
+            return Completion.of("notfound", Text.get("api.payments.unknownPayment"));
         }
         return complete(payment, token, current, Door.PAYER);
     }
@@ -360,7 +368,7 @@ public class PaymentCommands {
             DAO.getInstance().createPayment(payment);
         } catch (final RuntimeException | IOException ex) {
             log.error("Unable to persist offline payment {}", payment.getPaymentId(), ex);
-            return Completion.of("failed", "The registration could not be saved; try again.");
+            return Completion.of("failed", Text.get("feedback.paymentCommands.registrationNotSaved"));
         }
         audit.payment(payment, true, sandboxTag(payment) + "Offline payment entered: "
                 + MoneyMath.formatCents(payment.getCapturedGrossCents()) + " (" + payment.getCaptureId() + ") to trip "
@@ -386,7 +394,7 @@ public class PaymentCommands {
                     // registrations are owed. Finalizing is idempotent, so this only ever completes the job.
                     return finalizeRecorded(payment, current);
                 }
-                return recordedOutcome(payment, "Payment already recorded.");
+                return recordedOutcome(payment, Text.get("feedback.paymentCommands.alreadyRecorded"));
             }
             case CANCELLED, FAILED -> {
                 return (door == Door.WEBHOOK) ? paidAfterGivenUp(payment, current) : givenUpOutcome(payment);
@@ -413,8 +421,8 @@ public class PaymentCommands {
 
     private static Completion givenUpOutcome(final Payment payment) {
         return payment.getStatus() == Payment.Status.CANCELLED
-                ? Completion.of("cancelled", "This payment was canceled; nothing was charged.")
-                : Completion.of("failed", "This payment failed; nothing was charged.");
+                ? Completion.of("cancelled", Text.get("feedback.paymentCommands.canceledNothingCharged"))
+                : Completion.of("failed", Text.get("feedback.paymentCommands.failedNothingCharged"));
     }
 
     /**
@@ -444,11 +452,9 @@ public class PaymentCommands {
 
     private Completion heldOutcome(final Payment payment, final Door door) {
         if (door == Door.ADMIN) {
-            return Completion.of("mismatch", "Held: " + holdOf(payment) + ". Finish it again to record it as "
-                    + "expected, or refund it at the processor.");
+            return Completion.of("mismatch", Text.get("feedback.paymentCommands.heldForAdmin", holdOf(payment)));
         }
-        return Completion.of("mismatch", "Your payment was received and is waiting for an administrator to "
-                + "review it. You will not be charged again.");
+        return Completion.of("mismatch", Text.get("feedback.paymentCommands.heldForReview"));
     }
 
     /**
@@ -464,7 +470,7 @@ public class PaymentCommands {
         if (result == null || result.status() == PaymentProcessor.CaptureResult.Status.PENDING) {
             // Not a "no": the processor could not be asked, or has not settled. "pending" is the one answer
             // the webhook turns into a redelivery; "canceled" here would be a 200 and the event's last word.
-            return Completion.of("pending", "The processor could not confirm this payment yet; try again.");
+            return Completion.of("pending", Text.get("feedback.paymentCommands.notConfirmedYet"));
         }
         if (result.status() != PaymentProcessor.CaptureResult.Status.COMPLETED
                 && result.status() != PaymentProcessor.CaptureResult.Status.ALREADY_CAPTURED) {
@@ -480,7 +486,7 @@ public class PaymentCommands {
             return adoptWinner(payment, null, current, Door.WEBHOOK);
         } catch (final RuntimeException | IOException ex) {
             log.error("Unable to bring paid payment {} back from {}", payment.getPaymentId(), was, ex);
-            return Completion.of("pending", "The payment could not be updated; try again.");
+            return Completion.of("pending", Text.get("feedback.paymentCommands.notUpdated"));
         }
         audit.payment(payment, false, sandboxTag(payment) + "The processor reports "
                 + MoneyMath.formatCents(result.grossCents()) + " PAID (capture id " + result.captureId()
@@ -532,16 +538,15 @@ public class PaymentCommands {
                     audit.payment(payment, true, sandboxTag(payment) + "Payment accepted and processing at "
                             + displayNameOf(config) + " (reference " + result.captureId() + ")",
                             current.auditActor());
-                    return Completion.of("pending", "Your payment method was accepted and the payment is "
-                            + "processing (bank payments can take several business days). We will email you "
-                            + "when it clears; nothing more is needed from you.").withReference(payment);
+                    return Completion.of("pending", Text.get("feedback.paymentCommands.settling"))
+                            .withReference(payment);
                 }
-                return Completion.of("pending", "The payment has not completed at the processor yet. "
-                        + "If you approved it, try again in a moment.").withReference(payment);
+                return Completion.of("pending", Text.get("feedback.paymentCommands.notCompletedYet"))
+                        .withReference(payment);
             }
             default -> {
                 markFailed(payment, current, "capture failed at the processor");
-                return Completion.of("failed", "The payment could not be completed; you were not charged.");
+                return Completion.of("failed", Text.get("feedback.paymentCommands.notCompletedNotCharged"));
             }
         }
         applyCapture(payment, result);
@@ -610,8 +615,7 @@ public class PaymentCommands {
             audit.payment(payment, false, sandboxTag(payment)
                     + "Ledger write failed after capture; payment left in CAPTURED for reconciliation",
                     current.auditActor());
-            return Completion.of("mismatch", "Your payment was received, but recording it hit a problem. "
-                    + "An administrator will finish it up; you will not be charged again.");
+            return Completion.of("mismatch", Text.get("feedback.paymentCommands.receivedRecordingProblem"));
         }
         payment.setTxIds(result.txIds());
         payment.setRecordedAt(LocalDateTime.now());
@@ -648,8 +652,8 @@ public class PaymentCommands {
                         : "; it was held (" + payment.getHeldReason() + ") and an administrator finished it"),
                 current.auditActor());
         return recordedOutcome(payment, sandboxTag(payment).isEmpty()
-                ? "Payment received - thank you!"
-                : "Sandbox payment completed; NO ledger rows were written.");
+                ? Text.get("feedback.paymentCommands.received")
+                : Text.get("feedback.paymentCommands.sandboxCompleted"));
     }
 
     /** The RECORDED repair: finalize a checkout's party and store the stamp; never re-mails (the record did). */
@@ -660,11 +664,10 @@ public class PaymentCommands {
             DAO.getInstance().transitionPayment(payment, Payment.Status.RECORDED);
         } catch (final RuntimeException | IOException ex) {
             log.error("Unable to finalize the registrations of recorded payment {}", payment.getPaymentId(), ex);
-            return Completion.of("mismatch", "Your payment was received, but registering it hit a problem. "
-                    + "An administrator will finish it up; you will not be charged again.");
+            return Completion.of("mismatch", Text.get("feedback.paymentCommands.receivedRegisteringProblem"));
         }
         audit.payment(payment, true, "Registrations written for a payment recorded earlier", current.auditActor());
-        return recordedOutcome(payment, "Payment already recorded.");
+        return recordedOutcome(payment, Text.get("feedback.paymentCommands.alreadyRecorded"));
     }
 
     /**
@@ -676,7 +679,7 @@ public class PaymentCommands {
             final Door door) {
         final Payment winner = DAO.getInstance().getPayment(payment.getPaymentId()).orElse(null);
         if (winner == null) {
-            return Completion.of("failed", "The payment state could not be read.");
+            return Completion.of("failed", Text.get("feedback.paymentCommands.stateNotRead"));
         }
         return complete(winner, token, current, door);
     }
@@ -716,15 +719,16 @@ public class PaymentCommands {
         return switch (releaseAtProcessor(payment)) {
             case OPEN -> markCanceled(payment, current, note);
             case PAID -> finishInstead(payment, current);
-            case SETTLING -> fail("Not canceled", "This payment is already processing at the bank and can no "
-                    + "longer be canceled. It will be recorded when it clears.");
-            case UNKNOWN -> fail("Not canceled", "The payment processor could not be reached to cancel this "
-                    + "payment. Try again in a moment.");
+            case SETTLING -> fail(Text.get("feedback.paymentCommands.notCanceled"),
+                    Text.get("feedback.paymentCommands.alreadySettling"));
+            case UNKNOWN -> fail(Text.get("feedback.paymentCommands.notCanceled"),
+                    Text.get("feedback.paymentCommands.cancelUnreachable"));
         };
     }
 
     private boolean finishInstead(final Payment payment, final Caller current) {
-        return fail("Not canceled", paidInsteadNote(complete(payment, null, current, Door.PAYER)));
+        return fail(Text.get("feedback.paymentCommands.notCanceled"),
+                paidInsteadNote(complete(payment, null, current, Door.PAYER)));
     }
 
     /**
@@ -735,11 +739,12 @@ public class PaymentCommands {
     static String paidInsteadNote(final Completion outcome) {
         final String status = outcome == null ? null : outcome.getStatus();
         if ("recorded".equals(status) || "sandbox".equals(status)) {
-            return "This payment had already gone through, so it was recorded instead of canceled.";
+            return Text.get("feedback.paymentCommands.recordedInsteadOfCanceled");
         }
-        return "This payment had already gone through at the processor, so it was not canceled. "
-                + (outcome == null || outcome.getMessage() == null ? "It has not been recorded yet."
-                : outcome.getMessage());
+        if (outcome == null || outcome.getMessage() == null) {
+            return Text.get("feedback.paymentCommands.paidNotCanceledNotRecorded");
+        }
+        return Text.get("feedback.paymentCommands.paidNotCanceled", outcome.getMessage());
     }
 
     /** CREATED -> CANCELLED, once the processor holds nothing for it (or said so itself, by webhook). */
@@ -786,7 +791,7 @@ public class PaymentCommands {
     public Completion completeFromWebhook(final String paymentId) {
         final Payment payment = DAO.getInstance().getPayment(paymentId).orElse(null);
         if (payment == null) {
-            return Completion.of("notfound", "Unknown payment.");
+            return Completion.of("notfound", Text.get("api.payments.unknownPayment"));
         }
         return complete(payment, null, systemCaller(), Door.WEBHOOK);
     }
@@ -876,14 +881,14 @@ public class PaymentCommands {
         }
         log.warn("Refund for payment {} lost {} races in a row; asking for a redelivery", paymentId,
                 REFUND_ATTEMPTS);
-        return Completion.of("pending", "The refund could not be recorded; try again.");
+        return Completion.of("pending", Text.get("feedback.paymentCommands.refundNotRecorded"));
     }
 
     /** One pass of {@link #refundFromWebhook}: the outcome, or null when the optimistic replace lost. */
     private Completion refundOnce(final String paymentId) {
         final PaymentDAO.Stored stored = DAO.getInstance().getPaymentStored(paymentId).orElse(null);
         if (stored == null) {
-            return Completion.of("notfound", "Unknown payment.");
+            return Completion.of("notfound", Text.get("api.payments.unknownPayment"));
         }
         final Payment payment = stored.payment();
         final Caller current = systemCaller();
@@ -891,7 +896,7 @@ public class PaymentCommands {
             audit.payment(payment, false, sandboxTag(payment) + "Refund reported by the processor (via webhook) "
                     + "for a payment that is " + payment.getStatus() + ", not RECORDED; nothing written",
                     current.auditActor());
-            return Completion.of("unchanged", "The payment is not recorded; no refund row was written.");
+            return Completion.of("unchanged", Text.get("feedback.paymentCommands.refundPaymentNotRecorded"));
         }
         final PaymentProcessorConfig config = configOf(payment);
         final OptionalLong read;
@@ -899,14 +904,14 @@ public class PaymentCommands {
             read = processors.apply(config, payment.isSandbox()).refundedCents(payment.getOrderRef());
         } catch (final RuntimeException ex) {
             log.warn("Refund read failed for payment {}: {}", payment.getPaymentId(), ex.getMessage());
-            return Completion.of("pending", "The processor could not be read; try again.");
+            return Completion.of("pending", Text.get("feedback.paymentCommands.processorNotRead"));
         }
         if (read.isEmpty()) {
-            return Completion.of("pending", "The processor could not be read; try again.");
+            return Completion.of("pending", Text.get("feedback.paymentCommands.processorNotRead"));
         }
         final long refunded = read.getAsLong();
         if (refunded <= 0L && payment.getRefundedCents() <= 0L) {
-            return Completion.of("unchanged", "The processor reports nothing refunded.");
+            return Completion.of("unchanged", Text.get("feedback.paymentCommands.nothingRefunded"));
         }
         final String processorName = displayNameOf(config);
         final String txId;
@@ -918,7 +923,7 @@ public class PaymentCommands {
             audit.payment(payment, false, sandboxTag(payment) + "Refund of " + MoneyMath.formatCents(refunded)
                     + " reported by " + processorName + " (via webhook) but the ledger write FAILED",
                     current.auditActor());
-            return Completion.of("pending", "The refund could not be recorded; try again.");
+            return Completion.of("pending", Text.get("feedback.paymentCommands.refundNotRecorded"));
         }
         final boolean alreadyNoted = refunded == payment.getRefundedCents()
                 && (txId == null || payment.getTxIds().contains(txId));
@@ -934,7 +939,7 @@ public class PaymentCommands {
                 return null;
             } catch (final RuntimeException | IOException ex) {
                 log.error("Unable to persist refund total on payment {}", payment.getPaymentId(), ex);
-                return Completion.of("pending", "The refund could not be recorded; try again.");
+                return Completion.of("pending", Text.get("feedback.paymentCommands.refundNotRecorded"));
             }
             audit.payment(payment, true, sandboxTag(payment) + "Refund of " + MoneyMath.formatCents(refunded)
                     + (refunded > 0L && refunded < payment.getCapturedGrossCents() ? " (partial)" : "")
@@ -942,7 +947,7 @@ public class PaymentCommands {
                     + (txId == null ? "; sandbox, nothing written" : "; ledger row " + txId), current.auditActor());
         }
         return Completion.of(payment.isSandbox() ? "sandbox" : "refunded",
-                "Refund of " + MoneyMath.formatCents(refunded) + " recorded.");
+                Text.get("feedback.paymentCommands.refundRecorded", MoneyMath.formatCents(refunded)));
     }
 
     private static Caller systemCaller() {
@@ -1005,7 +1010,8 @@ public class PaymentCommands {
             // The processor now expects the new total; the capture's gross-vs-expected check parks the
             // payment in CAPTURED for reconciliation if this row never catches up.
             log.error("Unable to persist re-priced payment {}", payment.getPaymentId(), ex);
-            fail("Not re-priced", "The new total could not be saved.");
+            fail(Text.get("feedback.paymentCommands.notRepriced"),
+                    Text.get("feedback.paymentCommands.newTotalNotSaved"));
             return null;
         }
         audit.payment(payment, true, sandboxTag(payment) + "Payment re-priced for " + (bank ? "a bank debit"
@@ -1030,19 +1036,21 @@ public class PaymentCommands {
     /** LOCAL ONLY: a dashboard refund's stand-in -- the fake order's refunded total, then the webhook path. */
     public Completion fakeRefund(final String orderRef, final long cents) {
         if (!LocalMode.isLocal()) {
-            return Completion.of("notfound", "Unknown payment.");
+            return Completion.of("notfound", Text.get("api.payments.unknownPayment"));
         }
         final String paymentId = FakeProcessor.refund(orderRef, cents);
-        return (paymentId == null) ? Completion.of("notfound", "Unknown payment.") : refundFromWebhook(paymentId);
+        return (paymentId == null) ? Completion.of("notfound", Text.get("api.payments.unknownPayment"))
+                : refundFromWebhook(paymentId);
     }
 
     /** LOCAL ONLY: the fake checkout's "settle" -- the stand-in for Stripe's webhook finishing the payment. */
     public Completion fakeSettle(final String orderRef) {
         if (!LocalMode.isLocal()) {
-            return Completion.of("notfound", "Unknown payment.");
+            return Completion.of("notfound", Text.get("api.payments.unknownPayment"));
         }
         final String paymentId = FakeProcessor.settle(orderRef);
-        return (paymentId == null) ? Completion.of("notfound", "Unknown payment.") : completeFromWebhook(paymentId);
+        return (paymentId == null) ? Completion.of("notfound", Text.get("api.payments.unknownPayment"))
+                : completeFromWebhook(paymentId);
     }
 
     // ------------------------------------------------------------------ reconciliation (site admin)
@@ -1070,11 +1078,11 @@ public class PaymentCommands {
     public Completion adminComplete(final String paymentId) {
         final Caller current = caller();
         if (!current.isSiteAdmin()) {
-            return Completion.of("notfound", "Unknown payment.");
+            return Completion.of("notfound", Text.get("api.payments.unknownPayment"));
         }
         final Payment payment = DAO.getInstance().getPayment(paymentId).orElse(null);
         if (payment == null) {
-            return Completion.of("notfound", "Unknown payment.");
+            return Completion.of("notfound", Text.get("api.payments.unknownPayment"));
         }
         return complete(payment, null, current, Door.ADMIN);
     }
@@ -1088,18 +1096,22 @@ public class PaymentCommands {
     public boolean abandon(final String paymentId) {
         final Caller current = caller();
         if (!current.isSiteAdmin()) {
-            return fail("Not allowed", "Only a site administrator can abandon a payment.");
+            return fail(Text.get("feedback.shared.notAllowed"),
+                    Text.get("feedback.paymentCommands.abandonSiteAdminOnly"));
         }
         final Payment payment = DAO.getInstance().getPayment(paymentId).orElse(null);
         if (payment == null || payment.getStatus() != Payment.Status.CREATED) {
-            return fail("Not abandoned", "Only a CREATED payment can be abandoned.");
+            return fail(Text.get("feedback.paymentCommands.notAbandoned"),
+                    Text.get("feedback.paymentCommands.abandonCreatedOnly"));
         }
         return giveUp(payment, current, "Payment abandoned by " + current.auditActor().email());
     }
 
     // ------------------------------------------------------------------ helpers
 
-    private Start startFailed(final Payment payment, final Caller current, final String reason) {
+    /** {@code reason} is the audit line's, stored in English; {@code detail} is what the payer reads. */
+    private Start startFailed(final Payment payment, final Caller current, final String reason,
+            final String detail) {
         payment.setStatus(Payment.Status.FAILED);
         try {
             DAO.getInstance().transitionPayment(payment, Payment.Status.CREATED);
@@ -1108,7 +1120,7 @@ public class PaymentCommands {
         }
         audit.payment(payment, false, sandboxTag(payment) + "Order creation failed: " + reason,
                 current.auditActor());
-        fail("Payment not started", reason + " Nothing was charged.");
+        fail(Text.get("feedback.paymentCommands.notStarted"), detail);
         return null;
     }
 
@@ -1165,9 +1177,18 @@ public class PaymentCommands {
                 : displayNameOf(config);
     }
 
-    /** The payment's processor as people read it, from its stored config: "Stripe", or "Offline payment". */
-    public static String processorNameOf(final Payment payment) {
-        return processorNameOf(payment, configOf(payment));
+    /**
+     * The payment's processor for a page or an export, in the language of the request. {@link #processorNameOf}
+     * stays English because the ledger and the audit trail store what it answers.
+     */
+    private static String processorDisplayNameOf(final Payment payment) {
+        final ProcessorType type = payment.getProcessorType() == ProcessorType.OFFLINE ? ProcessorType.OFFLINE
+                : typeOf(configOf(payment));
+        return type == null ? Text.get("labels.paymentProcessorUnknown") : type.getDisplayLabel();
+    }
+
+    private static ProcessorType typeOf(final PaymentProcessorConfig config) {
+        return config == null ? null : config.getType();
     }
 
     /**
@@ -1176,13 +1197,13 @@ public class PaymentCommands {
      */
     public String methodOf(final Payment payment) {
         final Payment.OfflineReceipt receipt = payment.getOfflineReceipt();
-        return receipt == null ? processorNameOf(payment) : receipt.summary();
+        return receipt == null ? processorDisplayNameOf(payment) : receipt.summary();
     }
 
     /** The export's Payment-Method cell: the offline method alone ("Check") or the processor's name. */
     public static String paymentMethodOf(final Payment payment) {
         final Payment.OfflineReceipt receipt = payment.getOfflineReceipt();
-        return receipt == null ? processorNameOf(payment) : receipt.methodLabel();
+        return receipt == null ? processorDisplayNameOf(payment) : receipt.methodLabel();
     }
 
     /** The export's Payment-Reference cell: the check number, or the processor's capture id; "" when neither. */
@@ -1211,7 +1232,7 @@ public class PaymentCommands {
             return receipt.describe();
         }
         final java.time.LocalDate received = paymentReceivedOn(payment);
-        return processorNameOf(payment)
+        return processorDisplayNameOf(payment)
                 + (payment.getCaptureId() == null ? "" : " (id #" + payment.getCaptureId() + ")")
                 + (received == null ? "" : ", " + received.format(RECEIVED_DATE));
     }
@@ -1246,7 +1267,8 @@ public class PaymentCommands {
         for (final Map.Entry<String, Object> entry : rawAmounts.entrySet()) {
             final long cents = parseStrict(entry.getValue());
             if (cents < 0) {
-                fail("Bad amount", "'" + entry.getValue() + "' is not a valid dollar amount.");
+                fail(Text.get("feedback.paymentCommands.badAmount"),
+                        Text.get("feedback.paymentCommands.badTravelerAmount", String.valueOf(entry.getValue())));
                 return null;
             }
             if (cents == 0) {
@@ -1254,7 +1276,7 @@ public class PaymentCommands {
             }
             final Person.Id target = Person.Id.from(entry.getKey());
             if (!people.canAccessUserId(payer, target)) {
-                fail("Not allowed", "You can only pay for yourself and family members you manage.");
+                fail(Text.get("feedback.shared.notAllowed"), Text.get("feedback.paymentCommands.payOwnFamilyOnly"));
                 return null;
             }
             allocations.add(new Payment.Allocation(target, cents));

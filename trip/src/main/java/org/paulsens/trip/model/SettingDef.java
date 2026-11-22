@@ -4,9 +4,14 @@ import java.io.Serial;
 import java.io.Serializable;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import lombok.AccessLevel;
 import lombok.Builder;
+import lombok.EqualsAndHashCode;
+import lombok.ToString;
 import lombok.Value;
+import org.paulsens.trip.i18n.LanguageMark;
+import org.paulsens.trip.i18n.Text;
 
 /**
  * The declaration of one setting the application actually knows about: its key, its type, its shipped default,
@@ -22,7 +27,11 @@ import lombok.Value;
  *
  * @see org.paulsens.trip.config.KnownSettings
  */
+// Equality and toString read the FIELDS: the getters answer in the language of the request in progress, and
+// a hash that changed with the reader's language would lose the object in a map.
 @Value
+@EqualsAndHashCode(doNotUseGetters = true)
+@ToString(doNotUseGetters = true)
 public class SettingDef implements Serializable {
     @Serial
     private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
@@ -35,9 +44,15 @@ public class SettingDef implements Serializable {
      * the table stores values, so the page can show the default exactly as it would be typed.
      */
     String defaultValue;
-    /** Short label for the property sheet. */
+    /**
+     * Short label for the property sheet. Null for a setting declared in {@code KnownSettings}, whose label is
+     * the bundle's {@code labels.setting.{name}.label}; a literal only for a definition built outside it.
+     */
     String label;
-    /** What it controls, and any consequence worth knowing before changing it. */
+    /**
+     * What it controls, and any consequence worth knowing before changing it. Null for a declared setting, as
+     * {@link #label} is: {@code labels.setting.{name}.description}.
+     */
     String description;
     /**
      * Whether an organization may override this setting for its OWN site (the trip &rarr; org &rarr; site
@@ -92,11 +107,29 @@ public class SettingDef implements Serializable {
      * does not apply. Refusing on save also means a pasted snippet or two ids never quietly turn the tag off.
      */
     boolean analyticsId;
+    /**
+     * Whether an organization may give this setting one value per language its site offers ({@code docs/i18n.md},
+     * "Language versions of a page"): display text such as the footer line, stored beside the plain override
+     * under {@link #keyIn the name with a language mark} ({@code site.footer.text@es}) and read before it for a
+     * reader in that language. Only an org-overridable STRING can be one: the translations live on the org row,
+     * and a number, a color or a URL means the same thing in every language ({@code KnownSettingsTest} holds every
+     * declaration to that, and the readers ignore the mark on anything else).
+     */
+    boolean translatable;
 
+    /**
+     * A setting whose label and description are in the {@code labels} bundle, keyed by its name: every setting
+     * {@code KnownSettings} declares, so the Settings pages read in the administrator's language.
+     */
+    public SettingDef(final String name, final Config.Type type, final String defaultValue) {
+        this(name, type, defaultValue, null, null);
+    }
+
+    /** A setting carrying its own words: for a definition that is not in {@code KnownSettings} (a test's). */
     public SettingDef(final String name, final Config.Type type, final String defaultValue, final String label,
             final String description) {
         this(name, type, defaultValue, label, description, false, false, List.of(), false, false, false, false,
-                false);
+                false, false);
     }
 
     /*
@@ -110,7 +143,7 @@ public class SettingDef implements Serializable {
     private SettingDef(final String name, final Config.Type type, final String defaultValue, final String label,
             final String description, final boolean orgOverridable, final boolean orgOnly,
             final List<String> choices, final boolean httpUrl, final boolean hexColor, final boolean email,
-            final boolean siteFrom, final boolean analyticsId) {
+            final boolean siteFrom, final boolean analyticsId, final boolean translatable) {
         this.name = name;
         this.type = type;
         this.defaultValue = defaultValue;
@@ -124,6 +157,22 @@ public class SettingDef implements Serializable {
         this.email = email;
         this.siteFrom = siteFrom;
         this.analyticsId = analyticsId;
+        this.translatable = translatable;
+    }
+
+    /** The label in the language of the request in progress; a definition's own literal when it has one. */
+    public String getLabel() {
+        return (label != null) ? label : bundled("label");
+    }
+
+    /** The description (the field's help-card text) in the language of the request in progress. */
+    public String getDescription() {
+        return (description != null) ? description : bundled("description");
+    }
+
+    private String bundled(final String what) {
+        final String key = "labels.setting." + name + "." + what;
+        return Text.get(key);
     }
 
     /**
@@ -168,6 +217,29 @@ public class SettingDef implements Serializable {
     /** This declaration, requiring a non-blank value to be an analytics property id (see {@link #analyticsId}). */
     public SettingDef withAnalyticsId() {
         return toBuilder().analyticsId(true).build();
+    }
+
+    /**
+     * This declaration, marked as display text an organization may write once per language (see
+     * {@link #translatable}): an org-overridable STRING only.
+     */
+    public SettingDef withTranslatable() {
+        return toBuilder().translatable(true).build();
+    }
+
+    /** The override key of this setting's text in {@code language}: {@code site.footer.text@es}. */
+    public String keyIn(final Language language) {
+        return LanguageMark.keyFor(name, language);
+    }
+
+    /** The setting name an override key belongs to: the key itself, without a language mark. Null in, null out. */
+    public static String baseNameOf(final String key) {
+        return LanguageMark.baseOf(key);
+    }
+
+    /** The language an override key names ({@code site.footer.text@es}); empty for a plain setting name. */
+    public static Optional<Language> languageOfKey(final String key) {
+        return LanguageMark.languageOf(key);
     }
 
     /**

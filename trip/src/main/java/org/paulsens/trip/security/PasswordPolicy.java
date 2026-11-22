@@ -1,5 +1,7 @@
 package org.paulsens.trip.security;
 
+import org.paulsens.trip.i18n.Text;
+
 /**
  * The one rule for what a NEW password must look like, shared by every path that sets one: the create-account
  * page and its REST twin, the change-password page, and the set-a-password offer after a code login.
@@ -14,7 +16,10 @@ public final class PasswordPolicy {
     /** Minimum length, counted in characters as typed. */
     public static final int MIN_LENGTH = 8;
 
-    /** The rule in one sentence, the message every rejection carries. */
+    /**
+     * The rule in one sentence, in English: the message every rejection carries off a request, and what the tests
+     * compare against. A person is shown {@code server.passwordPolicy.rule}, the same sentence in their language.
+     */
     public static final String RULE = "Passwords need at least " + MIN_LENGTH
             + " characters, including at least one letter and one number.";
 
@@ -27,9 +32,9 @@ public final class PasswordPolicy {
      */
     public static String problem(final String password) {
         if (password == null || password.isBlank()) {
-            return "A password is required.";
+            return Text.get("server.passwordPolicy.required");
         }
-        return accepts(password) ? null : RULE;
+        return accepts(password) ? null : Text.get("server.passwordPolicy.rule", String.valueOf(MIN_LENGTH));
     }
 
     /** Whether the password meets the rule: {@link #MIN_LENGTH}+ characters with a letter and a digit. */

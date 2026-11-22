@@ -13,6 +13,7 @@ import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.ConfigCommands;
 import org.paulsens.trip.config.KnownSettings;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.site.SiteIndex;
 
 /**
@@ -41,7 +42,7 @@ public class PaymentsResource extends BaseResource {
     public Response quote(final PaymentStart body) {
         final org.paulsens.trip.model.Trip trip = findTrip(body == null ? null : body.tripId());
         if (trip == null) {
-            return error(404, ApiErrors.NOT_FOUND, "Unknown trip.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("feedback.shared.unknownTrip"));
         }
         final org.paulsens.trip.action.PaymentCommands commands = paymentCommands();
         final org.paulsens.trip.action.PaymentCommands.Quote quote =
@@ -71,21 +72,21 @@ public class PaymentsResource extends BaseResource {
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response start(@HeaderParam(CSRF_HEADER) final String csrf, final PaymentStart body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         final org.paulsens.trip.model.Trip trip = findTrip(body == null ? null : body.tripId());
         if (trip == null) {
-            return error(404, ApiErrors.NOT_FOUND, "Unknown trip.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("feedback.shared.unknownTrip"));
         }
         if (body.returnUrl() == null || !isAllowed(body.returnUrl())) {
             return error(400, ApiErrors.BAD_REQUEST,
-                    "returnUrl must start with a configured allowed prefix.");
+                    Text.get("api.shared.returnUrlNotAllowed"));
         }
         final org.paulsens.trip.action.PaymentCommands.Start start = paymentCommands().startPayment(trip,
                 amountsOf(body), body.donation(), Boolean.TRUE.equals(body.sandbox()), body.returnUrl());
         if (start == null) {
             return error(400, ApiErrors.BAD_REQUEST,
-                    "The payment could not be started (check the amounts and the trip's configuration).");
+                    Text.get("api.payments.notStarted"));
         }
         final Map<String, Object> result = new LinkedHashMap<>();
         result.put("paymentId", start.getPaymentId());
@@ -104,7 +105,7 @@ public class PaymentsResource extends BaseResource {
     public Response complete(@PathParam("paymentId") final String paymentId,
             @HeaderParam(CSRF_HEADER) final String csrf, final CompleteRequest body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         final org.paulsens.trip.action.PaymentCommands.Completion outcome =
                 paymentCommands().completePayment(paymentId, body == null ? null : body.token());
@@ -131,12 +132,12 @@ public class PaymentsResource extends BaseResource {
     public Response method(@PathParam("paymentId") final String paymentId,
             @HeaderParam(CSRF_HEADER) final String csrf, final MethodRequest body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         final org.paulsens.trip.action.PaymentCommands.Reprice outcome =
                 paymentCommands().selectMethod(paymentId, body == null ? null : body.type());
         if (outcome == null) {
-            return error(404, ApiErrors.NOT_FOUND, "Unknown payment.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.payments.unknownPayment"));
         }
         final Map<String, Object> result = new LinkedHashMap<>();
         result.put("paymentId", outcome.paymentId());
@@ -155,7 +156,7 @@ public class PaymentsResource extends BaseResource {
     public Response cancel(@PathParam("paymentId") final String paymentId,
             @HeaderParam(CSRF_HEADER) final String csrf) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         final boolean canceled = paymentCommands().cancelPayment(paymentId);
         final Map<String, Object> result = new LinkedHashMap<>();

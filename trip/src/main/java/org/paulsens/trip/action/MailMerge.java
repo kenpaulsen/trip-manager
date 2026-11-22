@@ -12,6 +12,7 @@ import java.util.Set;
 import java.util.function.Supplier;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
 
@@ -29,11 +30,15 @@ import org.paulsens.trip.model.Trip;
 @Named("mailMerge")
 @ApplicationScoped
 public class MailMerge {
+
+    /** What a refused From is told, on the page and over the API alike, in the language of the request. */
+    public static String invalidMergeFrom() {
+        return Text.get("feedback.mailMerge.fromNotVerified");
+    }
+
     /** What a merge is told when its text still holds the old EL personalization. */
     public static final String EXPRESSION = "This message contains #{...} or ${...}, which is no longer filled in. "
             + "Use the fields listed on the Send Mail page instead, such as {{firstName}}.";
-
-    private static final String NOT_ALLOWED = "Sending mail requires the emailAdmin privilege.";
 
     /** One recipient's personalized subject (plain text) and body (HTML), as the Preview shows them. */
     public record Preview(String subject, String body) {
@@ -96,12 +101,15 @@ public class MailMerge {
         };
     }
 
-    /** Who may use a field of this kind, as the refusal names them; the words for {@link #mayUse}'s rule. */
+    /**
+     * The message that refuses a field of this kind by naming who may use it; the words for {@link #mayUse}'s
+     * rule. A key, not the sentence: the refusals are grouped by it, and the sentence takes the fields.
+     */
     private static String whoMay(final MergeText.Kind kind) {
         return switch (kind) {
-            case PERSON, TRIP, ON_TRIP -> "a sender";
-            case CONTACT, TRAVEL_DOCUMENTS -> "a site administrator, or a manager of the chosen trip,";
-            case MONEY -> "someone who may see the chosen trip's finances";
+            case PERSON, TRIP, ON_TRIP -> "feedback.mailMerge.onlySender";
+            case CONTACT, TRAVEL_DOCUMENTS -> "feedback.mailMerge.onlyTripAdmin";
+            case MONEY -> "feedback.mailMerge.onlyFinanceViewer";
         };
     }
 
@@ -115,12 +123,12 @@ public class MailMerge {
      */
     public String problem(final String subject, final String body, final String tripId) {
         if (MergeText.hasExpression(subject, body)) {
-            return EXPRESSION;
+            return Text.get("feedback.mailMerge.expression");
         }
         final List<String> unknown = MergeText.unknownFields(subject, body);
         if (!unknown.isEmpty()) {
-            return "Unknown field(s): " + String.join(", ", unknown.stream().map(MailMerge::braced).toList())
-                    + ". Use only the fields listed on the Send Mail page.";
+            return Text.get("feedback.mailMerge.unknownFields", unknown.size(),
+                    String.join(", ", unknown.stream().map(MailMerge::braced).toList()));
         }
         final Set<MergeText.Kind> kinds = MergeText.kindsUsed(subject, body);
         final Set<MergeText.Kind> needTrip = EnumSet.noneOf(MergeText.Kind.class);
@@ -130,7 +138,8 @@ public class MailMerge {
             }
         }
         if (!needTrip.isEmpty() && !org().canMailTrip(tripId)) {
-            return "Choose a trip for " + String.join(", ", MergeText.markupOf(needTrip, subject, body)) + ".";
+            return Text.get("feedback.mailMerge.chooseTripFor",
+                    String.join(", ", MergeText.markupOf(needTrip, subject, body)));
         }
         // The kinds this sender may not use, grouped by who may, so each refusal names its rule once.
         final Map<String, Set<MergeText.Kind>> refused = new LinkedHashMap<>();
@@ -146,7 +155,7 @@ public class MailMerge {
 
     private static String refusal(final String who, final Set<MergeText.Kind> kinds, final String subject,
             final String body) {
-        return "Only " + who + " may use " + String.join(", ", MergeText.markupOf(kinds, subject, body)) + ".";
+        return Text.get(who, String.join(", ", MergeText.markupOf(kinds, subject, body)));
     }
 
     /**
@@ -169,20 +178,23 @@ public class MailMerge {
     public Preview preview(final List<String> toEmails, final String subject, final String body,
             final String tripId) {
         final OrgCommands org = org();
-        final String problem = org.canMail() ? problem(subject, body, tripId) : NOT_ALLOWED;
+        final String problem = org.canMail() ? problem(subject, body,
+                tripId) : Text.get("feedback.mailMerge.needsEmailAdmin");
         if (problem != null) {
-            PageFeedback.refuse("Cannot preview", problem);
+            PageFeedback.refuse(Text.get("feedback.mailMerge.cannotPreview"), problem);
             return null;
         }
         final List<String> toList = (toEmails == null) ? List.of() : toEmails;
         final Set<String> allowed = org.allowedRecipientEmails();
         // The send's two reasons, in the same words: a typo is never reported as an outsider.
         if (!toList.isEmpty() && OrgCommands.singleAddress(toList.get(0)) == null) {
-            PageFeedback.refuse("Cannot preview", "The first recipient has no usable address.");
+            PageFeedback.refuse(Text.get("feedback.mailMerge.cannotPreview"),
+                    Text.get("feedback.mailMerge.firstHasNoAddress"));
             return null;
         }
         if (!toList.isEmpty() && allowed != null && !OrgCommands.isAllowedEmail(allowed, toList.get(0))) {
-            PageFeedback.refuse("Cannot preview", "The first recipient is outside your organization(s).");
+            PageFeedback.refuse(Text.get("feedback.mailMerge.cannotPreview"),
+                    Text.get("feedback.mailMerge.firstIsOutside"));
             return null;
         }
         final MailCommands mail = mailSource.get();
@@ -190,7 +202,8 @@ public class MailMerge {
                 ? DAO.getInstance().getPerson(callerSource.get().personId(), Cached.YES).orElse(null)
                 : mail.findPersonByEmail(toList.get(0));
         if (person == null) {
-            PageFeedback.refuse("Cannot preview", "There is nobody to preview the message for.");
+            PageFeedback.refuse(Text.get("feedback.mailMerge.cannotPreview"),
+                    Text.get("feedback.mailMerge.nobodyToPreview"));
             return null;
         }
         final MergeValues values = values(tripId, subject, body);
@@ -211,11 +224,12 @@ public class MailMerge {
             final String subject, final String body, final String tripId) {
         final OrgCommands org = org();
         if (!org.canMail()) {
-            return PageFeedback.refuse("Not allowed", NOT_ALLOWED);
+            return PageFeedback.refuse(Text.get("feedback.shared.notAllowed"),
+                    Text.get("feedback.mailMerge.needsEmailAdmin"));
         }
         final String problem = problem(subject, body, tripId);
         if (problem != null) {
-            return PageFeedback.refuse("Not sent", problem);
+            return PageFeedback.refuse(Text.get("feedback.shared.notSent"), problem);
         }
         final Set<String> allowed = org.allowedRecipientEmails();
         final List<String> toList = (toEmails == null) ? List.of() : toEmails;
@@ -224,19 +238,19 @@ public class MailMerge {
         final int unusable = (int) toList.stream().filter(entry -> OrgCommands.singleAddress(entry) == null).count();
         final int outside = toList.size() - accepted.size() - unusable;
         if (unusable > 0) {
-            PageFeedback.warn(unusable + " unusable address(es) were skipped.");
+            PageFeedback.warn(Text.get("feedback.mailMerge.unusableSkipped", unusable, String.valueOf(unusable)));
         }
         if (outside > 0) {
-            PageFeedback.warn(outside + " recipient(s) outside your organization(s) were skipped.");
+            PageFeedback.warn(Text.get("feedback.mailMerge.outsideSkipped", outside, String.valueOf(outside)));
         }
         if (accepted.isEmpty()) {
-            return PageFeedback.refuse("Nobody to mail", (outside > 0)
-                    ? "No recipients are within your organization(s)." : "No recipient has a usable address.");
+            return PageFeedback.refuse(Text.get("feedback.mailMerge.nobodyToMail"), (outside > 0)
+                    ? Text.get("feedback.mailMerge.noneWithinOrg") : Text.get("feedback.mailMerge.noneUsable"));
         }
         // The composer can only produce an allowed domain, so this is the forged-post guard: a From on a
         // domain SES has not verified for this tenant is refused HERE rather than silently at SES.
         if (!org.isMergeFromSendable(from)) {
-            return PageFeedback.refuse("Invalid From", OrgCommands.INVALID_MERGE_FROM);
+            return PageFeedback.refuse(Text.get("feedback.mailMerge.invalidFrom"), invalidMergeFrom());
         }
         final MailCommands mail = mailSource.get();
         final List<Person> people = mail.emailsToPeople(accepted);
@@ -294,8 +308,7 @@ public class MailMerge {
         final boolean blanks = values.blanksOffTrip(MergeText.kindsUsed(subject, body));
         final long off = blanks ? people.stream().filter(person -> !values.onTrip(person)).count() : 0;
         if (off > 0) {
-            PageFeedback.warn(off + " recipient(s) are not on the chosen trip, so their fields about the trip "
-                    + "(such as their room or balance) are blank.");
+            PageFeedback.warn(Text.get("feedback.mailMerge.offTrip", off, String.valueOf(off)));
         }
     }
 }

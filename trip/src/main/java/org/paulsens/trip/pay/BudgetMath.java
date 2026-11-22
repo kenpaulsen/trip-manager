@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.function.Function;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.BudgetCategory;
 import org.paulsens.trip.model.BudgetLine;
 import org.paulsens.trip.model.BudgetLodgingLine;
@@ -171,16 +172,15 @@ public final class BudgetMath {
         }
         final BudgetLine base = budget.line(line.getPercentOf());
         if (base == null || base.getId().equals(line.getId())) {
-            return "Choose another line for the percentage to apply to.";
+            return Text.get("server.budget.percentNeedsOtherLine");
         }
         if (base.getKind() != line.getKind()) {
-            return "A percentage must be of a line of the same kind (shared or per person).";
+            return Text.get("server.budget.percentSameKind");
         }
         BudgetLine step = base;
         for (int depth = 0; step != null && step.isPercent(); depth++) {
             if (step.getPercentOf().equals(line.getId()) || depth >= MAX_PERCENT_DEPTH) {
-                return "That would make the percentages go in a circle: '" + base.getName() + "' already depends "
-                        + "on this line.";
+                return Text.get("server.budget.percentCircle", base.getName());
             }
             step = budget.line(step.getPercentOf());
         }
@@ -298,6 +298,11 @@ public final class BudgetMath {
     /** The Category a typed line shows: its category's label, or {@link #PER_PERSON_CATEGORY} for a per-person line. */
     public static String categoryOf(final BudgetLine line) {
         return line.isShared() ? line.getCategory().getLabel() : PER_PERSON_CATEGORY;
+    }
+
+    /** {@link #categoryOf(BudgetLine)} with the category's label in an explicit language (a mailed report). */
+    public static String categoryOf(final BudgetLine line, final Locale locale) {
+        return line.isShared() ? line.getCategory().getLabel(locale) : PER_PERSON_CATEGORY;
     }
 
     /**

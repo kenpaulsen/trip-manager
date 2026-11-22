@@ -87,6 +87,13 @@ public final class Person implements Serializable, Comparable<Person> {
      */
     private Organization.Id defaultOrgId;
     /**
+     * The language the person chose for the interface, mail and push, as a {@code Language} tag ("es"); null
+     * until they choose, which means "decide from the request" ({@code docs/i18n.md}). Text, not the enum, so a
+     * row written by a newer build with a language this one lacks still reads. Additive and nullable like
+     * {@link #defaultOrgId}, and likewise NOT a constructor parameter.
+     */
+    private String language;
+    /**
      * The person's privacy choices for the four negotiable profile fields. Never null: rows written before the
      * feature deserialize without the key, leaving this initializer in place, and the setter refuses null -- EL on
      * the profile page binds straight to {@code person.privacy.email}, so a lazily-created default object would

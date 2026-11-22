@@ -149,7 +149,8 @@ public class SignInChangeRuleTest {
 
         final Person edited = TenancyFixtures.reload(victim);
         edited.setEmail("attacker." + TenancyFixtures.unique() + "@example.com");
-        assertEquals(people.signInChangeRefusal(edited, scene.deputyReach()), OrgCommands.SIGN_IN_CHANGE_REFUSED);
+        assertEquals(people.signInChangeRefusal(edited, scene.deputyReach()),
+                "Changing how this person signs in takes a site administrator.");
         assertFalse(people.savePerson(edited), "a refusal is a refused save, never an exception");
         assertEquals(TenancyFixtures.reload(victim).getEmail(), original, "nothing was written");
 

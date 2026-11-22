@@ -15,6 +15,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.Audit;
 import org.paulsens.trip.audit.AuditEventBuilder;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
 
@@ -46,14 +47,14 @@ public class CacheResource extends BaseResource {
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response invalidate(@HeaderParam(CSRF_HEADER) final String csrf, final InvalidateRequest body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         if (!privileges().has(ApiPrivileges.CONFIG_ADMIN)) {
-            return error(403, ApiErrors.FORBIDDEN, "Config admin access required.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.cache.adminRequired"));
         }
         final DAO.CacheScope scope = parseScope(body);
         if (scope == null) {
-            return error(400, ApiErrors.VALIDATION_FAILED, "Unknown cache scope; one of: " + scopeNames());
+            return error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.cache.unknownScope", scopeNames()));
         }
         final List<String> cleared = DAO.getInstance().invalidate(scope);
         Audit.builder(AuditAction.CONFIG, AuditOutcome.SUCCESS)

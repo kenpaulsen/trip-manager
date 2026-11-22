@@ -19,9 +19,13 @@ import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.Audit;
 import org.paulsens.trip.audit.AuditActor;
+import org.paulsens.trip.audit.AuditEventBuilder;
 import org.paulsens.trip.cache.Cached;
+import org.paulsens.trip.chat.MailTemplates;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.i18n.ReaderLanguage;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.DataId;
@@ -129,17 +133,19 @@ public class AccountDeletionCommands {
         }
     }
 
-    public static final List<String> ERASED = List.of(
-            "Your sign-in: password, passkeys and every signed-in device",
-            "Your profile: name, email, phone, address, birthdate, passport and emergency contact",
-            "Your profile pictures",
-            "Every chat message and photo you posted, and every comment and reaction you left",
-            "Your trip registrations and your place on every trip",
-            "Your name and email address in the record of reminder emails sent about your trips",
-            "Your saved preferences and blocked people");
-    public static final List<String> RETAINED = List.of(
-            "Records of your payments, kept by the organization for its accounting, with your name and "
-                    + "contact details removed");
+    /** What deletion erases and what it keeps, as message keys: {@link #preview} says them in the reader's language. */
+    private static final List<String> ERASED_KEYS = List.of(
+            "feedback.accountDeletionCommands.erasedSignIn",
+            "feedback.accountDeletionCommands.erasedProfile",
+            "feedback.accountDeletionCommands.erasedPictures",
+            "feedback.accountDeletionCommands.erasedChat",
+            "feedback.accountDeletionCommands.erasedRegistrations",
+            "feedback.accountDeletionCommands.erasedReminders",
+            "feedback.accountDeletionCommands.erasedPreferences");
+    private static final List<String> RETAINED_KEYS = List.of("feedback.accountDeletionCommands.retainedPayments");
+    /** The same two lists in English, for a caller off any request. */
+    public static final List<String> ERASED = ERASED_KEYS.stream().map(AccountDeletionCommands::english).toList();
+    public static final List<String> RETAINED = RETAINED_KEYS.stream().map(AccountDeletionCommands::english).toList();
 
     private final ConfigCommands config;
     private final Supplier<MailCommands> mailSource;
@@ -167,6 +173,10 @@ public class AccountDeletionCommands {
         this.photoChatSource = photoChatSource;
         this.profilePhotoSource = profilePhotoSource;
         this.tokenSource = tokenSource;
+    }
+
+    private static String english(final String key) {
+        return Text.forLocale(Locale.ENGLISH, key);
     }
 
     // ------------------------------------------------------------------ preview
@@ -218,7 +228,8 @@ public class AccountDeletionCommands {
         final boolean blocked = reasons.stream().anyMatch(reason -> settleRequired
                 || BLOCK_SOLE_ORG_ADMIN.equals(reason.code()) || BLOCK_DEPENDENT_UNSETTLED.equals(reason.code()));
         return new Preview(blocked, settleRequired, List.copyOf(reasons), owed, credit,
-                contactEmail(person, trips), trips, ERASED, RETAINED);
+                contactEmail(person, trips), trips, ERASED_KEYS.stream().map(Text::get).toList(),
+                RETAINED_KEYS.stream().map(Text::get).toList());
     }
 
     // ------------------------------------------------------------------ the deletion
@@ -229,22 +240,23 @@ public class AccountDeletionCommands {
      */
     public Outcome deleteOwnAccount(final Person.Id personId, final String confirmation, final AuditActor actor) {
         if (!CONFIRMATION.equals(confirmation == null ? null : confirmation.trim())) {
-            return Outcome.refused(REFUSED_CONFIRMATION, "Type " + CONFIRMATION + " to confirm.", null);
+            return Outcome.refused(REFUSED_CONFIRMATION,
+                    Text.get("feedback.accountDeletionCommands.typeToConfirm", CONFIRMATION), null);
         }
         final Person person = load(personId);
         if (person == null) {
-            return Outcome.refused(REFUSED_NOT_FOUND, "No such account.", null);
+            return Outcome.refused(REFUSED_NOT_FOUND, Text.get("api.account.noSuchAccount"), null);
         }
         final Preview preview = preview(person);
         if (preview.blocked()) {
-            return Outcome.refused(REFUSED_BLOCKED, "Your account can't be deleted yet.", preview);
+            return Outcome.refused(REFUSED_BLOCKED, Text.get("feedback.accountDeletionCommands.blocked"), preview);
         }
         final AuditActor who = actor != null && actor.isKnown() ? actor
                 : new AuditActor(Util.orDefault(person.getEmail(), ""), person.getId().getValue());
         final String identity = displayName(person) + " <" + Util.orDefault(person.getEmail(), "") + "> ("
                 + person.getId().getValue() + ")";
         final List<Person> dependents = dependents(person);
-        notifyOrganizations(person, dependents, preview, who);
+        notifyOrganizations(person, dependents, who);
         try {
             revokeAccess(person);
             for (final Person dependent : dependents) {
@@ -267,7 +279,7 @@ public class AccountDeletionCommands {
                     .targetPerson(person.getEmail(), person.getId().getValue())
                     .message("account.delete: INCOMPLETE for " + identity + ": " + ex).log();
             return Outcome.refused(REFUSED_FAILED,
-                    "Something went wrong while deleting your account. Please contact support.", preview);
+                    Text.get("feedback.accountDeletionCommands.failed"), preview);
         }
         Audit.builder(AuditAction.PERSON, AuditOutcome.SUCCESS).actor(who)
                 .targetPerson(person.getEmail(), person.getId().getValue())
@@ -316,41 +328,14 @@ public class AccountDeletionCommands {
         final Caller self = Caller.forActor(new AuditActor(Util.orDefault(person.getEmail(), ""), me.getValue()));
         final ChatCommands chat = chatSource.get();
         final PhotoChatCommands photoChat = photoChatSource.get();
-        for (final ChatCommands.ChatSummary summary : chat.myChats(me)) {
-            final String tripId = summary.channel() == null ? null : summary.channel().getTripId();
-            if (tripId == null) {
-                continue;
+        // Every trip's chat as STORED, never the person's own view (myChats): a chat they left, were removed
+        // from or that an admin switched off is one they can no longer read, and still holds their words.
+        for (final Trip trip : dao().getRecentTrips(0, Cached.NO)) {
+            final ChatChannel channel = dao().getChatChannel(ChatChannel.Id.forTrip(trip.getId()), Cached.NO)
+                    .orElse(null);
+            if (channel != null) {
+                eraseChannel(trip, channel, me, chat, photoChat, who);
             }
-            // Read as stored, not as the person would see it: a message the channel's retention or join date now
-            // hides is still a row, and would come back into view if an admin later lengthened the retention.
-            final Set<String> photoKeys = new LinkedHashSet<>();
-            ChatMessage.Id before = null;
-            for (int page = 0; page < MAX_PAGES; page++) {
-                final List<ChatMessage> batch =
-                        dao().getRawChatMessagesBefore(summary.channel().getId(), before, PAGE, Cached.NO);
-                for (final ChatMessage message : batch) {
-                    for (final ChatAttachment attachment : message.getAttachments()) {
-                        if (attachment.getS3Key() != null) {
-                            photoKeys.add(attachment.getS3Key());
-                        }
-                    }
-                    if (me.equals(message.getAuthorId()) && !message.isDeleted()) {
-                        chat.deleteMessage(tripId, message.getId(), self);
-                    }
-                }
-                if (batch.size() < PAGE) {
-                    break;
-                }
-                before = batch.getLast().getId();
-            }
-            photoKeys.addAll(ChatPhotos.getChatPhotos().deleteAlbumPhotosBy(tripId, me));
-            for (final String key : photoKeys) {
-                eraseComments(photoChat, key, me, self);
-                dao().deleteChatReactionsBy(ChatChannel.Id.forPhoto(key), me);
-            }
-            dao().deleteChatReactionsBy(summary.channel().getId(), me);
-            dao().deleteChatDraft(summary.channel().getId(), me);
-            chat.leave(tripId, me, who);
         }
         final ProfilePhotoCommands profilePhotos = profilePhotoSource.get();
         for (int slot = 1; slot <= ProfilePhotos.MAX_SLOTS; slot++) {
@@ -362,21 +347,91 @@ public class AccountDeletionCommands {
         revokePrivileges(person);
     }
 
-    private static void eraseComments(final PhotoChatCommands photoChat, final String key, final Person.Id me,
-            final Caller self) {
+    /**
+     * One trip chat: their messages tombstoned (photos removed everywhere), their album photos, comments and
+     * reactions gone, their draft dropped and their membership LEFT. The words are erased, never copied: the
+     * moderation path ({@code ChatCommands.deleteMessage}) audits a snippet of each body, so erasure tombstones
+     * directly and writes one line per chat that counts what went.
+     */
+    private void eraseChannel(final Trip trip, final ChatChannel channel, final Person.Id me,
+            final ChatCommands chat, final PhotoChatCommands photoChat, final AuditActor who) {
+        // Read as stored, not as the person would see it: a message the channel's retention or join date now
+        // hides is still a row, and would come back into view if an admin later lengthened the retention.
+        final Set<String> photoKeys = new LinkedHashSet<>();
+        int messages = 0;
         ChatMessage.Id before = null;
         for (int page = 0; page < MAX_PAGES; page++) {
-            final ChatPage thread = photoChat.thread(key, before, PAGE);
-            for (final ChatMessage comment : thread.getMessages()) {
-                if (me.equals(comment.getAuthorId()) && !comment.isDeleted()) {
-                    photoChat.deleteComment(key, comment.getId(), self);
+            final List<ChatMessage> batch = dao().getRawChatMessagesBefore(channel.getId(), before, PAGE, Cached.NO);
+            for (final ChatMessage message : batch) {
+                for (final ChatAttachment attachment : message.getAttachments()) {
+                    if (attachment.getS3Key() != null) {
+                        photoKeys.add(attachment.getS3Key());
+                    }
+                }
+                if (me.equals(message.getAuthorId()) && !message.isDeleted() && erase(channel, message, me)) {
+                    messages++;
                 }
             }
-            if (!thread.isHasMore() || thread.getCursor() == null) {
+            if (batch.size() < PAGE) {
                 break;
             }
-            before = thread.getCursor();
+            before = batch.getLast().getId();
         }
+        photoKeys.addAll(ChatPhotos.getChatPhotos().deleteAlbumPhotosBy(trip.getId(), me));
+        int comments = 0;
+        for (final String key : photoKeys) {
+            comments += eraseComments(photoChat, key, me);
+            dao().deleteChatReactionsBy(ChatChannel.Id.forPhoto(key), me);
+        }
+        dao().deleteChatReactionsBy(channel.getId(), me);
+        dao().deleteChatDraft(channel.getId(), me);
+        if (messages + comments > 0) {
+            Audit.builder(AuditAction.CHAT_ADMIN, AuditOutcome.SUCCESS)
+                    .actor(who)
+                    .target(AuditEventBuilder.TARGET_CHAT_CHANNEL, channel.getId().getValue())
+                    .message("account deletion: erased " + messages + " message(s) and " + comments
+                            + " photo comment(s) by " + me.getValue())
+                    .log();
+        }
+        if (dao().getChatMembership(channel.getId(), me, Cached.NO).isPresent()
+                || (trip.getPeople() != null && trip.getPeople().contains(me))) {
+            chat.leave(trip.getId(), me, who);
+        }
+    }
+
+    /** Tombstones one of their messages and removes its photos everywhere; true when it was erased. */
+    private boolean erase(final ChatChannel channel, final ChatMessage message, final Person.Id me) {
+        // Taken before the write: the tombstone clears the stored message's attachments.
+        final List<ChatAttachment> photos = List.copyOf(message.getAttachments());
+        if (dao().tombstoneChatMessage(channel.getId(), message.getId(), me.getValue()).isEmpty()) {
+            return false;
+        }
+        ChatPhotos.getChatPhotos().deleteEverywhere(photos);
+        return true;
+    }
+
+    /** Tombstones their comments on one photo's thread; the number erased. */
+    private int eraseComments(final PhotoChatCommands photoChat, final String key, final Person.Id me) {
+        final ChatChannel.Id thread = ChatChannel.Id.forPhoto(key);
+        int erased = 0;
+        ChatMessage.Id before = null;
+        for (int page = 0; page < MAX_PAGES; page++) {
+            final ChatPage comments = photoChat.thread(key, before, PAGE);
+            for (final ChatMessage comment : comments.getMessages()) {
+                if (me.equals(comment.getAuthorId()) && !comment.isDeleted()
+                        && dao().tombstoneChatMessage(thread, comment.getId(), me.getValue()).isPresent()) {
+                    erased++;
+                }
+            }
+            if (!comments.isHasMore() || comments.getCursor() == null) {
+                break;
+            }
+            before = comments.getCursor();
+        }
+        if (erased > 0) {
+            dao().invalidatePhotoChatMeta(key);
+        }
+        return erased;
     }
 
     /**
@@ -529,8 +584,7 @@ public class AccountDeletionCommands {
      * organization's rows; a person with neither gets one notice to the Site email. Best effort with a
      * fallback: a failed send is written to the trail as an ALARM carrying the whole report.
      */
-    private void notifyOrganizations(final Person person, final List<Person> dependents, final Preview preview,
-            final AuditActor who) {
+    private void notifyOrganizations(final Person person, final List<Person> dependents, final AuditActor who) {
         final List<Person> everyone = new ArrayList<>();
         everyone.add(person);
         everyone.addAll(dependents);
@@ -570,15 +624,23 @@ public class AccountDeletionCommands {
                 }
                 first = false;
             }
-            final String subject = "Account deleted: " + displayName(person) + " (" + Util.orDefault(person.getEmail(),
-                    "no email") + ")";
-            final String body = noticeBody(person, dependents, org, trips, txs, preview);
-            sendNotice(org, subject, body, person, who);
+            final Notice notice = new Notice(person, dependents, org, trips, txs);
+            sendNotice(notice, who);
         }
     }
 
-    private void sendNotice(final Organization org, final String subject, final String body, final Person person,
-            final AuditActor who) {
+    /** What one organization's notice reports: who left, and their trips and money with that organization. */
+    record Notice(Person person, List<Person> dependents, Organization org, List<TripLine> trips,
+            List<Transaction> txs) {
+    }
+
+    /**
+     * Mails one notice in the language of the organization's office that reads it (its own saved choice, else
+     * English). The audit fallback carries the report in English, like every audit line.
+     */
+    private void sendNotice(final Notice notice, final AuditActor who) {
+        final Organization org = notice.org();
+        final Person person = notice.person();
         try {
             final MailAddressCommands addresses = addressSource.get();
             final String to = addresses.orgRecipient(KnownSettings.ACCOUNT_DELETE_NOTIFY_EMAIL, org);
@@ -587,57 +649,88 @@ public class AccountDeletionCommands {
             if (to == null || to.isBlank()) {
                 throw new IllegalStateException("no recipient for the account-deletion notice");
             }
-            mailSource.get().send(from, to, bcc == null || bcc.isBlank() ? null : bcc, null, subject, body, who);
+            final Locale locale = ReaderLanguage.ofStaffAddress(to, org);
+            mailSource.get().send(from, to, bcc == null || bcc.isBlank() ? null : bcc, null,
+                    noticeSubject(person, locale), noticeBody(notice, locale), who);
         } catch (final RuntimeException ex) {
+            final String subject = noticeSubject(person, Locale.ENGLISH);
             log.warn("Account-deletion notice not sent ({}); recording it in the audit trail instead", subject, ex);
             Audit.builder(AuditAction.ALARM, AuditOutcome.FAILURE).actor(who)
                     .targetPerson(person.getEmail(), person.getId().getValue())
                     .org(org == null || org.getId() == null ? null : org.getId().getValue())
                     .message("account.delete: notice NOT mailed (" + ex.getMessage() + "). " + subject + " -- "
-                            + stripTags(body)).log();
+                            + stripTags(noticeBody(notice, Locale.ENGLISH))).log();
         }
     }
 
-    private String noticeBody(final Person person, final List<Person> dependents, final Organization org,
-            final List<TripLine> trips, final List<Transaction> txs, final Preview preview) {
+    static String noticeSubject(final Person person, final Locale locale) {
+        return Text.forLocale(locale, "mail.accountDeleted.subject", displayName(person),
+                Util.orDefault(person.getEmail(), Text.forLocale(locale, "common.noEmail")));
+    }
+
+    static String noticeBody(final Notice notice, final Locale locale) {
+        final Person person = notice.person();
         final StringBuilder html = new StringBuilder(4096);
-        html.append("<p><b>").append(esc(displayName(person))).append("</b> (")
-                .append(esc(Util.orDefault(person.getEmail(), "no email"))).append(", id ")
-                .append(esc(person.getId().getValue())).append(") deleted their account on ")
-                .append(LocalDateTime.now().format(DATE)).append(" from the UniteTrip app.");
-        if (org != null) {
-            html.append(" This notice covers their history with <b>").append(esc(org.getName())).append("</b>.");
+        html.append("<p>").append(html(locale, "mail.accountDeleted.intro", displayName(person),
+                Util.orDefault(person.getEmail(), Text.forLocale(locale, "common.noEmail")),
+                person.getId().getValue(), LocalDateTime.now().format(DATE)));
+        if (notice.org() != null) {
+            html.append(' ').append(html(locale, "mail.accountDeleted.coversOrg", notice.org().getName()));
         }
         html.append("</p>");
-        if (!dependents.isEmpty()) {
-            html.append("<p>Deleted with them, as family members they managed with no login of their own: ");
-            html.append(esc(String.join(", ", dependents.stream().map(AccountDeletionCommands::displayName).toList())));
-            html.append(".</p>");
+        if (!notice.dependents().isEmpty()) {
+            html.append("<p>").append(html(locale, "mail.accountDeleted.dependents", String.join(", ",
+                    notice.dependents().stream().map(AccountDeletionCommands::displayName).toList()))).append("</p>");
         }
-        html.append("<h3>Trips</h3>");
+        appendTrips(html, notice.trips(), locale);
+        appendTransactions(html, notice.txs(), locale);
+        // The closing paragraph's quotes and apostrophe were always written as they are, so it is a markup value.
+        html.append("<p>").append(Text.forLocale(locale, "mail.accountDeleted.closing")).append("</p>");
+        return html.toString();
+    }
+
+    private static void appendTrips(final StringBuilder html, final List<TripLine> trips, final Locale locale) {
+        html.append("<h3>").append(word(locale, "common.trips")).append("</h3>");
         if (trips.isEmpty()) {
-            html.append("<p>None.</p>");
-        } else {
-            html.append("<table cellpadding=\"4\" border=\"1\" cellspacing=\"0\">"
-                    + "<tr><th align=\"left\">Trip</th><th>Dates</th><th>Registration</th><th>When</th></tr>");
-            for (final TripLine trip : trips) {
-                html.append("<tr><td>").append(esc(trip.title())).append("</td><td>")
-                        .append(trip.start() == null ? "" : trip.start().format(DATE)).append(" – ")
-                        .append(trip.end() == null ? "" : trip.end().format(DATE)).append("</td><td>")
-                        .append(esc(trip.status())).append("</td><td>")
-                        .append(trip.ended() ? "Past" : "<b>Upcoming / in progress</b>").append("</td></tr>");
-            }
-            html.append("</table>");
+            html.append("<p>").append(word(locale, "common.none")).append("</p>");
+            return;
         }
-        html.append("<h3>Transactions</h3>");
+        html.append("<table cellpadding=\"4\" border=\"1\" cellspacing=\"0\">"
+                + "<tr><th align=\"left\">").append(word(locale, "common.trip")).append("</th><th>")
+                .append(word(locale, "common.dates")).append("</th><th>")
+                .append(word(locale, "common.registration")).append("</th><th>")
+                .append(word(locale, "common.when")).append("</th></tr>");
+        for (final TripLine trip : trips) {
+            html.append("<tr><td>").append(esc(trip.title())).append("</td><td>")
+                    .append(trip.start() == null ? "" : trip.start().format(DATE)).append(" – ")
+                    .append(trip.end() == null ? "" : trip.end().format(DATE)).append("</td><td>")
+                    .append(esc(statusLabel(trip.status(), locale))).append("</td><td>")
+                    .append(trip.ended() ? word(locale, "mail.accountDeleted.past")
+                            : "<b>" + word(locale, "mail.accountDeleted.upcoming") + "</b>")
+                    .append("</td></tr>");
+        }
+        html.append("</table>");
+    }
+
+    /** A {@link TripLine#status()} (a stored status description, or "On the trip") as the reader reads it. */
+    private static String statusLabel(final String status, final Locale locale) {
+        final Registration.Status known = Registration.Status.fromDescription(status);
+        return known != null ? known.getLabel(locale) : Text.forLocale(locale, "mail.accountDeleted.onTheTrip");
+    }
+
+    private static void appendTransactions(final StringBuilder html, final List<Transaction> txs,
+            final Locale locale) {
+        html.append("<h3>").append(word(locale, "common.transactions")).append("</h3>");
         long balance = 0L;
         if (txs.isEmpty()) {
-            html.append("<p>None.</p>");
+            html.append("<p>").append(word(locale, "mail.accountDeleted.noTransactions")).append("</p>");
         } else {
             txs.sort(Comparator.comparing(AccountDeletionCommands::dateOrMin));
-            html.append("<table cellpadding=\"4\" border=\"1\" cellspacing=\"0\">"
-                    + "<tr><th>Date</th><th>Type</th><th align=\"left\">Description</th>"
-                    + "<th align=\"right\">Amount</th></tr>");
+            html.append("<table cellpadding=\"4\" border=\"1\" cellspacing=\"0\"><tr><th>")
+                    .append(word(locale, "common.date")).append("</th><th>")
+                    .append(word(locale, "common.type")).append("</th><th align=\"left\">")
+                    .append(word(locale, "common.description")).append("</th><th align=\"right\">")
+                    .append(word(locale, "common.amount")).append("</th></tr>");
             for (final Transaction tx : txs) {
                 final long cents = shareCents(tx);
                 balance += cents;
@@ -649,19 +742,25 @@ public class AccountDeletionCommands {
             }
             html.append("</table>");
         }
-        html.append("<p style=\"font-size:1.1em\">");
+        html.append("<p style=\"font-size:1.1em\"><b>");
         if (balance < 0) {
-            html.append("<b>AMOUNT OWED BY TRAVELER: ").append(money(-balance)).append("</b>");
+            html.append(word(locale, "mail.accountDeleted.owedByTraveler", money(-balance)));
         } else if (balance > 0) {
-            html.append("<b>AMOUNT OWED TO TRAVELER: ").append(money(balance)).append("</b>");
+            html.append(word(locale, "mail.accountDeleted.owedToTraveler", money(balance)));
         } else {
-            html.append("<b>Balance: settled</b>");
+            html.append(word(locale, "mail.accountDeleted.settled"));
         }
-        html.append("</p>");
-        html.append("<p>Their profile is now anonymized (\"Deleted Account\"); the transaction rows above stay "
-                + "in the system under the same id for the organization's accounting. Their registrations, "
-                + "login, messages, photos and comments are gone and cannot be restored.</p>");
-        return html.toString();
+        html.append("</b></p>");
+    }
+
+    /** Plain bundle text, escaped for the notice's HTML. */
+    private static String word(final Locale locale, final String key, final Object... args) {
+        return esc(Text.forLocale(locale, key, args));
+    }
+
+    /** A bundle sentence that carries its own markup; every argument is escaped before it goes in. */
+    private static String html(final Locale locale, final String key, final String... args) {
+        return MailTemplates.html(locale, key, (Object[]) args).html();
     }
 
     // ------------------------------------------------------------------ lookups

@@ -2,14 +2,15 @@ package org.paulsens.trip.checkout;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import org.paulsens.trip.audit.RequestContext;
+import org.paulsens.trip.i18n.Formats;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.CheckoutConfig;
 import org.paulsens.trip.model.DiscountCode;
 import org.paulsens.trip.model.OptionChoice;
@@ -22,7 +23,6 @@ import org.paulsens.trip.model.Trip;
  * other registrations, is {@link CheckoutCapacity}'s. An empty list means the person may be priced and charged.
  */
 public final class CheckoutValidator {
-    private static final DateTimeFormatter EXPIRY = DateTimeFormatter.ofPattern("MMMM d, yyyy", Locale.US);
 
     private CheckoutValidator() {
     }
@@ -73,19 +73,20 @@ public final class CheckoutValidator {
     static String codeRefusal(final DiscountCode code, final String typed, final Collection<String> pickedIds,
             final LocalDate today, final int usesSoFar) {
         if (code == null) {
-            return "The code " + typed + " is not a discount code for this registration.";
+            return Text.get("server.checkout.codeUnknown", typed);
         }
         if (!code.isActive()) {
-            return "The code " + code.getCode() + " is no longer active.";
+            return Text.get("server.checkout.codeInactive", code.getCode());
         }
         if (code.isExpiredOn(today)) {
-            return "The code " + code.getCode() + " expired on " + EXPIRY.format(code.getExpiresOn()) + ".";
+            return Text.get("server.checkout.codeExpired", code.getCode(),
+                    Formats.format(code.getExpiresOn(), "yMMMMd", RequestContext.currentLocale()));
         }
         if (code.getMaxUses() != null && usesSoFar >= code.getMaxUses()) {
-            return "The code " + code.getCode() + " has already been used as many times as it allows.";
+            return Text.get("server.checkout.codeUsedUp", code.getCode());
         }
         if (pickedIds.stream().noneMatch(code::appliesTo)) {
-            return "The code " + code.getCode() + " does not apply to any of your choices.";
+            return Text.get("server.checkout.codeNotApplicable", code.getCode());
         }
         return null;
     }
@@ -122,11 +123,16 @@ public final class CheckoutValidator {
 
     /** Why registration is closed at {@code now}, or null while it is open. */
     private static String closedMessage(final Trip trip, final LocalDateTime now) {
-        final String name = (trip.getTitle() == null || trip.getTitle().isBlank()) ? "this trip" : trip.getTitle();
+        // An untitled trip is "this trip": a sentence of its own, since a translation cannot splice the words in.
+        final String title = trip.getTitle();
+        final boolean untitled = title == null || title.isBlank();
         return switch (windowAt(trip, now)) {
-            case STARTED -> "Registration for " + name + " closed when it started.";
-            case NOT_OPEN -> "Registration for " + name + " has not opened yet.";
-            case CLOSED -> "Registration for " + name + " is closed.";
+            case STARTED -> untitled ? Text.get("server.checkout.closedStartedThisTrip")
+                    : Text.get("server.checkout.closedStarted", title);
+            case NOT_OPEN -> untitled ? Text.get("server.checkout.notOpenYetThisTrip")
+                    : Text.get("server.checkout.notOpenYet", title);
+            case CLOSED -> untitled ? Text.get("server.checkout.closedThisTrip")
+                    : Text.get("server.checkout.closed", title);
             case OPEN -> null;
         };
     }
@@ -138,23 +144,21 @@ public final class CheckoutValidator {
         // package cannot call: it lives on a CDI bean.
         if (question.isRequiredFlag() && !question.isAnswered(answer)) {
             problems.add(new CheckoutProblem(CheckoutProblem.ANSWERS_REQUIRED, personId, question.getKey(),
-                    "Please answer \"" + question.getShortDesc() + "\"."));
+                    Text.get("server.checkout.answerRequired", question.getShortDesc())));
             return;
         }
         for (final String choiceId : new LinkedHashSet<>(question.choiceIdsOf(answer))) {
             final OptionChoice choice = question.choice(choiceId);
             if (choice == null) {
                 problems.add(new CheckoutProblem(CheckoutProblem.CHOICE_REQUIRED, personId, choiceId,
-                        "\"" + choiceId + "\" is not one of the choices for \"" + question.getShortDesc()
-                                + "\"; please pick again."));
+                        Text.get("server.checkout.choiceUnknown", choiceId, question.getShortDesc())));
             } else if (!choice.isOffered()) {
                 problems.add(new CheckoutProblem(CheckoutProblem.CHOICE_REQUIRED, personId, choiceId,
-                        "\"" + choice.getLabel() + "\" is no longer offered for \"" + question.getShortDesc()
-                                + "\"; please pick another choice."));
+                        Text.get("server.checkout.choiceWithdrawn", choice.getLabel(), question.getShortDesc())));
             } else if (choice.isAttestationRequired() && !attested.contains(choiceId)) {
                 problems.add(new CheckoutProblem(CheckoutProblem.ATTESTATION_REQUIRED, personId, choiceId,
-                        "To choose \"" + choice.getLabel() + "\", please tick \"" + choice.getAttestationText()
-                                + "\"."));
+                        Text.get("server.checkout.attestationRequired", choice.getLabel(),
+                                choice.getAttestationText())));
             }
         }
     }

@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
+import org.paulsens.trip.i18n.Text;
 
 /**
  * The mail merge's wording: the {@code {{field}}} vocabulary its author may use, the checks that a message uses
@@ -26,23 +27,24 @@ import java.util.regex.Pattern;
 public final class MergeText {
     /** What a field is about, which decides what it needs and who may use it. */
     public enum Kind {
-        PERSON("About each recipient", false),
-        CONTACT("Each recipient's address and phone", false),
-        TRIP("About the chosen trip", true),
-        ON_TRIP("Each recipient on the chosen trip", true),
-        MONEY("Each recipient's balance on the chosen trip", true),
-        TRAVEL_DOCUMENTS("Each recipient's passport status for the chosen trip", true);
+        PERSON("feedback.mergeText.kindPerson", false),
+        CONTACT("feedback.mergeText.kindContact", false),
+        TRIP("feedback.mergeText.kindTrip", true),
+        ON_TRIP("feedback.mergeText.kindOnTrip", true),
+        MONEY("feedback.mergeText.kindMoney", true),
+        TRAVEL_DOCUMENTS("feedback.mergeText.kindTravelDocuments", true);
 
-        private final String label;
+        private final String labelKey;
         private final boolean needsTrip;
 
-        Kind(final String label, final boolean needsTrip) {
-            this.label = label;
+        Kind(final String labelKey, final boolean needsTrip) {
+            this.labelKey = labelKey;
             this.needsTrip = needsTrip;
         }
 
+        /** The label in the language of the request in progress. */
         public String getLabel() {
-            return label;
+            return Text.get(labelKey);
         }
 
         /** Whether the field has no value until the author chooses a trip. */
@@ -52,26 +54,28 @@ public final class MergeText {
     }
 
     /**
-     * One field the author may type, with the help the page shows beside it. A class, not a record, for the
-     * reason {@link ReminderText.Token} gives: a page's EL reads only a record's components.
+     * One field the author may type, with the help the page shows beside it (held as its message key). A
+     * class, not a record, for the reason {@link ReminderText.Token} gives: a page's EL reads only a record's
+     * components.
      */
     public static final class Field {
         private final String name;
-        private final String help;
+        private final String helpKey;
         private final Kind kind;
 
-        Field(final String name, final Kind kind, final String help) {
+        Field(final String name, final Kind kind, final String helpKey) {
             this.name = name;
             this.kind = kind;
-            this.help = help;
+            this.helpKey = helpKey;
         }
 
         public String getName() {
             return name;
         }
 
+        /** The help in the language of the request in progress. */
         public String getHelp() {
-            return help;
+            return Text.get(helpKey);
         }
 
         public Kind getKind() {
@@ -101,35 +105,35 @@ public final class MergeText {
 
     /** The whole vocabulary, in the order the page lists it. */
     public static final List<Field> FIELDS = List.of(
-            new Field(FIRST_NAME, Kind.PERSON, "First name, as the person prefers to be called."),
-            new Field(LEGAL_FIRST_NAME, Kind.PERSON, "First name as on their passport."),
-            new Field(MIDDLE_NAME, Kind.PERSON, "Middle name."),
-            new Field(LAST_NAME, Kind.PERSON, "Last name."),
-            new Field(FULL_NAME, Kind.PERSON, "Preferred first name and last name."),
-            new Field(EMAIL, Kind.PERSON, "Email address."),
-            new Field(CELL, Kind.CONTACT, "Cell phone."),
-            new Field(STREET, Kind.CONTACT, "Street address."),
-            new Field(STREET2, Kind.CONTACT, "Second address line."),
-            new Field(CITY, Kind.CONTACT, "City."),
-            new Field(STATE, Kind.CONTACT, "State or province."),
-            new Field(ZIP, Kind.CONTACT, "Postal code."),
-            new Field(COUNTRY, Kind.CONTACT, "Country."),
-            new Field(ReminderText.TRIP_TITLE, Kind.TRIP, "The trip's title."),
-            new Field(ReminderText.TRIP_DATES, Kind.TRIP, "The trip's start and end dates."),
-            new Field(ReminderText.DAYS_UNTIL, Kind.TRIP, "Days from today until the trip starts."),
-            new Field(ReminderText.BALANCE_DUE_ON, Kind.TRIP, "The trip's balance due date."),
-            new Field(ReminderText.ORG_NAME, Kind.TRIP, "The name of the trip's organization."),
-            new Field(ReminderText.TRIP_LINK, Kind.TRIP, "Web address of the trip page."),
-            new Field(ReminderText.PAYMENT_LINK, Kind.TRIP, "Web address of the trip's payment page."),
-            new Field(ReminderText.DOCUMENTS_LINK, Kind.TRIP, "Web address where the trip's documents are signed."),
-            new Field(ReminderText.ITINERARY_LINK, Kind.TRIP, "Web address of the trip's itinerary."),
+            new Field(FIRST_NAME, Kind.PERSON, "feedback.mergeText.helpFirstName"),
+            new Field(LEGAL_FIRST_NAME, Kind.PERSON, "feedback.mergeText.helpLegalFirstName"),
+            new Field(MIDDLE_NAME, Kind.PERSON, "feedback.mergeText.helpMiddleName"),
+            new Field(LAST_NAME, Kind.PERSON, "feedback.mergeText.helpLastName"),
+            new Field(FULL_NAME, Kind.PERSON, "feedback.mergeText.helpFullName"),
+            new Field(EMAIL, Kind.PERSON, "feedback.mergeText.helpEmail"),
+            new Field(CELL, Kind.CONTACT, "feedback.mergeText.helpCell"),
+            new Field(STREET, Kind.CONTACT, "feedback.mergeText.helpStreet"),
+            new Field(STREET2, Kind.CONTACT, "feedback.mergeText.helpStreet2"),
+            new Field(CITY, Kind.CONTACT, "feedback.mergeText.helpCity"),
+            new Field(STATE, Kind.CONTACT, "feedback.mergeText.helpState"),
+            new Field(ZIP, Kind.CONTACT, "feedback.mergeText.helpZip"),
+            new Field(COUNTRY, Kind.CONTACT, "feedback.mergeText.helpCountry"),
+            new Field(ReminderText.TRIP_TITLE, Kind.TRIP, "feedback.mergeText.helpTripTitle"),
+            new Field(ReminderText.TRIP_DATES, Kind.TRIP, "feedback.mergeText.helpTripDates"),
+            new Field(ReminderText.DAYS_UNTIL, Kind.TRIP, "feedback.mergeText.helpDaysUntil"),
+            new Field(ReminderText.BALANCE_DUE_ON, Kind.TRIP, "feedback.mergeText.helpBalanceDueOn"),
+            new Field(ReminderText.ORG_NAME, Kind.TRIP, "feedback.mergeText.helpOrgName"),
+            new Field(ReminderText.TRIP_LINK, Kind.TRIP, "feedback.mergeText.helpTripLink"),
+            new Field(ReminderText.PAYMENT_LINK, Kind.TRIP, "feedback.mergeText.helpPaymentLink"),
+            new Field(ReminderText.DOCUMENTS_LINK, Kind.TRIP, "feedback.mergeText.helpDocumentsLink"),
+            new Field(ReminderText.ITINERARY_LINK, Kind.TRIP, "feedback.mergeText.helpItineraryLink"),
             new Field(ReminderText.PROFILE_LINK, Kind.ON_TRIP,
-                    "Web address of the person's profile, where a passport is entered."),
-            new Field(ROOM, Kind.ON_TRIP, "The person's room on the trip, from their lodging reservation."),
-            new Field(ReminderText.DOCUMENT_LIST, Kind.ON_TRIP, "The trip documents the person has not signed."),
-            new Field(ReminderText.BALANCE_DUE, Kind.MONEY, "What the person still owes on the trip."),
+                    "feedback.mergeText.helpProfileLink"),
+            new Field(ROOM, Kind.ON_TRIP, "feedback.mergeText.helpRoom"),
+            new Field(ReminderText.DOCUMENT_LIST, Kind.ON_TRIP, "feedback.mergeText.helpDocumentList"),
+            new Field(ReminderText.BALANCE_DUE, Kind.MONEY, "feedback.mergeText.helpBalanceDue"),
             new Field(ReminderText.PASSPORT_ISSUE, Kind.TRAVEL_DOCUMENTS,
-                    "What is wrong with the passport on file for this trip, or nothing when it is fine."));
+                    "feedback.mergeText.helpPassportIssue"));
 
     /** The fields of one {@link Kind}, under its label, as the page lists them. */
     public record Group(Kind kind, String label, List<Field> fields) {

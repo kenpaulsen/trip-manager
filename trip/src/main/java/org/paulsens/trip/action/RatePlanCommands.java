@@ -20,6 +20,7 @@ import org.paulsens.trip.action.RatePlanViews.RatePlanRow;
 import org.paulsens.trip.audit.AuditEventBuilder;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.Accommodation;
 import org.paulsens.trip.model.CostExtra;
 import org.paulsens.trip.model.RatePlan;
@@ -132,13 +133,13 @@ public class RatePlanCommands {
         final LocalDate from = plan.getValidFrom();
         final LocalDate to = plan.getValidUntil();
         if (from == null && to == null) {
-            return "any dates";
+            return Text.get("feedback.ratePlanCommands.anyDates");
         }
         if (from == null) {
-            return "until " + HotelCommands.dateSpan(null, to);
+            return Text.get("feedback.ratePlanCommands.datesUntil", HotelCommands.dateSpan(null, to));
         }
         if (to == null) {
-            return "from " + HotelCommands.dateSpan(from, null);
+            return Text.get("feedback.ratePlanCommands.datesFrom", HotelCommands.dateSpan(from, null));
         }
         return HotelCommands.dateSpan(from, to);
     }
@@ -161,9 +162,8 @@ public class RatePlanCommands {
         if (unnamed == 0) {
             return String.join(", ", named);
         }
-        final String rest = unnamed + (named.isEmpty() ? (unnamed == 1 ? " trip" : " trips")
-                : (unnamed == 1 ? " other trip" : " other trips"));
-        return named.isEmpty() ? rest : String.join(", ", named) + ", " + rest;
+        return named.isEmpty() ? Text.get("feedback.ratePlanCommands.tripCount", unnamed)
+                : Text.get("feedback.ratePlanCommands.namedAndOthers", unnamed, String.join(", ", named));
     }
 
     // ================================================================== the dialog
@@ -194,22 +194,22 @@ public class RatePlanCommands {
      */
     public boolean savePlan(final RatePlanForm form) {
         if (form == null) {
-            return refuse("Nothing to save.");
+            return refuse(Text.get("feedback.shared.nothingToSave"));
         }
         final String accId = form.getAccId();
         if (!canEditCost(accId)) {
-            return refuseInto(form, "Not allowed: only this hotel's operators and lodging admins edit its rate plans.");
+            return refuseInto(form, Text.get("feedback.ratePlanCommands.editGate"));
         }
         final Accommodation acc = lodging().findAccommodation(accId);
         if (acc == null || acc.isRetired()) {
-            return refuseInto(form, "That accommodation is retired or gone.");
+            return refuseInto(form, Text.get("feedback.ratePlanCommands.accommodationGone"));
         }
         final boolean editing = form.getPlanId() != null && !form.getPlanId().isBlank();
         final RatePlan plan = editing ? findPlan(accId, form.getPlanId(), Cached.NO)
                 : RatePlan.builder().accommodationId(acc.getId()).createdBy(caller().personId())
                         .created(LocalDateTime.now()).build();
         if (plan == null) {
-            return refuseInto(form, "This rate plan no longer exists.");
+            return refuseInto(form, Text.get("feedback.ratePlanCommands.thisPlanGone"));
         }
         final String problem = problem(acc, form);
         if (problem != null) {
@@ -233,23 +233,23 @@ public class RatePlanCommands {
     /** The plan dialog's refusals; null when the plan can be saved as the form says. */
     private String problem(final Accommodation acc, final RatePlanForm form) {
         if (form.getName() == null || form.getName().isBlank()) {
-            return "A rate plan needs a name.";
+            return Text.get("feedback.ratePlanCommands.needsName");
         }
         final List<String> typeIds = new ArrayList<>(new LinkedHashSet<>(form.getRoomTypeIds()));
         typeIds.removeIf(Objects::isNull);
         typeIds.removeIf(String::isBlank);
         if (typeIds.isEmpty()) {
-            return "Choose at least one room type.";
+            return Text.get("feedback.lodgingCommands.chooseARoomType");
         }
         for (final String typeId : typeIds) {
             if (acc.roomType(typeId) == null) {
-                return "That room type is not at " + acc.getName() + ".";
+                return Text.get("feedback.lodgingCommands.roomTypeNotAt", acc.getName());
             }
         }
         form.setRoomTypeIds(typeIds);
         if (form.getValidFrom() != null && form.getValidUntil() != null
                 && form.getValidUntil().isBefore(form.getValidFrom())) {
-            return "The plan's last date cannot be before its first.";
+            return Text.get("feedback.ratePlanCommands.datesBackwards");
         }
         return OfferSchedules.planProblem(form);
     }
@@ -267,11 +267,11 @@ public class RatePlanCommands {
     /** Retires (or revives) a plan: it leaves the attach menu; linked offers keep following it. */
     public boolean retirePlan(final String accId, final String planId, final boolean retired) {
         if (!canEditCost(accId)) {
-            return refuse("Not allowed: only this hotel's operators and lodging admins edit its rate plans.");
+            return refuse(Text.get("feedback.ratePlanCommands.editGate"));
         }
         final RatePlan plan = findPlan(accId, planId, Cached.NO);
         if (plan == null) {
-            return refuse("That rate plan no longer exists.");
+            return refuse(Text.get("feedback.ratePlanCommands.thatPlanGone"));
         }
         plan.setRetired(retired ? Boolean.TRUE : null);
         if (!store(plan, null)) {
@@ -281,10 +281,11 @@ public class RatePlanCommands {
         // The version moved, so the linked offers re-copy (same numbers) rather than read as drifted.
         final SyncOutcome sync = syncLinked(plan);
         if (!sync.failures().isEmpty()) {
-            warn("Plan saved; " + sync.updated() + " of " + sync.total() + " trips updated; "
-                    + String.join("; ", sync.failures()));
+            warn(Text.get("feedback.ratePlanCommands.savedPartly", sync.updated(), sync.total(),
+                    String.join("; ", sync.failures())));
         } else {
-            info("Rate plan '" + plan.getName() + "' " + (retired ? "retired." : "revived."));
+            info(retired ? Text.get("feedback.ratePlanCommands.retired", plan.getName())
+                    : Text.get("feedback.ratePlanCommands.revived", plan.getName()));
         }
         return true;
     }
@@ -292,22 +293,21 @@ public class RatePlanCommands {
     /** Deletes a plan nothing follows; a linked plan must be detached from every trip first. */
     public boolean deletePlan(final String accId, final String planId) {
         if (!canEditCost(accId)) {
-            return refuse("Not allowed: only this hotel's operators and lodging admins edit its rate plans.");
+            return refuse(Text.get("feedback.ratePlanCommands.editGate"));
         }
         final RatePlan plan = findPlan(accId, planId, Cached.NO);
         if (plan == null) {
-            return refuse("That rate plan is already gone.");
+            return refuse(Text.get("feedback.ratePlanCommands.alreadyGone"));
         }
         final int linked = plan.getLinkedTripIds().size();
         if (linked > 0) {
-            return refuse("'" + plan.getName() + "' is on " + linked + (linked == 1 ? " trip" : " trips")
-                    + ". Detach it from " + linked + (linked == 1 ? " trip" : " trips") + " first.");
+            return refuse(Text.get("feedback.ratePlanCommands.stillLinked", linked, plan.getName()));
         }
         if (!Boolean.TRUE.equals(DAO.getInstance().deleteRatePlan(accId, plan.getId()))) {
-            return refuse("The rate plan could not be removed.");
+            return refuse(Text.get("feedback.ratePlanCommands.notRemoved"));
         }
         audit(plan, null, "Deleted rate plan '" + plan.getName() + "'");
-        info("Rate plan '" + plan.getName() + "' removed.");
+        info(Text.get("feedback.ratePlanCommands.removed", plan.getName()));
         return true;
     }
 
@@ -341,7 +341,7 @@ public class RatePlanCommands {
             plan.unlink(tripId);
         }
         if (!prune.isEmpty() && !storeQuietly(plan)) {
-            failures.add("the plan's trip list could not be pruned (saved by someone else)");
+            failures.add(Text.get("feedback.ratePlanCommands.failurePrune"));
         }
         int updated = 0;
         for (final Trip trip : trips) {
@@ -359,7 +359,7 @@ public class RatePlanCommands {
         for (final ReservationOffer offer : offers) {
             OfferSchedules.copyFromPlan(offer, plan);
             if (!saveOfferQuietly(offer)) {
-                failures.add("trip '" + trip.getTitle() + "': saved by someone else");
+                failures.add(Text.get("feedback.ratePlanCommands.failureTripConflict", trip.getTitle()));
                 all = false;
             }
         }
@@ -371,13 +371,12 @@ public class RatePlanCommands {
 
     private boolean report(final RatePlan plan, final RatePlanForm form, final SyncOutcome sync) {
         if (sync.failures().isEmpty()) {
-            final String trips = (sync.updated() == 1) ? " linked trip updated." : " linked trips updated.";
-            final String tail = (sync.total() == 0) ? "." : "; " + sync.updated() + trips;
-            info("Rate plan '" + plan.getName() + "' saved" + tail);
+            info(sync.total() == 0 ? Text.get("feedback.ratePlanCommands.saved", plan.getName())
+                    : Text.get("feedback.ratePlanCommands.savedAndSynced", sync.updated(), plan.getName()));
             return true;
         }
-        final String message = "Plan saved; " + sync.updated() + " of " + sync.total() + " trips updated; "
-                + String.join("; ", sync.failures());
+        final String message = Text.get("feedback.ratePlanCommands.savedPartly", sync.updated(), sync.total(),
+                String.join("; ", sync.failures()));
         form.setProblem(message);
         warn(message);
         return true;
@@ -433,12 +432,12 @@ public class RatePlanCommands {
      */
     public boolean attach(final AttachForm form) {
         if (form == null) {
-            return refuse("Choose a rate plan.");
+            return refuse(Text.get("feedback.ratePlanCommands.choosePlan"));
         }
         final String choice = form.getChoice();
         final int at = (choice == null) ? -1 : choice.indexOf(PlanChoice.SEPARATOR);
         if (at <= 0 || at == choice.length() - 1) {
-            return refuseInto(form, "Choose a rate plan.");
+            return refuseInto(form, Text.get("feedback.ratePlanCommands.choosePlan"));
         }
         return attach(form.getTripId(), choice.substring(0, at), choice.substring(at + 1), form);
     }
@@ -464,27 +463,27 @@ public class RatePlanCommands {
             final AttachForm priceFields) {
         final LodgingCommands lodging = lodging();
         if (tripId == null || tripId.isBlank()) {
-            return refuseInto(priceFields, "Unknown trip.");
+            return refuseInto(priceFields, Text.get("feedback.shared.unknownTrip"));
         }
         if (!lodging.canManageTripLodging(tripId)) {
             return refuseInto(priceFields,
-                    "Not allowed: only the trip's managers and lodging admins add lodging options.");
+                    Text.get("feedback.ratePlanCommands.attachGate"));
         }
         final Trip trip = tripSource.get().getTripForEdit(tripId);
         if (!tripId.equals(trip.getId())) {
-            return refuseInto(priceFields, "Unknown trip.");
+            return refuseInto(priceFields, Text.get("feedback.shared.unknownTrip"));
         }
         final Accommodation acc = lodging.findAccommodation(accId);
         final RatePlan plan = findPlan(accId, planId, Cached.NO);
         if (acc == null || acc.isRetired() || plan == null) {
-            return refuseInto(priceFields, "That rate plan no longer exists.");
+            return refuseInto(priceFields, Text.get("feedback.ratePlanCommands.thatPlanGone"));
         }
         if (plan.isRetired()) {
-            return refuseInto(priceFields, "'" + plan.getName() + "' is retired.");
+            return refuseInto(priceFields, Text.get("feedback.ratePlanCommands.planRetired", plan.getName()));
         }
         if (!plan.covers(dateOf(trip.getStartDate()), dateOf(trip.getEndDate()))) {
             return refuseInto(priceFields,
-                    "'" + plan.getName() + "' (" + datesLabel(plan) + ") does not cover the trip's dates.");
+                    Text.get("feedback.ratePlanCommands.datesNotCovered", plan.getName(), datesLabel(plan)));
         }
         final String money = OfferSchedules.attachProblem(priceFields);
         if (money != null) {
@@ -506,7 +505,7 @@ public class RatePlanCommands {
         }
         final boolean newlyLinked = plan.link(tripId);
         if (newlyLinked && !storeQuietly(plan)) {
-            return refuseInto(priceFields, "Saved by someone else: reload the page and try again.");
+            return refuseInto(priceFields, Text.get("feedback.shared.savedBySomeoneElse"));
         }
         if (!lodging.saveOffer(tripId, form)) {
             if (newlyLinked) {
@@ -520,7 +519,7 @@ public class RatePlanCommands {
         priceFields.setProblem(null);
         audit(plan, trip.getOrgId(), "Attached rate plan '" + plan.getName() + "' (" + acc.getName() + ") to '"
                 + trip.getTitle() + "' as lodging option '" + form.getName() + "'");
-        info("Added '" + plan.getName() + "' from " + acc.getName() + " as a lodging option.");
+        info(Text.get("feedback.ratePlanCommands.attached", plan.getName(), acc.getName()));
         return true;
     }
 
@@ -531,23 +530,23 @@ public class RatePlanCommands {
      */
     public boolean detach(final String tripId, final String offerId) {
         if (!lodging().canManageTripLodging(tripId)) {
-            return refuse("Not allowed: only the trip's managers and lodging admins edit lodging options.");
+            return refuse(Text.get("feedback.ratePlanCommands.detachGate"));
         }
         final ReservationOffer offer = (offerId == null || offerId.isBlank()) ? null
                 : DAO.getInstance().getReservationOffer(tripId, ReservationOffer.Id.from(offerId), Cached.NO)
                         .orElse(null);
         if (offer == null) {
-            return refuse("Unknown offer.");
+            return refuse(Text.get("feedback.lodgingCommands.unknownOffer"));
         }
         if (!offer.isLinked()) {
-            return refuse("'" + offer.getName() + "' does not follow a rate plan.");
+            return refuse(Text.get("feedback.ratePlanCommands.notLinked", offer.getName()));
         }
         final String planId = offer.getRatePlanId();
         final String accId = LodgingCommands.idValue(offer.getAccommodationId());
         offer.setRatePlanId(null);
         offer.setRatePlanVersion(0L);
         if (!saveOfferQuietly(offer)) {
-            return refuse("Saved by someone else: reload the page and try again.");
+            return refuse(Text.get("feedback.shared.savedBySomeoneElse"));
         }
         boolean stillFollowed = false;
         for (final ReservationOffer other : DAO.getInstance().getReservationOffers(tripId, Cached.NO)) {
@@ -561,7 +560,7 @@ public class RatePlanCommands {
                 "Detached lodging option '" + offer.getName() + "' from rate plan '"
                         + (plan == null ? planId : plan.getName()) + "'; its pricing is now its own",
                 caller().auditActor());
-        info("'" + offer.getName() + "' no longer follows the rate plan; its pricing is now its own.");
+        info(Text.get("feedback.ratePlanCommands.detached", offer.getName()));
         return true;
     }
 
@@ -653,12 +652,12 @@ public class RatePlanCommands {
     private boolean store(final RatePlan plan, final RatePlanForm form) {
         try {
             return Boolean.TRUE.equals(DAO.getInstance().saveRatePlan(plan))
-                    || refuseInto(form, "The rate plan could not be saved.");
+                    || refuseInto(form, Text.get("feedback.ratePlanCommands.notSaved"));
         } catch (final ConditionalCheckFailedException ex) {
-            return refuseInto(form, "Saved by someone else: reload the page and try again.");
+            return refuseInto(form, Text.get("feedback.shared.savedBySomeoneElse"));
         } catch (final IOException ex) {
             log.error("Unable to save rate plan {}", plan.getId(), ex);
-            return refuseInto(form, "The rate plan could not be saved: " + ex.getMessage());
+            return refuseInto(form, Text.get("feedback.ratePlanCommands.saveFailed", ex.getMessage()));
         }
     }
 

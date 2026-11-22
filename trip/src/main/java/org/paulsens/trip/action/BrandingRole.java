@@ -1,8 +1,10 @@
 package org.paulsens.trip.action;
 
 import java.util.Optional;
+import lombok.AccessLevel;
 import lombok.Getter;
 import org.paulsens.trip.config.KnownSettings;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.SettingDef;
 
 /**
@@ -30,17 +32,18 @@ import org.paulsens.trip.model.SettingDef;
 public enum BrandingRole {
 
     /** The top bar's logo: any shape, transparency kept, no bigger than the recommended 512 box. */
-    LOGO("logo", KnownSettings.SITE_LOGO_URL, "Logo image", 0d, 512, 512, "png", "image/png", 0L, 512),
+    LOGO("logo", KnownSettings.SITE_LOGO_URL, "feedback.brandingRole.logo", 0d, 512, 512, "png", "image/png", 0L, 512),
 
     /** The browser tab icon: square, and one sound single size rather than a family of them. */
-    FAVICON("favicon", KnownSettings.SITE_FAVICON_URL, "Favicon", 1d, 48, 48, "png", "image/png", 0L, 48),
+    FAVICON("favicon", KnownSettings.SITE_FAVICON_URL, "feedback.brandingRole.favicon", 1d, 48, 48, "png", "image/png",
+    0L, 48),
 
     /** What chat apps and social sites show for a link to the site: Open Graph's 1200x630. */
-    OG_IMAGE("ogImage", KnownSettings.SITE_OG_IMAGE_URL, "Link preview image", 1200d / 630d,
+    OG_IMAGE("ogImage", KnownSettings.SITE_OG_IMAGE_URL, "feedback.brandingRole.ogImage", 1200d / 630d,
             1200, 630, "jpg", "image/jpeg", 1024L * 1024L, 600),
 
     /** The picture behind every page: wide, and never more than a megabyte. */
-    BACKGROUND("background", KnownSettings.SITE_BACKGROUND_URL, "Page background image", 0d,
+    BACKGROUND("background", KnownSettings.SITE_BACKGROUND_URL, "feedback.brandingRole.background", 0d,
             1920, 1920, "jpg", "image/jpeg", 1024L * 1024L, 1920);
 
     /**
@@ -53,8 +56,9 @@ public enum BrandingRole {
     /** The Branding setting this role's uploaded URL is written into. */
     private final SettingDef setting;
 
-    /** What the dialog header and the page's controls call it. */
-    private final String label;
+    /** The message key of what the dialog header and the page's controls call it: see {@link #getLabel}. */
+    @Getter(AccessLevel.NONE)
+    private final String labelKey;
 
     /** The crop's forced width/height ratio; zero or less means the admin crops freely. */
     private final double aspect;
@@ -77,12 +81,12 @@ public enum BrandingRole {
      */
     private final int recommendedLongSide;
 
-    BrandingRole(final String key, final SettingDef setting, final String label, final double aspect,
+    BrandingRole(final String key, final SettingDef setting, final String labelKey, final double aspect,
             final int maxWidth, final int maxHeight, final String extension, final String contentType,
             final long maxBytes, final int recommendedLongSide) {
         this.key = key;
         this.setting = setting;
-        this.label = label;
+        this.labelKey = labelKey;
         this.aspect = aspect;
         this.maxWidth = maxWidth;
         this.maxHeight = maxHeight;
@@ -90,6 +94,11 @@ public enum BrandingRole {
         this.contentType = contentType;
         this.maxBytes = maxBytes;
         this.recommendedLongSide = recommendedLongSide;
+    }
+
+    /** What the dialog header and the page's controls call it, in the language of the request in progress. */
+    public String getLabel() {
+        return Text.get(labelKey);
     }
 
     /** @return the role with this {@link #getKey() key}, or empty — a page-supplied name is untrusted. */

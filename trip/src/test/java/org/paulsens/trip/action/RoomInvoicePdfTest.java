@@ -4,10 +4,13 @@ import java.io.IOException;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.font.PDType0Font;
 import org.apache.pdfbox.text.PDFTextStripper;
+import org.paulsens.trip.audit.AuditActor;
+import org.paulsens.trip.audit.RequestContext;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
@@ -299,5 +302,70 @@ public class RoomInvoicePdfTest {
                     List.of("Supercalifragilistic"));
             Assert.assertEquals(RoomInvoicePdf.wrap(font, 10f, null, 50f), List.of(""));
         }
+    }
+
+    /** Two hotels with an extra, an unpriced reservation and a guest whose name the standard fonts cannot draw. */
+    private static ReportCommands.RoomInvoice translatedFixture() {
+        final ReportCommands.RoomInvoice invoice = twoHotels();
+        invoice.getSections().get(0).getPeople().add(who("Šibenik Đurđević", "$50.00", "$600.00"));
+        invoice.getSections().get(1).setExtrasCents(1_000L);
+        invoice.getSections().get(1).setExtrasAmount("$10.00");
+        invoice.setUnpriced(2);
+        return invoice;
+    }
+
+    /** The sheet's own words follow the reader; a name with č, ć, đ, š, ž is drawn, not dropped. */
+    @Test
+    public void aCroatianReaderGetsCroatianHeadingsAndNamesIntact() throws IOException {
+        final List<String> pages = pages(RoomInvoicePdf.render(heading("Šibenik 2027"), translatedFixture(), false,
+                PRINTED, Locale.forLanguageTag("hr")));
+        final String first = pages.get(0);
+        for (final String expected : List.of("Šibenik 2027: Račun za sobe", "Pansion Dragićević",
+                "Račun za sobe. Naručitelj: Center for Peace West. Putovanje: Šibenik 2027. Smještaj: Pansion "
+                        + "Dragićević.", "Stavka", "Datumi", "Količina", "Noći", "Cijena", "Iznos",
+                "Međuzbroj: Pansion Dragićević", "Troškovi po osobi", "Osoba", "Šibenik Đurđević", "Ukupno",
+                "Račun za sobe: Šibenik 2027, ispisano: 29. ruj 2026.", "Stranica 1 od 2")) {
+            Assert.assertTrue(first.contains(expected), "missing '" + expected + "' in:\n" + first);
+        }
+        final String last = pages.get(1);
+        for (final String expected : List.of("Ukupno: $4,080.00", "7 gostiju, 5 soba. Samo aktivne rezervacije",
+                "2 rezervacije više nemaju opciju smještaja", "Uz to $10.00 hotelskih dodataka", "Stranica 2 od 2")) {
+            Assert.assertTrue(last.contains(expected), "missing '" + expected + "' in:\n" + last);
+        }
+        for (final String english : List.of("Room Invoice", "subtotal", "Charges per person", "printed", "Page ")) {
+            Assert.assertFalse(first.contains(english), "English '" + english + "' in a Croatian sheet:\n" + first);
+        }
+    }
+
+    @Test
+    public void aSpanishReaderGetsSpanishHeadings() throws IOException {
+        final List<String> pages = pages(RoomInvoicePdf.render(heading("Šibenik 2027"), translatedFixture(), false,
+                PRINTED, Locale.forLanguageTag("es")));
+        final String first = pages.get(0);
+        for (final String expected : List.of("Šibenik 2027: Factura de habitaciones", "Factura a Center for Peace "
+                + "West por los cargos de habitación del viaje Šibenik 2027 en Pansion Dragićević.", "Concepto",
+                "Fechas", "Cantidad", "Noches", "Tarifa", "Importe", "Subtotal: Pansion Dragićević",
+                "Cargos por persona", "Šibenik Đurđević", "impresa el 29 sept 2026", "Página 1 de 2")) {
+            Assert.assertTrue(first.contains(expected), "missing '" + expected + "' in:\n" + first);
+        }
+        final String last = pages.get(1);
+        Assert.assertTrue(last.contains("7 huéspedes en 5 habitaciones."), last);
+        Assert.assertTrue(last.contains("2 reservas ya no tienen opción de alojamiento"), last);
+        Assert.assertFalse(first.contains("Room Invoice"), first);
+        final String empty = pages(RoomInvoicePdf.render(heading("T"), new ReportCommands.RoomInvoice(), false,
+                PRINTED, Locale.forLanguageTag("es"))).get(0);
+        Assert.assertTrue(empty.contains("no hay nada que facturar"), empty);
+    }
+
+    /** A download is read by whoever asked for it: with no reader named, the request's language is the reader's. */
+    @Test
+    public void withoutAReaderNamedTheRequestsLanguageIsUsed() throws Exception {
+        final RequestContext croatian = new RequestContext(AuditActor.system(), null, null,
+                Locale.forLanguageTag("hr"));
+        final byte[] pdf = ScopedValue.where(RequestContext.SCOPE, croatian)
+                .call(() -> RoomInvoicePdf.render(heading("T"), twoHotels(), false));
+        Assert.assertTrue(pages(pdf).get(0).contains("T: Račun za sobe"), pages(pdf).get(0));
+        Assert.assertTrue(pages(RoomInvoicePdf.render(heading("T"), twoHotels(), false)).get(0)
+                .contains("T: Room Invoice"), "English off a request");
     }
 }

@@ -11,6 +11,7 @@ import java.util.function.Function;
 import java.util.function.Predicate;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Privilege;
@@ -29,15 +30,16 @@ import org.paulsens.trip.model.Privilege;
  */
 public final class PrivilegeSummaries {
     /**
-     * Display names for the global-only bases. A base that is also org-scoped (content, media, audit, lodging)
-     * takes its name from {@link OrgCommands#orgPrivName}, so one rename reaches both rows, and so does the
-     * inert global row of a base that MOVED to org scope (people, finance viewing). Others show raw.
+     * Display names, as message keys, for the global-only bases. A base that is also org-scoped (content,
+     * media, audit, lodging) takes its name from {@link OrgCommands#orgPrivName}, so one rename reaches both
+     * rows, and so does the inert global row of a base that MOVED to org scope (people, finance viewing).
+     * Others show raw.
      */
     private static final Map<String, String> GLOBAL_NAMES = Map.of(
-            PrivilegeCommands.PRIVILEGE_ADMIN, "Privilege Admin",
-            PrivilegeCommands.CONFIG_ADMIN, "Settings Admin",
-            PrivilegeCommands.SITE_DEPLOYER, "Site Deployer",
-            PrivilegeCommands.EVENT_ADMIN, "Events Editor");
+            PrivilegeCommands.PRIVILEGE_ADMIN, "feedback.privilegeSummaries.privilegeAdmin",
+            PrivilegeCommands.CONFIG_ADMIN, "feedback.privilegeSummaries.configAdmin",
+            PrivilegeCommands.SITE_DEPLOYER, "feedback.privilegeSummaries.siteDeployer",
+            PrivilegeCommands.EVENT_ADMIN, "feedback.privilegeSummaries.eventAdmin");
 
     /**
      * One person's privileges as the People page shows them.
@@ -124,7 +126,7 @@ public final class PrivilegeSummaries {
 
     /** A site-wide base's display name: the global-only names, else the shared org-scoped one, else raw. */
     static String siteName(final String base) {
-        return GLOBAL_NAMES.containsKey(base) ? GLOBAL_NAMES.get(base) : OrgCommands.orgPrivName(base);
+        return GLOBAL_NAMES.containsKey(base) ? Text.get(GLOBAL_NAMES.get(base)) : OrgCommands.orgPrivName(base);
     }
 
     private OrgPrivs orgPrivs(final OrgView view, final Person.Id personId) {

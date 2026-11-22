@@ -7,6 +7,7 @@ import java.time.ZoneOffset;
 import java.time.format.TextStyle;
 import java.util.ArrayList;
 import java.util.List;
+import org.paulsens.trip.audit.RequestContext;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.FakeData;
 import org.testng.annotations.BeforeClass;
@@ -224,6 +225,27 @@ public class TripTest {
                 .build();
         assertEquals(trip.getTripDateRange(),
                 monthStr + " 28 - " + getMonthString(now.plusMonths(1)) + " 10, " + trip.getEndDate().getYear());
+    }
+
+    @Test
+    void getTripDateRangeKeepsItsEnglishShapeAndTakesTheReadersElsewhere() {
+        final Trip sameMonth = rangeOf(LocalDateTime.of(2026, 9, 3, 8, 0), LocalDateTime.of(2026, 9, 12, 18, 0));
+        final Trip twoMonths = rangeOf(LocalDateTime.of(2026, 9, 28, 8, 0), LocalDateTime.of(2026, 10, 2, 18, 0));
+        final Trip twoYears = rangeOf(LocalDateTime.of(2026, 12, 28, 8, 0), LocalDateTime.of(2027, 1, 3, 18, 0));
+        assertEquals(sameMonth.getTripDateRange(), "Sep 3 - 12, 2026");
+        assertEquals(twoMonths.getTripDateRange(), "Sep 28 - Oct 2, 2026");
+        assertEquals(twoYears.getTripDateRange(), "Dec 28 - Jan 3, 2027", "English has always named the end's year");
+        final RequestContext spanish = RequestContext.system().withLocale(Language.Spanish.getLocale());
+        ScopedValue.where(RequestContext.SCOPE, spanish).run(() -> assertSpanishRanges(sameMonth, twoYears));
+    }
+
+    private static void assertSpanishRanges(final Trip sameMonth, final Trip twoYears) {
+        assertEquals(sameMonth.getTripDateRange(), "3–12 sept 2026");
+        assertEquals(twoYears.getTripDateRange(), "28 dic 2026\u2009–\u20093 ene 2027");
+    }
+
+    private static Trip rangeOf(final LocalDateTime start, final LocalDateTime end) {
+        return Trip.builder().startDate(start).endDate(end).build();
     }
 
     @Test

@@ -22,6 +22,7 @@ import org.paulsens.trip.api.dto.CreateFamilyMemberRequest;
 import org.paulsens.trip.api.dto.FamilyDto;
 import org.paulsens.trip.api.dto.FamilyMemberDto;
 import org.paulsens.trip.api.mapper.PersonMapper;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.Family;
 import org.paulsens.trip.model.Person;
 
@@ -53,7 +54,7 @@ public class FamilyResource extends BaseResource {
         final Person.Id subjectId = personId == null || personId.isBlank()
                 ? personId() : Person.Id.from(personId.trim());
         if (!canActFor(subjectId)) {
-            return error(403, ApiErrors.FORBIDDEN, "Not permitted to see this person's family.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.family.notPermitted"));
         }
         final Person subject = requireSubject(subjectId);
         final FamilyCommands family = commands();
@@ -72,17 +73,17 @@ public class FamilyResource extends BaseResource {
             @HeaderParam(CSRF_HEADER) final String csrf,
             final CreateFamilyMemberRequest body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         if (body == null) {
             return error(400, ApiErrors.VALIDATION_FAILED,
-                    "A member needs a first name, last name, sex and birthdate.");
+                    Text.get("api.family.memberIncomplete"));
         }
         final Person.Sex sex;
         try {
             sex = parseSex(body.sex());
         } catch (final IllegalArgumentException ex) {
-            return error(422, ApiErrors.VALIDATION_FAILED, "sex must be Male or Female.");
+            return error(422, ApiErrors.VALIDATION_FAILED, Text.get("api.shared.sexInvalid"));
         }
         final FamilyCommands family = commands();
         final FamilyCommands.FamilyResult result = family.addFamilyMemberForOutcome(body.forPersonId(),
@@ -107,11 +108,11 @@ public class FamilyResource extends BaseResource {
             @HeaderParam(CSRF_HEADER) final String csrf,
             final Map<String, Object> body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         final Object raw = body == null ? null : body.get("manager");
         if (!(raw instanceof Boolean grant)) {
-            return error(400, ApiErrors.VALIDATION_FAILED, "manager must be true or false.");
+            return error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.family.managerInvalid"));
         }
         final FamilyCommands family = commands();
         final FamilyCommands.FamilyResult result = family.setManagerOutcome(Person.Id.from(id), grant);
@@ -129,7 +130,7 @@ public class FamilyResource extends BaseResource {
             @PathParam("id") final String id,
             @HeaderParam(CSRF_HEADER) final String csrf) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         final FamilyCommands family = commands();
         final FamilyCommands.FamilyResult result = family.deleteFamilyMemberOutcome(Person.Id.from(id));

@@ -17,6 +17,7 @@ import java.util.regex.Pattern;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.config.KnownSettings;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.CustomPalette;
 import org.paulsens.trip.theme.ThemeColorMath;
 import org.paulsens.trip.theme.ThemeResources;
@@ -53,7 +54,6 @@ public class ThemePalettes {
 
     /** The platform default's name in these lists: blank, as the palette setting stores "none". */
     public static final String PLATFORM = "";
-    static final String PLATFORM_LABEL = "Platform default";
 
     /** The custom properties a card is drawn from, each read from the palette's own {@code :root}. */
     static final List<String> SWATCH_VARS = List.of(
@@ -222,7 +222,7 @@ public class ThemePalettes {
 
     /** A palette's display name: "Platform default", else the palette's name capitalized ("Turquoise"). */
     static String label(final String name) {
-        return PLATFORM.equals(name) ? PLATFORM_LABEL
+        return PLATFORM.equals(name) ? Text.get("feedback.themePalettes.platformDefault")
                 : name.substring(0, 1).toUpperCase(Locale.ROOT) + name.substring(1);
     }
 

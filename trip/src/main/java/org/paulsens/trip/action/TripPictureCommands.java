@@ -19,6 +19,7 @@ import org.paulsens.trip.audit.AuditEventBuilder;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.LocalMode;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.media.LocalObjectStore;
 import org.paulsens.trip.media.PendingUploads;
 import org.paulsens.trip.media.PhotoProcessor;
@@ -234,10 +235,8 @@ public class TripPictureCommands extends PhotoUploadBean {
      * albums): one place for the words, so the same action never reads two ways.
      */
     static String addedMessage(final int added, final boolean cover) {
-        if (added == 1) {
-            return cover ? "Cover picture added." : "Picture added.";
-        }
-        return added + " pictures added" + (cover ? "; the first is the cover." : ".");
+        return cover ? Text.get("feedback.tripPictureCommands.addedWithCover", added)
+                : Text.get("feedback.tripPictureCommands.added", added);
     }
 
     /**
@@ -294,12 +293,12 @@ public class TripPictureCommands extends PhotoUploadBean {
                 albums().offered(caller, AlbumPhotoSource.tripScope(trip.getId()), pick.mediaId());
         if (photo.isEmpty()) {
             return Prepared.failed(PictureResult.fail(PictureResult.Status.FORBIDDEN,
-                    "Not available: that album photo cannot be used for this trip."));
+                    Text.get("feedback.tripPictureCommands.albumPhotoNotAvailable")));
         }
         final Optional<byte[]> original = albums().bytesOf(photo.get());
         if (original.isEmpty()) {
             return Prepared.failed(PictureResult.fail(PictureResult.Status.FAILED,
-                    "Not read: an album photo could not be read. Try again."));
+                    Text.get("feedback.albumLibrary.notRead")));
         }
         return cutAndStore(trip.getId(), alt,
                 () -> processor.processPictureAt(original.get(), pick.fx(), pick.fy(), ASPECT, TripPicture.WIDTHS));
@@ -332,7 +331,8 @@ public class TripPictureCommands extends PhotoUploadBean {
             renditions = cut.get();
         } catch (final PhotoRejectedException ex) {
             return Prepared.failed(
-                    PictureResult.fail(PictureResult.Status.INVALID, "Picture rejected: " + ex.getMessage()));
+                    PictureResult.fail(PictureResult.Status.INVALID,
+                            Text.get("feedback.photoUploadBean.rejected.picture", ex.getMessage())));
         }
         final String stem = PREFIX + tripId + "/" + nextStamp();
         final TripPicture picture = new TripPicture(stem, cleanAlt(alt), renditions.width(), renditions.height(),
@@ -340,7 +340,7 @@ public class TripPictureCommands extends PhotoUploadBean {
         if (!storeAll(picture, renditions.jpegs())) {
             removeAll(picture);
             return Prepared.failed(PictureResult.fail(PictureResult.Status.FAILED,
-                    "Not stored: the picture could not be stored. Try again."));
+                    Text.get("feedback.tripPictureCommands.notStored")));
         }
         return new Prepared(picture, smallWarning(renditions), null);
     }
@@ -378,7 +378,7 @@ public class TripPictureCommands extends PhotoUploadBean {
         trip.getPictures().addAll(kept);
         if (!save(trip)) {
             return new Appended(List.of(), false, PictureResult.fail(PictureResult.Status.FAILED,
-                    "Not saved: the trip could not be updated with the new picture. Try again."), null);
+                    Text.get("feedback.tripPictureCommands.notSavedAdd")), null);
         }
         kept.forEach(picture -> audit("Trip picture added", caller, trip, picture.getKey()));
         return new Appended(kept, cover, kept.size() < pictures.size() ? limitReached() : null, trip);
@@ -403,10 +403,10 @@ public class TripPictureCommands extends PhotoUploadBean {
         trip.getPictures().remove(picture);
         if (!save(trip)) {
             return PictureResult.fail(PictureResult.Status.FAILED,
-                    "Not saved: the trip could not be updated. The picture was not removed.");
+                    Text.get("feedback.tripPictureCommands.notSavedRemove"));
         }
         audit("Trip picture removed", caller, trip, key);
-        return PictureResult.ok(picture, "Picture removed.", null, trip);
+        return PictureResult.ok(picture, Text.get("feedback.tripPictureCommands.removed"), null, trip);
     }
 
     /**
@@ -431,11 +431,11 @@ public class TripPictureCommands extends PhotoUploadBean {
         trip.setPictures(pictures);
         if (!save(trip)) {
             return PictureResult.fail(PictureResult.Status.FAILED,
-                    "Not saved: the trip could not be updated. The pictures were not reordered.");
+                    Text.get("feedback.tripPictureCommands.notSavedMove"));
         }
         audit("Trip picture moved to position " + (position + 1), caller, trip, key);
-        return PictureResult.ok(picture, position == 0 ? "Cover picture changed." : "Picture moved.", null,
-                trip);
+        return PictureResult.ok(picture, position == 0 ? Text.get("feedback.tripPictureCommands.coverChanged")
+                : Text.get("feedback.tripPictureCommands.moved"), null, trip);
     }
 
     /** Sets one picture's description (its alt text); blank clears it, so the trip's title is read instead. */
@@ -454,10 +454,10 @@ public class TripPictureCommands extends PhotoUploadBean {
         picture.setAlt(cleanAlt(alt));
         if (!save(trip)) {
             return PictureResult.fail(PictureResult.Status.FAILED,
-                    "Not saved: the trip could not be updated. The description was not changed.");
+                    Text.get("feedback.tripPictureCommands.notSavedDescribe"));
         }
         audit("Trip picture described", caller, trip, key);
-        return PictureResult.ok(picture, "Description saved.", null, trip);
+        return PictureResult.ok(picture, Text.get("feedback.tripPictureCommands.descriptionSaved"), null, trip);
     }
 
     /** One per-picture write's subject, read once: the trip and its picture, or why the write is refused. */
@@ -475,7 +475,7 @@ public class TripPictureCommands extends PhotoUploadBean {
         final TripPicture picture = found.get().getPicture(key);
         if (picture == null) {
             return refused(PictureResult.fail(PictureResult.Status.NOT_FOUND,
-                    "Not found: that picture is no longer on this trip."));
+                    Text.get("feedback.tripPictureCommands.pictureGone")));
         }
         return new Target(found.get(), picture, null);
     }
@@ -485,12 +485,12 @@ public class TripPictureCommands extends PhotoUploadBean {
     }
 
     private static PictureResult notFound() {
-        return PictureResult.fail(PictureResult.Status.NOT_FOUND, "Not found: that trip does not exist.");
+        return PictureResult.fail(PictureResult.Status.NOT_FOUND, Text.get("feedback.tripPictureCommands.noSuchTrip"));
     }
 
     private static PictureResult forbidden() {
         return PictureResult.fail(PictureResult.Status.FORBIDDEN,
-                "Not allowed: only this trip's managers can change its pictures.");
+                Text.get("feedback.tripPictureCommands.notAllowed"));
     }
 
     /**
@@ -510,8 +510,8 @@ public class TripPictureCommands extends PhotoUploadBean {
     }
 
     private static PictureResult limitReached() {
-        return PictureResult.fail(PictureResult.Status.LIMIT, "Picture limit reached: a trip has at most "
-                + Trip.MAX_PICTURES + " pictures, a cover and " + (Trip.MAX_PICTURES - 1) + " more. Remove one first.");
+        return PictureResult.fail(PictureResult.Status.LIMIT, Text.get("feedback.tripPictureCommands.limitReached",
+                Trip.MAX_PICTURES, Trip.MAX_PICTURES - 1));
     }
 
     /** The warning for a cut region too small for the widest rendition, or null when it is big enough. */
@@ -519,8 +519,8 @@ public class TripPictureCommands extends PhotoUploadBean {
         if (renditions.width() >= MIN_GOOD_WIDTH && renditions.height() >= MIN_GOOD_HEIGHT) {
             return null;
         }
-        return "Low resolution: the picture is " + renditions.width() + "×" + renditions.height() + " px, so it may "
-                + "look soft on large screens. " + MIN_GOOD_WIDTH + "×" + MIN_GOOD_HEIGHT + " px or larger looks best.";
+        return Text.get("feedback.tripPictureCommands.lowResolution", String.valueOf(renditions.width()),
+                String.valueOf(renditions.height()), String.valueOf(MIN_GOOD_WIDTH), String.valueOf(MIN_GOOD_HEIGHT));
     }
 
     /** The alt text to store: trimmed, at most {@value #MAX_ALT} characters, blank as null. */
@@ -563,7 +563,7 @@ public class TripPictureCommands extends PhotoUploadBean {
         final String tripId = targetId();
         final Optional<Trip> trip = tripId == null ? Optional.empty() : readStored(tripId);
         return trip.isPresent() && mayEdit(caller(), trip.get()) ? UploadGate.allow()
-                : UploadGate.deny("Not allowed: only this trip's managers can change its pictures.");
+                : UploadGate.deny(Text.get("feedback.tripPictureCommands.notAllowed"));
     }
 
     @Override
@@ -612,7 +612,7 @@ public class TripPictureCommands extends PhotoUploadBean {
     public void addFromAlbumUi(final String picks) {
         final List<AlbumPicks.Pick> chosen = AlbumPicks.parse(picks, Trip.MAX_PICTURES);
         if (chosen.isEmpty()) {
-            error("Nothing chosen: choose at least one photo first.");
+            error(Text.get("feedback.albumLibrary.chooseSome"));
             publishParam("albumAdded", false);
             return;
         }
@@ -622,13 +622,11 @@ public class TripPictureCommands extends PhotoUploadBean {
             info(result.addedMessage());
         } else {
             error(result.added() == 0 ? result.refusal()
-                    : result.added() + " of " + chosen.size() + " added. " + result.refusal());
+                    : Text.get("feedback.tripPictureCommands.someAdded", result.added(), chosen.size(),
+                            result.refusal()));
         }
         if (result.lowResolution() > 0) {
-            warn(result.lowResolution() == 1
-                    ? "Low resolution: one of the added pictures may look soft on large screens."
-                    : "Low resolution: " + result.lowResolution() + " of the added pictures may look soft on large"
-                            + " screens.");
+            warn(Text.get("feedback.tripPictureCommands.someLowResolution", result.lowResolution()));
         }
         publishParam("albumAdded", result.added() > 0);
         if (chosen.size() == 1 && result.added() > 0) {
@@ -657,7 +655,8 @@ public class TripPictureCommands extends PhotoUploadBean {
             default -> null;
         };
         if (target == null || now < 0) {
-            error(now < 0 ? "Not found: that picture is no longer on this trip." : "Not moved: say where to.");
+            error(now < 0 ? Text.get("feedback.tripPictureCommands.pictureGone")
+                    : Text.get("feedback.tripPictureCommands.notMoved"));
             publishParam("picChanged", false);
             return;
         }
@@ -710,9 +709,10 @@ public class TripPictureCommands extends PhotoUploadBean {
     public String summary(final String tripId) {
         final int count = picturesOf(tripId).size();
         if (count == 0) {
-            return "No pictures";
+            return Text.get("feedback.tripPictureCommands.noPictures");
         }
-        return count == 1 ? "Cover only" : "Cover and " + (count - 1) + " more";
+        return count == 1 ? Text.get("feedback.tripPictureCommands.coverOnly")
+                : Text.get("feedback.tripPictureCommands.coverAndMore", count - 1);
     }
 
     /** The URL a browser loads one rendition from: the CDN when configured, the trip-picture servlet locally. */

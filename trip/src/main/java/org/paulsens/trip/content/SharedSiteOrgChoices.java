@@ -4,6 +4,7 @@ import java.util.Comparator;
 import java.util.List;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Placeholder;
 import org.paulsens.trip.site.ListingScope;
@@ -22,10 +23,8 @@ final class SharedSiteOrgChoices {
     }
 
     static Placeholder property() {
-        return new Placeholder(PROP_INCLUDE_ORGS, Placeholder.Type.MULTI_CHOICE, "Organizations shown",
-                "On a shared site: which organizations' content this section lists. None checked = the "
-                        + "organizations that have no site of their own. Ignored on an organization's own site.",
-                false);
+        return new Placeholder(PROP_INCLUDE_ORGS, Placeholder.Type.MULTI_CHOICE,
+                Text.get("server.types.sharedSites.orgsLabel"), Text.get("server.types.sharedSites.orgsHint"), false);
     }
 
     /** Every organization, name-sorted, opted-out ones labelled. */
@@ -38,7 +37,7 @@ final class SharedSiteOrgChoices {
     }
 
     private static ProgrammaticContentTemplate.Choice choice(final Organization org) {
-        final String suffix = org.allowsSharedSites() ? "" : " (opted out of shared sites)";
-        return new ProgrammaticContentTemplate.Choice(org.getId().getValue(), org.getName() + suffix);
+        return new ProgrammaticContentTemplate.Choice(org.getId().getValue(), org.allowsSharedSites()
+                ? org.getName() : Text.get("server.types.sharedSites.optedOut", org.getName()));
     }
 }

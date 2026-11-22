@@ -2,6 +2,7 @@ package org.paulsens.trip.push;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.ConfigCommands;
@@ -11,6 +12,8 @@ import org.paulsens.trip.chat.ChatNotifications;
 import org.paulsens.trip.chat.ChatNotifier;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.i18n.ReaderLanguage;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.chat.ChatChannel;
@@ -31,8 +34,9 @@ import org.paulsens.trip.model.chat.ChatNotifyPref;
 @Slf4j
 public final class PushChatNotifier implements ChatNotifier {
 
-    static final String OPEN_THE_CHAT = "Open the chat to read it";
-    static final String PHOTO_BODY = "📷 Photo";
+    /** The English forms, for the tests and for a caller with no reader in hand; senders pass a locale. */
+    static final String OPEN_THE_CHAT = Text.forLocale(Locale.ENGLISH, "push.chat.openChat");
+    static final String PHOTO_BODY = Text.forLocale(Locale.ENGLISH, "push.chat.photo");
 
     private final PushSender sender;
     private final ConfigCommands config;
@@ -72,7 +76,6 @@ public final class PushChatNotifier implements ChatNotifier {
 
     private void deliver(final ChatNotification notification) {
         final Trip trip = tripOf(notification.getTripId());
-        final PushPayload payload = payloadFor(notification, trip, null);
         final List<Person.Id> alerted = new ArrayList<>();
         final List<Person.Id> unreachable = new ArrayList<>();
         for (final Person.Id recipient : notification.getRecipients()) {
@@ -81,7 +84,9 @@ public final class PushChatNotifier implements ChatNotifier {
             }
             final String dedupe = ChatNotification.dedupeKeyFor(notification.getMessageId(), recipient,
                     channel().name());
-            final PushSender.Report report = sender.sendAlert(recipient, payload, dedupe);
+            // Built per recipient: each reads their own language (docs/i18n.md, ReaderLanguage).
+            final PushSender.Report report = sender.sendAlert(recipient,
+                    payloadFor(notification, trip, null, ReaderLanguage.of(recipient, trip)), dedupe);
             if (report.skipped() == null) {
                 alerted.add(recipient);
             } else if (PushSender.SKIPPED_NO_DEVICES.equals(report.skipped())) {
@@ -110,7 +115,6 @@ public final class PushChatNotifier implements ChatNotifier {
         if (person == null) {
             return;
         }
-        final PushPayload payload = payloadFor(notification, trip, person);
         for (final Person manager : org.paulsens.trip.chat.OnBehalf.managers(person)) {
             final Person.Id managerId = manager.getId();
             if (managerId == null || alerted.contains(managerId) || notification.getRecipients().contains(managerId)
@@ -119,6 +123,7 @@ public final class PushChatNotifier implements ChatNotifier {
             }
             final String dedupe = ChatNotification.dedupeKeyFor(notification.getMessageId(), managerId,
                     org.paulsens.trip.chat.OnBehalf.route(channel().name(), personId));
+            final PushPayload payload = payloadFor(notification, trip, person, ReaderLanguage.of(manager, trip));
             if (sender.sendAlert(managerId, payload, dedupe).skipped() == null) {
                 alerted.add(managerId);
             }
@@ -179,15 +184,22 @@ public final class PushChatNotifier implements ChatNotifier {
 
     /** @param onBehalfOf the family member a manager is being told about; null for the person themselves */
     PushPayload payloadFor(final ChatNotification notification, final Trip trip, final Person onBehalfOf) {
+        return payloadFor(notification, trip, onBehalfOf, Locale.ENGLISH);
+    }
+
+    /** @param locale the RECIPIENT's language: what the title's fallback, the subtitle and a content-free body use */
+    PushPayload payloadFor(final ChatNotification notification, final Trip trip, final Person onBehalfOf,
+            final Locale locale) {
         final String tripId = notification.getTripId();
         final String photoKey = notification.getChannelId().photoKeyOrNull();
         final boolean photo = photoKey != null;
-        final String title = notification.getTripTitle() == null ? "Trip chat" : notification.getTripTitle();
+        final String title = notification.getTripTitle() == null ? Text.forLocale(locale, "push.chat.title")
+                : notification.getTripTitle();
         final String link = photo ? PushLinks.photosLink(tripId) : PushLinks.chatLink(tripId);
         final String url = photo ? PushLinks.photoUrl(trip, tripId, photoKey, config)
                 : PushLinks.chatUrl(trip, tripId, config);
-        return PushPayload.alert(kindOf(notification), title, subtitleOf(notification, onBehalfOf),
-                        bodyOf(notification), notification.getChannelId().getValue(), link, url)
+        return PushPayload.alert(kindOf(notification), title, subtitleOf(notification, onBehalfOf, locale),
+                        bodyOf(notification, locale), notification.getChannelId().getValue(), link, url)
                 .withChat(notification.getChannelId().getValue(),
                         notification.getMessageId() == null ? null : notification.getMessageId().getValue())
                 .withImage(notification.getImageUrl())
@@ -209,15 +221,28 @@ public final class PushChatNotifier implements ChatNotifier {
     }
 
     static String subtitleOf(final ChatNotification notification, final Person onBehalfOf) {
-        final String author = notification.getAuthorName() == null ? "Someone" : notification.getAuthorName();
-        final String whom = onBehalfOf == null ? "you" : org.paulsens.trip.chat.OnBehalf.nameOf(onBehalfOf);
-        final String whose = onBehalfOf == null ? "your" : org.paulsens.trip.chat.OnBehalf.possessiveOf(onBehalfOf);
+        return subtitleOf(notification, onBehalfOf, Locale.ENGLISH);
+    }
+
+    /**
+     * Who did what to whom, as ONE sentence per case: "you" and a family member's name are different sentences
+     * in most languages, not one sentence with a word swapped, so each has its own message.
+     */
+    static String subtitleOf(final ChatNotification notification, final Person onBehalfOf, final Locale locale) {
+        final String author = notification.getAuthorName() == null ? Text.forLocale(locale, "common.someone")
+                : notification.getAuthorName();
+        final boolean self = onBehalfOf == null;
+        final String whom = self ? null : org.paulsens.trip.chat.OnBehalf.nameOf(onBehalfOf);
         return switch (notification.getReason()) {
-            case REPLY -> author + " replied to " + whom;
-            case PHOTO_COMMENT -> author + " commented on " + whose + " photo";
-            case ADMIN_ANNOUNCEMENT -> onBehalfOf == null ? "Announcement" : "Announcement for " + whom;
+            case REPLY -> self ? Text.forLocale(locale, "push.chat.replySelf", author)
+                    : Text.forLocale(locale, "push.chat.replyOther", author, whom);
+            case PHOTO_COMMENT -> self ? Text.forLocale(locale, "push.chat.photoSelf", author)
+                    : Text.forLocale(locale, "push.chat.photoOther", author, whom);
+            case ADMIN_ANNOUNCEMENT -> self ? Text.forLocale(locale, "push.chat.announcement")
+                    : Text.forLocale(locale, "push.chat.announcementFor", whom);
             case ALL_MESSAGES -> author;
-            default -> author + " mentioned " + whom;
+            default -> self ? Text.forLocale(locale, "push.chat.mentionSelf", author)
+                    : Text.forLocale(locale, "push.chat.mentionOther", author, whom);
         };
     }
 
@@ -226,10 +251,14 @@ public final class PushChatNotifier implements ChatNotifier {
      * for a short-retention channel; a camera for a bare photo.
      */
     static String bodyOf(final ChatNotification notification) {
+        return bodyOf(notification, Locale.ENGLISH);
+    }
+
+    static String bodyOf(final ChatNotification notification, final Locale locale) {
         if (notification.hasSnippet()) {
             return ChatMarkup.plain(notification.getSnippet());
         }
-        return notification.getImageUrl() != null ? PHOTO_BODY : OPEN_THE_CHAT;
+        return Text.forLocale(locale, notification.getImageUrl() != null ? "push.chat.photo" : "push.chat.openChat");
     }
 
     private static Trip tripOf(final String tripId) {

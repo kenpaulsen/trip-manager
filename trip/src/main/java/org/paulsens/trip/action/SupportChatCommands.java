@@ -5,17 +5,25 @@ import jakarta.inject.Named;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.Audit;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.audit.AuditEventBuilder;
+import org.paulsens.trip.audit.RequestContext;
 import org.paulsens.trip.cache.CacheKeys;
 import org.paulsens.trip.chat.ChatRateLimiter;
 import org.paulsens.trip.chat.MailTemplates;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.i18n.Formats;
+import org.paulsens.trip.i18n.ReaderLanguage;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.Family;
@@ -131,7 +139,8 @@ public class SupportChatCommands {
                 ? ChatMembership.joining(channel.getId(), target, Instant.now())
                 : existing.withState(ChatMembership.MemberState.JOINED);
         if (!dao().saveChatMembership(joined)) {
-            return fail("Unable to save", "Could not add the support admin.");
+            return fail(Text.get("feedback.shared.unableToSave"),
+                    Text.get("feedback.supportChatCommands.adminNotAdded"));
         }
         auditChannel("Added support-channel admin " + target.getValue());
         return true;
@@ -148,7 +157,8 @@ public class SupportChatCommands {
         }
         if (!dao().saveChatMembership(existing.withRemoved(Instant.now(), "settings page",
                 actorId()))) {
-            return fail("Unable to save", "Could not remove the support admin.");
+            return fail(Text.get("feedback.shared.unableToSave"),
+                    Text.get("feedback.supportChatCommands.adminNotRemoved"));
         }
         auditChannel("Removed support-channel admin " + target.getValue());
         return true;
@@ -164,8 +174,9 @@ public class SupportChatCommands {
     }
 
     /** Same zone the rest of the site displays in; formatted here because f:convertDateTime has no Instant. */
-    private static final java.time.format.DateTimeFormatter SENT_FORMAT = java.time.format.DateTimeFormatter
-            .ofPattern("MMM dd, yyyy 'at' HH:mm").withZone(java.time.ZoneId.of("America/Los_Angeles"));
+    private static final java.time.ZoneId SENT_ZONE = java.time.ZoneId.of("America/Los_Angeles");
+    /** English keeps its "Sep 03, 2026 at 15:05"; another language reads its own date and 24-hour time. */
+    private static final String SENT_ENGLISH = "MMM dd, yyyy 'at' HH:mm";
 
     /**
      * Newest-first recent messages for the support page. Empty for anyone who may not read -- the page gates
@@ -180,7 +191,8 @@ public class SupportChatCommands {
                 ChatChannel.Id.forSupport(), null, Math.min(Math.max(limit, 1), 200), Cached.NO)) {
             if (message.getDeletedAt() == null) {
                 result.add(new SupportMessage(authorName(message.getAuthorId()),
-                        message.getSentAt() == null ? "" : SENT_FORMAT.format(message.getSentAt()),
+                        message.getSentAt() == null ? "" : Formats.formatter("yMMMddHm", SENT_ENGLISH,
+                                RequestContext.currentLocale()).withZone(SENT_ZONE).format(message.getSentAt()),
                         message.getBody()));
             }
         }
@@ -237,17 +249,20 @@ public class SupportChatCommands {
     public boolean postReply(final String body) {
         final Caller caller = callerSource.get();
         if (!canReadSupport(caller)) {
-            return fail("Not authorized", "Only support-channel admins can post here.");
+            return fail(Text.get("feedback.shared.notAuthorized"),
+                    Text.get("feedback.supportChatCommands.onlyAdminsPost"));
         }
         final String text = clean(body);
         if (text.isEmpty()) {
-            return fail("Empty message", "Type a message first.");
+            return fail(Text.get("feedback.supportChatCommands.emptyMessage"),
+                    Text.get("feedback.supportChatCommands.typeFirst"));
         }
         final ChatChannel channel = ensureSupportChannel(caller.auditActor());
         final ChatRateLimiter.Decision decision =
                 rateLimiter.check(channel, caller.personId(), Instant.now());
         if (!decision.isAllowed() || decision.getAutoMuteUntil() != null) {
-            return fail("Too fast", "Please wait a moment before posting again.");
+            return fail(Text.get("feedback.supportChatCommands.tooFast"),
+                    Text.get("feedback.supportChatCommands.waitBeforePosting"));
         }
         final ChatMessage draft = new ChatMessage(
                 null, channel.getId(), caller.personId(), null,
@@ -257,13 +272,14 @@ public class SupportChatCommands {
             return dao().saveChatMessage(draft, channel, null).isPresent();
         } catch (final RuntimeException ex) {
             log.warn("Support reply was not stored", ex);
-            return fail("Not sent", "The message could not be saved. Please try again.");
+            return fail(Text.get("feedback.shared.notSent"),
+                    Text.get("feedback.supportChatCommands.messageNotSaved"));
         }
     }
 
     private String authorName(final Person.Id authorId) {
         if (authorId == null) {
-            return "(system)";
+            return Text.get("feedback.supportChatCommands.systemAuthor");
         }
         return dao().getPerson(authorId, Cached.NO).map(Person::getPreferredName).orElse(authorId.getValue());
     }
@@ -279,29 +295,30 @@ public class SupportChatCommands {
         final Caller caller = callerSource.get();
         final Person me = personOf(caller);
         if (me == null) {
-            return fail("Not signed in", "Sign in to send a support request.");
+            return fail(Text.get("feedback.shared.notSignedIn"),
+                    Text.get("feedback.supportChatCommands.signInToRequest"));
         }
         final Person target = dao().getPerson(targetId, Cached.NO).orElse(null);
         final Family family = (me.getFamilyId() == null) ? null
                 : dao().getFamily(me.getFamilyId(), Cached.NO).orElse(null);
         if (target == null || family == null || !family.isMember(targetId)) {
-            return fail("Not in your family", "You can only request removal of your own family members.");
+            return fail(Text.get("feedback.supportChatCommands.notInYourFamily"),
+                    Text.get("feedback.supportChatCommands.onlyOwnFamilyMembers"));
         }
         if (!family.isManager(me.getId())) {
-            return fail("Not a family manager", "Only a family manager can request a removal.");
+            return fail(Text.get("feedback.family.notAManager"),
+                    Text.get("feedback.supportChatCommands.onlyManagerRequests"));
         }
         final String chatBody = REMOVAL_MARKER + "\n@all " + describe(me) + " asks that "
                 + describe(target) + " be removed from their family.\n\nDetails: " + clean(details)
                 + "\n\nAdmin: open /admin/adminManagePerson.jsf?id=" + targetId.getValue()
                 + " and use \"Remove from family\".";
+        final String page = baseUrl() + "/admin/adminManagePerson.jsf?id=" + targetId.getValue();
         return postRequest(me, caller, REMOVAL_MARKER, chatBody,
-                "Support request: remove " + describe(target) + " from a family",
-                "<p><b>" + MailTemplates.escape(describe(me)) + "</b> asks that <b>"
-                        + MailTemplates.escape(describe(target)) + "</b> be removed from their family.</p>"
-                        + detailsBlock(details)
-                        + "<p><a href=\"" + baseUrl() + "/admin/adminManagePerson.jsf?id="
-                        + targetId.getValue() + "\">Open their Manage People page</a> and use "
-                        + "“Remove from family”.</p>");
+                locale -> Text.forLocale(locale, "mail.support.removal.subject", describe(target)),
+                locale -> "<p>" + html(locale, "mail.support.removal.intro", describe(me), describe(target))
+                        + "</p>" + detailsBlock(details) + "<p>"
+                        + html(locale, "mail.support.removal.action", page) + "</p>");
     }
 
     /** Files a "please raise my family-size limit" request; only meaningful when the limit is reached. */
@@ -309,24 +326,25 @@ public class SupportChatCommands {
         final Caller caller = callerSource.get();
         final Person me = personOf(caller);
         if (me == null) {
-            return fail("Not signed in", "Sign in to send a support request.");
+            return fail(Text.get("feedback.shared.notSignedIn"),
+                    Text.get("feedback.supportChatCommands.signInToRequest"));
         }
         final Family family = (me.getFamilyId() == null) ? null
                 : dao().getFamily(me.getFamilyId(), Cached.NO).orElse(null);
         final int limit = config.getInt(KnownSettings.FAMILY_MAX_MEMBERS, 1, 100);
         if (family == null || family.getSize() < limit) {
-            return fail("Limit not reached", "Your family is not at the size limit.");
+            return fail(Text.get("feedback.supportChatCommands.limitNotReached"),
+                    Text.get("feedback.supportChatCommands.familyNotAtLimit"));
         }
         final String chatBody = LIMIT_MARKER + "\n@all " + describe(me)
                 + " has reached the family size limit (" + limit + ") and asks for an increase.\n\nDetails: "
                 + clean(details)
                 + "\n\nAdmin: raise family.maxMembers on /admin/settings.jsf.";
         return postRequest(me, caller, LIMIT_MARKER, chatBody,
-                "Support request: raise the family size limit for " + describe(me),
-                "<p><b>" + MailTemplates.escape(describe(me)) + "</b> has reached the family size limit ("
-                        + limit + ") and asks for an increase.</p>" + detailsBlock(details)
-                        + "<p>Raise <code>family.maxMembers</code> on <a href=\"" + baseUrl()
-                        + "/admin/settings.jsf\">the Settings page</a>.</p>");
+                locale -> Text.forLocale(locale, "mail.support.limit.subject", describe(me)),
+                locale -> "<p>" + html(locale, "mail.support.limit.intro", describe(me), String.valueOf(limit))
+                        + "</p>" + detailsBlock(details) + "<p>"
+                        + html(locale, "mail.support.limit.action", baseUrl() + "/admin/settings.jsf") + "</p>");
     }
 
     /**
@@ -343,15 +361,18 @@ public class SupportChatCommands {
         final Caller caller = callerSource.get();
         final Person me = personOf(caller);
         if (me == null) {
-            return fail("Not signed in", "Sign in to send a support request.");
+            return fail(Text.get("feedback.shared.notSignedIn"),
+                    Text.get("feedback.supportChatCommands.signInToRequest"));
         }
         final Person subject = dao().getPerson(subjectId, Cached.NO).orElse(null);
         if (subject == null
                 || !PersonCommands.getPersonCommands().canAccessUserId(me, subjectId)) {
-            return fail("Not your profile", "You can only ask about a profile you manage.");
+            return fail(Text.get("feedback.supportChatCommands.notYourProfile"),
+                    Text.get("feedback.supportChatCommands.onlyManagedProfile"));
         }
         if (!EmailAddresses.isValid(email)) {
-            return fail("Not a valid email", "Enter the email address in question first.");
+            return fail(Text.get("feedback.supportChatCommands.notAValidEmail"),
+                    Text.get("feedback.supportChatCommands.enterEmailFirst"));
         }
         final String address = email.trim();
         final String chatBody = EMAIL_CONFLICT_MARKER + "\n@all " + describe(me) + " reports that the email "
@@ -360,15 +381,12 @@ public class SupportChatCommands {
                 + "\n\nAdmin: the address belongs to an existing person -- decide whether the two accounts"
                 + " should be merged, or the address moved. /admin/adminManagePerson.jsf?id="
                 + subjectId.getValue();
+        final String page = baseUrl() + "/admin/adminManagePerson.jsf?id=" + subjectId.getValue();
         return postRequest(me, caller, EMAIL_CONFLICT_MARKER, chatBody,
-                "Support request: email address already in use (" + address + ")",
-                "<p><b>" + MailTemplates.escape(describe(me)) + "</b> reports that <b>"
-                        + MailTemplates.escape(address) + "</b> is already in use, and asks for help with "
-                        + MailTemplates.escape(describe(subject)) + "'s account.</p>"
-                        + detailsBlock(details)
-                        + "<p>Decide whether the two accounts should be merged or the address moved: "
-                        + "<a href=\"" + baseUrl() + "/admin/adminManagePerson.jsf?id="
-                        + subjectId.getValue() + "\">open their Manage People page</a>.</p>");
+                locale -> Text.forLocale(locale, "mail.support.emailConflict.subject", address),
+                locale -> "<p>" + html(locale, "mail.support.emailConflict.intro", describe(me), address,
+                        describe(subject)) + "</p>" + detailsBlock(details) + "<p>"
+                        + html(locale, "mail.support.emailConflict.action", page) + "</p>");
     }
 
     /**
@@ -393,35 +411,44 @@ public class SupportChatCommands {
                 + "\n\nAdmin: grant the roles on /trip/edit.jsf?id=" + tripId
                 + " or adjust the allow-list on /admin/organizations.jsf.";
         return postRequest(me, caller, TRIP_ROLES_MARKER, chatBody,
-                "Trip created without full creator roles: " + title,
-                "<p><b>" + MailTemplates.escape(describe(me)) + "</b> created trip <b>"
-                        + MailTemplates.escape(title) + "</b> (" + MailTemplates.escape(orgName)
-                        + ") but could not be granted: <b>" + MailTemplates.escape(roles)
-                        + "</b>: withheld by the organization's allow-list.</p>"
-                        + "<p><a href=\"" + baseUrl() + "/trip/edit.jsf?id=" + tripId
-                        + "\">Grant the roles on the trip</a> or adjust the allow-list on <a href=\""
-                        + baseUrl() + "/admin/organizations.jsf\">the Organizations page</a>.</p>",
+                locale -> Text.forLocale(locale, "mail.support.tripRoles.subject", title),
+                locale -> "<p>" + html(locale, "mail.support.tripRoles.intro", describe(me), title, orgName, roles)
+                        + "</p><p>" + html(locale, "mail.support.tripRoles.action",
+                                baseUrl() + "/trip/edit.jsf?id=" + tripId, baseUrl() + "/admin/organizations.jsf")
+                        + "</p>",
                 false);
     }
 
     // ------------------------------------------------------------------ internals
 
-    private boolean postRequest(final Person me, final Caller caller, final String marker,
-            final String chatBody, final String mailSubject, final String mailHtml) {
-        return postRequest(me, caller, marker, chatBody, mailSubject, mailHtml, true);
+    /** A bundle sentence carrying its own markup, every argument escaped first. */
+    private static String html(final Locale locale, final String key, final String... args) {
+        return MailTemplates.html(locale, key, args).html();
     }
 
     private boolean postRequest(final Person me, final Caller caller, final String marker,
-            final String chatBody, final String mailSubject, final String mailHtml, final boolean dedup) {
+            final String chatBody, final Function<Locale, String> mailSubject,
+            final Function<Locale, String> mailHtml) {
+        return postRequest(me, caller, marker, chatBody, mailSubject, mailHtml, true);
+    }
+
+    /**
+     * Posts the request and tells the admins. The mail's subject and body are made per language, because each
+     * admin reads it in their own ({@link ReaderLanguage#ofStaff}).
+     */
+    private boolean postRequest(final Person me, final Caller caller, final String marker,
+            final String chatBody, final Function<Locale, String> mailSubject,
+            final Function<Locale, String> mailHtml, final boolean dedup) {
         final Instant now = Instant.now();
         final ChatChannel channel = ensureSupportChannel(caller.auditActor());
         if (dedup && hasOpenRequest(channel, me.getId(), marker, now)) {
-            return fail("Already requested", "You already sent this request recently. An administrator "
-                    + "will follow up -- there is no need to send it again.");
+            return fail(Text.get("feedback.supportChatCommands.alreadyRequested"),
+                    Text.get("feedback.supportChatCommands.alreadySentRecently"));
         }
         final ChatRateLimiter.Decision decision = rateLimiter.check(channel, me.getId(), now);
         if (!decision.isAllowed() || decision.getAutoMuteUntil() != null) {
-            return fail("Too many requests", "Please wait a while before sending another request.");
+            return fail(Text.get("feedback.supportChatCommands.tooManyRequests"),
+                    Text.get("feedback.supportChatCommands.waitBeforeRequesting"));
         }
         final ChatMessage draft = new ChatMessage(
                 null, channel.getId(), me.getId(), null,
@@ -432,10 +459,12 @@ public class SupportChatCommands {
             stored = dao().saveChatMessage(draft, channel, null).orElse(null);
         } catch (final RuntimeException ex) {
             log.warn("Support request was not stored", ex);
-            return fail("Not sent", "The request could not be saved. Please try again.");
+            return fail(Text.get("feedback.shared.notSent"),
+                    Text.get("feedback.supportChatCommands.requestNotSaved"));
         }
         if (stored == null) {
-            return fail("Not sent", "The request could not be saved. Please try again.");
+            return fail(Text.get("feedback.shared.notSent"),
+                    Text.get("feedback.supportChatCommands.requestNotSaved"));
         }
         Audit.builder(AuditAction.ALARM, AuditOutcome.SUCCESS)
                 .actor(caller.auditActor())
@@ -469,32 +498,23 @@ public class SupportChatCommands {
      * chat notification claim key, so a retry cannot double-send. Dispatched off-thread like the chat
      * notifiers; mail must never hold up the request.
      */
-    private void notifyAdmins(final ChatMessage stored, final Person requester, final String subject,
-            final String html) {
+    private void notifyAdmins(final ChatMessage stored, final Person requester,
+            final Function<Locale, String> subject, final Function<Locale, String> html) {
         final List<Person> admins = listAdmins();
         // Push rides push.enabled alone (the facade checks it), never the mail switch below: an admin who
-        // turned support mail off because their phone buzzes anyway must keep the buzz.
-        org.paulsens.trip.push.PushNotifications.getInstance().supportRequest(stored, requester, admins, subject);
+        // turned support mail off because their phone buzzes anyway must keep the buzz. Its text is still the
+        // English subject: push wording is its own piece of work.
+        org.paulsens.trip.push.PushNotifications.getInstance().supportRequest(stored, requester, admins,
+                subject.apply(Locale.ENGLISH));
         if (!config.getBoolean(KnownSettings.SUPPORT_MAIL_ENABLED)) {
             return;
         }
         TripThreads.startAs(AuditActor.system(), () -> deliver(stored, requester, subject, html, admins));
     }
 
-    private void deliver(final ChatMessage stored, final Person requester, final String subject,
-            final String html, final List<Person> admins) {
-        // Prefer the runtime-editable MAIL template; the inline HTML built by the request methods is the
-        // fallback when the starter was never installed. Rendered once -- token-substitution only, no
-        // Faces coupling, so this off-request thread is fine.
-        //
-        // Deliberately the ORG-LESS render: a support request goes to the SITE's support-channel admins and
-        // is sent on nobody's behalf, so it resolves the shared copy. (This thread has no host to infer an
-        // organization from either -- the rule is that the org comes from the entity, and there is none.)
-        final MailCommands.ManagedMail rendered = mail.renderManagedTemplate(
-                org.paulsens.trip.content.StarterTemplates.SUPPORT_REQUEST_ID,
-                java.util.Map.of("subject", subject, "requestBlock", new MailTemplates.Raw(html)));
-        final String finalSubject = (rendered == null) ? subject : rendered.subject();
-        final String finalBody = (rendered == null) ? html : rendered.body();
+    private void deliver(final ChatMessage stored, final Person requester, final Function<Locale, String> subject,
+            final Function<Locale, String> html, final List<Person> admins) {
+        final Map<Locale, Request> byLanguage = new HashMap<>();
         for (final Person admin : admins) {
             if (admin.getId().equals(requester.getId()) || !EmailAddresses.isValid(admin.getEmail())) {
                 continue;
@@ -504,15 +524,36 @@ public class SupportChatCommands {
                     CacheKeys.chatNotifySentKey(dedupe), CacheKeys.CHAT_NOTIFY_SENT_TTL)) {
                 continue;
             }
+            final Request mailed = byLanguage.computeIfAbsent(ReaderLanguage.ofStaff(admin, null),
+                    locale -> rendered(subject.apply(locale), html.apply(locale)));
             try {
                 final MailAddressCommands addresses = new MailAddressCommands(config);
                 mail.send(addresses.from(KnownSettings.SUPPORT_MAIL_FROM), mail.formatEmail(admin), null,
-                        addresses.replyTo(KnownSettings.SUPPORT_MAIL_REPLY_TO, null), finalSubject,
-                        finalBody, AuditActor.system());
+                        addresses.replyTo(KnownSettings.SUPPORT_MAIL_REPLY_TO, null), mailed.subject(),
+                        mailed.body(),
+                        AuditActor.system());
             } catch (final RuntimeException ex) {
                 log.warn("Support-request mail to {} failed", admin.getId(), ex);
             }
         }
+    }
+
+    /** One language's copy of a request mail. */
+    private record Request(String subject, String body) {
+    }
+
+    private Request rendered(final String subject, final String html) {
+        // Prefer the runtime-editable MAIL template; the inline HTML built by the request methods is the
+        // fallback when the starter was never installed. Rendered once per language -- token-substitution
+        // only, no Faces coupling, so this off-request thread is fine.
+        //
+        // Deliberately the ORG-LESS render: a support request goes to the SITE's support-channel admins and
+        // is sent on nobody's behalf, so it resolves the shared copy. (This thread has no host to infer an
+        // organization from either -- the rule is that the org comes from the entity, and there is none.)
+        final MailCommands.ManagedMail rendered = mail.renderManagedTemplate(
+                org.paulsens.trip.content.StarterTemplates.SUPPORT_REQUEST_ID,
+                java.util.Map.of("subject", subject, "requestBlock", new MailTemplates.Raw(html)));
+        return (rendered == null) ? new Request(subject, html) : new Request(rendered.subject(), rendered.body());
     }
 
     ChatChannel ensureSupportChannel(final AuditActor actor) {
@@ -561,7 +602,8 @@ public class SupportChatCommands {
         if (callerSource.get().has(PrivilegeCommands.CONFIG_ADMIN)) {
             return true;
         }
-        return fail("Not authorized", "Managing support-channel admins requires configAdmin.");
+        return fail(Text.get("feedback.shared.notAuthorized"),
+                Text.get("feedback.supportChatCommands.needsConfigAdmin"));
     }
 
     private void auditChannel(final String message) {

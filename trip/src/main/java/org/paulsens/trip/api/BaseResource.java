@@ -26,6 +26,7 @@ import org.paulsens.trip.action.TripCommands;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.content.PageHtml;
 import org.paulsens.trip.content.StripNotes;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.media.PhotoProcessor;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
@@ -150,12 +151,13 @@ public abstract class BaseResource {
                 return Person.Id.from(raw.toString());
             }
         }
-        throw new NotAuthorizedException("Sign in required.");
+        throw new NotAuthorizedException(Text.get("api.shared.signInRequired"));
     }
 
     /** What an endpoint that manages the caller's own sign-in answers while an administrator is viewing as them. */
-    protected static final String VIEW_AS_REFUSED =
-            "Not available while viewing as another person. Go back to your own account first.";
+    protected static String viewAsRefusedMessage() {
+        return Text.get("api.shared.viewAsRefused");
+    }
 
     /**
      * Whether an administrator is viewing the site AS the session's person ({@link Sessions#isViewAs}). A
@@ -307,7 +309,7 @@ public abstract class BaseResource {
     protected Trip requireTrip(final String tripId) {
         final Trip trip = findTrip(tripId);
         if (trip == null) {
-            throw new WebApplicationException(error(404, ApiErrors.NOT_FOUND, "No such trip."));
+            throw new WebApplicationException(error(404, ApiErrors.NOT_FOUND, Text.get("api.shared.noSuchTrip")));
         }
         return trip;
     }
@@ -322,7 +324,7 @@ public abstract class BaseResource {
     protected Person requireSubject(final Person.Id subject) {
         final Person person = findPerson(subject);
         if (person == null) {
-            throw new WebApplicationException(error(404, ApiErrors.NOT_FOUND, "No such person."));
+            throw new WebApplicationException(error(404, ApiErrors.NOT_FOUND, Text.get("api.shared.noSuchPerson")));
         }
         return person;
     }
@@ -417,10 +419,10 @@ public abstract class BaseResource {
             return null;
         }
         if (x == null || y == null || width == null || height == null) {
-            throw new IllegalArgumentException("A crop needs all four of cropX, cropY, cropW and cropH.");
+            throw new IllegalArgumentException(Text.get("api.shared.cropIncomplete"));
         }
         if (x < 0 || y < 0 || width < 1 || height < 1) {
-            throw new IllegalArgumentException("A crop needs a non-negative origin and a positive size.");
+            throw new IllegalArgumentException(Text.get("api.shared.cropInvalid"));
         }
         return new PhotoProcessor.CropRect(x, y, width, height);
     }

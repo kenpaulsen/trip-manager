@@ -3,6 +3,7 @@ package org.paulsens.trip.content;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Placeholder;
 
@@ -44,7 +45,7 @@ public final class PersonType implements ProgrammaticContentTemplate {
 
     @Override
     public String getDisplayName() {
-        return "Person (from account)";
+        return Text.get("server.types.person.name");
     }
 
     @Override
@@ -54,8 +55,7 @@ public final class PersonType implements ProgrammaticContentTemplate {
 
     @Override
     public String getDescription() {
-        return "One person's card: photo, name, role and contact details, read live from their account; "
-                + "their privacy choices are honored. Someone without an account (a speaker) is typed in.";
+        return Text.get("server.types.person.description");
     }
 
     @Override
@@ -80,22 +80,30 @@ public final class PersonType implements ProgrammaticContentTemplate {
     @Override
     public List<Placeholder> getProperties() {
         return List.of(
-                new Placeholder(PROP_PERSON_ID, Placeholder.Type.PERSON, "Person",
-                        "Type a name to search; leave empty for someone without an account", false),
-                new Placeholder(PROP_ROLE, Placeholder.Type.TEXT, "Role / title",
-                        "e.g. President; blank shows none", false),
-                new Placeholder(PROP_PUBLIC_EMAIL, Placeholder.Type.TEXT, "Public email",
-                        "The address to publish, e.g. a role mailbox", false),
-                new Placeholder(PROP_NAME, Placeholder.Type.TEXT, "Name",
-                        "Only when there is no account, or to show a different name", false),
-                new Placeholder(PROP_PHONE, Placeholder.Type.TEXT, "Phone",
-                        "Only when there is no account, or to show a different number", false),
-                new Placeholder(PROP_PHOTO_URL, Placeholder.Type.IMAGE_URL, "Photo URL",
-                        "A picture for someone without an account (an absolute https:// link)", false),
-                new Placeholder(PROP_SUBTITLE, Placeholder.Type.TEXT, "Subtitle",
-                        "A line under the name, e.g. a speaker's talk title", false),
-                new Placeholder(PROP_BIO, Placeholder.Type.RICH_TEXT, "Biography",
-                        "A few sentences about the person; blank shows none", false));
+                new Placeholder(PROP_PERSON_ID, Placeholder.Type.PERSON,
+                        Text.get("common.person"),
+                        Text.get("server.types.person.personHint"), false),
+                new Placeholder(PROP_ROLE, Placeholder.Type.TEXT,
+                        Text.get("server.types.person.roleLabel"),
+                        Text.get("server.types.person.roleHint"), false),
+                new Placeholder(PROP_PUBLIC_EMAIL, Placeholder.Type.TEXT,
+                        Text.get("server.types.person.publicEmailLabel"),
+                        Text.get("server.types.person.publicEmailHint"), false),
+                new Placeholder(PROP_NAME, Placeholder.Type.TEXT,
+                        Text.get("common.name"),
+                        Text.get("server.types.person.nameHint"), false),
+                new Placeholder(PROP_PHONE, Placeholder.Type.TEXT,
+                        Text.get("common.phone"),
+                        Text.get("server.types.person.phoneHint"), false),
+                new Placeholder(PROP_PHOTO_URL, Placeholder.Type.IMAGE_URL,
+                        Text.get("server.types.person.photoUrlLabel"),
+                        Text.get("server.types.person.photoUrlHint"), false),
+                new Placeholder(PROP_SUBTITLE, Placeholder.Type.TEXT,
+                        Text.get("server.types.person.subtitleLabel"),
+                        Text.get("server.types.person.subtitleHint"), false),
+                new Placeholder(PROP_BIO, Placeholder.Type.RICH_TEXT,
+                        Text.get("server.types.person.bioLabel"),
+                        Text.get("server.types.person.bioHint"), false));
     }
 
     @Override

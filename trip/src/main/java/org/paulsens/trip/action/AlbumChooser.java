@@ -8,6 +8,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import org.paulsens.trip.i18n.Text;
 import org.primefaces.PrimeFaces;
 
 /**
@@ -186,7 +187,7 @@ public class AlbumChooser {
     }
 
     private void refuse(final String outcomeParam) {
-        PageFeedback.error("Not available: album photos cannot be used here.");
+        PageFeedback.error(Text.get("feedback.albumChooser.notAvailable"));
         publish(outcomeParam, false);
     }
 

@@ -10,6 +10,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -17,13 +18,16 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.audit.RequestContext;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.content.ContentRenderer;
 import org.paulsens.trip.content.OrgPageBootstrap;
 import org.paulsens.trip.content.OrgPageBootstrap.StarterPage;
 import org.paulsens.trip.content.StarterTemplates;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.ContentInstance;
+import org.paulsens.trip.model.Language;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.SitePage;
 import org.paulsens.trip.model.SitePage.Placement;
@@ -111,9 +115,9 @@ public class SitePageCommands {
     /** Where an entry shows, in the admin page's words. */
     public String placementLabel(final SitePage page) {
         return switch (page.where()) {
-            case ABOUT -> "About menu";
-            case HELP -> "Help menu";
-            case HIDDEN -> "Not in the menu";
+            case ABOUT -> Text.get("feedback.sitePageCommands.placement.ABOUT");
+            case HELP -> Text.get("feedback.sitePageCommands.placement.HELP");
+            case HIDDEN -> Text.get("feedback.sitePageCommands.placement.HIDDEN");
         };
     }
 
@@ -198,6 +202,34 @@ public class SitePageCommands {
         return site.isOrg() && helpMenuShown(site.orgId().getValue());
     }
 
+    /**
+     * The title a reader sees for an entry, in the menu and in a page's browser title: the one written for the
+     * request's language ({@code SitePage.titles}), else the entry's own title. Null for no entry.
+     */
+    public String titleOf(final SitePage page) {
+        return page == null ? null : page.titleIn(RequestContext.currentLocale().getLanguage());
+    }
+
+    /**
+     * The languages {@code orgId}'s site offers besides its default: the Site Pages dialog's one extra title field
+     * each. Empty for a one-language site.
+     */
+    public List<Language> otherLanguages(final String orgId) {
+        return new ConfigCommands().otherSiteLanguages(orgs.findOrganization(orgId));
+    }
+
+    /**
+     * The dialog's per-language title fields, seeded: language tag to the entry's title in it ("" when none is
+     * written, and for a new entry), for each of {@link #otherLanguages}. A mutable map, for the fields to bind.
+     */
+    public Map<String, String> titlesEdit(final String orgId, final SitePage page) {
+        final Map<String, String> edit = new LinkedHashMap<>();
+        for (final Language language : otherLanguages(orgId)) {
+            edit.put(language.getTag(), page == null ? "" : page.titles().getOrDefault(language.getTag(), ""));
+        }
+        return edit;
+    }
+
     /** The menu's target for an entry: a page's own address on this site, or a link's URL. */
     public String hrefOf(final SitePage page) {
         return page.isLink() ? page.url() : SitePage.PATH + page.name();
@@ -263,29 +295,41 @@ public class SitePageCommands {
      * overwriting it), so it is never blank.
      */
     public boolean addPage(final String orgId, final String title, final String name, final String placement) {
+        return addPage(orgId, title, Map.of(), name, placement);
+    }
+
+    /** {@link #addPage(String, String, String, String)} with the page's title in the site's other languages. */
+    public boolean addPage(final String orgId, final String title, final Map<String, String> titles,
+            final String name, final String placement) {
         final String cleanName = name == null ? "" : name.trim().toLowerCase(Locale.ROOT);
         if (!OrgPageBootstrap.isPageName(cleanName)) {
-            return PageFeedback.refuse("Invalid address", "A page address starts with a letter and uses lowercase "
-                    + "letters, digits and hyphens, at most 40 characters.");
+            return PageFeedback.refuse(Text.get("feedback.sitePageCommands.invalidAddress"),
+                    Text.get("feedback.sitePageCommands.addressShape"));
         }
         if (OrgPageBootstrap.isReservedPageName(cleanName)) {
             // "pay" as well as "home": its content key is the organization's How to pay page, which the pay
             // page serves and seeds, so a Site Page there would be a second door onto the same rows.
-            return PageFeedback.refuse("Address taken", "\"home\" is the home page's own address and \"pay\" "
-                    + "the How to pay page's. Choose another address.");
+            return PageFeedback.refuse(Text.get("feedback.sitePageCommands.addressTaken"),
+                    Text.get("feedback.sitePageCommands.addressReserved"));
         }
-        return add(orgId, new SitePage(cleanName, title, null, Placement.from(placement).name()), true);
+        return add(orgId, new SitePage(cleanName, title, null, Placement.from(placement).name(), titles), true);
     }
 
     /** Adds a menu link to {@code url} (absolute http(s) or a site path such as {@code /pay}). */
     public boolean addLink(final String orgId, final String title, final String url, final String placement) {
+        return addLink(orgId, title, Map.of(), url, placement);
+    }
+
+    /** {@link #addLink(String, String, String, String)} with the link's title in the site's other languages. */
+    public boolean addLink(final String orgId, final String title, final Map<String, String> titles,
+            final String url, final String placement) {
         final String target = ContentRenderer.requireLinkUrl(url);
         if (target.isEmpty() || target.startsWith("#")) {
-            return PageFeedback.refuse("Invalid link", "A link is a web address (https://...) or a path on this "
-                    + "site starting with a slash, such as /pay.");
+            return PageFeedback.refuse(Text.get("feedback.sitePageCommands.invalidLink"),
+                    Text.get("feedback.sitePageCommands.linkShape"));
         }
         final String name = "link-" + UUID.randomUUID().toString().substring(0, 8);
-        return add(orgId, new SitePage(name, title, target, Placement.from(placement).name()), false);
+        return add(orgId, new SitePage(name, title, target, Placement.from(placement).name(), titles), false);
     }
 
     /**
@@ -294,21 +338,65 @@ public class SitePageCommands {
      */
     public boolean saveDialog(final String orgId, final String mode, final String name, final String title,
             final String url, final String placement) {
-        if ("edit".equals(mode)) {
-            return updatePage(orgId, name, title, url, placement);
+        return saveDialog(orgId, mode, name, title, null, url, placement);
+    }
+
+    /**
+     * {@link #saveDialog(String, String, String, String, String, String)} with the dialog's per-language titles
+     * ({@link #titlesEdit}): only the languages the org's site offers besides its default are kept, a blank one
+     * meaning the entry's own title, and each is held to the title's own length rule.
+     */
+    public boolean saveDialog(final String orgId, final String mode, final String name, final String title,
+            final Map<String, String> titles, final String url, final String placement) {
+        final Map<String, String> cleanTitles = titles == null ? null : cleanTitles(orgId, titles);
+        if (titles != null && cleanTitles == null) {
+            return false;
         }
-        return "link".equals(mode) ? addLink(orgId, title, url, placement) : addPage(orgId, title, name, placement);
+        if ("edit".equals(mode)) {
+            return updatePage(orgId, name, title, cleanTitles, url, placement);
+        }
+        final Map<String, String> given = cleanTitles == null ? Map.of() : cleanTitles;
+        return "link".equals(mode) ? addLink(orgId, title, given, url, placement)
+                : addPage(orgId, title, given, name, placement);
     }
 
     /** Changes an entry's title and placement (and a link's URL); its address never changes. */
     public boolean updatePage(final String orgId, final String name, final String title, final String url,
             final String placement) {
+        return updatePage(orgId, name, title, null, url, placement);
+    }
+
+    /**
+     * {@link #updatePage(String, String, String, String, String)} that also replaces the entry's per-language
+     * titles; null {@code titles} keeps the ones it has.
+     */
+    public boolean updatePage(final String orgId, final String name, final String title,
+            final Map<String, String> titles, final String url, final String placement) {
         final String cleanTitle = cleanTitle(title);
         if (cleanTitle == null) {
             return false;
         }
-        return change(orgId, name, (pages, index) -> applyDetails(pages, index, cleanTitle, url, placement),
+        return change(orgId, name, (pages, index) -> applyDetails(pages, index, cleanTitle, titles, url, placement),
                 "updated");
+    }
+
+    /**
+     * The per-language titles worth storing: the offered other languages' non-blank ones, trimmed. Null (with a
+     * growl) when one breaks the length rule {@link #cleanTitle} holds the default title to.
+     */
+    private Map<String, String> cleanTitles(final String orgId, final Map<String, String> titles) {
+        final Map<String, String> out = new LinkedHashMap<>();
+        for (final Language language : otherLanguages(orgId)) {
+            final String text = titles.get(language.getTag());
+            final boolean written = text != null && !text.isBlank();
+            if (written && cleanTitle(text) == null) {
+                return null;
+            }
+            if (written) {
+                out.put(language.getTag(), text.trim());
+            }
+        }
+        return out;
     }
 
     /**
@@ -383,14 +471,15 @@ public class SitePageCommands {
     }
 
     private static boolean applyDetails(final List<SitePage> pages, final int index, final String title,
-            final String url, final String placement) {
+            final Map<String, String> titles, final String url, final String placement) {
         final SitePage page = pages.get(index);
         final String target = page.isLink() ? ContentRenderer.requireLinkUrl(url) : null;
         if (page.isLink() && (target.isEmpty() || target.startsWith("#"))) {
-            return PageFeedback.refuse("Invalid link", "A link is a web address (https://...) or a path on "
-                    + "this site starting with a slash, such as /pay.");
+            return PageFeedback.refuse(Text.get("feedback.sitePageCommands.invalidLink"),
+                    Text.get("feedback.sitePageCommands.linkShape"));
         }
-        pages.set(index, page.withDetails(title, target, Placement.from(placement)));
+        final SitePage changed = page.withDetails(title, target, Placement.from(placement));
+        pages.set(index, titles == null ? changed : changed.withTitles(titles));
         return true;
     }
 
@@ -428,14 +517,14 @@ public class SitePageCommands {
         }
         final List<SitePage> pages = new ArrayList<>(entries(fresh));
         if (pages.size() >= MAX_PAGES) {
-            return PageFeedback.refuse("Too many pages", "A site may have at most " + MAX_PAGES
-                    + " pages and links. Delete one first.");
+            return PageFeedback.refuse(Text.get("feedback.sitePageCommands.tooManyPages"),
+                    Text.get("feedback.sitePageCommands.tooManyPagesDetail", MAX_PAGES));
         }
         if (find(pages, entry.name()).isPresent()) {
-            return PageFeedback.refuse("Address taken", "This site already has a page at " + SitePage.PATH
-                    + entry.name() + ". Choose another address.");
+            return PageFeedback.refuse(Text.get("feedback.sitePageCommands.addressTaken"),
+                    Text.get("feedback.sitePageCommands.addressInUse", SitePage.PATH + entry.name()));
         }
-        pages.add(new SitePage(entry.name(), cleanTitle, entry.url(), entry.placement()));
+        pages.add(new SitePage(entry.name(), cleanTitle, entry.url(), entry.placement(), entry.titles()));
         fresh.setSitePages(pages);
         if (!orgs.saveOrganization(fresh)) {
             return false;
@@ -443,10 +532,10 @@ public class SitePageCommands {
         orgs.audit(callerSource.get(), fresh, "Site " + (entry.isLink() ? "link" : "page") + " '" + cleanTitle
                 + "' (" + entry.name() + ") added");
         if (seed && !seedPage(OrgPageBootstrap.pageKey(fresh.getId(), entry.name()))) {
-            return PageFeedback.refuse("Page added without content", "The page was added, but its starter "
-                    + "text could not be saved. Open the page and add a section.");
+            return PageFeedback.refuse(Text.get("feedback.sitePageCommands.addedWithoutContent"),
+                    Text.get("feedback.sitePageCommands.addedWithoutContentDetail"));
         }
-        PageFeedback.info("Added \"" + cleanTitle + "\".");
+        PageFeedback.info(Text.get("feedback.sitePageCommands.added", cleanTitle));
         return true;
     }
 
@@ -458,7 +547,8 @@ public class SitePageCommands {
         final List<SitePage> pages = new ArrayList<>(entries(fresh));
         final int index = indexOf(pages, name);
         if (index < 0) {
-            return PageFeedback.refuse("Unknown page", "That page is no longer on this site. Reload the page.");
+            return PageFeedback.refuse(Text.get("feedback.sitePageCommands.unknownPage"),
+                    Text.get("feedback.sitePageCommands.pageGone"));
         }
         final String title = pages.get(index).title();
         if (!edit.apply(pages, index)) {
@@ -475,12 +565,14 @@ public class SitePageCommands {
     /** A fresh org the caller may manage, or null (with a growl). */
     private Organization editable(final String orgId) {
         if (!orgs.canManageOrg(orgId)) {
-            PageFeedback.refuse("Not allowed", "Only this organization's admins can change its site pages.");
+            PageFeedback.refuse(Text.get("feedback.shared.notAllowed"),
+                    Text.get("feedback.sitePageCommands.adminsOnly"));
             return null;
         }
         final Organization fresh = orgs.freshOrg(orgId);
         if (fresh == null) {
-            PageFeedback.refuse("Unable to save", "Unknown organization.");
+            PageFeedback.refuse(Text.get("feedback.shared.unableToSave"),
+                    Text.get("feedback.orgCommands.unknownOrg"));
         }
         return fresh;
     }
@@ -516,15 +608,15 @@ public class SitePageCommands {
         } catch (final RuntimeException ex) {
             log.error("Unable to seed the starter site page {}", key, ex);
         }
-        return PageFeedback.refuse("Starter pages not created", "The starter page '" + starter.title()
-                + "' could not be saved.");
+        return PageFeedback.refuse(Text.get("feedback.sitePageCommands.startersNotCreated"),
+                Text.get("feedback.sitePageCommands.starterNotSaved", starter.title()));
     }
 
     private static String cleanTitle(final String title) {
         final String clean = title == null ? "" : title.trim();
         if (clean.isEmpty() || clean.length() > MAX_TITLE) {
-            PageFeedback.refuse("Title needed", "A page's title is what the menu shows: 1 to " + MAX_TITLE
-                    + " characters.");
+            PageFeedback.refuse(Text.get("feedback.sitePageCommands.titleNeeded"),
+                    Text.get("feedback.sitePageCommands.titleShape", MAX_TITLE));
             return null;
         }
         return clean;
@@ -552,12 +644,12 @@ public class SitePageCommands {
             for (final ContentInstance section : DAO.getInstance().getContentForSection(pageKey, Cached.NO)) {
                 all &= ContentCommands.deleteWithChildren(caller, section);
             }
-            return all || PageFeedback.refuse("Content not fully deleted", "The page is gone from the menu, but "
-                    + "some of its sections could not be deleted. They are unreachable and harmless.");
+            return all || PageFeedback.refuse(Text.get("feedback.sitePageCommands.contentNotDeleted"),
+                    Text.get("feedback.sitePageCommands.someSectionsLeft"));
         } catch (final RuntimeException ex) {
             log.error("Unable to delete the content of {}", pageKey, ex);
-            return PageFeedback.refuse("Content not fully deleted", "The page is gone from the menu, but its "
-                    + "sections could not be deleted. They are unreachable and harmless.");
+            return PageFeedback.refuse(Text.get("feedback.sitePageCommands.contentNotDeleted"),
+                    Text.get("feedback.sitePageCommands.sectionsLeft"));
         }
     }
 

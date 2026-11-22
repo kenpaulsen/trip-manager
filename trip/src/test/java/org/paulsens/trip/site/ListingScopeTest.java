@@ -5,6 +5,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -192,6 +193,35 @@ public class ListingScopeTest {
         Assert.assertTrue(ListingScope.reachable(FakeData.ACME_ORG_ID), "unbound: everything is reachable");
         // A read that blows up (here: a site whose page key cannot even be formed) curates nothing.
         Assert.assertEquals(ListingScope.curatedOnPageOf(SiteContext.org(null, "x", "x.localhost")), List.of());
+    }
+
+    /**
+     * A home page's language version decides what THAT version shows, never what the site reaches
+     * ({@code docs/i18n.md}, "Language versions of a page"): its Trip Listings curation is not the site's, so a
+     * Spanish version picking a hosted organization lists nothing new and opens no door to its trips, whatever
+     * language the request is in.
+     */
+    @Test
+    public void aLanguageVersionOfTheHomePageDoesNotChangeWhatTheSiteLists() throws Exception {
+        DAO.getInstance();
+        final SiteContext shared = SiteContext.shared("localhost");
+        final String sectionId = "lst-es-" + java.util.UUID.randomUUID();
+        final Map<String, String> values = new HashMap<>(Map.of(ListingScope.INCLUDE_ORGS_PROPERTY,
+                FakeData.ACME_ORG_ID));
+        final List<String> before = ListingScope.curatedOnPageOf(shared);
+        Assert.assertTrue(DAO.getInstance().saveContent(new ContentInstance(sectionId,
+                V2PageBootstrap.PAGE_KEY + "@es", "Viajes", "pilgrimages", 1, values, null, 99, 0, null, null), 1));
+        try {
+            Assert.assertEquals(ListingScope.curatedOnPageOf(shared), before, "only the unmarked page curates");
+            for (final Locale locale : List.of(Locale.ENGLISH, Locale.of("es"))) {
+                final Boolean reached = ScopedValue.where(RequestContext.SCOPE,
+                        RequestContext.of(null, null, shared).withLocale(locale))
+                        .call(() -> ListingScope.reachable(FakeData.ACME_ORG_ID));
+                Assert.assertFalse(reached, "Acme stays off the shared site for a reader in " + locale);
+            }
+        } finally {
+            DAO.getInstance().deleteContent(sectionId);
+        }
     }
 
     private static boolean reachableOn(final SiteContext site, final String orgId) throws Exception {

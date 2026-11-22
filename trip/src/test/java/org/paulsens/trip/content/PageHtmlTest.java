@@ -357,6 +357,10 @@ public class PageHtmlTest {
         // What the page then shows, by the renderer's own rule, is the title's words and nothing escaped twice.
         Assert.assertEquals(ContentRenderer.titleText(PageHtml.storedTitle("I <3 trips & more").body()),
                 "I &lt;3 trips &amp; more");
+        // An entity the author typed inside a tag that is dropped stays an entity: never decoded into live markup.
+        final String escaped = PageHtml.storedTitle("<o:p>Use &lt;b&gt; for bold</o:p>").body();
+        Assert.assertEquals(ContentRenderer.titleText(escaped), "<span>Use &lt;b&gt; for bold</span>", escaped);
+        Assert.assertEquals(PageHtml.storedTitle(escaped).body(), escaped, "and stays put");
     }
 
     /** What goes with the two holes the pre-push review found is REPORTED, never dropped in silence. */

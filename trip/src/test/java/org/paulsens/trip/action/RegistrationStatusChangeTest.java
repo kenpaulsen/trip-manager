@@ -91,6 +91,7 @@ public class RegistrationStatusChangeTest {
         // its own wording, whichever site the approval was made from.
         Mockito.verify(mail).sendManagedTemplateForOrg(
                 ArgumentMatchers.eq("registration-approved"), ArgumentMatchers.eq(trip.getOrgId()),
+                ArgumentMatchers.any(),
                 ArgumentMatchers.anyMap(),
                 ArgumentMatchers.eq(traveler.getEmail()), ArgumentMatchers.eq("from@example.com"),
                 ArgumentMatchers.eq("reply@example.com"), ArgumentMatchers.any(), ArgumentMatchers.any());
@@ -140,7 +141,9 @@ public class RegistrationStatusChangeTest {
                 ArgumentMatchers.eq("notify-from@example.com"), ArgumentMatchers.eq("notify@example.com"),
                 ArgumentMatchers.isNull(), ArgumentMatchers.isNull(),
                 ArgumentMatchers.eq("Registration Cancelled - " + trip.getTitle()),
-                ArgumentMatchers.eq("audit-msg"), ArgumentMatchers.any());
+                // The notice says what the audit line says, in the office's language (English here), on its own.
+                ArgumentMatchers.eq(AuditCommands.describe(traveler) + " was removed from '" + trip.getTitle()
+                        + "'."), ArgumentMatchers.any());
     }
 
     @Test

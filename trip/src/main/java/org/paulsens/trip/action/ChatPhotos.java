@@ -41,6 +41,7 @@ import org.paulsens.trip.model.chat.ChatChannel;
 import org.paulsens.trip.model.chat.ChatPage;
 import org.paulsens.trip.model.chat.ChatMessage;
 import org.paulsens.trip.cache.Cached;
+import org.paulsens.trip.i18n.Text;
 
 /**
  * Chat photo storage, exposed to pages as {@code #{chatPhotos}}. Sits between the upload servlet / send path
@@ -217,13 +218,13 @@ public class ChatPhotos {
         for (final AttachmentRef ref : refs) {
             if (isAlbumRef(ref.key())) {
                 attachments.add(albumPhoto(tripId, ref).map(photo -> referenceTo(photo, ref))
-                        .orElseThrow(() -> new PhotoRejectedException("A photo chosen from an album is no longer"
-                                + " available. Remove it and choose it again.")));
+                        .orElseThrow(() -> new PhotoRejectedException(
+                                Text.get("feedback.chatPhotos.albumPhotoGone"))));
                 continue;
             }
             final ChatPhotoStaging.Staged staged = staging.peek(ref.key(), tripId, uploader.getValue())
                     .orElseThrow(() -> new PhotoRejectedException(
-                            "An attached photo is no longer available. Remove it and attach it again."));
+                            Text.get("feedback.chatPhotos.attachedPhotoGone")));
             attachments.add(new ChatAttachment("image", staged.key(), staged.contentType(), staged.size(),
                     staged.width(), staged.height(), staged.smallKey(), blankToNull(ref.title()),
                     ref.hidden()));
@@ -799,7 +800,7 @@ public class ChatPhotos {
             final boolean asDownload) {
         if (isRemoteStore()) {
             if (!media.putObject(key, bytes, contentType, CACHE_SECONDS, asDownload)) {
-                throw new IllegalStateException("The photo could not be stored. Try again.");
+                throw new IllegalStateException(Text.get("api.chat.photoNotStored"));
             }
             return;
         }

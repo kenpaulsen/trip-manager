@@ -7,6 +7,7 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
@@ -19,6 +20,8 @@ import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.cache.CacheClient;
 import org.paulsens.trip.cache.CacheKeys;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.i18n.ReaderLanguage;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.chat.ChatChannel;
@@ -245,7 +248,8 @@ public class ChatDigestSender {
             log.debug("Skipping chat digest for {}: no usable email address", candidate.personId());
             return true;
         }
-        final String body = MailTemplates.render("chat-digest", digestValues(candidate, onBehalfOf));
+        final Locale locale = ReaderLanguage.of(readerOf(person, onBehalfOf), candidate.trip());
+        final String body = MailTemplates.render("chat-digest", digestValues(candidate, onBehalfOf, locale));
         if (body == null) {
             return false;
         }
@@ -258,8 +262,10 @@ public class ChatDigestSender {
         // recipient behind it.
         // System, not an empty actor: nobody asked for this send, the scheduler did. An unknown actor would
         // read as "we lost track of who did this"; System is an answer.
-        final String subject = "New messages in the " + tripTitle(candidate) + " chat"
-                + (onBehalfOf == null ? "" : " for " + OnBehalf.nameOf(onBehalfOf));
+        final String subject = onBehalfOf == null
+                ? Text.forLocale(locale, "mail.digest.subjectSelf", tripTitle(candidate, locale))
+                : Text.forLocale(locale, "mail.digest.subjectOther", tripTitle(candidate, locale),
+                        EmailChatNotifier.nameOf(onBehalfOf, locale));
         final SendEmailResponse response = mail.send(from(), to, null, replyTo(candidate), subject, body,
                 AuditActor.system());
         if (response == null) {
@@ -282,20 +288,34 @@ public class ChatDigestSender {
         return addresses.isEmpty() ? null : String.join(",", addresses);
     }
 
-    private Map<String, Object> digestValues(final Candidate candidate, final Person onBehalfOf) {
+    /**
+     * Whose language the digest is written in: the person's own, or, when it goes to their family managers in
+     * one send, the first manager's (the family's creator leads that list). One mail has one language.
+     */
+    private static Person readerOf(final Person person, final Person onBehalfOf) {
+        if (onBehalfOf == null) {
+            return person;
+        }
+        final List<Person> managers = OnBehalf.mailableManagers(person);
+        return managers.isEmpty() ? person : managers.get(0);
+    }
+
+    /** The words, already in the reader's language: the template holds structure only. */
+    private Map<String, Object> digestValues(final Candidate candidate, final Person onBehalfOf,
+            final Locale locale) {
+        final String url = chatUrl(candidate);
+        final String title = tripTitle(candidate, locale);
         final Map<String, Object> values = new LinkedHashMap<>();
-        values.put("tripTitle", tripTitle(candidate));
-        values.put("chatUrl", chatUrl(candidate));
+        values.put("lead", onBehalfOf == null ? MailTemplates.html(locale, "mail.digest.leadSelf", url, title)
+                : MailTemplates.html(locale, "mail.digest.leadOther", url, title,
+                        EmailChatNotifier.nameOf(onBehalfOf, locale)));
+        values.put("chatUrl", url);
         // The count people see must match what the body lists: tombstones are in the page but are not news.
-        values.put("messageCount", newsIn(candidate.page()).size());
-        values.put("messageBlock", messageBlock(candidate));
-        values.put("addressee", onBehalfOf == null ? "you" : OnBehalf.nameOf(onBehalfOf));
-        values.put("footerNote", onBehalfOf == null
-                ? "You are receiving this daily summary because you asked for it on this trip's chat page. "
-                        + "You can turn it off there at any time."
-                : "You are receiving " + OnBehalf.possessiveOf(onBehalfOf) + " daily summary as their family "
-                        + "manager: it was asked for when they were registered, and they have no email address "
-                        + "of their own. It can be turned off on the trip's chat page.");
+        values.put("countLine", Text.forLocale(locale, "mail.digest.count", newsIn(candidate.page()).size()));
+        values.put("messageBlock", messageBlock(candidate, locale));
+        values.put("linkLabel", Text.forLocale(locale, "mail.chat.openChat"));
+        values.put("footerNote", onBehalfOf == null ? Text.forLocale(locale, "mail.digest.footerSelf")
+                : Text.forLocale(locale, "mail.digest.footerOther", EmailChatNotifier.nameOf(onBehalfOf, locale)));
         return values;
     }
 
@@ -306,26 +326,25 @@ public class ChatDigestSender {
      * short-retention channel must produce a count-only digest: the body text would otherwise outlive the retention
      * policy inside people's inboxes.
      */
-    private MailTemplates.Raw messageBlock(final Candidate candidate) {
+    private MailTemplates.Raw messageBlock(final Candidate candidate, final Locale locale) {
         if (!ChatNotifications.includeContent(candidate.channel())) {
-            return new MailTemplates.Raw(
-                    "<p style=\"color:#666;\">Open the chat to read them; this chat does not keep messages "
-                            + "long enough to include them here.</p>");
+            return new MailTemplates.Raw("<p style=\"color:#666;\">"
+                    + MailTemplates.escape(Text.forLocale(locale, "mail.digest.contentWithheld")) + "</p>");
         }
         final PersonCommands people = PersonCommands.getPersonCommands();
         final StringBuilder html = new StringBuilder("<div>");
         for (final ChatMessage message : newsIn(candidate.page())) {
-            appendMessage(html, message, people);
+            appendMessage(html, message, people, locale);
         }
         return new MailTemplates.Raw(html.append("</div>").toString());
     }
 
-    private void appendMessage(
-            final StringBuilder html, final ChatMessage message, final PersonCommands people) {
-        final String author = authorName(message, people);
+    private void appendMessage(final StringBuilder html, final ChatMessage message, final PersonCommands people,
+            final Locale locale) {
+        final String author = authorName(message, people, locale);
         final String body = message.isDeleted()
                 // Not "by an administrator": authors can remove their own too, so that would often be untrue.
-                ? "<i>Message removed</i>"
+                ? "<i>" + MailTemplates.escape(Text.forLocale(locale, "mail.digest.messageRemoved")) + "</i>"
                 : ChatBodyHtml.html(ChatNotifications.snippet(message.getBody()));
         html.append("<p style=\"margin:0.5rem 0;\"><b>")
                 .append(MailTemplates.escape(author))
@@ -334,16 +353,17 @@ public class ChatDigestSender {
                 .append("</p>");
     }
 
-    private String authorName(final ChatMessage message, final PersonCommands people) {
+    private String authorName(final ChatMessage message, final PersonCommands people, final Locale locale) {
         if (message.getAuthorId() == null) {
-            return "System";
+            return Text.forLocale(locale, "mail.digest.systemAuthor");
         }
         final String author = ChatOnBehalf.displayNameOrId(people, message.getAuthorId().getValue());
         if (message.getOnBehalfOfId() == null) {
             return author;
         }
-        return author + ChatOnBehalf.JOINER
-                + ChatOnBehalf.displayNameOrId(people, message.getOnBehalfOfId().getValue());
+        // The byline ChatOnBehalf.JOINER composes elsewhere, as one whole message so its word order can change.
+        return Text.forLocale(locale, "mail.digest.authorOnBehalf", author,
+                ChatOnBehalf.displayNameOrId(people, message.getOnBehalfOfId().getValue()));
     }
 
     /**
@@ -362,9 +382,10 @@ public class ChatDigestSender {
                 CacheKeys.GC_TTL));
     }
 
-    private String tripTitle(final Candidate candidate) {
+    private String tripTitle(final Candidate candidate, final Locale locale) {
         final Trip trip = candidate.trip();
-        return trip == null || trip.getTitle() == null ? "trip" : trip.getTitle();
+        return trip == null || trip.getTitle() == null ? Text.forLocale(locale, "mail.chat.untitledTrip")
+                : trip.getTitle();
     }
 
     /** The link's site comes from the digest TRIP's organization (its own site when it has one), never a host. */

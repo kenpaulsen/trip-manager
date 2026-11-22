@@ -8,6 +8,7 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.time.temporal.TemporalAccessor;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -32,9 +33,13 @@ import org.paulsens.trip.action.ExpenseViews.ExpenseRow;
 import org.paulsens.trip.action.ExpenseViews.PaymentForm;
 import org.paulsens.trip.action.ExpenseViews.PaymentRow;
 import org.paulsens.trip.action.ExpenseViews.ReceiptRow;
+import org.paulsens.trip.audit.RequestContext;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.i18n.Formats;
+import org.paulsens.trip.i18n.ReaderLanguage;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.AdvanceEntry;
 import org.paulsens.trip.model.AdvanceType;
 import org.paulsens.trip.model.BindingType;
@@ -105,26 +110,19 @@ public class ExpenseCommands {
     static final long MAX_RATE_MICROS = 1_000_000L * CurrencyRate.MICROS;
     /** The largest foreign amount a line takes, in hundredths: a billion units covers any currency. */
     static final long MAX_AMOUNT_MINOR = 100_000_000_000L;
+    // The English of feedback.expenseCommands.noExpenses, deletedLine, various, noLines and paidLine: the page
+    // reads the bundle, and these stay only as the names the tests compare its English against.
     static final String NO_EXPENSES = "No expenses yet";
     static final String DELETED_LINE = "(deleted budget line)";
     static final String VARIOUS = "Various";
-    static final String SHARED = "Shared";
-    static final String PER_PERSON = "Per person";
-    static final String LODGING = "Lodging";
     static final int MAX_ADVANCES = 100;
     static final String NO_LINES = "No specific expenses";
     static final String PARTICIPANT_TX_NOTE = "Cash given during the trip";
     static final String MANUAL_TX_NOTE = "Record this payment in each person's transactions yourself: the report "
             + "does not do it for more than one person.";
-    static final String TX_WARNING = "A payment of %s was recorded for %s on %s. If the amount, date or person "
-            + "changed, adjust their transactions by hand.";
     static final String PAID_LINE = "This expense is in a recorded payment: remove it from the payment first.";
-    private static final String NOT_ALLOWED =
-            "Not allowed: only the trip's managers and finance admins can edit its expense report.";
-    private static final String NOT_SETTLER =
-            "Not allowed: only the trip's finance admins can record payments on its expense report.";
-    private static final DateTimeFormatter DAY = DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.US);
-    private static final DateTimeFormatter SHORT_DAY = DateTimeFormatter.ofPattern("MMM d", Locale.US);
+    /** A month and day with no year, the paid chip's "Oct 7", in the reader's own order and month names. */
+    private static final String MONTH_DAY = "MMMd";
 
     private final Supplier<Caller> callerSource;
     private final Supplier<AuditCommands> auditSource;
@@ -189,8 +187,17 @@ public class ExpenseCommands {
         return DAO.getInstance().getTripBudget(tripId, Cached.YES).orElse(null);
     }
 
-    /** Everything the page renders; an empty page for a caller who may not view the report. */
+    /** Everything the page renders, in the request's language; an empty page for a caller who may not view it. */
     public ExpensePage reportPage(final String tripId) {
+        return reportPageIn(tripId, RequestContext.currentLocale());
+    }
+
+    /**
+     * {@link #reportPage} with every label, date and sentence in {@code locale}: the PDF and the treasurer's
+     * mail are built from this page, and a report mailed to someone else must read in one language throughout.
+     * A distinct name rather than an overload: EL chooses among overloads by argument type, not count.
+     */
+    public ExpensePage reportPageIn(final String tripId, final Locale locale) {
         final ExpensePage page = new ExpensePage();
         if (!canViewExpenses(tripId)) {
             return page;
@@ -199,43 +206,44 @@ public class ExpenseCommands {
         final TripExpenseReport report = reportOrDefault(trip, Cached.YES);
         page.setExists(report.getVersion() > 0L);
         page.setVersion(report.getVersion());
-        page.setStatus(report.getStatus().getLabel());
+        page.setStatus(report.getStatus().getLabel(locale));
         page.setStatusKey(report.getStatus().name().toLowerCase(Locale.ROOT));
         page.setTripTitle(trip.getTitle());
-        page.setTripDates(tripDates(trip));
+        page.setTripDates(tripDates(trip, locale));
         page.setOrgName(orgName(trip));
         page.setSubmittedBy(report.getSubmittedBy());
         page.setSubmitted(report.getSubmittedOn() != null);
         if (report.getSubmittedOn() != null) {
-            page.setSubmittedLine("Submitted by " + nameOr(report.getSubmittedBy(), "(no name)") + " on "
-                    + DAY.format(report.getSubmittedOn()));
+            page.setSubmittedLine(Text.forLocale(locale, "feedback.expenseCommands.submittedLine",
+                    nameOr(report.getSubmittedBy(), noName(locale)), day(report.getSubmittedOn(), locale)));
         }
-        fillAdvances(page, report);
+        fillAdvances(page, report, locale);
         page.setPaymentInstructions(report.getPaymentInstructions());
         for (final CurrencyRate rate : report.getCurrencies()) {
-            page.getCurrencyRows().add(currencyRow(report, rate));
+            page.getCurrencyRows().add(currencyRow(report, rate, locale));
         }
         final TripBudget budget = budgetOf(tripId);
-        fillBudget(page, report, budget, BudgetCommands.offersById(tripId));
-        fillLines(page, report, budget);
-        page.setReportReceipts(receiptRows(report.getReceiptIds()));
-        fillTotals(page, report);
-        fillPayments(page, report);
+        fillBudget(page, report, budget, BudgetCommands.offersById(tripId), locale);
+        fillLines(page, report, budget, locale);
+        page.setReportReceipts(receiptRows(report.getReceiptIds(), locale));
+        fillTotals(page, report, locale);
+        fillPayments(page, report, locale);
         page.setCanRecordPayments(canRecordPayments(tripId));
         page.setLinesWithoutReceipt(ExpenseMath.linesWithoutReceipt(report));
         page.setTreasurerEmail(treasurerEmail(trip));
         if (report.getEmailedOn() != null) {
-            page.setEmailedLine("Emailed to " + report.getEmailedTo() + " on " + DAY.format(report.getEmailedOn()));
+            page.setEmailedLine(Text.forLocale(locale, "feedback.expenseCommands.emailedLine",
+                    report.getEmailedTo(), day(report.getEmailedOn(), locale)));
         }
-        warnMissingRates(page, report);
+        warnMissingRates(page, report, locale);
         return page;
     }
 
     /** The worksheet, numbered in the order entered, and the cash advanced it adds up to. */
-    private void fillAdvances(final ExpensePage page, final TripExpenseReport report) {
+    private void fillAdvances(final ExpensePage page, final TripExpenseReport report, final Locale locale) {
         final List<AdvanceEntry> entries = report.getAdvances();
         for (int i = 0; i < entries.size(); i++) {
-            page.getAdvanceRows().add(advanceRow(report, entries.get(i), i + 1));
+            page.getAdvanceRows().add(advanceRow(report, entries.get(i), i + 1, locale));
         }
         final long advanced = ExpenseMath.advanced(report);
         page.setCashAdvance(money(advanced));
@@ -243,13 +251,15 @@ public class ExpenseCommands {
         page.setAdvanceCount(entries.size());
     }
 
-    private AdvanceRow advanceRow(final TripExpenseReport report, final AdvanceEntry entry, final int number) {
+    private AdvanceRow advanceRow(final TripExpenseReport report, final AdvanceEntry entry, final int number,
+            final Locale locale) {
         final AdvanceRow row = new AdvanceRow();
         row.setId(entry.getId());
         row.setNumber(number);
-        row.setTypeLabel(entry.getType().getLabel());
-        row.setDateText((entry.getDate() == null) ? "" : DAY.format(entry.getDate()));
-        row.setParty((entry.getType() == AdvanceType.PARTICIPANT) ? participantNames(entry) : entry.getParty());
+        row.setTypeLabel(entry.getType().getLabel(locale));
+        row.setDateText((entry.getDate() == null) ? "" : day(entry.getDate(), locale));
+        row.setParty((entry.getType() == AdvanceType.PARTICIPANT) ? participantNames(entry, locale)
+                : entry.getParty());
         row.setAmount(entry.isUsd() ? money(entry.getAmountMinor())
                 : foreign(entry.getAmountMinor(), entry.getCurrency()));
         final long usd = ExpenseMath.advanceUsd(report, entry);
@@ -257,45 +267,54 @@ public class ExpenseCommands {
         row.setNegative(usd < 0);
         row.setRateMissing(ExpenseMath.rateMissing(report, entry));
         row.setNote(entry.getNote());
-        row.setTransactionLine(transactionLine(entry));
+        row.setTransactionLine(transactionLine(entry, locale));
         return row;
     }
 
     /** "Ken Paulsen; Trinity Paulsen": the participants who handed over the cash, in the order picked. */
-    private String participantNames(final AdvanceEntry entry) {
+    private String participantNames(final AdvanceEntry entry, final Locale locale) {
         final List<String> names = new ArrayList<>();
         for (final String id : entry.getPersonIds()) {
-            names.add(personName(id));
+            names.add(personName(id, locale));
         }
         return names.isEmpty() ? null : String.join("; ", names);
     }
 
     /** "A payment of $100.00 was recorded for Ken Paulsen on Oct 30, 2026."; null when the entry recorded none. */
-    private String transactionLine(final AdvanceEntry entry) {
+    private String transactionLine(final AdvanceEntry entry, final Locale locale) {
         final AdvanceEntry.RecordedTransaction tx = entry.getTransaction();
         if (tx == null) {
             return null;
         }
-        return "A payment of " + money(tx.getAmountCents()) + " was recorded for " + personName(tx.getPersonId())
-                + ((tx.getRecordedOn() == null) ? "" : " on " + DAY.format(tx.getRecordedOn())) + ".";
+        final String amount = money(tx.getAmountCents());
+        final String name = personName(tx.getPersonId(), locale);
+        return (tx.getRecordedOn() == null)
+                ? Text.forLocale(locale, "feedback.expenseCommands.paymentRecordedFor", amount, name)
+                : Text.forLocale(locale, "feedback.expenseCommands.paymentRecordedForOn", amount, name,
+                        day(tx.getRecordedOn(), locale));
+    }
+
+    /** {@link #personName(String, Locale)} in the request's language. */
+    private static String personName(final String id) {
+        return personName(id, RequestContext.currentLocale());
     }
 
     /** "Ken Paulsen", or "(unknown person)" for an id no longer on file. */
-    private static String personName(final String id) {
+    private static String personName(final String id, final Locale locale) {
         final Person person = (id == null) ? null
                 : DAO.getInstance().getPerson(Person.Id.from(id), Cached.YES).orElse(null);
         if (person == null) {
-            return "(unknown person)";
+            return Text.forLocale(locale, "feedback.expenseCommands.unknownPerson");
         }
         return nameOr(trimToNull((nameOr(person.getPreferredName(), "") + " " + nameOr(person.getLast(), "")).trim()),
-                "(unnamed person)");
+                Text.forLocale(locale, "feedback.expenseCommands.unnamedPerson"));
     }
 
     /**
      * Total spent, the part settled outside the report, and what is due: the cash advanced less what the
      * submitter is not yet reimbursed for.
      */
-    private static void fillTotals(final ExpensePage page, final TripExpenseReport report) {
+    private static void fillTotals(final ExpensePage page, final TripExpenseReport report, final Locale locale) {
         final long byOrg = ExpenseMath.settledBy(report, ExpensePaidStatus.ORG);
         final long reimbursed = ExpenseMath.settledBy(report, ExpensePaidStatus.REIMBURSED);
         final long due = ExpenseMath.due(report);
@@ -305,34 +324,54 @@ public class ExpenseCommands {
         page.setReimbursed(money(reimbursed));
         page.setOutOfPocket(money(ExpenseMath.outOfPocket(report)));
         page.setDueToSubmitter(due < 0);
-        page.setDueLabel("Due to " + dueTo(page, report, due));
+        page.setDueLabel(dueLabel(dueTo(page, report, due), due, locale));
         page.setDue(money(Math.abs(due)));
     }
 
-    /** Who a signed balance is owed to: the submitter when negative, else the organization. */
+    /** The name a signed balance is owed to: the submitter when negative, else the organization; null if unnamed. */
     private static String dueTo(final ExpensePage page, final TripExpenseReport report, final long balance) {
-        return (balance < 0) ? nameOr(report.getSubmittedBy(), "the submitter")
-                : nameOr(page.getOrgName(), "the organization");
+        return nameOr((balance < 0) ? report.getSubmittedBy() : page.getOrgName(), null);
+    }
+
+    /** "Due to Ken Paulsen"; an unnamed party is "the submitter" or "the organization", each its own sentence. */
+    private static String dueLabel(final String name, final long balance, final Locale locale) {
+        if (name != null) {
+            return Text.forLocale(locale, "feedback.expenseCommands.dueTo", name);
+        }
+        return (balance < 0) ? Text.forLocale(locale, "feedback.expenseCommands.dueToSubmitter")
+                : Text.forLocale(locale, "feedback.expenseCommands.dueToOrganization");
+    }
+
+    private static String stillDueLabel(final String name, final long balance, final Locale locale) {
+        if (balance == 0L) {
+            return Text.forLocale(locale, "feedback.expenseCommands.settled");
+        }
+        if (name != null) {
+            return Text.forLocale(locale, "feedback.expenseCommands.stillDueTo", name);
+        }
+        return (balance < 0) ? Text.forLocale(locale, "feedback.expenseCommands.stillDueToSubmitter")
+                : Text.forLocale(locale, "feedback.expenseCommands.stillDueToOrganization");
     }
 
     /** The payments table and what is still due after them. */
-    private static void fillPayments(final ExpensePage page, final TripExpenseReport report) {
+    private static void fillPayments(final ExpensePage page, final TripExpenseReport report, final Locale locale) {
         for (final ExpensePayment payment : report.getPayments()) {
-            page.getPaymentRows().add(paymentRow(report, payment));
+            page.getPaymentRows().add(paymentRow(report, payment, locale));
         }
         final long stillDue = ExpenseMath.stillDue(report);
         page.setPaymentsTotal(money(ExpenseMath.paymentsTotal(report)));
         page.setSettled(stillDue == 0L);
         page.setStillDueToSubmitter(stillDue < 0);
-        page.setStillDueLabel((stillDue == 0L) ? "Settled" : "Still due to " + dueTo(page, report, stillDue));
+        page.setStillDueLabel(stillDueLabel(dueTo(page, report, stillDue), stillDue, locale));
         page.setStillDue(money(Math.abs(stillDue)));
         page.setUnpaidCount(report.unpaidLines().size());
     }
 
-    private static PaymentRow paymentRow(final TripExpenseReport report, final ExpensePayment payment) {
+    private static PaymentRow paymentRow(final TripExpenseReport report, final ExpensePayment payment,
+            final Locale locale) {
         final PaymentRow row = new PaymentRow();
         row.setId(payment.getId());
-        row.setDateText((payment.getDate() == null) ? "" : DAY.format(payment.getDate()));
+        row.setDateText((payment.getDate() == null) ? "" : day(payment.getDate(), locale));
         row.setAmount(money(payment.getAmountCents()));
         row.setNegative(payment.getAmountCents() < 0);
         row.setMethod(payment.getMethod());
@@ -341,24 +380,27 @@ public class ExpenseCommands {
         for (final String lineId : payment.getLineIds()) {
             final ExpenseLine line = report.line(lineId);
             if (line != null) {
-                names.add(nameOr(line.getDescription(), "expense"));
+                names.add(nameOr(line.getDescription(), unnamedExpense(locale)));
             }
         }
-        row.setLines(names.isEmpty() ? NO_LINES : String.join(", ", names));
+        row.setLines(names.isEmpty() ? Text.forLocale(locale, "feedback.expenseCommands.noLines")
+                : String.join(", ", names));
         row.setLineCount(names.size());
         if (payment.getRecordedOn() != null) {
-            row.setRecordedLine("Recorded by " + nameOr(payment.getRecordedBy(), "(no name)") + " on "
-                    + DAY.format(payment.getRecordedOn()));
+            row.setRecordedLine(Text.forLocale(locale, "feedback.expenseCommands.recordedLine",
+                    nameOr(payment.getRecordedBy(), noName(locale)), day(payment.getRecordedOn(), locale)));
         }
         return row;
     }
 
-    private static CurrencyRow currencyRow(final TripExpenseReport report, final CurrencyRate rate) {
+    private static CurrencyRow currencyRow(final TripExpenseReport report, final CurrencyRate rate,
+            final Locale locale) {
         final CurrencyRow row = new CurrencyRow();
         row.setCode(rate.getCode());
         row.setRateText("1 USD = " + ExpenseMath.rate(rate.getPerUsdMicros()).toPlainString() + " " + rate.getCode());
         final BigDecimal inverse = ExpenseMath.usdPerUnit(rate.getPerUsdMicros());
-        row.setInverseText((inverse == null) ? "no rate" : "1 " + rate.getCode() + " = $" + inverse.toPlainString());
+        row.setInverseText((inverse == null) ? Text.forLocale(locale, "feedback.expenseCommands.noRate")
+                : "1 " + rate.getCode() + " = $" + inverse.toPlainString());
         row.setNote(rate.getNote());
         row.setLines(report.linesUsing(rate.getCode()).size());
         row.setForeignTotal(foreign(ExpenseMath.currencyTotal(report, rate.getCode()), rate.getCode()));
@@ -373,7 +415,7 @@ public class ExpenseCommands {
      * budget" row, so the Spent column always adds up to the report's total.
      */
     private static void fillBudget(final ExpensePage page, final TripExpenseReport report, final TripBudget budget,
-            final Map<String, ReservationOffer> offers) {
+            final Map<String, ReservationOffer> offers, final Locale locale) {
         final Set<String> ids = new HashSet<>();
         long planned = 0L;
         long spent = 0L;
@@ -381,8 +423,10 @@ public class ExpenseCommands {
             page.setHasBudget(!budget.getLines().isEmpty() || !budget.getLodging().isEmpty());
             for (final BudgetLine line : budget.getLines()) {
                 final long amount = ExpenseMath.budgeted(budget, line);
-                page.getBudgetRows().add(budgetRow(report, line.getId(), line.isShared() ? SHARED : PER_PERSON,
-                        line.getName(), BudgetMath.categoryOf(line), amount));
+                page.getBudgetRows().add(budgetRow(report, line.getId(), line.isShared()
+                        ? Text.forLocale(locale, "feedback.expenseCommands.sectionShared")
+                        : Text.forLocale(locale, "common.perPerson"),
+                        line.getName(), BudgetMath.categoryOf(line, locale), amount));
                 ids.add(line.getId());
                 planned += amount;
                 spent += ExpenseMath.spentOn(report, line.getId());
@@ -390,8 +434,9 @@ public class ExpenseCommands {
             for (final BudgetLodgingLine line : budget.getLodging()) {
                 final ReservationOffer offer = offers.get(line.getOfferId());
                 final long amount = ExpenseMath.budgeted(line, offer);
-                page.getBudgetRows().add(budgetRow(report, line.getId(), LODGING,
-                        BudgetCommands.lodgingLabel(line, offer), BudgetMath.LODGING_CATEGORY, amount));
+                page.getBudgetRows().add(budgetRow(report, line.getId(),
+                        Text.forLocale(locale, "common.lodging"),
+                        BudgetCommands.lodgingLabel(line, offer, locale), BudgetMath.LODGING_CATEGORY, amount));
                 ids.add(line.getId());
                 planned += amount;
                 spent += ExpenseMath.spentOn(report, line.getId());
@@ -399,7 +444,7 @@ public class ExpenseCommands {
         }
         final BudgetRow outside = new BudgetRow();
         outside.setNotInBudget(true);
-        outside.setLabel("Not in budget");
+        outside.setLabel(Text.forLocale(locale, "feedback.expenseCommands.notInBudget"));
         final long notInBudget = ExpenseMath.notInBudget(report, ids);
         outside.setSpent(money(notInBudget));
         page.getBudgetRows().add(outside);
@@ -424,24 +469,25 @@ public class ExpenseCommands {
         return row;
     }
 
-    private void fillLines(final ExpensePage page, final TripExpenseReport report, final TripBudget budget) {
+    private void fillLines(final ExpensePage page, final TripExpenseReport report, final TripBudget budget,
+            final Locale locale) {
         final List<ExpenseLine> lines = report.getLines();
         for (int i = 0; i < lines.size(); i++) {
             final ExpenseLine line = lines.get(i);
             final ExpenseRow row = new ExpenseRow();
             row.setId(line.getId());
-            row.setDateText((line.getDate() == null) ? VARIOUS : DAY.format(line.getDate()));
-            row.setCategory(line.getCategory().getLabel());
+            row.setDateText((line.getDate() == null) ? various(locale) : day(line.getDate(), locale));
+            row.setCategory(line.getCategory().getLabel(locale));
             row.setDescription(line.getDescription());
             row.setForeign(!line.isUsd());
             row.setAmountText(line.isUsd() ? money(line.getAmountMinor())
                     : foreign(line.getAmountMinor(), line.getCurrency()));
             row.setUsd(money(ExpenseMath.lineUsd(report, line)));
             row.setRateMissing(ExpenseMath.rateMissing(report, line));
-            row.setBudgetLabel(budgetLabel(budget, line.getBudgetLineId()));
+            row.setBudgetLabel(budgetLabel(budget, line.getBudgetLineId(), locale));
             row.setReceiptCount(line.getReceiptIds().size());
             row.setNote(line.getNote());
-            paidChip(row, report, line);
+            paidChip(row, report, line, locale);
             row.setFirst(i == 0);
             row.setLast(i == lines.size() - 1);
             page.getLineRows().add(row);
@@ -449,20 +495,24 @@ public class ExpenseCommands {
     }
 
     /** The line's chip: "Paid Oct 7" once a payment settles it, else its own paid status (none when unreimbursed). */
-    private static void paidChip(final ExpenseRow row, final TripExpenseReport report, final ExpenseLine line) {
+    private static void paidChip(final ExpenseRow row, final TripExpenseReport report, final ExpenseLine line,
+            final Locale locale) {
         final ExpensePayment payment = report.paymentFor(line.getId());
         if (payment != null) {
             row.setPaidKey("paid");
             row.setPaymentId(payment.getId());
-            row.setPaidChip("Paid" + ((payment.getDate() == null) ? "" : " " + SHORT_DAY.format(payment.getDate())));
+            row.setPaidChip((payment.getDate() == null) ? Text.forLocale(locale, "common.paid")
+                    : Text.forLocale(locale, "feedback.expenseCommands.paidChipOn",
+                            DateTimeFormatter.ofLocalizedPattern(MONTH_DAY).withLocale(locale)
+                                    .format(payment.getDate())));
             return;
         }
         row.setPaidKey(line.getPaidStatus().name().toLowerCase(Locale.ROOT));
-        row.setPaidChip(line.getPaidStatus().getChip());
+        row.setPaidChip(line.getPaidStatus().getChip(locale));
     }
 
     /** The matched budget line's name; null when unmatched, {@link #DELETED_LINE} when it is gone. */
-    private static String budgetLabel(final TripBudget budget, final String budgetLineId) {
+    private static String budgetLabel(final TripBudget budget, final String budgetLineId, final Locale locale) {
         if (budgetLineId == null) {
             return null;
         }
@@ -473,43 +523,44 @@ public class ExpenseCommands {
         final BudgetLodgingLine lodging = (budget == null) ? null : budget.lodgingLine(budgetLineId);
         if (lodging != null) {
             return BudgetCommands.lodgingLabel(lodging,
-                    BudgetCommands.offersById(budget.getTripId()).get(lodging.getOfferId()));
+                    BudgetCommands.offersById(budget.getTripId()).get(lodging.getOfferId()), locale);
         }
-        return DELETED_LINE;
+        return Text.forLocale(locale, "feedback.expenseCommands.deletedLine");
     }
 
-    private static void warnMissingRates(final ExpensePage page, final TripExpenseReport report) {
+    private static void warnMissingRates(final ExpensePage page, final TripExpenseReport report,
+            final Locale locale) {
         final Set<String> warned = new HashSet<>();
         for (final ExpenseLine line : report.getLines()) {
             if (ExpenseMath.rateMissing(report, line) && warned.add(line.getCurrency())) {
-                page.getWarnings().add("The expenses in " + line.getCurrency() + " have no exchange rate and count "
-                        + "$0.00: enter the rate under Currencies.");
+                page.getWarnings().add(Text.forLocale(locale, "feedback.expenseCommands.expensesWithoutRate",
+                        line.getCurrency()));
             }
         }
         for (final AdvanceEntry entry : report.getAdvances()) {
             if (ExpenseMath.rateMissing(report, entry) && warned.add(entry.getCurrency())) {
-                page.getWarnings().add("The advances in " + entry.getCurrency() + " have no exchange rate and count "
-                        + "$0.00: enter the rate under Currencies.");
+                page.getWarnings().add(Text.forLocale(locale, "feedback.expenseCommands.advancesWithoutRate",
+                        entry.getCurrency()));
             }
         }
     }
 
     /** The receipts with these ids, in order; ids whose row is gone are skipped. */
-    List<ReceiptRow> receiptRows(final List<String> mediaIds) {
+    List<ReceiptRow> receiptRows(final List<String> mediaIds, final Locale locale) {
         final List<ReceiptRow> rows = new ArrayList<>();
         for (final String id : mediaIds) {
             final MediaItem item = DAO.getInstance().getMedia(id, Cached.YES).orElse(null);
             if (item != null) {
-                rows.add(receiptRow(item));
+                rows.add(receiptRow(item, locale));
             }
         }
         return rows;
     }
 
-    static ReceiptRow receiptRow(final MediaItem item) {
+    static ReceiptRow receiptRow(final MediaItem item, final Locale locale) {
         final ReceiptRow row = new ReceiptRow();
         row.setMediaId(item.getId());
-        row.setTitle((item.getTitle() == null) ? "Receipt" : item.getTitle());
+        row.setTitle((item.getTitle() == null) ? Text.forLocale(locale, "common.receipt") : item.getTitle());
         // The buster: a rotated receipt keeps its URL path, and the page's own image cache would show the old turn.
         row.setUrl(ExpenseReceipts.path(item.getId()) + item.getCacheBuster());
         row.setPdf(ExpenseReceipts.PDF.equals(item.getContentType()));
@@ -527,21 +578,22 @@ public class ExpenseCommands {
         }
         final TripExpenseReport report = reportOrDefault(trip, Cached.YES);
         if (lineId == null || lineId.isBlank()) {
-            return receiptRows(report.getReceiptIds());
+            return receiptRows(report.getReceiptIds(), RequestContext.currentLocale());
         }
         final ExpenseLine line = report.line(lineId);
-        return (line == null) ? new ArrayList<>() : receiptRows(line.getReceiptIds());
+        return (line == null) ? new ArrayList<>() : receiptRows(line.getReceiptIds(), RequestContext.currentLocale());
     }
 
     /** The receipt dialog's heading: the line's description, or "Report receipts" at report level. */
     public String receiptHeading(final String tripId, final String lineId) {
         if (lineId == null || lineId.isBlank()) {
-            return "Report receipts";
+            return Text.get("feedback.expenseCommands.reportReceipts");
         }
         final Trip trip = gate.knownTrip(tripId);
         final ExpenseLine line = (trip == null || !canViewExpenses(tripId)) ? null
                 : reportOrDefault(trip, Cached.YES).line(lineId);
-        return (line == null) ? "Receipts" : "Receipts: " + nameOr(line.getDescription(), "expense");
+        return (line == null) ? Text.get("common.receipts")
+                : Text.get("feedback.expenseCommands.receiptsOf", nameOr(line.getDescription(), unnamedExpense()));
     }
 
     /** The header fields as a form. */
@@ -645,7 +697,7 @@ public class ExpenseCommands {
                 choices.add(choice(rate.getCode(), rate.getCode()));
             }
         }
-        choices.add(choice(ExpenseViews.NEW_CURRENCY, "Add a currency..."));
+        choices.add(choice(ExpenseViews.NEW_CURRENCY, Text.get("feedback.expenseCommands.addCurrency")));
         return choices;
     }
 
@@ -660,14 +712,16 @@ public class ExpenseCommands {
             return choices;
         }
         for (final BudgetLine line : budget.getLines()) {
-            choices.add(choice(line.getId(), (line.isShared() ? SHARED : PER_PERSON) + ": " + line.getName()
-                    + " (" + money(ExpenseMath.budgeted(budget, line)) + ")"));
+            final String planned = money(ExpenseMath.budgeted(budget, line));
+            choices.add(choice(line.getId(), line.isShared()
+                    ? Text.get("feedback.expenseCommands.budgetChoiceShared", line.getName(), planned)
+                    : Text.get("feedback.expenseCommands.budgetChoicePerPerson", line.getName(), planned)));
         }
         final Map<String, ReservationOffer> offers = BudgetCommands.offersById(tripId);
         for (final BudgetLodgingLine line : budget.getLodging()) {
             final ReservationOffer offer = offers.get(line.getOfferId());
-            choices.add(choice(line.getId(), LODGING + ": " + BudgetCommands.lodgingLabel(line, offer) + " ("
-                    + money(ExpenseMath.budgeted(line, offer)) + ")"));
+            choices.add(choice(line.getId(), Text.get("feedback.expenseCommands.budgetChoiceLodging",
+                    BudgetCommands.lodgingLabel(line, offer), money(ExpenseMath.budgeted(line, offer)))));
         }
         return choices;
     }
@@ -717,9 +771,9 @@ public class ExpenseCommands {
         }
         final TripExpenseReport report = DAO.getInstance().getTripExpenseReport(tripId, Cached.YES).orElse(null);
         if (report == null || report.getLines().isEmpty()) {
-            return NO_EXPENSES;
+            return Text.get("feedback.expenseCommands.noExpenses");
         }
-        return money(ExpenseMath.total(report)) + " spent";
+        return Text.get("feedback.expenseCommands.spent", money(ExpenseMath.total(report)));
     }
 
     // ================================================================== writes
@@ -727,7 +781,7 @@ public class ExpenseCommands {
     /** Saves the report's own fields; refusals land on {@code form.problem} and growl. */
     public boolean saveHeader(final String tripId, final HeaderForm form) {
         final Consumer<String> refusal = (form == null) ? PageFeedback::refuse : headerRefusal(form);
-        final Trip trip = gate.editableTrip(tripId, form, refusal, NOT_ALLOWED);
+        final Trip trip = gate.editableTrip(tripId, form, refusal, notAllowed());
         if (trip == null) {
             return false;
         }
@@ -738,7 +792,8 @@ public class ExpenseCommands {
         final TripExpenseReport report = reportOrDefault(trip, Cached.NO);
         report.setSubmittedBy(trimToNull(form.getSubmittedBy()));
         report.setPaymentInstructions(trimToNull(form.getPaymentInstructions()));
-        if (!persist(trip, report, refusal, "saved the details", "Expense report saved.")) {
+        if (!persist(trip, report, refusal, "saved the details",
+                Text.get("feedback.expenseCommands.reportSaved"))) {
             return false;
         }
         form.setProblem(null);
@@ -756,34 +811,35 @@ public class ExpenseCommands {
     }
 
     private static String headerProblem(final HeaderForm form) {
-        final String name = tooLong("The name", form.getSubmittedBy(), MAX_NAME);
+        final String name = tooLong("feedback.moneyForms.nameTooLong", form.getSubmittedBy(), MAX_NAME);
         if (name != null) {
             return name;
         }
-        return tooLong("The payment instructions", form.getPaymentInstructions(), MAX_TEXT);
+        return tooLong("feedback.moneyForms.paymentInstructionsTooLong", form.getPaymentInstructions(), MAX_TEXT);
     }
 
     /** Stamps the report submitted, by the caller, now; refusals growl. Submitting again re-stamps it. */
     public boolean submit(final String tripId) {
-        final Trip trip = gate.editableTrip(tripId, tripId, PageFeedback::refuse, NOT_ALLOWED);
+        final Trip trip = gate.editableTrip(tripId, tripId, PageFeedback::refuse, notAllowed());
         if (trip == null) {
             return false;
         }
         final TripExpenseReport report = reportOrDefault(trip, Cached.NO);
         if (report.getLines().isEmpty()) {
-            return refuse("Add at least one expense before submitting.");
+            return refuse(Text.get("feedback.expenseCommands.nothingToSubmit"));
         }
         if (report.getSubmittedBy() == null) {
             report.setSubmittedBy(callerName());
         }
         report.setSubmittedById(caller().personId());
         report.setSubmittedOn(LocalDateTime.now());
-        return persist(trip, report, PageFeedback::refuse, "submitted", "Expense report submitted.");
+        return persist(trip, report, PageFeedback::refuse, "submitted",
+                Text.get("feedback.expenseCommands.reportSubmitted"));
     }
 
     /** Takes the submit stamp back off (the report is a draft again, unless it has been paid); refusals growl. */
     public boolean unsubmit(final String tripId) {
-        final Trip trip = gate.editableTrip(tripId, tripId, PageFeedback::refuse, NOT_ALLOWED);
+        final Trip trip = gate.editableTrip(tripId, tripId, PageFeedback::refuse, notAllowed());
         if (trip == null) {
             return false;
         }
@@ -793,13 +849,14 @@ public class ExpenseCommands {
         }
         report.setSubmittedOn(null);
         report.setSubmittedById(null);
-        return persist(trip, report, PageFeedback::refuse, "withdrew the submission", "Submission withdrawn.");
+        return persist(trip, report, PageFeedback::refuse, "withdrew the submission",
+                Text.get("feedback.expenseCommands.submissionWithdrawn"));
     }
 
     /** Adds a currency or edits a rate; refusals land on {@code form.problem}. */
     public boolean saveCurrency(final String tripId, final CurrencyForm form) {
         final Consumer<String> refusal = (form == null) ? PageFeedback::refuse : form::setProblem;
-        final Trip trip = gate.editableTrip(tripId, form, refusal, NOT_ALLOWED);
+        final Trip trip = gate.editableTrip(tripId, form, refusal, notAllowed());
         if (trip == null) {
             return false;
         }
@@ -811,13 +868,13 @@ public class ExpenseCommands {
         final TripExpenseReport report = reportOrDefault(trip, Cached.NO);
         final CurrencyRate existing = report.currency(code);
         if (form.isExisting() && existing == null) {
-            return refused(refusal, "This currency is no longer on the report: reload the page.");
+            return refused(refusal, Text.get("feedback.expenseCommands.currencyGone"));
         }
         if (!form.isExisting() && existing != null) {
-            return refused(refusal, code + " is already on the report: edit its rate instead.");
+            return refused(refusal, Text.get("feedback.expenseCommands.currencyAlreadyThere", code));
         }
         if (existing == null && report.getCurrencies().size() >= MAX_CURRENCIES) {
-            return refused(refusal, "A report holds at most " + MAX_CURRENCIES + " currencies.");
+            return refused(refusal, Text.get("feedback.expenseCommands.tooManyCurrencies", MAX_CURRENCIES));
         }
         final CurrencyRate rate = CurrencyRate.builder().code(code).perUsdMicros(micros(form.getRate()))
                 .note(form.getNote()).build();
@@ -827,7 +884,8 @@ public class ExpenseCommands {
             report.getCurrencies().set(report.getCurrencies().indexOf(existing), rate);
         }
         if (!persist(trip, report, refusal, ((existing == null) ? "added " : "set the rate of ") + code + " at "
-                + ExpenseMath.rate(rate.getPerUsdMicros()).toPlainString(), "Currency saved.")) {
+                + ExpenseMath.rate(rate.getPerUsdMicros()).toPlainString(),
+                Text.get("feedback.expenseCommands.currencySaved"))) {
             return false;
         }
         form.setCode(code);
@@ -839,16 +897,16 @@ public class ExpenseCommands {
     /** Why a currency cannot be saved, or null. */
     private static String currencyProblem(final String code, final Double rate, final String note) {
         if (code == null) {
-            return "A currency code is three letters, like EUR.";
+            return Text.get("feedback.expenseCommands.currencyCodeShape");
         }
         if (ExpenseLine.USD.equals(code)) {
-            return "Dollars need no rate.";
+            return Text.get("feedback.expenseCommands.dollarsNeedNoRate");
         }
         final long micros = micros(rate);
         if (rate == null || rate.isNaN() || rate.isInfinite() || micros <= 0L || micros > MAX_RATE_MICROS) {
-            return "Enter the rate: how many " + code + " one US dollar buys (more than 0).";
+            return Text.get("feedback.expenseCommands.enterRate", code);
         }
-        return tooLong("A note", note, MAX_NOTE);
+        return tooLong("feedback.moneyForms.noteTooLong", note, MAX_NOTE);
     }
 
     /** A typed rate in millionths, HALF_UP; 0 for null or not a number. */
@@ -861,7 +919,7 @@ public class ExpenseCommands {
 
     /** Removes a currency no expense uses; refusals growl. Removing one that is already gone succeeds quietly. */
     public boolean deleteCurrency(final String tripId, final String code) {
-        final Trip trip = gate.editableTrip(tripId, code, PageFeedback::refuse, NOT_ALLOWED);
+        final Trip trip = gate.editableTrip(tripId, code, PageFeedback::refuse, notAllowed());
         if (trip == null) {
             return false;
         }
@@ -872,16 +930,15 @@ public class ExpenseCommands {
         }
         final int using = report.linesUsing(code).size();
         if (using > 0) {
-            return refuse(using + ((using == 1) ? " expense is" : " expenses are") + " in " + code
-                    + ": change or delete " + ((using == 1) ? "it" : "them") + " first.");
+            return refuse(Text.get("feedback.expenseCommands.currencyUsedByExpenses", using, code));
         }
         final int advances = report.advancesUsing(code).size();
         if (advances > 0) {
-            return refuse(advances + ((advances == 1) ? " advance is" : " advances are") + " in " + code
-                    + " on the worksheet: change or delete " + ((advances == 1) ? "it" : "them") + " first.");
+            return refuse(Text.get("feedback.expenseCommands.currencyUsedByAdvances", advances, code));
         }
         report.getCurrencies().remove(rate);
-        return persist(trip, report, PageFeedback::refuse, "removed " + code, "Currency removed.");
+        return persist(trip, report, PageFeedback::refuse, "removed " + code,
+                Text.get("feedback.expenseCommands.currencyRemoved"));
     }
 
     /**
@@ -891,7 +948,7 @@ public class ExpenseCommands {
      */
     public boolean saveLine(final String tripId, final ExpenseForm form) {
         final Consumer<String> refusal = (form == null) ? PageFeedback::refuse : form::setProblem;
-        final Trip trip = gate.editableTrip(tripId, form, refusal, NOT_ALLOWED);
+        final Trip trip = gate.editableTrip(tripId, form, refusal, notAllowed());
         if (trip == null) {
             return false;
         }
@@ -908,7 +965,7 @@ public class ExpenseCommands {
         final String budgetLineId = trimToNull(form.getBudgetLineId());
         final ExpenseCategory matched = categoryOf(budget, budgetLineId);
         if (budgetLineId != null && matched == null) {
-            return refused(refusal, "That budget line no longer exists: choose another.");
+            return refused(refusal, Text.get("feedback.expenseCommands.budgetLineGone"));
         }
         final ExpenseCategory category = (trimToNull(form.getCategory()) == null)
                 ? ((matched == null) ? ExpenseCategory.GENERAL : matched)
@@ -916,14 +973,14 @@ public class ExpenseCommands {
         final boolean adding = form.getId() == null || form.getId().isBlank();
         final ExpenseLine existing = adding ? null : report.line(form.getId());
         if (!adding && existing == null) {
-            return refused(refusal, "This expense no longer exists: reload the page.");
+            return refused(refusal, Text.get("feedback.expenseCommands.expenseGone"));
         }
         if (adding && report.getLines().size() >= MAX_LINES) {
-            return refused(refusal, "A report holds at most " + MAX_LINES + " expenses.");
+            return refused(refusal, Text.get("feedback.expenseCommands.tooManyExpenses", MAX_LINES));
         }
         final ExpensePaidStatus paidStatus = paidStatusOf(form);
         if (!adding && paidStatus.isSettled() && report.isPaid(existing.getId())) {
-            return refused(refusal, PAID_LINE);
+            return refused(refusal, Text.get("feedback.expenseCommands.paidLine"));
         }
         final ExpenseLine line = ExpenseLine.builder().id(adding ? null : existing.getId()).date(form.getDate())
                 .category(category).description(form.getDescription()).currency(currency)
@@ -935,7 +992,7 @@ public class ExpenseCommands {
             report.getLines().set(report.getLines().indexOf(existing), line);
         }
         if (!persist(trip, report, refusal, (adding ? "added" : "edited") + " expense '" + line.getDescription()
-                + "'", "Expense saved.")) {
+                + "'", Text.get("feedback.expenseCommands.expenseSaved"))) {
             return false;
         }
         form.setId(line.getId());
@@ -956,24 +1013,25 @@ public class ExpenseCommands {
 
     private static String lineProblem(final ExpenseForm form) {
         if (trimToNull(form.getCategory()) != null && parse(ExpenseCategory.class, form.getCategory()) == null) {
-            return "Choose a category.";
+            return Text.get("feedback.expenseCommands.chooseCategory");
         }
         if (trimToNull(form.getPaidStatus()) != null && parse(ExpensePaidStatus.class, form.getPaidStatus()) == null) {
-            return "Choose a paid status.";
+            return Text.get("feedback.expenseCommands.choosePaidStatus");
         }
         if (trimToNull(form.getDescription()) == null) {
-            return "An expense needs a description.";
+            return Text.get("feedback.expenseCommands.needsDescription");
         }
-        final String description = tooLong("A description", form.getDescription(), MAX_DESCRIPTION);
+        final String description =
+                tooLong("feedback.moneyForms.descriptionTooLong", form.getDescription(), MAX_DESCRIPTION);
         if (description != null) {
             return description;
         }
         final Double amount = form.getAmount();
         if (amount == null || amount.isNaN() || amount.isInfinite() || amount < 0
                 || cents(amount) > MAX_AMOUNT_MINOR) {
-            return "Enter the amount, in the currency it was paid in.";
+            return Text.get("feedback.expenseCommands.enterLineAmount");
         }
-        return tooLong("A note", form.getNote(), MAX_NOTE);
+        return tooLong("feedback.moneyForms.noteTooLong", form.getNote(), MAX_NOTE);
     }
 
     /**
@@ -992,7 +1050,7 @@ public class ExpenseCommands {
         if (!adding) {
             final String code = CurrencyRate.normalizeCode(currency);
             if (code == null || (!ExpenseLine.USD.equals(code) && report.currency(code) == null)) {
-                refusal.accept("Choose a currency the report has, or add one.");
+                refusal.accept(Text.get("feedback.expenseCommands.chooseCurrency"));
                 return null;
             }
             return code;
@@ -1007,7 +1065,7 @@ public class ExpenseCommands {
             return null;
         }
         if (report.getCurrencies().size() >= MAX_CURRENCIES) {
-            refusal.accept("A report holds at most " + MAX_CURRENCIES + " currencies.");
+            refusal.accept(Text.get("feedback.expenseCommands.tooManyCurrencies", MAX_CURRENCIES));
             return null;
         }
         report.getCurrencies().add(CurrencyRate.builder().code(code).perUsdMicros(micros(newRate)).build());
@@ -1016,7 +1074,7 @@ public class ExpenseCommands {
 
     /** Deletes an expense and its receipts; refusals growl. Deleting one that is already gone succeeds quietly. */
     public boolean deleteLine(final String tripId, final String lineId) {
-        final Trip trip = gate.editableTrip(tripId, lineId, PageFeedback::refuse, NOT_ALLOWED);
+        final Trip trip = gate.editableTrip(tripId, lineId, PageFeedback::refuse, notAllowed());
         if (trip == null) {
             return false;
         }
@@ -1026,11 +1084,11 @@ public class ExpenseCommands {
             return true;
         }
         if (report.isPaid(lineId)) {
-            return refuse(PAID_LINE);
+            return refuse(Text.get("feedback.expenseCommands.paidLine"));
         }
         report.getLines().remove(line);
         if (!persist(trip, report, PageFeedback::refuse, "deleted expense '" + line.getDescription() + "'",
-                "Expense deleted.")) {
+                Text.get("feedback.expenseCommands.expenseDeleted"))) {
             return false;
         }
         // After the put: a refused save must leave the files its line still points at.
@@ -1040,14 +1098,14 @@ public class ExpenseCommands {
 
     /** Moves an expense one place up ({@code dir < 0}) or down. */
     public boolean moveLine(final String tripId, final String lineId, final int dir) {
-        final Trip trip = gate.editableTrip(tripId, lineId, PageFeedback::refuse, NOT_ALLOWED);
+        final Trip trip = gate.editableTrip(tripId, lineId, PageFeedback::refuse, notAllowed());
         if (trip == null) {
             return false;
         }
         final TripExpenseReport report = reportOrDefault(trip, Cached.NO);
         final ExpenseLine line = report.line(lineId);
         if (line == null) {
-            return refuse("This expense no longer exists: reload the page.");
+            return refuse(Text.get("feedback.expenseCommands.expenseGone"));
         }
         final List<ExpenseLine> lines = report.getLines();
         final int from = lines.indexOf(line);
@@ -1126,8 +1184,9 @@ public class ExpenseCommands {
         for (final ExpenseLine line : report.getLines()) {
             final boolean mine = editing != null && editing.getLineIds().contains(line.getId());
             if (mine || (line.isOutOfPocket() && !report.isPaid(line.getId()))) {
-                choices.add(choice(line.getId(), ((line.getDate() == null) ? VARIOUS : DAY.format(line.getDate()))
-                        + ", " + nameOr(line.getDescription(), "expense") + ", "
+                choices.add(choice(line.getId(), ((line.getDate() == null) ? various()
+                        : day(line.getDate(), RequestContext.currentLocale()))
+                        + ", " + nameOr(line.getDescription(), unnamedExpense()) + ", "
                         + money(ExpenseMath.lineUsd(report, line))));
             }
         }
@@ -1149,7 +1208,7 @@ public class ExpenseCommands {
      */
     public boolean recordPayment(final String tripId, final PaymentForm form) {
         final Consumer<String> refusal = (form == null) ? PageFeedback::refuse : form::setProblem;
-        final Trip trip = gate.settleableTrip(tripId, form, refusal, NOT_SETTLER);
+        final Trip trip = gate.settleableTrip(tripId, form, refusal, notSettler());
         if (trip == null) {
             return false;
         }
@@ -1161,10 +1220,10 @@ public class ExpenseCommands {
         final boolean adding = form.getId() == null || form.getId().isBlank();
         final ExpensePayment existing = adding ? null : report.payment(form.getId());
         if (!adding && existing == null) {
-            return refused(refusal, "This payment no longer exists: reload the page.");
+            return refused(refusal, Text.get("feedback.expenseCommands.paymentGone"));
         }
         if (adding && report.getPayments().size() >= MAX_PAYMENTS) {
-            return refused(refusal, "A report holds at most " + MAX_PAYMENTS + " payments.");
+            return refused(refusal, Text.get("feedback.expenseCommands.tooManyPayments", MAX_PAYMENTS));
         }
         final List<String> lineIds = distinct(form.getLineIds());
         final String lineProblem = paymentLinesProblem(report, existing, lineIds);
@@ -1185,7 +1244,8 @@ public class ExpenseCommands {
         final String what = (adding ? "recorded" : "edited") + " a payment of " + money(payment.getAmountCents())
                 + " by " + payment.getMethod() + " for " + lineIds.size()
                 + ((lineIds.size() == 1) ? " expense" : " expenses");
-        if (!persist(trip, report, refusal, what, adding ? "Payment recorded." : "Payment saved.")) {
+        if (!persist(trip, report, refusal, what, adding ? Text.get("feedback.expenseCommands.paymentRecorded")
+                : Text.get("feedback.expenseCommands.paymentSaved"))) {
             return false;
         }
         form.setId(payment.getId());
@@ -1196,17 +1256,17 @@ public class ExpenseCommands {
 
     private static String paymentProblem(final PaymentForm form) {
         if (form.getDate() == null) {
-            return "Enter the date it was paid.";
+            return Text.get("feedback.expenseCommands.enterPaidDate");
         }
-        final String amount = signedDollarsProblem("The amount", form.getAmount());
+        final String amount = signedDollarsProblem("feedback.moneyForms.signedAmountRange", form.getAmount());
         if (amount != null) {
             return amount;
         }
         if (trimToNull(form.getMethod()) == null) {
-            return "Enter how it was paid (Zelle, check 1042, cash...).";
+            return Text.get("feedback.expenseCommands.enterMethod");
         }
-        final String method = tooLong("How it was paid", form.getMethod(), MAX_NAME);
-        return (method != null) ? method : tooLong("A note", form.getNote(), MAX_NOTE);
+        final String method = tooLong("feedback.moneyForms.methodTooLong", form.getMethod(), MAX_NAME);
+        return (method != null) ? method : tooLong("feedback.moneyForms.noteTooLong", form.getNote(), MAX_NOTE);
     }
 
     /** Why these lines cannot be in this payment, or null: each must be still to be paid, or already in it. */
@@ -1215,15 +1275,17 @@ public class ExpenseCommands {
         for (final String lineId : lineIds) {
             final ExpenseLine line = report.line(lineId);
             if (line == null) {
-                return "An expense you ticked no longer exists: reload the page.";
+                return Text.get("feedback.expenseCommands.tickedExpenseGone");
             }
             if (!line.isOutOfPocket()) {
-                return "'" + nameOr(line.getDescription(), "expense") + "' was "
-                        + line.getPaidStatus().getLabel().toLowerCase(Locale.ROOT) + ": it needs no payment.";
+                return Text.get("feedback.expenseCommands.needsNoPayment",
+                        nameOr(line.getDescription(), unnamedExpense()),
+                        line.getPaidStatus().getLabel().toLowerCase(Locale.ROOT));
             }
             final ExpensePayment holder = report.paymentFor(lineId);
             if (holder != null && holder != editing) {
-                return "'" + nameOr(line.getDescription(), "expense") + "' is already in a payment: reload the page.";
+                return Text.get("feedback.expenseCommands.alreadyInPayment",
+                        nameOr(line.getDescription(), unnamedExpense()));
             }
         }
         return null;
@@ -1243,7 +1305,7 @@ public class ExpenseCommands {
 
     /** Deletes a payment (its expenses are unpaid again); refusals growl. Deleting one already gone succeeds. */
     public boolean deletePayment(final String tripId, final String paymentId) {
-        final Trip trip = gate.settleableTrip(tripId, paymentId, PageFeedback::refuse, NOT_SETTLER);
+        final Trip trip = gate.settleableTrip(tripId, paymentId, PageFeedback::refuse, notSettler());
         if (trip == null) {
             return false;
         }
@@ -1254,7 +1316,8 @@ public class ExpenseCommands {
         }
         report.getPayments().remove(payment);
         return persist(trip, report, PageFeedback::refuse, "deleted the payment of "
-                + money(payment.getAmountCents()) + " by " + payment.getMethod(), "Payment deleted.");
+                + money(payment.getAmountCents()) + " by " + payment.getMethod(),
+                Text.get("feedback.expenseCommands.paymentDeleted"));
     }
 
     // ================================================================== PDF and the treasurer
@@ -1273,18 +1336,19 @@ public class ExpenseCommands {
     }
 
     /**
-     * The report as a PDF (with its receipts appended when {@code withReceipts}), or null for a caller who may
-     * not read it.
+     * The report as a PDF in {@code locale} (with its receipts appended when {@code withReceipts}), or null for a
+     * caller who may not read it. A download is in the request's language; the treasurer's copy in theirs.
      */
-    public byte[] reportPdf(final String tripId, final boolean withReceipts) {
+    public byte[] reportPdf(final String tripId, final boolean withReceipts, final Locale locale) {
         if (!canViewExpenses(tripId)) {
             return null;
         }
         final Trip trip = gate.knownTrip(tripId);
         final TripExpenseReport report = reportOrDefault(trip, Cached.YES);
         final Map<String, String> labels = new HashMap<>();
-        final List<ExpenseReportPdf.ReceiptDoc> receipts = receiptDocs(report, labels);
-        return ExpenseReportPdf.render(reportPage(tripId), labels, withReceipts ? receipts : List.of());
+        final List<ExpenseReportPdf.ReceiptDoc> receipts = receiptDocs(report, labels, locale);
+        return ExpenseReportPdf.render(reportPageIn(tripId, locale), labels, withReceipts ? receipts : List.of(),
+                locale);
     }
 
     /**
@@ -1292,18 +1356,19 @@ public class ExpenseCommands {
      * {@code labels} with each expense's numbers ("R2, R3") for the PDF's Receipts column.
      */
     private List<ExpenseReportPdf.ReceiptDoc> receiptDocs(final TripExpenseReport report,
-            final Map<String, String> labels) {
+            final Map<String, String> labels, final Locale locale) {
         final List<ExpenseReportPdf.ReceiptDoc> docs = new ArrayList<>();
         final ExpenseReceipts store = receiptSource.get();
         for (final String id : report.getReceiptIds()) {
-            docs.add(receiptDoc(store, id, "R" + (docs.size() + 1), "The report"));
+            docs.add(receiptDoc(store, id, "R" + (docs.size() + 1),
+                    Text.forLocale(locale, "pdf.expenseReport.forTheReport"), locale));
         }
         for (final ExpenseLine line : report.getLines()) {
             final List<String> mine = new ArrayList<>();
             for (final String id : line.getReceiptIds()) {
                 final String label = "R" + (docs.size() + 1);
                 mine.add(label);
-                docs.add(receiptDoc(store, id, label, line.getDescription()));
+                docs.add(receiptDoc(store, id, label, line.getDescription(), locale));
             }
             if (!mine.isEmpty()) {
                 labels.put(line.getId(), String.join(", ", mine));
@@ -1313,10 +1378,11 @@ public class ExpenseCommands {
     }
 
     private static ExpenseReportPdf.ReceiptDoc receiptDoc(final ExpenseReceipts store, final String mediaId,
-            final String label, final String forWhat) {
+            final String label, final String forWhat, final Locale locale) {
         final MediaItem item = DAO.getInstance().getMedia(mediaId, Cached.YES).orElse(null);
         if (item == null) {
-            return new ExpenseReportPdf.ReceiptDoc(label, forWhat, "(deleted)", null, null);
+            return new ExpenseReportPdf.ReceiptDoc(label, forWhat,
+                    Text.forLocale(locale, "pdf.expenseReport.receiptDeleted"), null, null);
         }
         final ExpenseReceipts.Served served = store.served(item, false).orElse(null);
         return new ExpenseReportPdf.ReceiptDoc(label, forWhat, item.getTitle(),
@@ -1327,69 +1393,90 @@ public class ExpenseCommands {
     /**
      * Emails the report to the organization's treasurer as ONE PDF with the receipts appended (owner decision
      * 2026-10-26); when that would be too large for an email, the report alone, saying so in the message. The
-     * submitter is the Reply-To. Records who it went to and when; refusals growl.
+     * submitter is the Reply-To. Records who it went to and when; refusals growl. The mail and the PDF are in
+     * the treasurer's language (staff: their own saved choice, else English), never the submitter's.
      */
     public boolean emailTreasurer(final String tripId) {
-        final Trip trip = gate.editableTrip(tripId, tripId, PageFeedback::refuse, NOT_ALLOWED);
+        final Trip trip = gate.editableTrip(tripId, tripId, PageFeedback::refuse, notAllowed());
         if (trip == null) {
             return false;
         }
         final String treasurer = treasurerEmail(trip);
         if (treasurer == null) {
-            return refuse("No treasurer email is set for " + nameOr(orgName(trip), "this organization")
-                    + ": an organization admin sets it under Organization settings, Configuration.");
+            final String orgName = nameOr(orgName(trip), null);
+            return refuse((orgName == null) ? Text.get("feedback.expenseCommands.noTreasurer")
+                    : Text.get("feedback.expenseCommands.noTreasurerFor", orgName));
         }
-        byte[] pdf = reportPdf(tripId, true);
+        final Locale locale = ReaderLanguage.ofStaffAddress(treasurer, trip);
+        byte[] pdf = reportPdf(tripId, true, locale);
         final boolean receiptsLeftOut = pdf.length > MailCommands.MAX_ATTACHMENT_BYTES;
         if (receiptsLeftOut) {
-            pdf = reportPdf(tripId, false);
+            pdf = reportPdf(tripId, false, locale);
         }
         final TripExpenseReport report = reportOrDefault(trip, Cached.NO);
-        final String subject = "Expense report: " + trip.getTitle()
-                + ((report.getSubmittedBy() == null) ? "" : " (" + report.getSubmittedBy() + ")");
+        final String subject = (report.getSubmittedBy() == null)
+                ? Text.forLocale(locale, "mail.expenseReport.subject", trip.getTitle())
+                : Text.forLocale(locale, "mail.expenseReport.subjectBy", trip.getTitle(), report.getSubmittedBy());
         final boolean sent = mailSource.get().sendWithAttachment(
                 new MailAddressCommands(configSource.get()).siteFrom(), treasurer, callerEmail(), subject,
-                treasurerBody(trip, report, receiptsLeftOut), ExpenseReportPdf.fileName(trip.getTitle()), pdf,
-                ExpenseReceipts.PDF, caller().auditActor());
+                treasurerBody(trip, report, receiptsLeftOut, locale), ExpenseReportPdf.fileName(trip.getTitle()),
+                pdf, ExpenseReceipts.PDF, caller().auditActor());
         if (!sent) {
-            return refuse("The report could not be emailed to " + treasurer + ". Try again.");
+            return refuse(Text.get("feedback.expenseCommands.notEmailed", treasurer));
         }
         report.setEmailedTo(treasurer);
         report.setEmailedOn(LocalDateTime.now());
         persist(trip, report, PageFeedback::refuse, "emailed the report to " + treasurer, null);
-        info("Expense report emailed to " + treasurer + (receiptsLeftOut ? " (without the receipts, which made it "
-                + "too large to email)." : "."));
+        info(receiptsLeftOut ? Text.get("feedback.expenseCommands.emailedWithoutReceipts", treasurer)
+                : Text.get("feedback.expenseCommands.emailed", treasurer));
         return true;
     }
 
-    /** The message to the treasurer: who, what trip, the bottom line, and what is attached. */
-    private String treasurerBody(final Trip trip, final TripExpenseReport report, final boolean receiptsLeftOut) {
-        final ExpensePage page = reportPage(trip.getId());
+    /**
+     * The message to the treasurer: who, what trip, the bottom line, and what is attached. Every label and line
+     * comes from the same locale-explicit page the PDF is drawn from, so the two read alike.
+     */
+    private String treasurerBody(final Trip trip, final TripExpenseReport report, final boolean receiptsLeftOut,
+            final Locale locale) {
+        final ExpensePage page = reportPageIn(trip.getId(), locale);
+        final String who = esc(nameOr(report.getSubmittedBy(), Text.forLocale(locale, "common.someone")));
         final StringBuilder html = new StringBuilder();
-        html.append("<p>").append(esc(nameOr(report.getSubmittedBy(), "Someone"))).append(" submitted the expense ")
-                .append("report for <b>").append(esc(trip.getTitle())).append("</b>")
-                .append((page.getTripDates() == null) ? "" : " (" + esc(page.getTripDates()) + ")").append(".</p>");
-        html.append("<p>Total spent: ").append(esc(page.getTotal()));
+        html.append("<p>").append((page.getTripDates() == null)
+                ? Text.forLocale(locale, "mail.expenseReport.submitted", who, esc(trip.getTitle()))
+                : Text.forLocale(locale, "mail.expenseReport.submittedDates", who, esc(trip.getTitle()),
+                        esc(page.getTripDates()))).append("</p>");
+        html.append("<p>").append(labeled(locale, "pdf.expenseReport.totalSpent", page.getTotal()));
         if (page.isHasSettled()) {
-            html.append("<br/>Paid by organization: ").append(esc(page.getPaidByOrg()))
-                    .append("<br/>Already reimbursed: ").append(esc(page.getReimbursed()));
+            html.append("<br/>").append(labeled(ExpensePaidStatus.ORG.getLabel(locale), page.getPaidByOrg()))
+                    .append("<br/>").append(labeled(ExpensePaidStatus.REIMBURSED.getLabel(locale),
+                            page.getReimbursed()));
         }
-        html.append("<br/>Cash advanced: ").append(esc(page.getCashAdvance())).append("<br/><b>")
-                .append(esc(page.getDueLabel())).append(": ").append(esc(page.getDue())).append("</b>");
+        html.append("<br/>").append(labeled(locale, "pdf.expenseReport.cashAdvanced", page.getCashAdvance()))
+                .append("<br/><b>").append(labeled(page.getDueLabel(), page.getDue())).append("</b>");
         if (!page.getPaymentRows().isEmpty()) {
-            html.append("<br/>Payments recorded: ").append(esc(page.getPaymentsTotal())).append("<br/><b>")
-                    .append(esc(page.getStillDueLabel())).append(page.isSettled() ? "" : ": " + esc(page.getStillDue()))
+            html.append("<br/>").append(labeled(locale, "pdf.expenseReport.paymentsRecorded",
+                    page.getPaymentsTotal())).append("<br/><b>")
+                    .append(page.isSettled() ? esc(page.getStillDueLabel())
+                            : labeled(page.getStillDueLabel(), page.getStillDue()))
                     .append("</b>");
         }
         html.append("</p>");
         if (report.getPaymentInstructions() != null) {
-            html.append("<p>Payment instructions: ").append(esc(report.getPaymentInstructions())).append("</p>");
+            html.append("<p>").append(labeled(locale, "pdf.expenseReport.paymentInstructions",
+                    report.getPaymentInstructions())).append("</p>");
         }
-        html.append("<p>").append(receiptsLeftOut
-                ? "The report is attached. Its receipts made the file too large to email; they are on the report "
-                        + "online."
-                : "The report is attached as a PDF, with its receipts after it.").append("</p>");
+        html.append("<p>").append(esc(Text.forLocale(locale, receiptsLeftOut ? "mail.expenseReport.attachedAlone"
+                : "mail.expenseReport.attachedWithReceipts"))).append("</p>");
         return html.toString();
+    }
+
+    /** "Total spent: $1,234.00": a label read from {@code key}, a colon, and the value, escaped. */
+    private static String labeled(final Locale locale, final String key, final String value) {
+        return labeled(Text.forLocale(locale, key), value);
+    }
+
+    private static String labeled(final String label, final String value) {
+        return esc(label) + ": " + esc(value);
     }
 
     private static String esc(final String text) {
@@ -1415,7 +1502,7 @@ public class ExpenseCommands {
      */
     boolean attachReceipt(final String tripId, final String lineId, final String mediaId,
             final Consumer<String> refusal) {
-        final Trip trip = gate.editableTrip(tripId, mediaId, refusal, NOT_ALLOWED);
+        final Trip trip = gate.editableTrip(tripId, mediaId, refusal, notAllowed());
         if (trip == null) {
             return false;
         }
@@ -1424,16 +1511,18 @@ public class ExpenseCommands {
         if (lineId == null || lineId.isBlank()) {
             ids = report.getReceiptIds();
             if (ids.size() >= MAX_REPORT_RECEIPTS) {
-                return refused(refusal, "A report holds at most " + MAX_REPORT_RECEIPTS + " report-level receipts.");
+                return refused(refusal,
+                        Text.get("feedback.expenseCommands.tooManyReportReceipts", MAX_REPORT_RECEIPTS));
             }
         } else {
             final ExpenseLine line = report.line(lineId);
             if (line == null) {
-                return refused(refusal, "This expense no longer exists: reload the page.");
+                return refused(refusal, Text.get("feedback.expenseCommands.expenseGone"));
             }
             ids = line.getReceiptIds();
             if (ids.size() >= MAX_RECEIPTS_PER_LINE) {
-                return refused(refusal, "An expense holds at most " + MAX_RECEIPTS_PER_LINE + " receipts.");
+                return refused(refusal,
+                        Text.get("feedback.expenseCommands.tooManyLineReceipts", MAX_RECEIPTS_PER_LINE));
             }
         }
         ids.add(mediaId);
@@ -1442,7 +1531,7 @@ public class ExpenseCommands {
 
     /** Unlinks a receipt from wherever the report holds it; false (after refusing) when it holds it nowhere. */
     boolean detachReceipt(final String tripId, final String mediaId, final Consumer<String> refusal) {
-        final Trip trip = gate.editableTrip(tripId, mediaId, refusal, NOT_ALLOWED);
+        final Trip trip = gate.editableTrip(tripId, mediaId, refusal, notAllowed());
         if (trip == null) {
             return false;
         }
@@ -1450,7 +1539,7 @@ public class ExpenseCommands {
         if (!report.getReceiptIds().remove(mediaId)) {
             final ExpenseLine line = report.lineWithReceipt(mediaId);
             if (line == null) {
-                return refused(refusal, "That receipt is not on this report.");
+                return refused(refusal, Text.get("feedback.expenseCommands.receiptNotHere"));
             }
             line.getReceiptIds().remove(mediaId);
         }
@@ -1471,7 +1560,7 @@ public class ExpenseCommands {
     /** The dialog's title for a type name; "Advance" for an unknown one. */
     public String typeLabel(final String type) {
         final AdvanceType parsed = parse(AdvanceType.class, type);
-        return (parsed == null) ? "Advance" : parsed.getLabel();
+        return (parsed == null) ? Text.get("feedback.expenseCommands.advance") : parsed.getLabel();
     }
 
     /** The question above the type's "who" field; null for a type without one. */
@@ -1481,9 +1570,9 @@ public class ExpenseCommands {
             return null;
         }
         return switch (parsed) {
-            case CASH -> "Who gave the advance?";
-            case CREDIT -> "Who or where did this credit come from?";
-            case RETURNED -> "Who did you give the money to?";
+            case CASH -> Text.get("feedback.expenseCommands.partyLabel.CASH");
+            case CREDIT -> Text.get("feedback.expenseCommands.partyLabel.CREDIT");
+            case RETURNED -> Text.get("feedback.expenseCommands.partyLabel.RETURNED");
             default -> null;
         };
     }
@@ -1495,13 +1584,11 @@ public class ExpenseCommands {
             return "";
         }
         return switch (parsed) {
-            case CASH -> "Cash the organization (usually) gave you before or during the trip.";
-            case CREDIT -> "For example money carried over from a previous trip, or the cash value of an item given "
-                    + "as payment.";
-            case PARTICIPANT -> "Pick who handed you cash.";
-            case RETURNED -> "Usually the organization, but it may be a person. This is subtracted from the total "
-                    + "advanced. Tell your treasurer where the money went.";
-            case OTHER -> "Explain this advance clearly in the note. Use one of the other types when it fits.";
+            case CASH -> Text.get("feedback.expenseCommands.typeHelp.CASH");
+            case CREDIT -> Text.get("feedback.expenseCommands.typeHelp.CREDIT");
+            case PARTICIPANT -> Text.get("feedback.expenseCommands.typeHelp.PARTICIPANT");
+            case RETURNED -> Text.get("feedback.expenseCommands.typeHelp.RETURNED");
+            case OTHER -> Text.get("feedback.expenseCommands.typeHelp.OTHER");
         };
     }
 
@@ -1555,7 +1642,7 @@ public class ExpenseCommands {
         form.setParty(entry.getParty());
         form.setPersonIds(new ArrayList<>(entry.getPersonIds()));
         form.setNote(entry.getNote());
-        form.setTransactionLine(transactionLine(entry));
+        form.setTransactionLine(transactionLine(entry, RequestContext.currentLocale()));
         form.setTransactionId((entry.getTransaction() == null) ? null : entry.getTransaction().getTxId());
         return form;
     }
@@ -1582,7 +1669,7 @@ public class ExpenseCommands {
      */
     public boolean saveAdvance(final String tripId, final AdvanceForm form) {
         final Consumer<String> refusal = (form == null) ? PageFeedback::refuse : form::setProblem;
-        final Trip trip = gate.editableTrip(tripId, form, refusal, NOT_ALLOWED);
+        final Trip trip = gate.editableTrip(tripId, form, refusal, notAllowed());
         if (trip == null) {
             return false;
         }
@@ -1595,10 +1682,10 @@ public class ExpenseCommands {
         final boolean adding = form.getId() == null || form.getId().isBlank();
         final AdvanceEntry existing = adding ? null : report.advance(form.getId());
         if (!adding && existing == null) {
-            return refused(refusal, "This advance no longer exists: reload the page.");
+            return refused(refusal, Text.get("feedback.expenseCommands.advanceGone"));
         }
         if (adding && report.getAdvances().size() >= MAX_ADVANCES) {
-            return refused(refusal, "A worksheet holds at most " + MAX_ADVANCES + " advances.");
+            return refused(refusal, Text.get("feedback.expenseCommands.tooManyAdvances", MAX_ADVANCES));
         }
         final String currency = currencyFor(report, form.isAddingCurrency(), form.getCurrency(), form.getNewCode(),
                 form.getNewRate(), refusal);
@@ -1615,9 +1702,10 @@ public class ExpenseCommands {
         } else {
             report.getAdvances().set(report.getAdvances().indexOf(existing), entry);
         }
-        final String what = (adding ? "added" : "edited") + " the " + type.getLabel() + " of "
+        // Audit text stays English whatever the editor reads (docs/i18n.md).
+        final String what = (adding ? "added" : "edited") + " the " + type.getLabel(Locale.ENGLISH) + " of "
                 + money(Math.abs(ExpenseMath.advanceUsd(report, entry))) + " on the cash-advance worksheet";
-        if (!persist(trip, report, refusal, what, "Advance saved.")) {
+        if (!persist(trip, report, refusal, what, Text.get("feedback.expenseCommands.advanceSaved"))) {
             return false;
         }
         if (entry.getTransaction() != null) {
@@ -1632,7 +1720,7 @@ public class ExpenseCommands {
         form.setNewCode(null);
         form.setNewRate(null);
         form.setRecordTransaction(false);
-        form.setTransactionLine(transactionLine(entry));
+        form.setTransactionLine(transactionLine(entry, RequestContext.currentLocale()));
         form.setTransactionId((entry.getTransaction() == null) ? null : entry.getTransaction().getTxId());
         form.setProblem(null);
         return true;
@@ -1649,34 +1737,34 @@ public class ExpenseCommands {
 
     private static String advanceProblem(final Trip trip, final AdvanceType type, final AdvanceForm form) {
         if (type == null) {
-            return "Pick what kind of advance this is.";
+            return Text.get("feedback.expenseCommands.pickAdvanceType");
         }
         if (form.getAmount() == null) {
-            return "Enter the amount.";
+            return Text.get("feedback.expenseCommands.enterAmount");
         }
-        final String amount = dollarsProblem("The amount", form.getAmount());
+        final String amount = dollarsProblem("feedback.moneyForms.amountRange", form.getAmount());
         if (amount != null) {
             return amount;
         }
         if (cents(form.getAmount()) > MAX_AMOUNT_MINOR) {
-            return "The amount is too large.";
+            return Text.get("feedback.expenseCommands.amountTooLarge");
         }
-        final String party = tooLong("The answer", form.getParty(), MAX_DESCRIPTION);
+        final String party = tooLong("feedback.moneyForms.answerTooLong", form.getParty(), MAX_DESCRIPTION);
         if (party != null) {
             return party;
         }
         if (type == AdvanceType.PARTICIPANT) {
             final List<String> ids = distinct(form.getPersonIds());
             if (ids.isEmpty()) {
-                return "Pick who handed you the cash.";
+                return Text.get("feedback.expenseCommands.pickParticipants");
             }
             for (final String id : ids) {
                 if (!trip.getPeople().contains(Person.Id.from(id))) {
-                    return personName(id) + " is not on this trip: reload the page.";
+                    return Text.get("feedback.expenseCommands.notOnTrip", personName(id));
                 }
             }
         }
-        return tooLong("The note", form.getNote(), MAX_TEXT);
+        return tooLong("feedback.moneyForms.reportNoteTooLong", form.getNote(), MAX_TEXT);
     }
 
     /**
@@ -1693,7 +1781,7 @@ public class ExpenseCommands {
                 Transaction.TransactionType.Payment, when, MoneyMath.toFloatDollars(cents), "Payment",
                 PARTICIPANT_TX_NOTE);
         if (!txSource.get().saveTransaction(tx, trip.getId())) {
-            warn("The advance was saved, but the payment transaction could not be recorded. Record it by hand.");
+            warn(Text.get("feedback.expenseCommands.transactionNotRecorded"));
             return;
         }
         final BindingCommands bind = bindSource.get();
@@ -1704,27 +1792,31 @@ public class ExpenseCommands {
         entry.setTransaction(AdvanceEntry.RecordedTransaction.builder().txId(tx.getTxId())
                 .personId(personId.getValue()).amountCents(cents).recordedOn(LocalDateTime.now()).build());
         final String name = personName(personId.getValue());
-        if (!persist(trip, report, ExpenseCommands::stampFailed, "recorded a " + money(cents) + " payment for " + name,
-                null)) {
+        // The audit line names the person in English even when the fallback words stand for a missing name.
+        if (!persist(trip, report, ExpenseCommands::stampFailed, "recorded a " + money(cents) + " payment for "
+                + personName(personId.getValue(), Locale.ENGLISH), null)) {
             return;
         }
-        info("Payment of " + money(cents) + " recorded for " + name + ".");
+        info(Text.get("feedback.expenseCommands.participantPaymentRecorded", money(cents), name));
     }
 
     private static void stampFailed(final String reason) {
-        warn("The payment was recorded, but the report could not note it (" + reason + ") Reload the page.");
+        warn(Text.get("feedback.expenseCommands.stampFailed", reason));
     }
 
     /** The edit/delete warning for an entry that recorded a transaction: the ledger is not updated from here. */
     private void warnRecorded(final AdvanceEntry entry) {
         final AdvanceEntry.RecordedTransaction tx = entry.getTransaction();
-        warn(String.format(TX_WARNING, money(tx.getAmountCents()), personName(tx.getPersonId()),
-                (tx.getRecordedOn() == null) ? "an earlier date" : DAY.format(tx.getRecordedOn())));
+        final String amount = money(tx.getAmountCents());
+        final String name = personName(tx.getPersonId());
+        warn((tx.getRecordedOn() == null) ? Text.get("feedback.expenseCommands.txWarningEarlier", amount, name)
+                : Text.get("feedback.expenseCommands.txWarning", amount, name,
+                        day(tx.getRecordedOn(), RequestContext.currentLocale())));
     }
 
     /** Deletes a worksheet entry; one that recorded a transaction leaves it in the ledger and warns. */
     public boolean deleteAdvance(final String tripId, final String advanceId) {
-        final Trip trip = gate.editableTrip(tripId, advanceId, PageFeedback::refuse, NOT_ALLOWED);
+        final Trip trip = gate.editableTrip(tripId, advanceId, PageFeedback::refuse, notAllowed());
         if (trip == null) {
             return false;
         }
@@ -1734,9 +1826,10 @@ public class ExpenseCommands {
             return true;
         }
         report.getAdvances().remove(entry);
-        final String what = "deleted the " + entry.getType().getLabel() + " of "
+        // Audit text stays English whatever the editor reads (docs/i18n.md).
+        final String what = "deleted the " + entry.getType().getLabel(Locale.ENGLISH) + " of "
                 + money(Math.abs(ExpenseMath.advanceUsd(report, entry))) + " from the cash-advance worksheet";
-        if (!persist(trip, report, PageFeedback::refuse, what, "Advance deleted.")) {
+        if (!persist(trip, report, PageFeedback::refuse, what, Text.get("feedback.expenseCommands.advanceDeleted"))) {
             return false;
         }
         if (entry.getTransaction() != null) {
@@ -1758,15 +1851,15 @@ public class ExpenseCommands {
         }
         try {
             if (!DAO.getInstance().saveTripExpenseReport(report)) {
-                return refused(refusal, "The expense report could not be saved.");
+                return refused(refusal, Text.get("feedback.expenseCommands.notSaved"));
             }
         } catch (final ConditionalCheckFailedException ex) {
-            return refused(refusal, "Saved by someone else: reload the page and try again.");
+            return refused(refusal, Text.get("feedback.shared.savedBySomeoneElse"));
         } catch (final IllegalArgumentException ex) {
-            return refused(refusal, "The expense report is too large to save: shorten some notes.");
+            return refused(refusal, Text.get("feedback.expenseCommands.tooLarge"));
         } catch (final IOException ex) {
             log.error("Unable to save the expense report of trip {}", trip.getId(), ex);
-            return refused(refusal, "The expense report was not saved: the error has been logged. Try again.");
+            return refused(refusal, Text.get("feedback.expenseCommands.saveFailed"));
         }
         auditSource.get().expenseReport(trip.getId(), trip.getOrgId(),
                 "Expense report of '" + trip.getTitle() + "': " + what, caller().auditActor());
@@ -1797,13 +1890,19 @@ public class ExpenseCommands {
     }
 
     /** "Sep 20, 2026 to Oct 5, 2026"; just the start when there is no end; null with no dates. */
-    static String tripDates(final Trip trip) {
+    static String tripDates(final Trip trip, final Locale locale) {
         final LocalDateTime start = trip.getStartDate();
         final LocalDateTime end = trip.getEndDate();
         if (start == null) {
             return null;
         }
-        return (end == null) ? DAY.format(start) : DAY.format(start) + " to " + DAY.format(end);
+        return (end == null) ? day(start, locale)
+                : Text.forLocale(locale, "common.range", day(start, locale), day(end, locale));
+    }
+
+    /** "Oct 30, 2026": a date the way the reader's language writes it (English's is the one these always used). */
+    private static String day(final TemporalAccessor date, final Locale locale) {
+        return Formats.date(date, locale);
     }
 
     /** "23.00 EUR": hundredths of a foreign currency with its code. */
@@ -1819,6 +1918,36 @@ public class ExpenseCommands {
                     + " MB";
         }
         return Math.max(1L, (bytes + 500L) / 1_000L) + " KB";
+    }
+
+    private static String notAllowed() {
+        return Text.get("feedback.expenseCommands.notAllowed");
+    }
+
+    private static String notSettler() {
+        return Text.get("feedback.expenseCommands.notSettler");
+    }
+
+    /** What stands where a name was never typed. */
+    private static String noName(final Locale locale) {
+        return Text.forLocale(locale, "feedback.expenseCommands.noName");
+    }
+
+    /** What stands for an expense with no description, in the request's language. */
+    private static String unnamedExpense() {
+        return unnamedExpense(RequestContext.currentLocale());
+    }
+
+    private static String unnamedExpense(final Locale locale) {
+        return Text.forLocale(locale, "feedback.expenseCommands.unnamedExpense");
+    }
+
+    private static String various() {
+        return various(RequestContext.currentLocale());
+    }
+
+    private static String various(final Locale locale) {
+        return Text.forLocale(locale, "feedback.expenseCommands.various");
     }
 
     private static String nameOr(final String text, final String fallback) {

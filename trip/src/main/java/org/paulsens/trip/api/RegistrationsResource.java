@@ -33,6 +33,7 @@ import org.paulsens.trip.api.dto.RegisterPartyResponse;
 import org.paulsens.trip.api.dto.RegistrationDto;
 import org.paulsens.trip.api.mapper.RegistrationMapper;
 import org.paulsens.trip.checkout.CheckoutProblem;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.Payment;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.PersonDataValue;
@@ -71,7 +72,7 @@ public class RegistrationsResource extends BaseResource {
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response list(@PathParam("tripId") final String tripId) {
         if (!isTripStaff(tripId)) {
-            return error(403, ApiErrors.FORBIDDEN, "Trip staff required.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.registrations.tripStaffRequired"));
         }
         return ok(Beans.get(RegistrationCommands.class).getRegistrations(tripId).stream()
                 .map(reg -> RegistrationMapper.INSTANCE.toDto(reg).withoutSecrets())
@@ -112,13 +113,13 @@ public class RegistrationsResource extends BaseResource {
             @HeaderParam(CSRF_HEADER) final String csrf,
             final org.paulsens.trip.model.CheckoutConfig body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         if (!mayManagePricing(tripId)) {
-            return error(403, ApiErrors.FORBIDDEN, "Trip manager required.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.shared.tripManagerRequired"));
         }
         if (body == null) {
-            return error(400, ApiErrors.VALIDATION_FAILED, "A pricing policy is required.");
+            return error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.registrations.pricingPolicyRequired"));
         }
         final List<String> problems = body.problems();
         if (!problems.isEmpty()) {
@@ -128,7 +129,7 @@ public class RegistrationsResource extends BaseResource {
         final Trip trip = requireTrip(tripId);
         trip.setCheckout(body);
         if (!Beans.get(org.paulsens.trip.action.TripCommands.class).saveTrip(trip)) {
-            return error(500, ApiErrors.STORE_FAILED, "Could not save the pricing policy.");
+            return error(500, ApiErrors.STORE_FAILED, Text.get("api.registrations.pricingPolicyNotSaved"));
         }
         return ok(trip.getCheckout());
     }
@@ -157,7 +158,7 @@ public class RegistrationsResource extends BaseResource {
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response pendingCount(@PathParam("tripId") final String tripId) {
         if (!isTripStaff(tripId)) {
-            return error(403, ApiErrors.FORBIDDEN, "Trip staff required.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.registrations.tripStaffRequired"));
         }
         return ok(Map.of("pending", Beans.get(RegistrationCommands.class).getNumPending(tripId)));
     }
@@ -176,7 +177,7 @@ public class RegistrationsResource extends BaseResource {
         requireTrip(tripId);
         final CheckinCommands checkin = callerBoundCheckin();
         if (!checkin.canCheckIn(tripId)) {
-            return error(403, ApiErrors.FORBIDDEN, "Check-in staff required.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.registrations.checkinStaffRequired"));
         }
         return ok(checkin.lookup(tripId, query).stream().map(row -> rowDto(tripId, row)).toList());
     }
@@ -192,11 +193,11 @@ public class RegistrationsResource extends BaseResource {
         final Trip trip = requireTrip(tripId);
         final CheckinCommands checkin = callerBoundCheckin();
         if (!checkin.canCheckIn(tripId)) {
-            return error(403, ApiErrors.FORBIDDEN, "Check-in staff required.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.registrations.checkinStaffRequired"));
         }
         final Registration reg = checkin.byTicket(tripId, code);
         if (reg == null) {
-            return error(404, ApiErrors.NOT_FOUND, "No such ticket for this event.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.registrations.noSuchTicket"));
         }
         return ok(checkinDto(checkin, trip, reg));
     }
@@ -211,7 +212,7 @@ public class RegistrationsResource extends BaseResource {
     public Response checkIn(@PathParam("tripId") final String tripId,
             @PathParam("personId") final String personIdParam, @HeaderParam(CSRF_HEADER) final String csrf) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         final Trip trip = requireTrip(tripId);
         requireSubject(Person.Id.from(personIdParam));
@@ -220,12 +221,12 @@ public class RegistrationsResource extends BaseResource {
         return switch (result.outcome()) {
             case CHECKED_IN -> ok(checkinDto(checkin, trip, result.registration()));
             case ALREADY_CHECKED_IN -> error(409, ApiErrors.ALREADY_CHECKED_IN,
-                    "Already checked in " + checkin.stampText(result.registration()) + ".");
-            case NOT_CONFIRMED -> error(409, ApiErrors.NOT_CONFIRMED, "The registration is "
-                    + result.registration().getStatus().getDescription() + ", not Confirmed.");
-            case NOT_FOUND -> error(404, ApiErrors.NOT_FOUND, "Not registered for this event.");
-            case NOT_ALLOWED -> error(403, ApiErrors.FORBIDDEN, "Check-in staff required.");
-            default -> error(500, ApiErrors.STORE_FAILED, "Could not save the check-in.");
+                    Text.get("api.registrations.alreadyCheckedIn", checkin.stampText(result.registration())));
+            case NOT_CONFIRMED -> error(409, ApiErrors.NOT_CONFIRMED,
+                    Text.get("api.registrations.notConfirmed", result.registration().getStatus().getLabel()));
+            case NOT_FOUND -> error(404, ApiErrors.NOT_FOUND, Text.get("api.registrations.notRegistered"));
+            case NOT_ALLOWED -> error(403, ApiErrors.FORBIDDEN, Text.get("api.registrations.checkinStaffRequired"));
+            default -> error(500, ApiErrors.STORE_FAILED, Text.get("api.registrations.checkinNotSaved"));
         };
     }
 
@@ -236,7 +237,7 @@ public class RegistrationsResource extends BaseResource {
     public Response clearCheckIn(@PathParam("tripId") final String tripId,
             @PathParam("personId") final String personIdParam, @HeaderParam(CSRF_HEADER) final String csrf) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         final Trip trip = requireTrip(tripId);
         requireSubject(Person.Id.from(personIdParam));
@@ -244,9 +245,9 @@ public class RegistrationsResource extends BaseResource {
         final CheckinCommands.Result result = checkin.clearCheckInOutcome(tripId, personIdParam);
         return switch (result.outcome()) {
             case CLEARED, NOT_CHECKED_IN -> ok(checkinDto(checkin, trip, result.registration()));
-            case NOT_FOUND -> error(404, ApiErrors.NOT_FOUND, "Not registered for this event.");
-            case NOT_ALLOWED -> error(403, ApiErrors.FORBIDDEN, "Only the event's managers may clear a check-in.");
-            default -> error(500, ApiErrors.STORE_FAILED, "Could not clear the check-in.");
+            case NOT_FOUND -> error(404, ApiErrors.NOT_FOUND, Text.get("api.registrations.notRegistered"));
+            case NOT_ALLOWED -> error(403, ApiErrors.FORBIDDEN, Text.get("api.registrations.clearNeedsManager"));
+            default -> error(500, ApiErrors.STORE_FAILED, Text.get("api.registrations.checkinNotCleared"));
         };
     }
 
@@ -258,7 +259,7 @@ public class RegistrationsResource extends BaseResource {
         requireTrip(tripId);
         final CheckinCommands checkin = callerBoundCheckin();
         if (!checkin.canViewCounts(tripId)) {
-            return error(403, ApiErrors.FORBIDDEN, "Not permitted to read this event's counts.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.registrations.countsNotPermitted"));
         }
         return ok(CheckinCountsDto.of(checkin.counts(tripId), checkin.money(tripId)));
     }
@@ -298,7 +299,7 @@ public class RegistrationsResource extends BaseResource {
             @PathParam("tripId") final String tripId, @PathParam("personId") final String personIdParam) {
         final Person.Id subject = Person.Id.from(personIdParam);
         if (!canSeeAnswers(tripId, subject)) {
-            return error(403, ApiErrors.FORBIDDEN, "Not permitted to read this registration.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.registrations.readNotPermitted"));
         }
         // The registration may be transient, but the TRIP and PERSON must be real: without these checks the
         // invented record makes a nonexistent trip -- or a mistyped person id -- look like someone who simply
@@ -332,7 +333,7 @@ public class RegistrationsResource extends BaseResource {
             @HeaderParam(CSRF_HEADER) final String csrf,
             final RegistrationDto body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         final Person.Id subject = Person.Id.from(personIdParam);
         // getRegistration invents a record keyed to whatever was asked for, so without these checks a PUT to a
@@ -340,23 +341,23 @@ public class RegistrationsResource extends BaseResource {
         final Trip trip = requireTrip(tripId);
         final boolean staff = mayAdministerRegistrations(trip);
         if (!staff && !actsFor(subject)) {
-            return error(403, ApiErrors.FORBIDDEN, "Not permitted to edit this registration.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.registrations.editNotPermitted"));
         }
         if (body != null && body.status() != null && !staff) {
             return error(403, ApiErrors.FORBIDDEN,
-                    "Only a registration admin may change a registration's status.");
+                    Text.get("api.registrations.statusNeedsAdmin"));
         }
         final Person person = requireSubject(subject);
         if (!actsFor(subject) && !new RegistrationCommands(this::caller).withinStaffReach(trip, subject)) {
             // Staff reach stops at the trip's own people: a registration is what makes someone "on the trip".
-            return error(403, ApiErrors.FORBIDDEN, RegistrationCommands.OUT_OF_REACH);
+            return error(403, ApiErrors.FORBIDDEN, Text.get("feedback.registrationCommands.outOfReach"));
         }
         final RegistrationCommands registrations = Beans.get(RegistrationCommands.class);
         final Registration existing = registrations.getRegistration(tripId, subject);
         final Registration toSave = merge(existing, body, staff ? optionsOf(body)
                 : withPaidAnswersKept(trip, existing, optionsOf(body)));
         if (!registrations.saveRegistration(toSave)) {
-            return error(500, ApiErrors.STORE_FAILED, "Could not save the registration.");
+            return error(500, ApiErrors.STORE_FAILED, Text.get("api.registrations.notSaved"));
         }
         audit(trip, person, existing, toSave);
         // Echo the object just saved; a re-read can still serve the pre-save value while the cache catches up.
@@ -380,10 +381,10 @@ public class RegistrationsResource extends BaseResource {
             @HeaderParam(CSRF_HEADER) final String csrf,
             final RegisterPartyRequest body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         if (body == null || body.travelers() == null || body.travelers().isEmpty()) {
-            return error(400, ApiErrors.VALIDATION_FAILED, "Name at least one traveler.");
+            return error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.registrations.travelerRequired"));
         }
         final Trip trip = requireTrip(tripId);
         final RegistrationCommands registrations = callerBoundRegistrations();
@@ -394,11 +395,11 @@ public class RegistrationsResource extends BaseResource {
         final Map<String, List<WaiverCommands.Agreement>> agreements = new LinkedHashMap<>();
         for (final RegisterPartyRequest.TravelerRequest traveler : body.travelers()) {
             if (traveler == null || traveler.personId() == null || traveler.personId().isBlank()) {
-                return error(400, ApiErrors.VALIDATION_FAILED, "Every traveler needs a personId.");
+                return error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.registrations.travelerNeedsPersonId"));
             }
             final String key = traveler.personId().trim();
             if (regs.containsKey(key)) {
-                return error(400, ApiErrors.VALIDATION_FAILED, "A traveler is named twice: " + key + ".");
+                return error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.registrations.travelerNamedTwice", key));
             }
             final Person.Id travelerId = Person.Id.from(key);
             requireSubject(travelerId);
@@ -509,13 +510,13 @@ public class RegistrationsResource extends BaseResource {
             @HeaderParam(CSRF_HEADER) final String csrf,
             final CheckoutRequest body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         final Trip trip = requireTrip(tripId);
         final CheckoutCommands checkout = callerBoundCheckout();
         final CheckoutParty party = checkoutParty(trip, checkout, body);
         if (body.returnUrl() == null || !PaymentsResource.isAllowed(body.returnUrl())) {
-            return error(400, ApiErrors.BAD_REQUEST, "returnUrl must start with a configured allowed prefix.");
+            return error(400, ApiErrors.BAD_REQUEST, Text.get("api.shared.returnUrlNotAllowed"));
         }
         final Response refused = refusedBeforeStart(trip, checkout, party, body);
         if (refused != null) {
@@ -525,7 +526,7 @@ public class RegistrationsResource extends BaseResource {
                 payerOf(body), Boolean.TRUE.equals(body.sandbox()), body.returnUrl());
         if (started == null) {
             return error(400, ApiErrors.BAD_REQUEST,
-                    "The checkout could not be started (check the payer and the trip's payment setup).");
+                    Text.get("api.registrations.checkoutNotStarted"));
         }
         if (started.completion() != null) {
             return ok(completionOf(started.completion()));
@@ -554,17 +555,17 @@ public class RegistrationsResource extends BaseResource {
             @HeaderParam(CSRF_HEADER) final String csrf,
             final CheckoutRequest body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         final Trip trip = requireTrip(tripId);
         final CheckoutCommands checkout = callerBoundCheckout();
         if (!checkout.canAdminister(trip)) {
-            return error(403, ApiErrors.FORBIDDEN, "Registration admin required.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.registrations.adminRequired"));
         }
         final CheckoutParty party = checkoutParty(trip, checkout, body);
         final CheckoutRequest.Offline offline = body.offline();
         if (offline == null) {
-            return error(400, ApiErrors.VALIDATION_FAILED, "Say how the payment was made (offline).");
+            return error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.registrations.offlineRequired"));
         }
         final Response refused = refusedBeforeStart(trip, checkout, party, body);
         if (refused != null) {
@@ -575,9 +576,9 @@ public class RegistrationsResource extends BaseResource {
                 offline.amountCents() == null ? null : offline.amountCents() / 100.0, offline.receivedOn(),
                 Boolean.TRUE.equals(offline.partial()));
         if (completion == null) {
-            return error(400, ApiErrors.VALIDATION_FAILED, "The payment could not be recorded: the method must be "
-                    + String.join(", ", CheckoutCommands.OFFLINE_METHODS)
-                    + " and the amount the party's total (or less when partial).");
+            return error(400, ApiErrors.VALIDATION_FAILED,
+                    Text.get("api.registrations.offlineNotRecorded",
+                            String.join(", ", CheckoutCommands.OFFLINE_METHODS)));
         }
         return ok(completionOf(completion));
     }
@@ -596,11 +597,12 @@ public class RegistrationsResource extends BaseResource {
     private CheckoutParty checkoutParty(final Trip trip, final CheckoutCommands checkout,
             final CheckoutRequest body) {
         if (body == null || body.travelers() == null || body.travelers().isEmpty()) {
-            throw new WebApplicationException(error(400, ApiErrors.VALIDATION_FAILED, "Name at least one traveler."));
+            throw new WebApplicationException(error(400, ApiErrors.VALIDATION_FAILED,
+                    Text.get("api.registrations.travelerRequired")));
         }
         if (!checkout.isEnabled(trip)) {
             throw new WebApplicationException(error(409, ApiErrors.CONFLICT,
-                    "This trip does not register through checkout; use POST .../registrations/party."));
+                    Text.get("api.registrations.notThroughCheckout")));
         }
         final boolean admin = checkout.canAdminister(trip);
         final RegistrationCommands reach = new RegistrationCommands(this::caller);
@@ -610,18 +612,18 @@ public class RegistrationsResource extends BaseResource {
         for (final CheckoutRequest.Traveler traveler : body.travelers()) {
             if (traveler == null || traveler.personId() == null || traveler.personId().isBlank()) {
                 throw new WebApplicationException(error(400, ApiErrors.VALIDATION_FAILED,
-                        "Every traveler needs a personId."));
+                        Text.get("api.registrations.travelerNeedsPersonId")));
             }
             final String key = traveler.personId().trim();
             if (draft.getSel().containsKey(key)) {
                 throw new WebApplicationException(error(400, ApiErrors.VALIDATION_FAILED,
-                        "A traveler is named twice: " + key + "."));
+                        Text.get("api.registrations.travelerNamedTwice", key)));
             }
             final Person.Id id = Person.Id.from(key);
             final Person person = requireSubject(id);
             if (!actsFor(id) && !(admin && reach.withinStaffReach(trip, id))) {
                 throw new WebApplicationException(error(403, ApiErrors.FORBIDDEN,
-                        "You cannot register " + key + "."));
+                        Text.get("api.registrations.cannotRegister", key)));
             }
             people.add(person);
             draft.getSel().put(key, Boolean.TRUE);
@@ -713,7 +715,7 @@ public class RegistrationsResource extends BaseResource {
             @PathParam("tripId") final String tripId, @PathParam("personId") final String personIdParam) {
         final Person.Id subject = Person.Id.from(personIdParam);
         if (!canSeeAnswers(tripId, subject)) {
-            return error(403, ApiErrors.FORBIDDEN, "Not permitted to read this room assignment.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.registrations.roomReadNotPermitted"));
         }
         // getRoomPDV CREATES AND SAVES a blank record on a miss -- convenient for the JSF room editor, but here
         // it means a GET with a garbage tripId OR a garbage personId writes a junk person_data row. Refuse both
@@ -739,10 +741,10 @@ public class RegistrationsResource extends BaseResource {
             @HeaderParam(CSRF_HEADER) final String csrf,
             final Map<String, Object> body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         if (!mayAdministerRegistrations(requireTrip(tripId))) {
-            return error(403, ApiErrors.FORBIDDEN, "Registration admin required.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.registrations.adminRequired"));
         }
         requireSubject(Person.Id.from(personIdParam));
         final Object room = body == null ? null : body.get("room");
@@ -750,7 +752,7 @@ public class RegistrationsResource extends BaseResource {
         // re-read here can hand back the pre-save value in production.
         if (!Beans.get(RegistrationCommands.class)
                 .saveRoom(tripId, Person.Id.from(personIdParam), room == null ? "" : room.toString())) {
-            return error(500, ApiErrors.STORE_FAILED, "Could not save the room.");
+            return error(500, ApiErrors.STORE_FAILED, Text.get("api.registrations.roomNotSaved"));
         }
         final Map<String, Object> result = new LinkedHashMap<>();
         result.put("tripId", tripId);
@@ -804,7 +806,7 @@ public class RegistrationsResource extends BaseResource {
         } catch (final IllegalArgumentException ex) {
             final Registration.Status byDescription = Registration.Status.fromDescription(status.trim());
             if (byDescription == null) {
-                throw new IllegalArgumentException("Unknown registration status: " + status);
+                throw new IllegalArgumentException(Text.get("api.registrations.unknownStatus", status));
             }
             return byDescription;
         }

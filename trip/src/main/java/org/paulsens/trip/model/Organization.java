@@ -194,7 +194,8 @@ public final class Organization implements Serializable {
      * The org's own values for the settings marked {@link SettingDef#isOrgOverridable() org-overridable}, keyed
      * by setting name -- the org rung of the org &rarr; site &rarr; default ladder ({@code ConfigCommands}
      * resolves it on the org's host; {@code OrgCommands.effectiveSetting} for background code). Only
-     * org-overridable keys are ever stored ({@code OrgCommands.saveOrgSettings} refuses the rest), and a
+     * org-overridable keys are ever stored ({@code OrgCommands.saveOrgSettings} refuses the rest), plus a
+     * translatable one's text per language under a marked key ({@code site.footer.text@es}), and a
      * blank or absent value means "inherit". Kept on the org row rather than re-keying the {@code config}
      * table: a few short strings per org, read on every request of its site alongside the org itself.
      * Setter-populated, outside the 8-arg creator like {@link #paymentDefaults}; never null via the getter.

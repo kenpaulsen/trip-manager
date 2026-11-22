@@ -16,6 +16,7 @@ import java.util.Map;
 import org.paulsens.trip.action.BudgetCommands;
 import org.paulsens.trip.action.BudgetPdf;
 import org.paulsens.trip.action.BudgetViews;
+import org.paulsens.trip.i18n.Text;
 
 /**
  * A trip's planning budget: a THIN wrapper over {@link BudgetCommands} with the session's caller, so the
@@ -31,8 +32,6 @@ import org.paulsens.trip.action.BudgetViews;
 public class BudgetResource extends BaseResource {
 
     private static final String V1 = ApiMediaTypes.BUDGET_V1;
-    private static final String CSRF_MESSAGE = "Missing " + CSRF_HEADER + " header.";
-    private static final String EDIT_REQUIRED = "Trip manager or finance admin required.";
 
     @Override
     protected String versionedType() {
@@ -51,7 +50,7 @@ public class BudgetResource extends BaseResource {
         requireTrip(tripId);
         final BudgetCommands budget = budget();
         if (!budget.canViewBudget(tripId)) {
-            return error(403, ApiErrors.FORBIDDEN, "Finance viewer required.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.shared.financeViewerRequired"));
         }
         final Map<String, Object> out = new LinkedHashMap<>();
         out.put("inputs", budget.inputsFormFor(tripId));
@@ -69,7 +68,7 @@ public class BudgetResource extends BaseResource {
         final org.paulsens.trip.model.Trip trip = requireTrip(tripId);
         final byte[] pdf = budget().budgetPdf(tripId);
         if (pdf == null) {
-            return error(403, ApiErrors.FORBIDDEN, "Finance viewer required.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.shared.financeViewerRequired"));
         }
         return Response.ok(pdf, "application/pdf").header("Content-Disposition",
                 attachmentDisposition(BudgetPdf.fileName(trip.getTitle())))
@@ -93,7 +92,7 @@ public class BudgetResource extends BaseResource {
         form.setPerPersonBudget(dbl(body, "perPersonBudget"));
         form.setToBill(dbl(body, "toBill"));
         return budget().saveInputs(tripId, form) ? ok(Map.of("ok", true))
-                : error(400, ApiErrors.VALIDATION_FAILED, "The inputs were not saved.");
+                : error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.budget.inputsNotSaved"));
     }
 
     /**
@@ -130,7 +129,7 @@ public class BudgetResource extends BaseResource {
             return refused;
         }
         return budget().deleteLine(tripId, lineId) ? ok(Map.of("ok", true))
-                : error(400, ApiErrors.VALIDATION_FAILED, "The line was not deleted.");
+                : error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.budget.lineNotDeleted"));
     }
 
     /** Body: {@code {offerId, nights, people, rooms, singles, payee, note, onSite}}. Answers {@code {id}}. */
@@ -163,7 +162,7 @@ public class BudgetResource extends BaseResource {
             return refused;
         }
         return budget().deleteLodgingLine(tripId, lineId) ? ok(Map.of("ok", true))
-                : error(400, ApiErrors.VALIDATION_FAILED, "The lodging line was not deleted.");
+                : error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.budget.lodgingLineNotDeleted"));
     }
 
     /**
@@ -182,7 +181,7 @@ public class BudgetResource extends BaseResource {
             return refused;
         }
         return budget().cloneBudget(tripId, str(body, "fromTripId")) ? ok(Map.of("ok", true))
-                : error(400, ApiErrors.VALIDATION_FAILED, "The budget was not cloned.");
+                : error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.budget.notCloned"));
     }
 
     // ------------------------------------------------------------------ plumbing
@@ -206,7 +205,8 @@ public class BudgetResource extends BaseResource {
         form.setPercentMode(form.getPercentOf() != null);
         form.setPercent(dbl(body, "percent"));
         if (!budget.saveLine(tripId, form)) {
-            return error(400, ApiErrors.VALIDATION_FAILED, problemOr(form.getProblem(), "The line was not saved."));
+            return error(400, ApiErrors.VALIDATION_FAILED, problemOr(form.getProblem(),
+                    Text.get("api.budget.lineNotSaved")));
         }
         return ok(Map.of("id", form.getId()));
     }
@@ -230,7 +230,7 @@ public class BudgetResource extends BaseResource {
         form.setOnSite(!Boolean.FALSE.equals(body == null ? null : body.get("onSite")));
         if (!budget.saveLodgingLine(tripId, form)) {
             return error(400, ApiErrors.VALIDATION_FAILED,
-                    problemOr(form.getProblem(), "The lodging line was not saved."));
+                    problemOr(form.getProblem(), Text.get("api.budget.lodgingLineNotSaved")));
         }
         return ok(Map.of("id", form.getId()));
     }
@@ -239,9 +239,10 @@ public class BudgetResource extends BaseResource {
     private Response refuseWrite(final String tripId, final String csrf) {
         requireTrip(tripId);
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, CSRF_MESSAGE);
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
-        return budget().canEditBudget(tripId) ? null : error(403, ApiErrors.FORBIDDEN, EDIT_REQUIRED);
+        return budget().canEditBudget(tripId) ? null : error(403, ApiErrors.FORBIDDEN,
+                Text.get("api.shared.tripManagerOrFinanceAdminRequired"));
     }
 
     private static String problemOr(final String problem, final String fallback) {

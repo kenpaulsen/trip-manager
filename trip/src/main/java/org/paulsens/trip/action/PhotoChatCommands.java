@@ -40,6 +40,7 @@ import org.paulsens.trip.model.chat.ChatReactionSummary;
 import org.paulsens.trip.model.chat.ChatSettings;
 import org.paulsens.trip.model.chat.PhotoChatMeta;
 import org.paulsens.trip.cache.Cached;
+import org.paulsens.trip.i18n.Text;
 
 /**
  * Per-photo comment threads and image reactions. A photo's thread is an ordinary chat channel whose id is
@@ -369,23 +370,24 @@ public class PhotoChatCommands {
             final String s3Key, final Person.Id me, final String body,
             final String clientMessageId, final Caller caller) {
         if (!isEnabled()) {
-            return ChatCommands.SendResult.fail("disabled", "Photo comments are turned off.");
+            return ChatCommands.SendResult.fail("disabled", Text.get("feedback.photoChatCommands.disabled"));
         }
         final String denial = readDenialFor(s3Key, caller);
         if (denial != null) {
-            return ChatCommands.SendResult.fail("not_found", "Photo not found.");
+            return ChatCommands.SendResult.fail("not_found", Text.get("api.chat.photoNotFound"));
         }
         final String text = body == null ? "" : body.strip();
         if (text.isEmpty()) {
-            return ChatCommands.SendResult.fail("empty", "Comment cannot be empty.");
+            return ChatCommands.SendResult.fail("empty", Text.get("feedback.photoChatCommands.emptyComment"));
         }
         final int max = config.getInt(KnownSettings.CHAT_PHOTO_COMMENT_MAX_CHARS);
         if (text.codePointCount(0, text.length()) > max) {
             return ChatCommands.SendResult.fail("too_long",
-                    "Comment is too long (max " + max + " characters).");
+                    Text.get("feedback.photoChatCommands.commentTooLong", String.valueOf(max)));
         }
         if (ContentFilter.shared().blocks(config.getString(KnownSettings.CHAT_BLOCKED_TERMS), text)) {
-            return ChatCommands.SendResult.fail("blocked_content", ChatCommands.BLOCKED_CONTENT_MESSAGE);
+            // The matched term is deliberately NOT echoed back: the chat's own refusal, word for word.
+            return ChatCommands.SendResult.fail("blocked_content", Text.get("feedback.chatCommands.blockedContent"));
         }
         final Instant now = Instant.now();
         final AuditActor who = caller == null ? AuditActor.current() : caller.auditActor();
@@ -405,10 +407,10 @@ public class PhotoChatCommands {
             saved = dao().saveChatMessage(draft, channel, null);
         } catch (final RuntimeException ex) {
             log.warn("Photo comment was not stored for {}", s3Key, ex);
-            return ChatCommands.SendResult.fail("store", "Comment was not saved. Try again.");
+            return ChatCommands.SendResult.fail("store", Text.get("feedback.photoChatCommands.commentNotSaved"));
         }
         if (saved.isEmpty()) {
-            return ChatCommands.SendResult.fail("store", "Comment was not saved. Try again.");
+            return ChatCommands.SendResult.fail("store", Text.get("feedback.photoChatCommands.commentNotSaved"));
         }
         final ChatMessage stored = saved.get();
         dao().invalidatePhotoChatMeta(s3Key);
@@ -432,14 +434,14 @@ public class PhotoChatCommands {
             final String s3Key, final Person.Id me, final String emoji, final boolean add,
             final Caller caller) {
         if (!isEnabled()) {
-            return ChatCommands.ReactResult.fail("disabled", "Photo comments are turned off.");
+            return ChatCommands.ReactResult.fail("disabled", Text.get("feedback.photoChatCommands.disabled"));
         }
         if (!ChatEmoji.isAllowed(emoji, palette())) {
-            return ChatCommands.ReactResult.fail("bad_emoji", "That reaction is not available.");
+            return ChatCommands.ReactResult.fail("bad_emoji", Text.get("feedback.chatCommands.reactionUnavailable"));
         }
         final String denial = readDenialFor(s3Key, caller);
         if (denial != null) {
-            return ChatCommands.ReactResult.fail("not_found", "Photo not found.");
+            return ChatCommands.ReactResult.fail("not_found", Text.get("api.chat.photoNotFound"));
         }
         final AuditActor who = caller == null ? AuditActor.current() : caller.auditActor();
         final ChatChannel channel = ensurePhotoChannel(s3Key, who);
@@ -448,7 +450,7 @@ public class PhotoChatCommands {
                         channel.getId(), PhotoChatMeta.PHOTO_ROOT, me, emoji, Instant.now(), null))
                 : dao().deleteChatReaction(channel.getId(), PhotoChatMeta.PHOTO_ROOT, me, emoji);
         if (!ok) {
-            return ChatCommands.ReactResult.fail("store", "Reaction was not saved. Try again.");
+            return ChatCommands.ReactResult.fail("store", Text.get("feedback.chatCommands.reactionNotSaved"));
         }
         // pmeta FIRST, then the parent: rollupToParent drops the parent's folded summary, and the rebuild
         // that follows reads pmeta — dropped first, it cannot fold the pre-write counts back in.
@@ -596,7 +598,7 @@ public class PhotoChatCommands {
      */
     static String maskedEmail(final String email) {
         if (email == null || email.isBlank()) {
-            return "no email";
+            return Text.get("common.noEmail");
         }
         final int at = email.indexOf('@');
         final String local = at > 0 ? email.substring(0, at) : email;

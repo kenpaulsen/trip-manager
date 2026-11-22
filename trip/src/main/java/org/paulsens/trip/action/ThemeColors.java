@@ -3,6 +3,7 @@ package org.paulsens.trip.action;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Named;
 import java.util.List;
+import org.paulsens.trip.i18n.Text;
 
 /**
  * The ONE catalog of the theme colors a page author should write, exposed to pages as {@code #{themeColors}}:
@@ -34,77 +35,93 @@ public class ThemeColors {
     public record Group(String name, List<ThemeColor> colors) {
     }
 
-    static final String TEXT = "Text";
-    static final String ACCENT = "Accent";
-    static final String SURFACES = "Surfaces";
-    static final String STATUS = "Status";
+    // The catalog below holds message KEYS for a color's label, group and hint, so each reader gets them in the
+    // language of their own request; worded() is where a key becomes words.
+    static final String TEXT = "feedback.themeColors.groupText";
+    static final String ACCENT = "feedback.themeColors.groupAccent";
+    static final String SURFACES = "feedback.themeColors.groupSurfaces";
+    static final String STATUS = "common.status";
 
     private static final List<ThemeColor> CATALOG = List.of(
             // No "muted text" entry: --text-color-secondary is off limits for new work (owner, 2026-11-15; the
             // platform default's light value is about 2.1:1 on white), so muted text is Text, set smaller.
-            new ThemeColor("--text-color", "Text", TEXT,
-                    "Body text, on a card or the page ground. For quieter captions and dates, use Text set smaller.",
-                    true),
-            new ThemeColor("--primary-color", "Accent", ACCENT,
-                    "The palette's main color. Text on it: On accent.", true),
-            new ThemeColor("--primary-color-text", "On accent", ACCENT,
-                    "Text and icons drawn ON the Accent color; never pair Accent with another text color.", true),
-            new ThemeColor("--primary-dark-color", "Accent, dark", ACCENT, "A deeper Accent, for hover.", false),
-            new ThemeColor("--primary-light-color", "Accent, light", ACCENT, "A paler Accent.", false),
-            new ThemeColor("--primary-lighter-color", "Accent, soft", ACCENT,
-                    "A faint wash of the Accent, for a quiet highlight behind Text.", false),
-            new ThemeColor("--surface-card", "Card", SURFACES, "The background of a card or panel.", true),
-            new ThemeColor("--surface-ground", "Ground", SURFACES, "The page's own background.", true),
-            new ThemeColor("--surface-section", "Section", SURFACES, "A band set apart from the ground.", false),
-            new ThemeColor("--surface-hover", "Hover", SURFACES, "A row or item under the pointer.", false),
-            new ThemeColor("--surface-100", "One step off", SURFACES,
-                    "One step off the card, for chips and table heads; stays one step off in dark mode.", false),
-            new ThemeColor("--site-bg-default", "Page tint", SURFACES,
-                    "The palette's tinted page background on an organization's site.", false),
-            new ThemeColor("--surface-border", "Border", SURFACES, "Hairlines and dividers.", true),
-            new ThemeColor("--maskbg", "Scrim", SURFACES, "The dimmed layer behind a dialog or over a photo.", false),
-            new ThemeColor("--status-danger", "Danger", STATUS,
-                    "Errors and problems that must stop the reader; readable on Card and Ground.", true),
-            new ThemeColor("--status-danger-bg", "Danger panel", STATUS,
-                    "A quiet panel behind an error note; Danger and Text both read on it.", false),
-            new ThemeColor("--status-danger-strong", "Danger fill", STATUS,
-                    "A solid chip or badge. Text on it: On danger fill.", false),
-            new ThemeColor("--status-danger-strong-text", "On danger fill", STATUS,
-                    "Text drawn on Danger fill.", false),
-            new ThemeColor("--status-success", "Success", STATUS, "Done, paid, confirmed.", false),
-            new ThemeColor("--status-success-bg", "Success panel", STATUS, "A quiet panel behind a success note.",
-                    false),
-            new ThemeColor("--status-success-strong", "Success fill", STATUS,
-                    "A solid chip or badge. Text on it: On success fill.", false),
-            new ThemeColor("--status-success-strong-text", "On success fill", STATUS,
-                    "Text drawn on Success fill.", false),
-            new ThemeColor("--status-warning", "Warning", STATUS, "Needs attention soon.", false),
-            new ThemeColor("--status-warning-bg", "Warning panel", STATUS, "A quiet panel behind a warning.", false),
-            new ThemeColor("--status-warning-strong", "Warning fill", STATUS,
-                    "A solid chip or badge. Text on it: On warning fill.", false),
-            new ThemeColor("--status-warning-strong-text", "On warning fill", STATUS,
-                    "Text drawn on Warning fill.", false),
-            new ThemeColor("--status-info", "Note", STATUS, "Neutral information.", false),
-            new ThemeColor("--status-info-bg", "Note panel", STATUS, "A quiet panel behind a note.", false),
-            new ThemeColor("--status-info-strong", "Note fill", STATUS,
-                    "A solid chip or badge. Text on it: On note fill.", false),
-            new ThemeColor("--status-info-strong-text", "On note fill", STATUS, "Text drawn on Note fill.", false));
+            new ThemeColor("--text-color", "feedback.colors.text", TEXT,
+                    "feedback.themeColors.textHint", true),
+            new ThemeColor("--primary-color", "feedback.colors.accent", ACCENT,
+                    "feedback.themeColors.accentHint", true),
+            new ThemeColor("--primary-color-text", "feedback.themeColors.onAccent", ACCENT,
+                    "feedback.themeColors.onAccentHint", true),
+            new ThemeColor("--primary-dark-color", "feedback.themeColors.accentDark", ACCENT,
+                    "feedback.themeColors.accentDarkHint", false),
+            new ThemeColor("--primary-light-color", "feedback.themeColors.accentLight", ACCENT,
+                    "feedback.themeColors.accentLightHint", false),
+            new ThemeColor("--primary-lighter-color", "feedback.themeColors.accentSoft", ACCENT,
+                    "feedback.themeColors.accentSoftHint", false),
+            new ThemeColor("--surface-card", "feedback.themeColors.card", SURFACES,
+                    "feedback.themeColors.cardHint", true),
+            new ThemeColor("--surface-ground", "feedback.themeColors.ground", SURFACES,
+                    "feedback.themeColors.groundHint", true),
+            new ThemeColor("--surface-section", "feedback.themeColors.section", SURFACES,
+                    "feedback.themeColors.sectionHint", false),
+            new ThemeColor("--surface-hover", "feedback.themeColors.hover", SURFACES,
+                    "feedback.themeColors.hoverHint", false),
+            new ThemeColor("--surface-100", "feedback.themeColors.oneStepOff", SURFACES,
+                    "feedback.themeColors.oneStepOffHint", false),
+            new ThemeColor("--site-bg-default", "feedback.themeColors.pageTint", SURFACES,
+                    "feedback.themeColors.pageTintHint", false),
+            new ThemeColor("--surface-border", "feedback.themeColors.border", SURFACES,
+                    "feedback.themeColors.borderHint", true),
+            new ThemeColor("--maskbg", "feedback.themeColors.scrim", SURFACES,
+                    "feedback.themeColors.scrimHint", false),
+            new ThemeColor("--status-danger", "feedback.themeColors.danger", STATUS,
+                    "feedback.themeColors.dangerHint", true),
+            new ThemeColor("--status-danger-bg", "feedback.themeColors.dangerPanel", STATUS,
+                    "feedback.themeColors.dangerPanelHint", false),
+            new ThemeColor("--status-danger-strong", "feedback.themeColors.dangerFill", STATUS,
+                    "feedback.themeColors.dangerFillHint", false),
+            new ThemeColor("--status-danger-strong-text", "feedback.themeColors.onDangerFill", STATUS,
+                    "feedback.themeColors.onDangerFillHint", false),
+            new ThemeColor("--status-success", "feedback.themeColors.success", STATUS,
+                    "feedback.themeColors.successHint", false),
+            new ThemeColor("--status-success-bg", "feedback.themeColors.successPanel", STATUS,
+                    "feedback.themeColors.successPanelHint", false),
+            new ThemeColor("--status-success-strong", "feedback.themeColors.successFill", STATUS,
+                    "feedback.themeColors.successFillHint", false),
+            new ThemeColor("--status-success-strong-text", "feedback.themeColors.onSuccessFill", STATUS,
+                    "feedback.themeColors.onSuccessFillHint", false),
+            new ThemeColor("--status-warning", "feedback.themeColors.warning", STATUS,
+                    "feedback.themeColors.warningHint", false),
+            new ThemeColor("--status-warning-bg", "feedback.themeColors.warningPanel", STATUS,
+                    "feedback.themeColors.warningPanelHint", false),
+            new ThemeColor("--status-warning-strong", "feedback.themeColors.warningFill", STATUS,
+                    "feedback.themeColors.warningFillHint", false),
+            new ThemeColor("--status-warning-strong-text", "feedback.themeColors.onWarningFill", STATUS,
+                    "feedback.themeColors.onWarningFillHint", false),
+            new ThemeColor("--status-info", "feedback.themeColors.note", STATUS,
+                    "feedback.themeColors.noteHint", false),
+            new ThemeColor("--status-info-bg", "feedback.themeColors.notePanel", STATUS,
+                    "feedback.themeColors.notePanelHint", false),
+            new ThemeColor("--status-info-strong", "feedback.themeColors.noteFill", STATUS,
+                    "feedback.themeColors.noteFillHint", false),
+            new ThemeColor("--status-info-strong-text", "feedback.themeColors.onNoteFill", STATUS,
+                    "feedback.themeColors.onNoteFillHint", false));
 
     private static final List<String> GROUP_ORDER = List.of(TEXT, ACCENT, SURFACES, STATUS);
 
     /** Every color in the catalog, in display order (the guide renders it through {@link #getGroups()}). */
     public List<ThemeColor> getAll() {
-        return CATALOG;
+        return CATALOG.stream().map(ThemeColors::worded).toList();
     }
 
     /** One color by its property, or null: the ONE place a color's label lives ({@link EditorColors} reads it). */
     public static ThemeColor named(final String name) {
-        return CATALOG.stream().filter(color -> color.name().equals(name)).findFirst().orElse(null);
+        return CATALOG.stream().filter(color -> color.name().equals(name)).findFirst().map(ThemeColors::worded)
+                .orElse(null);
     }
 
     /** The colors the editor's strip shows by default; the rest are one click away under "More". */
     public List<ThemeColor> getStrip() {
-        return CATALOG.stream().filter(ThemeColor::strip).toList();
+        return CATALOG.stream().filter(ThemeColor::strip).map(ThemeColors::worded).toList();
     }
 
     /** The whole catalog by group, in the order a page author reaches for them. */
@@ -112,7 +129,14 @@ public class ThemeColors {
         return GROUP_ORDER.stream().map(ThemeColors::group).toList();
     }
 
-    private static Group group(final String name) {
-        return new Group(name, CATALOG.stream().filter(color -> color.group().equals(name)).toList());
+    private static Group group(final String key) {
+        return new Group(Text.get(key), CATALOG.stream().filter(color -> color.group().equals(key))
+                .map(ThemeColors::worded).toList());
+    }
+
+    /** A catalog entry with its label, group and hint in the reader's language. */
+    private static ThemeColor worded(final ThemeColor color) {
+        return new ThemeColor(color.name(), Text.get(color.label()), Text.get(color.group()),
+                Text.get(color.hint()), color.strip());
     }
 }

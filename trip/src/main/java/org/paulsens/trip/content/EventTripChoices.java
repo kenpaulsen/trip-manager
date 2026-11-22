@@ -6,6 +6,7 @@ import java.util.Map;
 import java.util.function.Predicate;
 import org.paulsens.trip.action.TripPageCommands;
 import org.paulsens.trip.action.TripCommands;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.Placeholder;
 import org.paulsens.trip.model.Trip;
 
@@ -19,12 +20,12 @@ final class EventTripChoices {
     }
 
     static Placeholder property() {
-        return new Placeholder(TripPageCommands.PROP_TRIP_ID, Placeholder.Type.CHOICE, "Event",
-                "Blank on a trip's own page; pick one to show it elsewhere", false);
+        return new Placeholder(TripPageCommands.PROP_TRIP_ID, Placeholder.Type.CHOICE,
+                Text.get("common.event"), Text.get("server.types.event.hint"), false);
     }
 
     static List<ProgrammaticContentTemplate.Choice> choices() {
-        return choices("This page's event");
+        return choices(Text.get("server.types.event.thisPage"));
     }
 
     /**

@@ -1,5 +1,7 @@
 package org.paulsens.trip.model;
 
+import java.util.Locale;
+
 /**
  * What kind of {@link AdvanceEntry} a line of the cash-advance worksheet is. The type carries the SIGN: money
  * returned or transferred away is subtracted from what was advanced, every other kind is added. Each type's
@@ -7,22 +9,25 @@ package org.paulsens.trip.model;
  * without a model change.
  */
 public enum AdvanceType {
-    CASH("Cash advance", "from"),
-    CREDIT("Credit applied", "source"),
-    PARTICIPANT("Cash given by participant(s)", null),
-    RETURNED("Money returned / transferred", "to"),
-    OTHER("Other", null);
+    CASH("from"),
+    CREDIT("source"),
+    PARTICIPANT(null),
+    RETURNED("to"),
+    OTHER(null);
 
-    private final String label;
     private final String partyKey;
 
-    AdvanceType(final String label, final String partyKey) {
-        this.label = label;
+    AdvanceType(final String partyKey) {
         this.partyKey = partyKey;
     }
 
     public String getLabel() {
-        return label;
+        return EnumLabels.of(this);
+    }
+
+    /** The label in an explicit language: a mail or PDF whose reader is not the one making the request. */
+    public String getLabel(final Locale locale) {
+        return EnumLabels.of(this, locale);
     }
 
     /** The fields-map key of the type's "who" answer; null when the type asks none. */

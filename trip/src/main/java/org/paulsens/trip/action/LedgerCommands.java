@@ -17,6 +17,7 @@ import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.BindingType;
 import org.paulsens.trip.model.CompositeKey;
 import org.paulsens.trip.model.Family;
@@ -26,6 +27,7 @@ import org.paulsens.trip.model.Registration;
 import org.paulsens.trip.model.Transaction;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripEvent;
+import org.paulsens.trip.pay.MoneyMath;
 import org.paulsens.trip.site.ListingScope;
 
 /**
@@ -63,9 +65,19 @@ public class LedgerCommands {
 
     /** The pseudo-organization a row with no organization is reported under (it must never vanish). */
     public static final String UNASSIGNED_ORG_ID = "unassigned";
-    static final String UNASSIGNED_ORG_NAME = "No organization";
-    /** The title of a statement's trailing group: rows not bound to a trip (or to one of another org). */
-    static final String UNASSIGNED_TRIP_TITLE = "Not yet assigned to a trip";
+
+    /** The name the {@link #UNASSIGNED_ORG_ID} pseudo-organization is shown under, in the request's language. */
+    static String unassignedOrgName() {
+        return Text.get("feedback.ledgerCommands.unassignedOrgName");
+    }
+
+    /**
+     * The title of a statement's trailing group, rows not bound to a trip (or to one of another org), in the
+     * request's language.
+     */
+    static String unassignedTripTitle() {
+        return Text.get("feedback.ledgerCommands.unassignedTripTitle");
+    }
 
     /**
      * Where an account stands with one organization, and the ONE spelling of each state in words: the Balance
@@ -74,37 +86,44 @@ public class LedgerCommands {
      */
     public enum State {
         /** The balance is negative: money is owed to the organization. */
-        OWES("Due", "due", "owe", "owes", " due", " due", "balOwe"),
+        OWES("feedback.ledgerCommands.stateDue", "due", "feedback.ledgerCommands.line.owes",
+                "feedback.ledgerCommands.amountDue", "balOwe"),
         /** The balance is positive: the organization holds a credit. */
-        CREDIT("Credit", "ok", "have a credit with", "has a credit with", " credit", " credit", "balCredit"),
+        CREDIT("feedback.ledgerCommands.stateCredit", "ok", "feedback.ledgerCommands.line.credit",
+                "feedback.ledgerCommands.amountCredit", "balCredit"),
         /** There are rows and they net to zero. */
-        PAID_UP("Paid up", "ok", "are all paid up with", "is all paid up with", "Paid up", "", ""),
+        PAID_UP("feedback.ledgerCommands.statePaidUp", "ok", "feedback.ledgerCommands.line.paidUp", null, ""),
         /** No rows at all. */
-        NO_ACTIVITY("No activity", "", "have no activity yet with", "has no activity yet with", "No activity", "",
-                "");
+        NO_ACTIVITY("feedback.ledgerCommands.stateNoActivity", "", "feedback.ledgerCommands.line.noActivity",
+                null, "");
 
-        private final String label;
+        /**
+         * Who a {@link #line} is about, as the page names it: a stable code, never the English words, because the
+         * sentence is one message per state AND subject (a verb agrees with its subject in every language).
+         */
+        public static final List<String> SUBJECTS = List.of("you", "yourFamily", "theFamily", "person");
+
+        // The words are message KEYS: a constant is built once, and each reader gets their own language.
+        private final String labelKey;
         private final String chipStyle;
-        private final String youPhrase;
-        private final String theyPhrase;
-        private final String pillWords;
-        private final String closingWords;
+        /** The plain-language line's keys: this prefix, a dot and one of {@link #SUBJECTS}. */
+        private final String lineKey;
+        /** The sentence for an amount ("{0} due", "{0} credit"); null for a state that shows no amount. */
+        private final String amountKey;
         private final String amountStyle;
 
-        State(final String label, final String chipStyle, final String youPhrase, final String theyPhrase,
-                final String pillWords, final String closingWords, final String amountStyle) {
-            this.label = label;
+        State(final String labelKey, final String chipStyle, final String lineKey, final String amountKey,
+                final String amountStyle) {
+            this.labelKey = labelKey;
             this.chipStyle = chipStyle;
-            this.youPhrase = youPhrase;
-            this.theyPhrase = theyPhrase;
-            this.pillWords = pillWords;
-            this.closingWords = closingWords;
+            this.lineKey = lineKey;
+            this.amountKey = amountKey;
             this.amountStyle = amountStyle;
         }
 
         /** The chip's word: "Due", "Credit", "Paid up", "No activity". */
         public String label() {
-            return label;
+            return Text.get(labelKey);
         }
 
         /** The chip's style class beside {@code balChip}: "due", "ok", or none. */
@@ -113,22 +132,26 @@ public class LedgerCommands {
         }
 
         /**
-         * The verb phrase between who and the organization: "You {owe} Acme", "Ken {has a credit with} Acme".
+         * The plain-language line, one whole sentence: "You owe Acme", "Ken has a credit with Acme".
          *
-         * @param you whether the subject is "You" (second person) rather than a name or "The family"
+         * @param subject one of {@link #SUBJECTS}; anything else reads as {@code person}
+         * @param name    the person's name, used by the {@code person} sentence only
+         * @param orgName the organization the balance is with
          */
-        public String phrase(final boolean you) {
-            return you ? youPhrase : theyPhrase;
+        public String line(final String subject, final String name, final String orgName) {
+            final String who = SUBJECTS.contains(subject) ? subject : "person";
+            return Text.get(lineKey + "." + who, name, orgName);
         }
 
-        /** What a family pill says after its amount (" due", " credit") or instead of one ("Paid up"). */
-        public String pillWords() {
-            return pillWords;
+        /** What a family pill says: the amount and its word ("$12.00 due"), or only the chip's word ("Paid up"). */
+        public String pillText(final long cents) {
+            return amountKey == null ? label() : Text.get(amountKey, MoneyMath.formatCents(Math.abs(cents)));
         }
 
-        /** What the printed statement's closing balance says after its amount: " due", " credit", or nothing. */
-        public String closingWords() {
-            return closingWords;
+        /** The printed statement's closing balance: "$12.00 due", "$5.00 credit", or the bare "$0.00". */
+        public String closingText(final long cents) {
+            final String amount = MoneyMath.formatCents(Math.abs(cents));
+            return amountKey == null ? amount : Text.get(amountKey, amount);
         }
 
         /** The amount's style class: "balOwe" when owed, "balCredit" for a credit, none otherwise. */

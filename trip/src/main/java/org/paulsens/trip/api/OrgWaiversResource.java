@@ -16,6 +16,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.paulsens.trip.action.WaiverCommands;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.WaiverDocument;
 import org.paulsens.trip.model.WaiverVersion;
 
@@ -29,8 +30,6 @@ import org.paulsens.trip.model.WaiverVersion;
 public class OrgWaiversResource extends BaseResource {
 
     private static final String V1 = ApiMediaTypes.WAIVERS_V1;
-    private static final String CSRF_MESSAGE = "Missing " + CSRF_HEADER + " header.";
-    private static final String ADMIN_REQUIRED = "Organization admin required.";
 
     @Override
     protected String versionedType() {
@@ -48,7 +47,7 @@ public class OrgWaiversResource extends BaseResource {
     public Response list(@PathParam("orgId") final String orgId) {
         final WaiverCommands waivers = waivers();
         if (!waivers.canManage(orgId)) {
-            return error(403, ApiErrors.FORBIDDEN, ADMIN_REQUIRED);
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.orgWaivers.adminRequired"));
         }
         final List<Map<String, Object>> out = new ArrayList<>();
         for (final WaiverDocument doc : waivers.documents(orgId)) {
@@ -65,13 +64,13 @@ public class OrgWaiversResource extends BaseResource {
             @QueryParam("version") final Integer version) {
         final WaiverCommands waivers = waivers();
         if (!waivers.canManage(orgId)) {
-            return error(403, ApiErrors.FORBIDDEN, ADMIN_REQUIRED);
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.orgWaivers.adminRequired"));
         }
         final WaiverDocument doc = waivers.document(orgId, id);
         final WaiverVersion text = (doc == null) ? null
                 : (version == null ? doc.getCurrent() : doc.version(version));
         if (text == null) {
-            return error(404, ApiErrors.NOT_FOUND, "No such document or version.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.orgWaivers.noSuchDocument"));
         }
         final Map<String, Object> out = summary(doc);
         out.put("version", text.getNumber());
@@ -87,7 +86,7 @@ public class OrgWaiversResource extends BaseResource {
     public Response create(@PathParam("orgId") final String orgId, @HeaderParam(CSRF_HEADER) final String csrf,
             final Map<String, Object> body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, CSRF_MESSAGE);
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         return answer(waivers().createDocument(orgId, str(body, "title"), str(body, "bodyHtml"), str(body, "note")));
     }
@@ -100,7 +99,7 @@ public class OrgWaiversResource extends BaseResource {
     public Response publish(@PathParam("orgId") final String orgId, @PathParam("id") final String id,
             @HeaderParam(CSRF_HEADER) final String csrf, final Map<String, Object> body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, CSRF_MESSAGE);
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         final WaiverCommands waivers = waivers();
         final WaiverDocument existing = waivers.document(orgId, id);
@@ -117,7 +116,7 @@ public class OrgWaiversResource extends BaseResource {
     public Response update(@PathParam("orgId") final String orgId, @PathParam("id") final String id,
             @HeaderParam(CSRF_HEADER) final String csrf, final Map<String, Object> body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, CSRF_MESSAGE);
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         return answer(waivers().setRetired(orgId, id, Boolean.TRUE.equals(body == null ? null : body.get("retired"))));
     }

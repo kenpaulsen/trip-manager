@@ -3,9 +3,12 @@ package org.paulsens.trip.action;
 import java.io.IOException;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.chat.ChatRateLimiter;
+import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.chat.ChatChannel;
@@ -213,6 +216,88 @@ public class SupportChatCommandsTest {
         Mockito.verify(mail, Mockito.after(500).never()).send(
                 Mockito.any(), Mockito.eq(owner.getEmail()), Mockito.any(), Mockito.any(),
                 Mockito.any(), Mockito.any(), Mockito.any());
+    }
+
+    /**
+     * Each admin reads the request in their own language when the site offers it, else English; the English
+     * copy says exactly what the code wrote before its words moved to the bundle.
+     */
+    @Test
+    public void eachAdminReadsTheRequestInTheirOwnLanguage() throws IOException {
+        final Person owner = familyOwnerWithChild("child-lang");
+        final Person child = childOf(owner);
+        final Person english = savedPerson("admEn");
+        final Person spanish = savedPerson("admEs");
+        spanish.setLanguage("es");
+        assertTrue(dao.savePerson(spanish));
+        final SupportChatCommands admin = supportFor(owner, true);
+        assertTrue(admin.addAdmin(english.getId()));
+        assertTrue(admin.addAdmin(spanish.getId()));
+        final MailCommands mail = Mockito.mock(MailCommands.class);
+        Mockito.when(mail.formatEmail(Mockito.any())).thenAnswer(inv -> ((Person) inv.getArgument(0)).getEmail());
+        final ConfigCommands config = new ConfigCommands();
+        // The support channel belongs to the shared site, which ships offering English only.
+        assertTrue(config.saveKnown(Map.of(KnownSettings.SITE_LANGUAGES.getName(), "en,es,hr"), "test"));
+        try {
+            assertTrue(new SupportChatCommands(allowingLimiter(), config, mail, () -> callerFor(owner, false))
+                    .fileRemovalRequest(child.getId(), "details"));
+            final String page = config.getString(KnownSettings.CHAT_MAIL_BASE_URL)
+                    + "/admin/adminManagePerson.jsf?id=" + child.getId().getValue();
+            final ArgumentCaptor<String> subject = ArgumentCaptor.forClass(String.class);
+            final ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
+            Mockito.verify(mail, Mockito.timeout(3000)).send(Mockito.any(), Mockito.eq(english.getEmail()),
+                    Mockito.any(), Mockito.any(), subject.capture(), body.capture(), Mockito.any());
+            assertTrue(subject.getValue().startsWith("Support request: remove "), subject.getValue());
+            assertTrue(subject.getValue().endsWith(" from a family"), subject.getValue());
+            assertTrue(body.getValue().startsWith("<p><b>"), body.getValue());
+            assertTrue(body.getValue().contains("</b> be removed from their family.</p><blockquote"), body.getValue());
+            assertTrue(body.getValue().endsWith("<p><a href=\"" + page + "\">Open their Manage People page</a> and "
+                    + "use “Remove from family”.</p>"), body.getValue());
+
+            final ArgumentCaptor<String> spanishSubject = ArgumentCaptor.forClass(String.class);
+            final ArgumentCaptor<String> spanishBody = ArgumentCaptor.forClass(String.class);
+            Mockito.verify(mail, Mockito.timeout(3000)).send(Mockito.any(), Mockito.eq(spanish.getEmail()),
+                    Mockito.any(), Mockito.any(), spanishSubject.capture(), spanishBody.capture(), Mockito.any());
+            assertTrue(spanishSubject.getValue().startsWith("Solicitud de soporte: retirar a "),
+                    spanishSubject.getValue());
+            assertTrue(spanishBody.getValue().contains("sea retirado/a de su familia"), spanishBody.getValue());
+            assertTrue(spanishBody.getValue().contains("Abre su página Administrar personas"), spanishBody.getValue());
+        } finally {
+            assertTrue(config.saveKnown(Map.of(KnownSettings.SITE_LANGUAGES.getName(), ""), "test"));
+        }
+    }
+
+    /** The limit and trip-roles requests mail their own words to an admin, exactly as before in English. */
+    @Test
+    public void theLimitAndTripRolesMailsSayWhatTheyAlwaysSaid() throws IOException {
+        final Person owner = familyOwnerWithChild("child-words");
+        final Person reader = savedPerson("admWords");
+        assertTrue(supportFor(owner, true).addAdmin(reader.getId()));
+        final MailCommands mail = Mockito.mock(MailCommands.class);
+        Mockito.when(mail.formatEmail(Mockito.any())).thenAnswer(inv -> ((Person) inv.getArgument(0)).getEmail());
+        final ConfigCommands tiny = Mockito.mock(ConfigCommands.class);
+        Mockito.when(tiny.getInt(KnownSettings.FAMILY_MAX_MEMBERS, 1, 100)).thenReturn(2);
+        Mockito.when(tiny.getBoolean(KnownSettings.SUPPORT_MAIL_ENABLED)).thenReturn(true);
+        Mockito.when(tiny.getString(Mockito.any(org.paulsens.trip.model.SettingDef.class)))
+                .thenReturn("http://test");
+        final SupportChatCommands commands = new SupportChatCommands(allowingLimiter(), tiny, mail,
+                () -> callerFor(owner, false));
+
+        assertTrue(commands.fileLimitRequest(null));
+        Mockito.verify(mail, Mockito.timeout(3000)).send(Mockito.any(), Mockito.eq(reader.getEmail()),
+                Mockito.any(), Mockito.any(), Mockito.startsWith("Support request: raise the family size limit"),
+                Mockito.endsWith("</b> has reached the family size limit (2) and asks for an increase.</p>"
+                        + "<p>Raise <code>family.maxMembers</code> on <a href=\"http://test/admin/settings.jsf\">"
+                        + "the Settings page</a>.</p>"), Mockito.any());
+
+        assertTrue(commands.fileMissingTripRolesNotice("trip-w", "Spring & Co", "Org", List.of("Viewer")));
+        Mockito.verify(mail, Mockito.timeout(3000)).send(Mockito.any(), Mockito.eq(reader.getEmail()),
+                Mockito.any(), Mockito.any(), Mockito.eq("Trip created without full creator roles: Spring & Co"),
+                Mockito.endsWith("</b> created trip <b>Spring &amp; Co</b> (Org) but could not be granted: "
+                        + "<b>Viewer</b>: withheld by the organization's allow-list.</p><p><a href=\""
+                        + "http://test/trip/edit.jsf?id=trip-w\">Grant the roles on the trip</a> or adjust the "
+                        + "allow-list on <a href=\"http://test/admin/organizations.jsf\">the Organizations page</a>."
+                        + "</p>"), Mockito.any());
     }
 
     // ------------------------------------------------------------------ replies

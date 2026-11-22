@@ -12,6 +12,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.DeployCommands;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.deploy.PipelineStatus;
 
 /**
@@ -44,7 +45,7 @@ public class DeployResource extends BaseResource {
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response status() {
         if (!privileges().has(ApiPrivileges.SITE_DEPLOYER)) {
-            return error(403, ApiErrors.FORBIDDEN, "Deploy access required.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.deploy.accessRequired"));
         }
         final DeployCommands deploy = Beans.get(DeployCommands.class);
         final PipelineStatus status = deploy.getStatus();
@@ -73,29 +74,27 @@ public class DeployResource extends BaseResource {
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response start(@HeaderParam(CSRF_HEADER) final String csrf, final StartRequest body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         if (!privileges().has(ApiPrivileges.SITE_DEPLOYER)) {
-            return error(403, ApiErrors.FORBIDDEN, "Deploy access required.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.deploy.accessRequired"));
         }
         if (body == null || !CONFIRMATION.equals(body.confirm())) {
             return error(400, ApiErrors.BAD_REQUEST,
-                    "Starting a deployment is billable and changes production; send {\"confirm\":\""
-                            + CONFIRMATION + "\"} to proceed.");
+                    Text.get("api.deploy.confirmRequired", CONFIRMATION));
         }
         final DeployCommands deploy = Beans.get(DeployCommands.class);
         if (!deploy.isConfigured()) {
-            return error(409, ApiErrors.CONFLICT, "No pipeline is configured for this deployment.");
+            return error(409, ApiErrors.CONFLICT, Text.get("api.deploy.noPipeline"));
         }
         if (deploy.getStatus().isRunning()) {
-            return error(409, ApiErrors.CONFLICT, "A run is already in progress; starting another would "
-                    + "supersede it.");
+            return error(409, ApiErrors.CONFLICT, Text.get("api.deploy.runInProgress"));
         }
         // The actor-taking overload: the no-arg one reads FacesContext and would record the most consequential
         // action in the system as having been started by nobody.
         final String executionId = deploy.start(actor());
         if (executionId == null) {
-            return error(502, ApiErrors.INTERNAL, "The pipeline did not start; see the application log.");
+            return error(502, ApiErrors.INTERNAL, Text.get("api.deploy.notStarted"));
         }
         return ok(Map.of("started", true, "executionId", executionId));
     }

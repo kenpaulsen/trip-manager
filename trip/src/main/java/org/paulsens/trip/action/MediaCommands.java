@@ -23,6 +23,7 @@ import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.audit.AuditEventBuilder;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.media.UploadType;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
@@ -229,11 +230,11 @@ public class MediaCommands {
      */
     String claimRefusal(final String storedKey) {
         if (isReservedKey(storedKey)) {
-            return "That path belongs to another feature or another site.";
+            return Text.get("feedback.mediaCommands.pathReserved");
         }
         final MediaItem holder = getByKey(storedKey);
         if (holder != null && !mayManage(holder)) {
-            return "That path is already in use.";
+            return Text.get("feedback.mediaCommands.pathInUse");
         }
         return null;
     }
@@ -252,7 +253,7 @@ public class MediaCommands {
         final boolean featureSlot = ChatPhotos.isChatSlot(slot) || LodgingUploadCommands.isLodgingSlot(slot)
                 || ExpenseReceipts.isReceiptSlot(slot);
         return featureSlot && !slot.equals(current)
-                ? "That slot belongs to a trip album, a lodging gallery or an expense report." : null;
+                ? Text.get("feedback.mediaCommands.slotReserved") : null;
     }
 
     /**
@@ -684,7 +685,8 @@ public class MediaCommands {
         }
         final MediaItem item = cachedLibraryItemFor(orgId, url);
         if (item == null) {
-            return SCHEME.matcher(stripQuery(url.trim())).replaceFirst("") + NOT_IN_LIBRARY;
+            return Text.get("feedback.mediaCommands.notInLibrary",
+                    SCHEME.matcher(stripQuery(url.trim())).replaceFirst(""));
         }
         final String own = ORG_KEY_PREFIX + item.getOrgId() + "/";
         final String key = item.getS3Key();
@@ -745,23 +747,24 @@ public class MediaCommands {
         // the site's org below, so what they may write is decided here whatever they asked for.
         final String bucket = bucket();
         if (bucket == null) {
-            PageFeedback.error("Uploads unavailable",
-                    BUCKET_VAR + " is not configured, so there is nowhere to put the file.");
+            PageFeedback.error(Text.get("feedback.mediaCommands.uploadsUnavailable"),
+                    Text.get("feedback.mediaCommands.noBucket", BUCKET_VAR));
             return false;
         }
         final String cleanKey = siteKey(key);
         if (cleanKey == null) {
-            PageFeedback.error("Not uploaded", "A file name is required.");
+            PageFeedback.error(Text.get("feedback.mediaCommands.notUploaded"),
+                    Text.get("feedback.mediaCommands.fileNameRequired"));
             return false;
         }
         final String refusal = claimRefusal(cleanKey);
         if (refusal != null) {
-            PageFeedback.error("Not uploaded", refusal);
+            PageFeedback.error(Text.get("feedback.mediaCommands.notUploaded"), refusal);
             return false;
         }
         final String slotRefusal = slotRefusal(slot, null);
         if (slotRefusal != null) {
-            PageFeedback.error("Not uploaded", slotRefusal);
+            PageFeedback.error(Text.get("feedback.mediaCommands.notUploaded"), slotRefusal);
             return false;
         }
         final String contentType;
@@ -787,7 +790,7 @@ public class MediaCommands {
                     RequestBody.fromInputStream(buffered, size));
         } catch (final IOException | RuntimeException ex) {
             log.error("Unable to store media object: " + cleanKey, ex);
-            PageFeedback.failure("Not uploaded");
+            PageFeedback.failure(Text.get("feedback.mediaCommands.notUploaded"));
             return false;
         }
 
@@ -799,13 +802,13 @@ public class MediaCommands {
             if (!DAO.getInstance().saveMedia(item)) {
                 // The object is stored but unlisted: say so plainly rather than reporting success, because the
                 // file exists at its URL and a retry would upload it again.
-                PageFeedback.error("Partly uploaded",
-                        "The file was stored but could not be recorded. It is reachable at its URL.");
+                PageFeedback.error(Text.get("feedback.mediaCommands.partlyUploaded"),
+                        Text.get("feedback.mediaCommands.storedNotRecorded"));
                 return false;
             }
         } catch (final RuntimeException ex) {
             log.error("Stored object but failed to save its media row: " + cleanKey, ex);
-            PageFeedback.failure("Partly uploaded");
+            PageFeedback.failure(Text.get("feedback.mediaCommands.partlyUploaded"));
             return false;
         }
         // Announce the change; whoever cares about this prefix reacts. See MediaEvents.
@@ -1053,12 +1056,12 @@ public class MediaCommands {
             final String slot, final Integer position, final boolean hidden, final String editedBy) {
         final MediaItem existing = getForEdit(id);
         if (existing == null || !mayManage(existing)) {
-            PageFeedback.error("Not saved", "No such media item.");
+            PageFeedback.error(Text.get("feedback.shared.notSaved"), Text.get("api.media.noSuchItem"));
             return false;
         }
         final String slotRefusal = slotRefusal(slot, existing.getSlot());
         if (slotRefusal != null) {
-            PageFeedback.error("Not saved", slotRefusal);
+            PageFeedback.error(Text.get("feedback.shared.notSaved"), slotRefusal);
             return false;
         }
         // A rename stays in the OWNER's namespace whatever was typed (an org's file cannot be moved onto a
@@ -1069,7 +1072,7 @@ public class MediaCommands {
         if (renamed) {
             final String refusal = renameRefusal(existing, cleanKey);
             if (refusal != null) {
-                PageFeedback.error("Not renamed", refusal);
+                PageFeedback.error(Text.get("feedback.mediaCommands.notRenamed"), refusal);
                 return false;
             }
             if (!moveObject(existing.getS3Key(), cleanKey)) {
@@ -1081,12 +1084,13 @@ public class MediaCommands {
                 (position == null) ? existing.getPosition() : position, hidden);
         try {
             if (!DAO.getInstance().saveMedia(updated)) {
-                PageFeedback.error("Not saved", "The save failed.");
+                PageFeedback.error(Text.get("feedback.shared.notSaved"),
+                        Text.get("feedback.mediaCommands.saveFailed"));
                 return false;
             }
         } catch (final RuntimeException ex) {
             log.error("Unable to save media row: " + id, ex);
-            PageFeedback.failure("Not saved");
+            PageFeedback.failure(Text.get("feedback.shared.notSaved"));
             return false;
         }
         // A rename is a remove-then-add as far as anything watching a path prefix is concerned (see
@@ -1111,11 +1115,11 @@ public class MediaCommands {
      */
     String renameRefusal(final MediaItem existing, final String target) {
         if (isReservedKey(target)) {
-            return "That path belongs to another feature or another site.";
+            return Text.get("feedback.mediaCommands.pathReserved");
         }
         final MediaItem holder = getByKey(target);
         if (holder != null && !holder.getId().equals(existing.getId())) {
-            return "Another file already uses that path.";
+            return Text.get("feedback.mediaCommands.pathTaken");
         }
         return null;
     }
@@ -1134,8 +1138,8 @@ public class MediaCommands {
                     .build());
         } catch (final RuntimeException ex) {
             log.error("Unable to copy " + from + " to " + to, ex);
-            PageFeedback.error("Not renamed",
-                    "The stored file could not be copied to the new name; nothing was changed.");
+            PageFeedback.error(Text.get("feedback.mediaCommands.notRenamed"),
+                    Text.get("feedback.mediaCommands.copyFailed"));
             return false;
         }
         try {
@@ -1144,8 +1148,8 @@ public class MediaCommands {
             // The copy succeeded, so the new URL works. A leftover object at the old key is untidy, and it also
             // means the OLD url keeps working -- worth reporting, not worth failing the rename for.
             log.error("Copied to " + to + " but could not remove " + from, ex);
-            PageFeedback.warn("Renamed, old copy remains",
-                    "The file is available at its new name, but the old one could not be removed.");
+            PageFeedback.warn(Text.get("feedback.mediaCommands.renamedOldRemains"),
+                    Text.get("feedback.mediaCommands.oldNotRemoved"));
         }
         return true;
     }
@@ -1167,7 +1171,11 @@ public class MediaCommands {
     /** Where {@code web/StylesheetServlet} serves a trip page stylesheet in local mode. */
     static final String LOCAL_STYLESHEET_PATH = "/trip-stylesheets/";
 
-    /** What {@link #describeChoice} appends to a URL that names no item of the organization's library. */
+    /**
+     * What {@link #describeChoice} appends, in English, to a URL that names no item of the organization's
+     * library. The words themselves are the message {@code feedback.mediaCommands.notInLibrary}; this is here
+     * for the tests that read the English page.
+     */
     static final String NOT_IN_LIBRARY = " (not in the organization's media library)";
     private static final Pattern SCHEME = Pattern.compile("^[A-Za-z][A-Za-z0-9+.-]*://");
 
@@ -1328,8 +1336,8 @@ public class MediaCommands {
                 // The row is gone, so the site no longer references it; an orphaned object is a tidiness
                 // problem, not a correctness one. Report it rather than failing the whole delete.
                 log.error("Deleted media row but not the object: " + item.getS3Key(), ex);
-                PageFeedback.warn("Partly deleted",
-                        "Removed from the site, but the stored file could not be deleted.");
+                PageFeedback.warn(Text.get("feedback.mediaCommands.partlyDeleted"),
+                        Text.get("feedback.mediaCommands.removedNotDeleted"));
             }
         }
         MediaEvents.fire(MediaEvents.Change.REMOVED, item.getS3Key());

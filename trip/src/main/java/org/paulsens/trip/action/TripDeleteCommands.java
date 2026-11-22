@@ -5,13 +5,16 @@ import jakarta.inject.Named;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.Audit;
 import org.paulsens.trip.audit.AuditEventBuilder;
+import org.paulsens.trip.audit.RequestContext;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.BindingType;
@@ -131,11 +134,11 @@ public class TripDeleteCommands {
         }
         final List<String> blockers = computeBlockers(trip);
         if (blockers.isEmpty()) {
-            PageFeedback.info("This trip can be deleted now -- reload the page to get the delete button.");
+            PageFeedback.info(Text.get("feedback.tripDeleteCommands.deletableNow"));
             return;
         }
         for (final String blocker : blockers) {
-            PageFeedback.warn("Cannot delete: " + blocker);
+            PageFeedback.warn(Text.get("feedback.tripDeleteCommands.cannotDelete", blocker));
         }
     }
 
@@ -167,12 +170,13 @@ public class TripDeleteCommands {
         if (messages == 0 && photos == 0) {
             return "";
         }
-        final String messagePart = (messages >= MESSAGE_COUNT_CAP ? MESSAGE_COUNT_CAP + "+" : "" + messages)
-                + " chat message" + (messages == 1 ? "" : "s");
-        if (photos == 0) {
-            return messagePart;
+        if (messages >= MESSAGE_COUNT_CAP) {
+            final String cap = String.valueOf(MESSAGE_COUNT_CAP);
+            return photos == 0 ? Text.get("feedback.tripDeleteCommands.chatMessagesCapped", cap)
+                    : Text.get("feedback.tripDeleteCommands.chatMessagesCappedAndPhotos", cap, photos);
         }
-        return messagePart + " and " + photos + " photo" + (photos == 1 ? "" : "s");
+        return photos == 0 ? Text.get("feedback.tripDeleteCommands.chatMessages", messages)
+                : Text.get("feedback.tripDeleteCommands.chatMessagesAndPhotos", messages, photos);
     }
 
     /**
@@ -190,26 +194,27 @@ public class TripDeleteCommands {
             return false;
         }
         if (!CHALLENGE.equalsIgnoreCase(challenge == null ? "" : challenge.trim())) {
-            PageFeedback.warn("Not deleted: type '" + CHALLENGE + "' in the box to confirm.");
+            PageFeedback.warn(Text.get("feedback.tripDeleteCommands.typeToConfirm", CHALLENGE));
             return false;
         }
         final Trip fresh = DAO.getInstance().getTrip(trip.getId(), Cached.NO).orElse(null);
         if (fresh == null) {
             // Someone else finished the job (or a retried cascade already took the row): goal state reached.
-            PageFeedback.info("This trip no longer exists.");
+            PageFeedback.info(Text.get("feedback.tripDeleteCommands.tripGone"));
             return true;
         }
         if (!canDelete(fresh)) {
             audit(fresh, AuditOutcome.FAILURE, "refused: not an Editor Admin + organization admin");
-            PageFeedback.error("Not allowed: deleting a trip requires its Editor Admin role AND being an admin "
-                            + "of the organization it belongs to.");
+            PageFeedback.error(Text.get("feedback.tripDeleteCommands.notAllowed"));
             return false;
         }
-        final List<String> blockers = computeBlockers(fresh);
+        final Blocking blocking = blocking(fresh);
+        final List<String> blockers = blocking.sentences(RequestContext.currentLocale());
         if (!blockers.isEmpty()) {
-            audit(fresh, AuditOutcome.FAILURE, "refused: " + String.join(" | ", blockers));
+            // The audit trail stays English whatever language the growls below are in.
+            audit(fresh, AuditOutcome.FAILURE, "refused: " + String.join(" | ", blocking.sentences(Locale.ENGLISH)));
             for (final String blocker : blockers) {
-                PageFeedback.warn("Cannot delete: " + blocker);
+                PageFeedback.warn(Text.get("feedback.tripDeleteCommands.cannotDelete", blocker));
             }
             return false;
         }
@@ -217,13 +222,12 @@ public class TripDeleteCommands {
             final String summary = cascade(fresh);
             audit(fresh, AuditOutcome.SUCCESS, summary);
             log.warn("Trip {} ('{}') permanently deleted: {}", fresh.getId(), fresh.getTitle(), summary);
-            PageFeedback.info("Trip '" + fresh.getTitle() + "' was permanently deleted.");
+            PageFeedback.info(Text.get("feedback.tripDeleteCommands.deleted", fresh.getTitle()));
             return true;
         } catch (final RuntimeException ex) {
             log.error("Trip delete for {} did not finish", fresh.getId(), ex);
             audit(fresh, AuditOutcome.FAILURE, "cascade failed: " + ex.getMessage());
-            PageFeedback.error("The delete did not finish; the error has been logged. Some data may already be "
-                    + "removed, and running the delete again is safe.");
+            PageFeedback.error(Text.get("feedback.tripDeleteCommands.deleteUnfinished"));
             return false;
         }
     }
@@ -286,36 +290,42 @@ public class TripDeleteCommands {
     }
 
     private List<String> computeBlockers(final Trip trip) {
-        final List<String> blockers = new ArrayList<>();
-        final int people = trip.getPeople().size();
-        if (people > 0) {
-            blockers.add(people + (people == 1 ? " person is" : " people are")
-                    + " still part of this trip. Remove everyone from the trip first.");
+        return blocking(trip).sentences(RequestContext.currentLocale());
+    }
+
+    /**
+     * What stands in the way of a delete, as counts: the growl says them in the reader's language and the audit
+     * line in English, from one read of the tables.
+     */
+    private record Blocking(int people, long approved, long livePayments, int liveTxs) {
+
+        List<String> sentences(final Locale locale) {
+            final List<String> blockers = new ArrayList<>();
+            if (people > 0) {
+                blockers.add(Text.forLocale(locale, "feedback.tripDeleteCommands.peopleOnTrip", people));
+            }
+            if (approved > 0) {
+                blockers.add(Text.forLocale(locale, "feedback.tripDeleteCommands.approvedRegistrations", approved));
+            }
+            if (livePayments > 0) {
+                blockers.add(Text.forLocale(locale, "feedback.tripDeleteCommands.livePayments", livePayments));
+            }
+            if (liveTxs > 0) {
+                blockers.add(Text.forLocale(locale, "feedback.tripDeleteCommands.liveTransactions", liveTxs));
+            }
+            return blockers;
         }
+    }
+
+    private Blocking blocking(final Trip trip) {
         final long approved = DAO.getInstance().getRegistrations(trip.getId(), Cached.NO).stream()
                 .filter(reg -> reg.getStatus() == Registration.Status.CONFIRMED)
                 .count();
-        if (approved > 0) {
-            blockers.add(approved + " registration" + (approved == 1 ? " is" : "s are")
-                    + " approved. Un-approve or move them first (unapproved registrations are deleted "
-                    + "with the trip).");
-        }
         final long livePayments = DAO.getInstance().getAllPayments().stream()
                 .filter(payment -> trip.getId().equals(payment.getTripId()))
                 .filter(TripDeleteCommands::isLivePayment)
                 .count();
-        if (livePayments > 0) {
-            blockers.add(livePayments + " payment record" + (livePayments == 1 ? " is" : "s are")
-                    + " not cancelled. Financial records are never destroyed; cancel them (or wait for "
-                    + "them to fail) first.");
-        }
-        final int liveTxs = countLiveTransactions(trip.getId());
-        if (liveTxs > 0) {
-            blockers.add(liveTxs + " financial transaction" + (liveTxs == 1 ? " is" : "s are")
-                    + " still linked to this trip. Delete them on the transactions page first "
-                    + "(they are kept as soft-deleted records).");
-        }
-        return blockers;
+        return new Blocking(trip.getPeople().size(), approved, livePayments, countLiveTransactions(trip.getId()));
     }
 
     private static boolean isLivePayment(final Payment payment) {

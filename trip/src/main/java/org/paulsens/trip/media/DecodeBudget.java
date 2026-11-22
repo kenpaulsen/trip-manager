@@ -3,6 +3,7 @@ package org.paulsens.trip.media;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
+import org.paulsens.trip.i18n.Text;
 
 /**
  * Bounds the memory that decoded images hold AT ONCE across the whole process, the way
@@ -89,7 +90,6 @@ final class DecodeBudget {
         } catch (final InterruptedException ex) {
             Thread.currentThread().interrupt();
         }
-        throw new PhotoRejectedException("The server is busy with other photos right now. Please try again in a "
-                + "moment.");
+        throw new PhotoRejectedException(Text.get("server.photos.busy"));
     }
 }

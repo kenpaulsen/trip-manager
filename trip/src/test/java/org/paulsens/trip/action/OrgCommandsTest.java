@@ -734,7 +734,7 @@ public class OrgCommandsTest {
         final Organization acme = orgWithAdmin(acmeAdmin);
         final org.paulsens.trip.action.MailCommands mail =
                 Mockito.mock(org.paulsens.trip.action.MailCommands.class);
-        Mockito.when(mail.sendManagedTemplateForOrg(Mockito.anyString(), Mockito.any(), Mockito.anyMap(),
+        Mockito.when(mail.sendManagedTemplateForOrg(Mockito.anyString(), Mockito.any(), Mockito.any(), Mockito.anyMap(),
                 Mockito.anyString(), Mockito.anyString(), Mockito.any(), Mockito.any(), Mockito.any()))
                 .thenReturn(true);
         final OrgCommands cmds = new OrgCommands(callerOf(acmeAdmin), () -> mail);
@@ -750,7 +750,7 @@ public class OrgCommandsTest {
                 "The test goes to the PROMPTED address, trimmed");
         // The trip's ORG is threaded through: a test send must resolve the same copy the live send does.
         Mockito.verify(mail).sendManagedTemplateForOrg(Mockito.eq("payment-confirmation"),
-                Mockito.eq(acme.getId().getValue()), Mockito.anyMap(),
+                Mockito.eq(acme.getId().getValue()), Mockito.any(), Mockito.anyMap(),
                 Mockito.eq("tester@example.org"), Mockito.eq("Trip <no-reply@unitetrip.com>"),
                 Mockito.any(), Mockito.any(), Mockito.any());
 
@@ -764,7 +764,8 @@ public class OrgCommandsTest {
         final Organization acme = orgWithAdmin(acmeAdmin);
         final org.paulsens.trip.action.MailCommands mail =
                 Mockito.mock(org.paulsens.trip.action.MailCommands.class);
-        Mockito.when(mail.renderManagedTemplateForOrg(Mockito.anyString(), Mockito.any(), Mockito.anyMap()))
+        Mockito.when(mail.renderManagedTemplateForOrg(Mockito.anyString(), Mockito.any(), Mockito.any(),
+                Mockito.anyMap()))
                 .thenReturn(new org.paulsens.trip.action.MailCommands.ManagedMail(
                         "Payment received - Preview Trip", "<p>Dear Sample</p>"));
         final OrgCommands cmds = new OrgCommands(callerOf(acmeAdmin), () -> mail);
@@ -906,7 +907,7 @@ public class OrgCommandsTest {
         final String orgId = acme.getId().getValue();
         final org.paulsens.trip.action.MailCommands mail =
                 Mockito.mock(org.paulsens.trip.action.MailCommands.class);
-        Mockito.when(mail.sendManagedTemplateForOrg(Mockito.anyString(), Mockito.any(), Mockito.anyMap(),
+        Mockito.when(mail.sendManagedTemplateForOrg(Mockito.anyString(), Mockito.any(), Mockito.any(), Mockito.anyMap(),
                 Mockito.anyString(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any()))
                 .thenReturn(true);
         final OrgCommands cmds = new OrgCommands(callerOf(orgAdmin), () -> mail);
@@ -920,6 +921,7 @@ public class OrgCommandsTest {
         // The invited org is threaded through, so an org that customized org-invite sends its own copy.
         Mockito.verify(mail).sendManagedTemplateForOrg(
                 Mockito.eq(org.paulsens.trip.content.StarterTemplates.ORG_INVITE_ID), Mockito.eq(orgId),
+                Mockito.any(),
                 values.capture(), Mockito.eq(unknown), Mockito.any(), Mockito.any(), Mockito.any(),
                 Mockito.any());
         assertEquals(values.getValue().get("orgName"), acme.getName());
@@ -948,7 +950,7 @@ public class OrgCommandsTest {
         final String orgId = acme.getId().getValue();
         final org.paulsens.trip.action.MailCommands mail =
                 Mockito.mock(org.paulsens.trip.action.MailCommands.class);
-        Mockito.when(mail.sendManagedTemplateForOrg(Mockito.anyString(), Mockito.any(), Mockito.anyMap(),
+        Mockito.when(mail.sendManagedTemplateForOrg(Mockito.anyString(), Mockito.any(), Mockito.any(), Mockito.anyMap(),
                 Mockito.anyString(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any()))
                 .thenReturn(false);
         final OrgCommands cmds = new OrgCommands(callerOf(orgAdmin), () -> mail);
@@ -964,6 +966,7 @@ public class OrgCommandsTest {
                 "An account that appeared since the check folds into a plain add");
         assertTrue(dao.getOrgMember(acme.getId(), existing.getId(), Cached.NO).isPresent());
         Mockito.verify(mail, Mockito.never()).sendManagedTemplateForOrg(Mockito.anyString(), Mockito.any(),
+                Mockito.any(),
                 Mockito.anyMap(), Mockito.eq(existing.getEmail()), Mockito.any(), Mockito.any(),
                 Mockito.any(), Mockito.any());
     }
@@ -2040,12 +2043,13 @@ public class OrgCommandsTest {
                 "no From stays no From");
 
         final org.paulsens.trip.action.MailCommands mail = Mockito.mock(org.paulsens.trip.action.MailCommands.class);
-        Mockito.when(mail.sendManagedTemplateForOrg(Mockito.anyString(), Mockito.any(), Mockito.anyMap(),
+        Mockito.when(mail.sendManagedTemplateForOrg(Mockito.anyString(), Mockito.any(), Mockito.any(), Mockito.anyMap(),
                 Mockito.anyString(), Mockito.anyString(), Mockito.any(), Mockito.any(), Mockito.any()))
                 .thenReturn(true);
         assertTrue(new OrgCommands(callerOf(acmeAdmin), () -> mail).sendPaymentTestMail(trip, "tester@example.org"));
-        Mockito.verify(mail).sendManagedTemplateForOrg(Mockito.anyString(), Mockito.eq(orgId), Mockito.anyMap(),
-                Mockito.eq("tester@example.org"), Mockito.eq(inherited), Mockito.any(), Mockito.any(), Mockito.any());
+        Mockito.verify(mail).sendManagedTemplateForOrg(Mockito.anyString(), Mockito.eq(orgId), Mockito.any(),
+                Mockito.anyMap(), Mockito.eq("tester@example.org"), Mockito.eq(inherited), Mockito.any(), Mockito.any(),
+                Mockito.any());
     }
 
     /** Every Inherit label in the payment dialog reads the ladder WITHOUT the trip's own overlay: with a Custom From
@@ -2216,7 +2220,7 @@ public class OrgCommandsTest {
         final String orgId = org.getId().getValue();
         final org.paulsens.trip.action.MailCommands mail =
                 Mockito.mock(org.paulsens.trip.action.MailCommands.class);
-        Mockito.when(mail.sendManagedTemplateForOrg(Mockito.anyString(), Mockito.any(), Mockito.anyMap(),
+        Mockito.when(mail.sendManagedTemplateForOrg(Mockito.anyString(), Mockito.any(), Mockito.any(), Mockito.anyMap(),
                 Mockito.anyString(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any()))
                 .thenReturn(true);
         final OrgCommands cmds = new OrgCommands(callerOf(orgAdmin), () -> mail);
@@ -2227,6 +2231,7 @@ public class OrgCommandsTest {
         final String sharedInvitee = "shared-" + unique() + "@example.org";
         assertTrue(cmds.sendOrgInvite(orgId, sharedInvitee));
         Mockito.verify(mail).sendManagedTemplateForOrg(Mockito.anyString(), Mockito.eq(orgId),
+                Mockito.any(),
                 values.capture(), Mockito.anyString(), Mockito.any(), Mockito.any(), Mockito.any(),
                 Mockito.any());
         final String regBase = KnownSettings.REG_MAIL_BASE_URL.getDefaultValue();
@@ -2243,6 +2248,7 @@ public class OrgCommandsTest {
         final String ownInvitee = "own-" + unique() + "@example.org";
         assertTrue(cmds.sendOrgInvite(orgId, ownInvitee));
         Mockito.verify(mail).sendManagedTemplateForOrg(Mockito.anyString(), Mockito.eq(orgId),
+                Mockito.any(),
                 values.capture(), Mockito.anyString(), Mockito.any(), Mockito.any(), Mockito.any(),
                 Mockito.any());
         assertEquals(values.getValue().get("createAccountUrl"),

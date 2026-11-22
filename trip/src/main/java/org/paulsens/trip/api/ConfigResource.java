@@ -15,6 +15,7 @@ import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.ConfigCommands;
 import org.paulsens.trip.config.KnownSettings;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.Config;
 import org.paulsens.trip.model.SettingDef;
 import org.paulsens.trip.model.SettingSection;
@@ -52,7 +53,7 @@ public class ConfigResource extends BaseResource {
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response settings() {
         if (!privileges().has(ApiPrivileges.CONFIG_ADMIN)) {
-            return error(403, ApiErrors.FORBIDDEN, "Config access required.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.config.accessRequired"));
         }
         final ConfigCommands config = Beans.get(ConfigCommands.class);
         final Map<String, String> values = config.getKnownValues();
@@ -71,7 +72,7 @@ public class ConfigResource extends BaseResource {
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response unknown() {
         if (!privileges().has(ApiPrivileges.CONFIG_ADMIN)) {
-            return error(403, ApiErrors.FORBIDDEN, "Config access required.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.config.accessRequired"));
         }
         return ok(Beans.get(ConfigCommands.class).getUnknown().stream()
                 .map(ConfigResource::toDto)
@@ -94,21 +95,22 @@ public class ConfigResource extends BaseResource {
     public Response saveKnown(
             @HeaderParam(CSRF_HEADER) final String csrf, final Map<String, String> body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         if (!privileges().has(ApiPrivileges.CONFIG_ADMIN)) {
-            return error(403, ApiErrors.FORBIDDEN, "Config access required.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.config.accessRequired"));
         }
         if (body == null || body.isEmpty()) {
-            return error(400, ApiErrors.BAD_REQUEST, "No settings supplied.");
+            return error(400, ApiErrors.BAD_REQUEST, Text.get("api.config.noSettings"));
         }
         final List<String> undeclared = body.keySet().stream().filter(name -> !KnownSettings.isKnown(name)).toList();
         if (!undeclared.isEmpty()) {
-            return error(400, ApiErrors.BAD_REQUEST, "Not declared settings: " + String.join(", ", undeclared));
+            return error(400, ApiErrors.BAD_REQUEST,
+                    Text.get("api.config.undeclaredSettings", String.join(", ", undeclared)));
         }
         final ConfigCommands config = Beans.get(ConfigCommands.class);
         if (!config.saveKnown(body, modifiedBy())) {
-            return error(500, ApiErrors.STORE_FAILED, "Could not save the settings.");
+            return error(500, ApiErrors.STORE_FAILED, Text.get("api.config.settingsNotSaved"));
         }
         return ok(Map.of("saved", body.keySet().stream().sorted().toList()));
     }
@@ -128,19 +130,19 @@ public class ConfigResource extends BaseResource {
     public Response createUndeclared(
             @HeaderParam(CSRF_HEADER) final String csrf, final NewSetting body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         if (!privileges().has(ApiPrivileges.CONFIG_ADMIN)) {
-            return error(403, ApiErrors.FORBIDDEN, "Config access required.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.config.accessRequired"));
         }
         if (body == null || body.name() == null || body.name().isBlank()) {
-            return error(400, ApiErrors.BAD_REQUEST, "A setting needs a name.");
+            return error(400, ApiErrors.BAD_REQUEST, Text.get("feedback.configCommands.needsName"));
         }
         if (!Beans.get(ConfigCommands.class)
                 .saveNew(body.name(), body.value(), body.type(), body.description(), modifiedBy())) {
             // saveNew reports its reason through a FacesMessage, which goes nowhere off a Faces thread, so the
             // client gets a code rather than a growl it will never see.
-            return error(422, ApiErrors.VALIDATION_FAILED, "The setting was refused; check name, type and value.");
+            return error(422, ApiErrors.VALIDATION_FAILED, Text.get("api.config.settingRefused"));
         }
         return ok(Map.of("saved", true, "name", body.name()));
     }
@@ -157,7 +159,8 @@ public class ConfigResource extends BaseResource {
 
     private static Map<String, Object> toDto(final SettingSection section, final Map<String, String> values) {
         final Map<String, Object> result = new LinkedHashMap<>();
-        result.put("title", section.getTitle());
+        // The heading as the caller reads it, like the note beside it; nothing matches a section by this value.
+        result.put("title", section.getDisplayTitle());
         result.put("note", section.getNote());
         result.put("settings", section.getSettings().stream()
                 .map(def -> toDto(def, values))

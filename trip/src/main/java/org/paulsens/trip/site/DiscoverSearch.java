@@ -2,7 +2,6 @@ package org.paulsens.trip.site;
 
 import java.time.LocalDate;
 import java.time.YearMonth;
-import java.time.format.TextStyle;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -10,10 +9,12 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.SortedSet;
+import java.util.function.BiFunction;
 import java.util.function.Function;
 import org.paulsens.trip.api.dto.DiscoverFacetDto;
 import org.paulsens.trip.api.dto.DiscoverListDto;
 import org.paulsens.trip.api.dto.DiscoverTripDto;
+import org.paulsens.trip.i18n.Formats;
 import org.paulsens.trip.model.Language;
 import org.paulsens.trip.model.TripKind;
 import org.paulsens.trip.site.DiscoverIndex.Entry;
@@ -22,7 +23,8 @@ import org.paulsens.trip.site.DiscoverQuery.Sort;
 
 /**
  * Search, filters, order, paging and facet counts over the listed trips: a pure function of the entries it is
- * handed and a parsed {@link DiscoverQuery}. It reads no cache, no setting and no clock, and it can only ever
+ * handed, a parsed {@link DiscoverQuery} and the reader's language. It reads no cache, no setting and no clock, and
+ * it can only ever
  * return entries it was given, so whatever {@link DiscoverIndex} left out (an organization with Shared sites off,
  * a trip off its homepage) cannot come back through a clever query.
  *
@@ -31,6 +33,10 @@ import org.paulsens.trip.site.DiscoverQuery.Sort;
  * is counted under each); an entry must pass every filter. A filter's facet is counted over the entries that
  * pass the words, the dates and every OTHER filter, so the counts beside a filter's own chips do not collapse to
  * the one already chosen, and a value that would return nothing is never offered.
+ *
+ * <p>A facet's LABEL (a country's name, a month, a trip kind) is worded here, per request, in the reader's
+ * language: the index is built once for every reader, so nothing language-specific may be stored in it. Search
+ * text stays the index's (English names and aliases beside the trip's own language), whatever the reader's.
  */
 public final class DiscoverSearch {
 
@@ -63,23 +69,33 @@ public final class DiscoverSearch {
         STATE(DiscoverQuery::states, DiscoverSearch::stateOf);
 
         private final Function<DiscoverQuery, SortedSet<String>> chosen;
-        private final Function<Entry, List<Choice>> carried;
+        /** The choices an entry carries, labeled in the given language. */
+        private final BiFunction<Entry, Locale, List<Choice>> carried;
 
         Dimension(final Function<DiscoverQuery, SortedSet<String>> chosen,
-                final Function<Entry, List<Choice>> carried) {
+                final BiFunction<Entry, Locale, List<Choice>> carried) {
             this.chosen = chosen;
             this.carried = carried;
         }
 
         boolean admits(final Entry entry, final DiscoverQuery query) {
             final SortedSet<String> wanted = chosen.apply(query);
-            return wanted.isEmpty() || carried.apply(entry).stream()
+            // Only the values are compared, so the label's language does not matter here.
+            return wanted.isEmpty() || carried.apply(entry, Locale.ENGLISH).stream()
                     .anyMatch(choice -> wanted.contains(choice.value().toLowerCase(Locale.ROOT)));
         }
     }
 
-    /** Runs {@code query} over {@code entries} (already narrowed to what this host may list). */
+    /** {@link #search(List, DiscoverQuery, Locale)} with the facets worded in English. */
     public static Result search(final List<Entry> entries, final DiscoverQuery query) {
+        return search(entries, query, Locale.ENGLISH);
+    }
+
+    /**
+     * Runs {@code query} over {@code entries} (already narrowed to what this host may list), the facets' labels
+     * worded in {@code language}.
+     */
+    public static Result search(final List<Entry> entries, final DiscoverQuery query, final Locale language) {
         final List<Entry> worded = entries.stream().filter(entry -> matchesWordsAndDates(entry, query)).toList();
         final Comparator<Entry> order = orderOf(query.sort());
         final List<Entry> matched = worded.stream().filter(entry -> passes(entry, query, null)).sorted(order)
@@ -88,7 +104,8 @@ public final class DiscoverSearch {
                 : matched.stream().filter(entry -> isAfter(entry, query.cursor(), query.sort())).toList();
         final List<Entry> page = rest.stream().limit(query.limit()).toList();
         final String next = rest.size() > page.size() ? cursorAfter(page.getLast(), query) : null;
-        return new Result(page.stream().map(Entry::trip).toList(), matched.size(), next, facetsOf(worded, query));
+        return new Result(page.stream().map(Entry::trip).toList(), matched.size(), next,
+                facetsOf(worded, query, language));
     }
 
     private static boolean matchesWordsAndDates(final Entry entry, final DiscoverQuery query) {
@@ -119,17 +136,35 @@ public final class DiscoverSearch {
 
     // ------------------------------------------------------------------ what an entry carries
 
-    /** One choice per country the trip visits: it passes the filter for ANY of them and counts under EACH. */
-    private static List<Choice> countryOf(final Entry entry) {
+    /**
+     * One choice per country the trip visits: it passes the filter for ANY of them and counts under EACH. Named as
+     * the trip editor's menu names it (the index's English) for an English reader, else in the reader's language.
+     */
+    private static List<Choice> countryOf(final Entry entry, final Locale language) {
         final List<String> codes = entry.trip().countries();
+        final Locale other = otherThanEnglish(language);
         final List<Choice> countries = new ArrayList<>();
         for (int i = 0; i < codes.size(); i++) {
-            countries.add(new Choice(codes.get(i), entry.countryLabels().get(i)));
+            countries.add(new Choice(codes.get(i), other == null ? entry.countryLabels().get(i)
+                    : countryName(codes.get(i), other, entry.countryLabels().get(i))));
         }
         return countries;
     }
 
-    private static List<Choice> tagsOf(final Entry entry) {
+    /** The reader's language when it is one the product speaks other than English; null for English. */
+    private static Locale otherThanEnglish(final Locale language) {
+        return Language.forTag(language == null ? null : language.getLanguage())
+                .filter(known -> known != Language.English)
+                .map(Language::getLocale)
+                .orElse(null);
+    }
+
+    private static String countryName(final String code, final Locale in, final String english) {
+        final String name = Locale.of("", code).getDisplayCountry(in);
+        return name.isBlank() || name.equals(code) ? english : name;
+    }
+
+    private static List<Choice> tagsOf(final Entry entry, final Locale language) {
         final List<String> ids = entry.trip().tags();
         final List<String> labels = entry.trip().tagLabels();
         final List<Choice> tags = new ArrayList<>();
@@ -139,7 +174,8 @@ public final class DiscoverSearch {
         return tags;
     }
 
-    private static List<Choice> languageOf(final Entry entry) {
+    /** The language in its OWN words, the same for every reader (docs/i18n.md: language names are never keyed). */
+    private static List<Choice> languageOf(final Entry entry, final Locale language) {
         final String name = entry.trip().language();
         return List.of(new Choice(name, languageLabel(name)));
     }
@@ -149,50 +185,54 @@ public final class DiscoverSearch {
         return Language.named(name).map(Language::getDisplayName).orElse(name);
     }
 
-    private static List<Choice> kindOf(final Entry entry) {
+    private static List<Choice> kindOf(final Entry entry, final Locale language) {
         final String name = entry.trip().kind();
-        return List.of(new Choice(name, kindLabel(name)));
+        return List.of(new Choice(name, kindLabel(name, language)));
     }
 
-    private static String kindLabel(final String name) {
-        return TripKind.named(name).map(TripKind::getDisplayValue).orElse(name);
+    private static String kindLabel(final String name, final Locale language) {
+        return TripKind.named(name).map(kind -> kind.displayValueIn(language)).orElse(name);
     }
 
-    private static List<Choice> organizationOf(final Entry entry) {
+    private static List<Choice> organizationOf(final Entry entry, final Locale language) {
         return List.of(new Choice(entry.trip().orgId(), entry.trip().orgName(), entry.trip().orgLogoUrl()));
     }
 
-    /** The month the trip DEPARTS in: one month per trip, so the months' counts add up to the list. */
-    private static List<Choice> monthOf(final Entry entry) {
+    /**
+     * The month the trip DEPARTS in: one month per trip, so the months' counts add up to the list. Labeled with the
+     * reader's own month-and-year pattern ("January 2027", "enero de 2027"), never a month name glued to a year.
+     */
+    private static List<Choice> monthOf(final Entry entry, final Locale language) {
         final YearMonth month = entry.month();
         return month == null ? List.of() : List.of(new Choice(month.toString(),
-                month.getMonth().getDisplayName(TextStyle.FULL, Locale.ENGLISH) + " " + month.getYear()));
+                Formats.format(month, "yMMMM", language)));
     }
 
-    private static List<Choice> stateOf(final Entry entry) {
+    private static List<Choice> stateOf(final Entry entry, final Locale language) {
         return List.of(new Choice(entry.trip().registration(), entry.trip().registration()));
     }
 
     // ------------------------------------------------------------------ facets
 
-    private static DiscoverListDto.Facets facetsOf(final List<Entry> worded, final DiscoverQuery query) {
+    private static DiscoverListDto.Facets facetsOf(final List<Entry> worded, final DiscoverQuery query,
+            final Locale language) {
         return new DiscoverListDto.Facets(
-                byCount(facet(worded, query, Dimension.COUNTRY)),
-                byCount(facet(worded, query, Dimension.TAG)),
-                byCount(facet(worded, query, Dimension.LANGUAGE)),
-                byCount(facet(worded, query, Dimension.KIND)),
-                byCount(facet(worded, query, Dimension.ORGANIZATION)),
-                facet(worded, query, Dimension.MONTH).stream()
+                byCount(facet(worded, query, Dimension.COUNTRY, language)),
+                byCount(facet(worded, query, Dimension.TAG, language)),
+                byCount(facet(worded, query, Dimension.LANGUAGE, language)),
+                byCount(facet(worded, query, Dimension.KIND, language)),
+                byCount(facet(worded, query, Dimension.ORGANIZATION, language)),
+                facet(worded, query, Dimension.MONTH, language).stream()
                         .sorted(Comparator.comparing(DiscoverFacetDto::value)).toList());
     }
 
     /** {@code dimension}'s values among the entries passing everything BUT {@code dimension}, with counts. */
     private static List<DiscoverFacetDto> facet(final List<Entry> worded, final DiscoverQuery query,
-            final Dimension dimension) {
+            final Dimension dimension, final Locale language) {
         final Map<String, DiscoverFacetDto> counted = new LinkedHashMap<>();
         for (final Entry entry : worded) {
             if (passes(entry, query, dimension)) {
-                dimension.carried.apply(entry).forEach(choice -> counted.merge(choice.value(),
+                dimension.carried.apply(entry, language).forEach(choice -> counted.merge(choice.value(),
                         new DiscoverFacetDto(choice.value(), choice.label(), 1, choice.logoUrl()),
                         DiscoverSearch::plusOne));
             }

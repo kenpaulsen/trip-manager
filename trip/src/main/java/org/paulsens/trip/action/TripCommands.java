@@ -9,7 +9,6 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -24,10 +23,12 @@ import java.util.Set;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.audit.RequestContext;
 import org.paulsens.trip.content.ContentRenderer;
 import org.paulsens.trip.content.PageHtml;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.audit.AuditActor;
+import org.paulsens.trip.i18n.Formats;
 import org.paulsens.trip.model.BindingType;
 import org.paulsens.trip.model.CompositeKey;
 import org.paulsens.trip.model.ContentInstance;
@@ -44,6 +45,7 @@ import org.paulsens.trip.model.TripKind;
 
 import static java.time.temporal.ChronoUnit.DAYS;
 import org.paulsens.trip.cache.Cached;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.site.ListingScope;
 import org.paulsens.trip.site.SiteContext;
 import org.paulsens.trip.util.RichText;
@@ -55,7 +57,11 @@ public class TripCommands {
     private static final long TIMEOUT = 5_000L;
     /** Cap for the admin/joinable trip-resolution fallbacks (a user's own trips come from the reverse index). */
     private static final int RECENT_TRIP_LIMIT = 100;
-    /** Shown (as a growl) on the profile page when a trip asked for by id could not be opened; see noTripUrl. */
+    /**
+     * Shown (as a growl) on the profile page when a trip asked for by id could not be opened; see noTripUrl. The
+     * English of feedback.tripCommands.noTripAccess: the link carries the bundle's text, and this stays as the
+     * name a test compares its English against.
+     */
     public static final String NO_TRIP_ACCESS_MESSAGE = "That trip is not available to you.";
     /**
      * A "Trip Listings" section's language value meaning "every language". Deliberately not a {@link Language}
@@ -76,8 +82,9 @@ public class TripCommands {
             .comparing(Trip::getStartDate, Comparator.nullsFirst(Comparator.<LocalDateTime>naturalOrder()))
             .reversed();
 
-    /** How a refused event's start is spelled back to the manager, e.g. "Oct 13, 2026 6:55 PM". */
-    private static final DateTimeFormatter EVENT_WHEN = DateTimeFormatter.ofPattern("MMM d, yyyy h:mm a");
+    /** How a refused event's start is spelled back to the manager; English keeps "Oct 13, 2026 6:55 PM". */
+    private static final String EVENT_WHEN = "yMMMdjm";
+    private static final String EVENT_WHEN_ENGLISH = "MMM d, yyyy h:mm a";
 
     @Inject
     private BindingCommands bind;
@@ -232,10 +239,6 @@ public class TripCommands {
         return saveTrip(trip, null);   // this bean's own caller, resolved only if the kind gate needs one
     }
 
-    /** The refusal when a registration option shown to users has no name. */
-    static final String UNNAMED_OPTION = "Not saved: a registration option shown to users has no name. Open "
-            + "Registration Options and name it, or untick its Show to Users? box.";
-
     /** Whether any option travelers would see is missing its name (the question text). */
     static boolean hasUnnamedShownOption(final Trip trip) {
         for (final RegistrationOption option : trip.getRegOptions()) {
@@ -253,20 +256,19 @@ public class TripCommands {
      */
     public boolean saveTrip(final Trip trip, final OrgCommands org) {
         if (!mayChangeKind(trip, org)) {
-            PageFeedback.warn("Not saved: only someone holding Create Conferences for this organization may make "
-                    + "a trip a conference or change a conference's kind.");
+            PageFeedback.warn(Text.get("feedback.tripCommands.kindNotAllowed"));
             return false;
         }
         if (trip.getOrgId() == null || trip.getOrgId().isBlank()) {
             // Every trip belongs to an organization: its ledger rows, payments and pages take their tenancy from
             // it, and a row recorded on an org-less trip would belong to nobody (TransactionsCommands.ledgerTrip).
-            PageFeedback.warn(NO_ORG_REFUSED);
+            PageFeedback.warn(Text.get("feedback.tripCommands.noOrganization"));
             return false;
         }
         if (hasUnnamedShownOption(trip)) {
             // New options start blank and shown (the editor's hints stand in for the name), so a forgotten one
             // would otherwise reach the registration form as a question with no label.
-            PageFeedback.warn(UNNAMED_OPTION);
+            PageFeedback.warn(Text.get("feedback.tripCommands.unnamedOption"));
             return false;
         }
         // Typed HTML that pages write unescaped (medjugorje#158): every save path meets the allowlist here.
@@ -274,7 +276,7 @@ public class TripCommands {
         final List<String> pricing = trip.checkoutProblems();
         if (!pricing.isEmpty()) {
             // The Pricing fieldset's Done refuses these too, but closing the dialog with its X skips Done.
-            PageFeedback.warn("Not saved", String.join(" ", pricing));
+            PageFeedback.warn(Text.get("feedback.shared.notSaved"), String.join(" ", pricing));
             return false;
         }
         // ONE uncached pre-read of the stored row answers every comparison below: the links, the roster, "is this
@@ -284,13 +286,13 @@ public class TripCommands {
         final Trip stored = before.stored();
         final List<String> links = before.readable() ? linkProblems(trip, stored) : List.of();
         if (!links.isEmpty()) {
-            PageFeedback.warn("Not saved: " + String.join(" ", links));
+            PageFeedback.warn(Text.get("feedback.tripCommands.notSavedBecause", String.join(" ", links)));
             return false;
         }
         final List<String> page = new TripPageCommands().pageProblems(trip);
         if (!page.isEmpty()) {
             // Same for the Trip Page dialog (docs/conference.md, "Look and feel").
-            PageFeedback.warn("Not saved", String.join(" ", page));
+            PageFeedback.warn(Text.get("feedback.shared.notSaved"), String.join(" ", page));
             return false;
         }
         final boolean brandNew = before.readable() && stored == null;
@@ -299,12 +301,12 @@ public class TripCommands {
         // with every ledger row left on the old one, no marker to finish the move, and no site-admin check.
         final Trip judged = before.readable() ? stored : cachedForMove(trip.getId());
         if (!before.readable() && judged == null && mayHaveLedgerRows(trip.getId())) {
-            PageFeedback.warn(MOVE_UNCHECKED_REFUSED);
+            PageFeedback.warn(Text.get("feedback.tripCommands.moveUnchecked"));
             return false;
         }
         final LedgerMove ledgerMove = ledgerMoveOf(trip, judged, before.readable(), org);
         if (ledgerMove != null && ledgerMove.refused()) {
-            PageFeedback.warn(LEDGER_MOVE_REFUSED);
+            PageFeedback.warn(Text.get("feedback.tripCommands.ledgerMoveRefused"));
             return false;
         }
         // The marker is this method's alone: a moving trip carries it into the trip write (so a re-stamp that
@@ -323,13 +325,11 @@ public class TripCommands {
         try {
             result = DAO.getInstance().saveTrip(sortTripPeople(trip));
         } catch (final RuntimeException ex) {
-            PageFeedback.failure("Error saving '" + trip.getId()
-                    + "': " + trip.getTitle());
+            PageFeedback.failure(Text.get("feedback.tripCommands.errorSaving", trip.getId(), trip.getTitle()));
             log.error("Error while saving trip: ", ex);
             result = false;
         } catch (final IOException ex) {
-            PageFeedback.failure("Unable to save '" + trip.getId() + "': "
-                    + trip.getTitle());
+            PageFeedback.failure(Text.get("feedback.tripCommands.unableToSave", trip.getId(), trip.getTitle()));
             log.warn("Error while saving trip: ", ex);
             result = false;
         }
@@ -357,10 +357,6 @@ public class TripCommands {
         return result;
     }
 
-    /** The refusal when neither copy of the stored trip can be read and the trip has rows on its books. */
-    static final String MOVE_UNCHECKED_REFUSED = "Not saved: the trip could not be read to check whether this save "
-            + "moves it to another organization, and it has transactions on its books. Try again in a moment.";
-
     /**
      * The stored trip from the cache, when the uncached pre-read failed: what an organization move is judged
      * against then (a cached copy is the organization the trip had at most a moment ago; moves are rare). Null
@@ -384,13 +380,6 @@ public class TripCommands {
             return true;
         }
     }
-
-    /** The refusal when a trip is saved with no organization. */
-    static final String NO_ORG_REFUSED = "Not saved: a trip must belong to an organization.";
-
-    /** The refusal when someone other than a site admin moves a trip that has ledger rows to another org. */
-    static final String LEDGER_MOVE_REFUSED = "Not saved: this trip has transactions on its books, so only a site "
-            + "administrator may move it to another organization (its transactions move with it).";
 
     /**
      * A save that moves ledger rows to the trip's organization: where from and the rows' keys. {@code refused}
@@ -512,7 +501,7 @@ public class TripCommands {
         if (failed > 0) {
             log.error("Trip {} moved to organization {} but {} of its ledger rows were NOT re-stamped", trip.getId(),
                     trip.getOrgId(), failed);
-            PageFeedback.failure("The trip moved, but " + failed + " of its transactions did not. Save it again.");
+            PageFeedback.failure(Text.get("feedback.tripCommands.ledgerRowsLeft", String.valueOf(failed)));
         }
         return failed == 0;
     }
@@ -647,7 +636,7 @@ public class TripCommands {
     private static String addEvent(final Trip trip, final TripEvent.Type type, final String title,
             final String notes, final LocalDateTime start, final LocalDateTime end) {
         if (trip == null || type == null || title == null || title.isBlank() || start == null) {
-            refuseEvent("The event needs a type, a title and a start time before it can be added.");
+            refuseEvent(Text.get("feedback.tripCommands.eventIncompleteToAdd"));
             return null;
         }
         final String problem = eventNotesProblem(notes);
@@ -658,10 +647,10 @@ public class TripCommands {
         final RichTextHtml.Cleaned cleaned = RichTextHtml.cleanEventNoteNoting(notes);
         try {
             final String id = trip.addTripEvent(type, title, cleaned.body(), start, end);
-            warnIfNotesLostFormatting("Event added", cleaned);
+            warnIfNotesLostFormatting(true, cleaned);
             return id;
         } catch (final IllegalStateException ex) {
-            refuseEvent(alreadyStarts(title, start) + ", so it was not added again.");
+            refuseEvent(Text.get("feedback.tripCommands.duplicateNotAdded", title, eventWhen(start)));
             return null;
         }
     }
@@ -675,10 +664,9 @@ public class TripCommands {
      */
     public static String eventNotesProblem(final String notes) {
         if (RichTextHtml.hasUnreadableLink(notes)) {
-            return "A link in the event's notes has an address too long to keep (or is not closed). Shorten it.";
+            return Text.get("feedback.tripCommands.eventNoteLinkTooLong");
         }
-        return RichTextHtml.hasUnreadableTag(notes) ? "Something pasted into the event's notes (usually a picture) "
-                + "is too large to keep. Remove it, or add the picture by its web address instead." : null;
+        return RichTextHtml.hasUnreadableTag(notes) ? Text.get("feedback.tripCommands.eventNotePasteTooLarge") : null;
     }
 
     /**
@@ -686,13 +674,12 @@ public class TripCommands {
      * success over notes that lost it. The notes are written out unescaped on every itinerary, the shared
      * itinerary and the public trip page, so they are cleaned as they are stored (medjugorje#156). Worded from
      * what the event-note list drops, and the same way as the private note's warning (saveEventNoteById).
-     * {@code done} names what happened ("Event added" or "Event updated"), so the warning never misnames it.
+     * {@code added} says what happened ("Event added" or "Event updated"), so the warning never misnames it.
      */
-    private static void warnIfNotesLostFormatting(final String done, final RichTextHtml.Cleaned cleaned) {
+    private static void warnIfNotesLostFormatting(final boolean added, final RichTextHtml.Cleaned cleaned) {
         if (cleaned.dropped()) {
-            PageFeedback.warn(done + ", but some formatting its notes cannot keep (a table, a script, a font "
-                    + "family, an image that is not a full web address, a video that is not an https address, or "
-                    + "a link that is not a full web, email or phone address) was removed.");
+            PageFeedback.warn(added ? Text.get("feedback.tripCommands.eventAddedFormattingLost")
+                    : Text.get("feedback.tripCommands.eventUpdatedFormattingLost"));
         }
     }
 
@@ -709,14 +696,14 @@ public class TripCommands {
             final String title, final String notes, final LocalDateTime start, final LocalDateTime end,
             final List<Person.Id> participants, final Map<String, String> details) {
         if (trip == null || type == null || title == null || title.isBlank() || start == null) {
-            return refuseEvent("The event needs a type, a title and a start time before it can be saved.");
+            return refuseEvent(Text.get("feedback.tripCommands.eventIncompleteToSave"));
         }
         final TripEvent owned = eventId == null ? null : trip.getTripEvent(eventId);
         if (owned == null) {
-            return PageFeedback.refuse("That event is no longer on this trip.");
+            return PageFeedback.refuse(Text.get("feedback.tripCommands.eventGone"));
         }
         if (hasOtherEventAt(trip, eventId, title, start)) {
-            return refuseEvent(alreadyStarts(title, start) + ", so this change would make a duplicate.");
+            return refuseEvent(Text.get("feedback.tripCommands.duplicateOnChange", title, eventWhen(start)));
         }
         final String problem = eventNotesProblem(notes);
         if (problem != null) {
@@ -733,9 +720,9 @@ public class TripCommands {
         try {
             trip.editTripEvent(owned);
         } catch (final IllegalArgumentException | IllegalStateException ex) {
-            return refuseEvent("The event could not be updated: " + ex.getMessage());
+            return refuseEvent(Text.get("feedback.tripCommands.eventNotUpdated", ex.getMessage()));
         }
-        warnIfNotesLostFormatting("Event updated", cleaned);
+        warnIfNotesLostFormatting(false, cleaned);
         return true;
     }
 
@@ -751,14 +738,14 @@ public class TripCommands {
         return false;
     }
 
-    private static String alreadyStarts(final String title, final LocalDateTime start) {
-        return "\"" + title + "\" already starts at " + EVENT_WHEN.format(start) + " on this trip";
-    }
-
     /**
      * Growls why an event was refused and asks the page to keep its dialog open, so the typed values are still
      * there to correct.
      */
+    private static String eventWhen(final LocalDateTime start) {
+        return Formats.format(start, EVENT_WHEN, EVENT_WHEN_ENGLISH, RequestContext.currentLocale());
+    }
+
     private static boolean refuseEvent(final String reason) {
         PageFeedback.callbackParam("keepOpen", true);
         return PageFeedback.refuse(reason);
@@ -815,7 +802,7 @@ public class TripCommands {
         final TripEvent event = trip == null ? null : trip.getTripEvent(eventId);
         if (event == null) {
             PageFeedback.callbackParam("openFailed", true);
-            PageFeedback.error("That event is no longer on this trip.");
+            PageFeedback.error(Text.get("feedback.tripCommands.eventGone"));
             return null;
         }
         form.setMode(TripEventForm.EDIT);
@@ -874,25 +861,24 @@ public class TripCommands {
      */
     public boolean saveEventForm(final Trip trip, final TripEventForm form) {
         if (trip == null || form == null) {
-            return refuseEvent("Nothing to save.");
+            return refuseEvent(Text.get("feedback.shared.nothingToSave"));
         }
         final TripEvent.Type type = typeOf(form.getType());
         if (type == null) {
-            return refuseEvent("Choose the kind of event first.");
+            return refuseEvent(Text.get("feedback.tripCommands.chooseEventKind"));
         }
         if (form.getStart() == null) {
-            return refuseEvent("The event needs a start date and time.");
+            return refuseEvent(Text.get("feedback.tripCommands.eventNeedsStart"));
         }
         if (form.isLodgingCreate()) {
-            return refuseEvent("Lodging is added as a lodging option on the trip's Lodging tab, so its rooms and "
-                    + "reservations can attach to it.");
+            return refuseEvent(Text.get("feedback.tripCommands.lodgingIsAnOption"));
         }
         final String title;
         final String notes;
         final Map<String, String> details;
         if (form.isFlight()) {
             if (blank(form.getFrom()) || blank(form.getTo()) || blank(form.getFlightNumber())) {
-                return refuseEvent("A flight needs its airports and flight number.");
+                return refuseEvent(Text.get("feedback.tripCommands.flightIncomplete"));
             }
             title = TripEventComposer.composeRouteTitle(form.getFrom(), form.getTo(), true);
             notes = TripEventComposer.composeFlightNotes(form.getFlightNumber(), form.getStart(), form.getEnd(),
@@ -900,14 +886,14 @@ public class TripCommands {
             details = flightDetails(form);
         } else if (form.isGround()) {
             if (blank(form.getFrom()) || blank(form.getTo())) {
-                return refuseEvent("Ground transport needs where it leaves from and where it goes.");
+                return refuseEvent(Text.get("feedback.tripCommands.groundIncomplete"));
             }
             title = TripEventComposer.composeRouteTitle(form.getFrom(), form.getTo(), false);
             notes = TripEventComposer.composeGroundNotes(form.getCarrier(), form.getStart(), form.getEnd());
             details = groundDetails(form);
         } else {
             if (blank(form.getTitle())) {
-                return refuseEvent("The event needs a title.");
+                return refuseEvent(Text.get("feedback.tripCommands.eventNeedsTitle"));
             }
             title = form.getTitle().trim();
             notes = form.getNotes();
@@ -1093,8 +1079,7 @@ public class TripCommands {
         owned.getPrivNotes().put(personId, cleaned.body());
         final boolean saved = saveTrip(trip);
         if (saved && cleaned.dropped()) {
-            PageFeedback.warn("Notes saved, but some formatting a note cannot keep (an image, a video, a table, "
-                    + "a font, or a link that is not a full web address) was removed.");
+            PageFeedback.warn(Text.get("feedback.tripCommands.noteFormattingLost"));
         }
         return saved;
     }
@@ -1357,11 +1342,11 @@ public class TripCommands {
         final List<String> problems = new ArrayList<>();
         final boolean externalChanged = trip.isExternal() && !trip.getNonHostedTripUrl().equals(storedExternal);
         if (externalChanged && externalUrl(trip).isEmpty()) {
-            problems.add("The External Trip URL must be a web address starting with https:// or http://.");
+            problems.add(Text.get("feedback.tripCommands.externalUrlShape"));
         }
         final String flyer = trip.getFlyerUrl();
         if (flyer != null && !flyer.isBlank() && !flyer.equals(storedFlyer) && flyerLink(flyer).isEmpty()) {
-            problems.add("The Flyer URL must be a web address starting with https:// or http://.");
+            problems.add(Text.get("feedback.tripCommands.flyerUrlShape"));
         }
         return problems;
     }
@@ -1625,7 +1610,7 @@ public class TripCommands {
         if (trip == null || !REG_EXTERNAL.equals(choice) || trip.isExternal()) {
             return true;
         }
-        PageFeedback.warn("Not saved: enter the website where people register, or choose On this site.");
+        PageFeedback.warn(Text.get("feedback.tripCommands.registrationSiteNeeded"));
         return false;
     }
 
@@ -2086,7 +2071,8 @@ public class TripCommands {
         if (requestedTripId == null || requestedTripId.isBlank()) {
             return base;
         }
-        return base + "&error=" + URLEncoder.encode(NO_TRIP_ACCESS_MESSAGE, StandardCharsets.UTF_8);
+        return base + "&error=" + URLEncoder.encode(
+                Text.get("feedback.tripCommands.noTripAccess"), StandardCharsets.UTF_8);
     }
 
     /**

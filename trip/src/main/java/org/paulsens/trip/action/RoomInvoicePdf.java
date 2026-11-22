@@ -6,7 +6,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.time.LocalDate;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -16,6 +15,9 @@ import org.apache.pdfbox.pdmodel.PDPageContentStream;
 import org.apache.pdfbox.pdmodel.common.PDRectangle;
 import org.apache.pdfbox.pdmodel.font.PDFont;
 import org.apache.pdfbox.pdmodel.font.PDType0Font;
+import org.paulsens.trip.audit.RequestContext;
+import org.paulsens.trip.i18n.Formats;
+import org.paulsens.trip.i18n.Text;
 
 /**
  * The Room Invoice as a PDF: the same {@link ReportCommands.RoomInvoice} the page renders, EACH ACCOMMODATION
@@ -37,13 +39,18 @@ import org.apache.pdfbox.pdmodel.font.PDType0Font;
  * stays on the signature so any future internal-only note needs an explicit {@code true}, never a forgotten
  * argument.
  *
+ * <p>The sheet's own words (headings, column titles, totals lines, footers) come from the {@code pdf} bundle in
+ * the READER's language. The invoice is only ever drawn for the person downloading it, so the signatures without
+ * a {@code Locale} read the request's language; the invoice's values (items, dates, rates, the blocked message)
+ * arrive already worded by whoever built it. The "Invoice to ..." line is worded HERE from the heading's parts,
+ * not by {@link RoomInvoiceHeading#invoiceLine}, which has no reader to word it for.
+ *
  * <p>Pure: an invoice and a heading in, bytes out. {@code RoomInvoicePdfTest} reads the text back out.
  */
 public final class RoomInvoicePdf {
 
     private static final String REGULAR = "/liberation/LiberationSans-Regular.ttf";
     private static final String BOLD = "/liberation/LiberationSans-Bold.ttf";
-    private static final DateTimeFormatter PRINTED = DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.ROOT);
 
     private static final PDRectangle SHEET = PDRectangle.LETTER;
     private static final float MARGIN = 40f;
@@ -57,13 +64,11 @@ public final class RoomInvoicePdf {
     private static final float SUB_ROW = 11f;
 
     /** The per-option table: Item, Dates, Quantity, Nights, Rate, Amount; numbers right-aligned. */
-    private static final Table OPTIONS = new Table(new float[] {140f, 132f, 80f, 45f, 60f, 75f},
-            new String[] {"Item", "Dates", "Quantity", "Nights", "Rate", "Amount"},
-            new boolean[] {false, false, true, true, true, true});
+    private static final float[] OPTION_WIDTHS = {140f, 132f, 80f, 45f, 60f, 75f};
+    private static final boolean[] OPTION_RIGHT = {false, false, true, true, true, true};
     /** The per-person table: Person, Dates, Nights, Rate, Amount. Rate is prose here, so left-aligned. */
-    private static final Table PEOPLE = new Table(new float[] {135f, 122f, 40f, 160f, 75f},
-            new String[] {"Person", "Dates", "Nights", "Rate", "Amount"},
-            new boolean[] {false, false, true, false, true});
+    private static final float[] PEOPLE_WIDTHS = {135f, 122f, 40f, 160f, 75f};
+    private static final boolean[] PEOPLE_RIGHT = {false, false, true, false, true};
     /** The per-option Quantity column, under which a per-room line's guest note sits. */
     private static final int QUANTITY = 2;
 
@@ -76,29 +81,39 @@ public final class RoomInvoicePdf {
     private RoomInvoicePdf() {
     }
 
-    /** The whole document, printed today; {@code internal} = one of the trip's own people (see the class note). */
+    /**
+     * The whole document, printed today, in the language of the request asking for it; {@code internal} = one
+     * of the trip's own people (see the class note).
+     */
     public static byte[] render(final RoomInvoiceHeading heading, final ReportCommands.RoomInvoice invoice,
             final boolean internal) {
-        return render(heading, invoice, internal, LocalDate.now());
+        return render(heading, invoice, internal, RequestContext.currentLocale());
+    }
+
+    /** The whole document, printed today, for a reader of {@code locale}. */
+    public static byte[] render(final RoomInvoiceHeading heading, final ReportCommands.RoomInvoice invoice,
+            final boolean internal, final Locale locale) {
+        return render(heading, invoice, internal, LocalDate.now(), locale);
     }
 
     /** The whole document; {@code printed} is named in each page's footer. */
     static byte[] render(final RoomInvoiceHeading heading, final ReportCommands.RoomInvoice invoice,
             final boolean internal, final LocalDate printed) {
+        return render(heading, invoice, internal, printed, RequestContext.currentLocale());
+    }
+
+    static byte[] render(final RoomInvoiceHeading heading, final ReportCommands.RoomInvoice invoice,
+            final boolean internal, final LocalDate printed, final Locale reader) {
+        final Locale locale = (reader == null) ? Locale.ENGLISH : reader;
         try (PDDocument doc = new PDDocument()) {
             final Writer out = new Writer(doc, load(doc, REGULAR), load(doc, BOLD),
-                    heading == null ? new RoomInvoiceHeading(null, null) : heading);
+                    heading == null ? new RoomInvoiceHeading(null, null) : heading, locale);
             if (invoice.isBlocked()) {
                 out.newPage(null, null);
-                for (final String line : wrap(out.regular, BODY,
-                        ReportCommands.blockedMessage(invoice.getMissingCost(), !internal), WIDTH)) {
-                    out.text(out.regular, BODY, INK, line, MARGIN);
-                    out.y -= ROW - 2;
-                }
+                out.paragraph(ReportCommands.blockedMessage(invoice.getMissingCost(), !internal));
             } else if (invoice.getSections().isEmpty()) {
                 out.newPage(null, null);
-                out.text(out.regular, BODY, INK, "No rooms are reserved on this trip yet, so there is nothing "
-                        + "to invoice.", MARGIN);
+                out.paragraph(Text.forLocale(locale, "pdf.roomInvoice.noRooms"));
             }
             final List<ReportCommands.InvoiceSection> sections = invoice.getSections();
             for (int i = 0; i < sections.size(); i++) {
@@ -107,7 +122,7 @@ public final class RoomInvoicePdf {
                     out.closing(invoice);
                 }
             }
-            out.footers(PRINTED.format(printed));
+            out.footers(Formats.format(printed, "yMMMd", locale));
             final ByteArrayOutputStream bytes = new ByteArrayOutputStream();
             doc.save(bytes);
             return bytes.toByteArray();
@@ -183,31 +198,45 @@ public final class RoomInvoicePdf {
         private final PDFont bold;
         private final RoomInvoiceHeading heading;
         private final String tripTitle;
+        private final Locale locale;
+        private final Table options;
+        private final Table people;
         private PDPageContentStream page;
         private float y;
         /** The table being drawn, whose headings a continuation sheet repeats. */
-        private Table table = OPTIONS;
+        private Table table;
 
         private Writer(final PDDocument doc, final PDFont regular, final PDFont bold,
-                final RoomInvoiceHeading heading) {
+                final RoomInvoiceHeading heading, final Locale locale) {
             this.doc = doc;
             this.regular = regular;
             this.bold = bold;
             this.heading = heading;
             this.tripTitle = heading.tripTitle();
+            this.locale = locale;
+            this.options = new Table(OPTION_WIDTHS, new String[] {Text.forLocale(locale, "common.item"),
+                Text.forLocale(locale, "common.dates"), Text.forLocale(locale, "common.quantity"),
+                Text.forLocale(locale, "common.nights"), Text.forLocale(locale, "pdf.roomInvoice.rate"),
+                Text.forLocale(locale, "common.amount")}, OPTION_RIGHT);
+            this.people = new Table(PEOPLE_WIDTHS, new String[] {Text.forLocale(locale, "common.person"),
+                Text.forLocale(locale, "common.dates"), Text.forLocale(locale, "common.nights"),
+                Text.forLocale(locale, "pdf.roomInvoice.rate"), Text.forLocale(locale, "common.amount")},
+                    PEOPLE_RIGHT);
+            this.table = options;
         }
 
         /** One accommodation, from a fresh page: every hotel starts its own sheet. */
         private void section(final ReportCommands.InvoiceSection section) throws IOException {
             newPage(section.getAccommodation(), section.getAccommodation());
-            table = OPTIONS;
+            table = options;
             columnHeads();
             for (final ReportCommands.InvoiceOffer group : section.getOffers()) {
                 group(section, group);
             }
             ensure(ROW + 4, section.getAccommodation(), true);
             fill(GROUP_FILL, ROW);
-            row(bold, new String[] {section.getAccommodation() + " subtotal", "", "", "", "", section.getAmount()});
+            row(bold, new String[] {Text.forLocale(locale, "pdf.roomInvoice.subtotal", section.getAccommodation()),
+                "", "", "", "", section.getAmount()});
             people(section);
         }
 
@@ -216,10 +245,10 @@ public final class RoomInvoicePdf {
          * row per occupant per stay, and a total equal to the subtotal above.
          */
         private void people(final ReportCommands.InvoiceSection section) throws IOException {
-            table = PEOPLE;
+            table = people;
             ensure(22 + ROW * 2 + SUB_ROW, section.getAccommodation(), false);
             y -= 22;
-            text(bold, 11f, INK, "Charges per person", MARGIN);
+            text(bold, 11f, INK, Text.forLocale(locale, "pdf.roomInvoice.chargesPerPerson"), MARGIN);
             y -= 6;
             columnHeads();
             for (final ReportCommands.InvoicePersonLine who : section.getPeople()) {
@@ -236,12 +265,11 @@ public final class RoomInvoicePdf {
             }
             ensure(ROW + 4, section.getAccommodation(), true);
             fill(GROUP_FILL, ROW);
-            row(bold, new String[] {"Total", "", "", "", section.getPeopleAmount()});
+            row(bold, new String[] {Text.forLocale(locale, "common.total"), "", "", "",
+                section.getPeopleAmount()});
             if (section.getExtrasCents() != 0L) {
-                y -= SUB_ROW;
-                text(regular, SMALL, MUTED, "Plus " + section.getExtrasAmount() + " in hotel extras (taxes, fees, "
-                        + "coupons), which are not attributed to a person: " + section.getAmount() + " in all.",
-                        MARGIN);
+                lines(regular, SMALL, MUTED, Text.forLocale(locale, "pdf.roomInvoice.extrasNote",
+                        section.getExtrasAmount(), section.getAmount()), SUB_ROW);
             }
         }
 
@@ -276,7 +304,7 @@ public final class RoomInvoicePdf {
                     y -= 2;
                 } else if (!line.getNote().isEmpty()) {
                     y -= SUB_ROW - 2;
-                    textRight(regular, SMALL, MUTED, line.getNote(), OPTIONS.columnRight(QUANTITY));
+                    textRight(regular, SMALL, MUTED, line.getNote(), options.columnRight(QUANTITY));
                     y -= 2;
                 }
                 rule();
@@ -307,17 +335,43 @@ public final class RoomInvoicePdf {
             page.lineTo(MARGIN + WIDTH, y);
             page.stroke();
             y -= 18;
-            textRight(bold, 13f, INK, "Total: " + invoice.getAmount(), MARGIN + WIDTH);
-            y -= 16;
-            text(regular, SMALL, MUTED, invoice.getGuests() + (invoice.getGuests() == 1 ? " guest" : " guests")
-                    + " in " + invoice.getRooms() + (invoice.getRooms() == 1 ? " room" : " rooms")
-                    + ". Active reservations only; cancellation fees are not included.", MARGIN);
+            textRight(bold, 13f, INK, Text.forLocale(locale, "pdf.roomInvoice.grandTotal", invoice.getAmount()),
+                    MARGIN + WIDTH);
+            y -= 16 - SUB_ROW;
+            lines(regular, SMALL, MUTED, Text.forLocale(locale, "pdf.roomInvoice.guestsInRooms",
+                    invoice.getGuests(), invoice.getRooms()), SUB_ROW);
             if (invoice.getUnpriced() > 0) {
-                y -= SUB_ROW;
-                text(regular, SMALL, MUTED, invoice.getUnpriced() + (invoice.getUnpriced() == 1
-                        ? " reservation has" : " reservations have")
-                        + " no lodging option any more and could not be priced.", MARGIN);
+                lines(regular, SMALL, MUTED, Text.forLocale(locale, "pdf.roomInvoice.unpriced",
+                        invoice.getUnpriced()), SUB_ROW);
             }
+        }
+
+        /**
+         * A sentence from the left margin, each line {@code step} below the last. English fits one line; a
+         * translation may not, so it wraps instead of running off the sheet.
+         */
+        private void lines(final PDFont font, final float size, final Color color, final String sentence,
+                final float step) throws IOException {
+            for (final String line : wrap(font, size, sentence, WIDTH)) {
+                y -= step;
+                text(font, size, color, line, MARGIN);
+            }
+        }
+
+        /** A sheet that has no table: its one message, wrapped, from the cursor down. */
+        private void paragraph(final String message) throws IOException {
+            for (final String line : wrap(regular, BODY, message, WIDTH)) {
+                text(regular, BODY, INK, line, MARGIN);
+                y -= ROW - 2;
+            }
+        }
+
+        /** Whose invoice a hotel's sheet is; no "to" without an organization. */
+        private String invoiceLine(final String accommodation) {
+            return heading.orgName().isEmpty()
+                    ? Text.forLocale(locale, "pdf.roomInvoice.invoiceFor", tripTitle, accommodation)
+                    : Text.forLocale(locale, "pdf.roomInvoice.invoiceTo", heading.orgName(), tripTitle,
+                            accommodation);
         }
 
         /**
@@ -330,12 +384,12 @@ public final class RoomInvoicePdf {
             doc.addPage(sheet);
             page = new PDPageContentStream(doc, sheet);
             y = TOP - 14;
-            text(bold, 14f, INK, tripTitle + ": Room Invoice", MARGIN);
+            text(bold, 14f, INK, Text.forLocale(locale, "pdf.roomInvoice.title", tripTitle), MARGIN);
             if (title != null) {
                 y -= 24;
                 text(bold, 16f, INK, title, MARGIN);
-                y -= 12;
-                text(regular, SMALL, MUTED, heading.invoiceLine(accommodation), MARGIN);
+                y -= 12 - SUB_ROW;
+                lines(regular, SMALL, MUTED, invoiceLine(accommodation), SUB_ROW);
             }
             y -= 14;
         }
@@ -346,7 +400,8 @@ public final class RoomInvoicePdf {
             if (y - needed >= BOTTOM) {
                 return;
             }
-            newPage(accommodation == null ? null : accommodation + " (continued)", accommodation);
+            newPage(accommodation == null ? null
+                    : Text.forLocale(locale, "pdf.roomInvoice.continued", accommodation), accommodation);
             if (heads) {
                 columnHeads();
             }
@@ -419,8 +474,11 @@ public final class RoomInvoicePdf {
                         PDPageContentStream.AppendMode.APPEND, true, true)) {
                     page = foot;
                     y = MARGIN;
-                    text(regular, SMALL, MUTED, tripTitle + " room invoice, printed " + printed, MARGIN);
-                    textRight(regular, SMALL, MUTED, "Page " + (i + 1) + " of " + pages, MARGIN + WIDTH);
+                    text(regular, SMALL, MUTED, Text.forLocale(locale, "pdf.roomInvoice.printedFooter", tripTitle,
+                            printed), MARGIN);
+                    // Page numbers go in as text: a number argument would be grouped ("1,000") by the format.
+                    textRight(regular, SMALL, MUTED, Text.forLocale(locale, "pdf.shared.pageOf",
+                            String.valueOf(i + 1), String.valueOf(pages)), MARGIN + WIDTH);
                 }
             }
             page = null;

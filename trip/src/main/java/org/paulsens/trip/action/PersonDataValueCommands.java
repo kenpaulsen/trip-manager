@@ -7,6 +7,7 @@ import java.util.HashMap;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.DataId;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.PersonDataValue;
@@ -37,13 +38,13 @@ public class PersonDataValueCommands {
         try {
             result = DAO.getInstance().savePersonDataValue(pdv);
         } catch (final RuntimeException ex) {
-            PageFeedback.failure("Error saving PersonDataValue '" + pdv.getDataId() + "' of type '" + pdv.getType()
-                            + "' for user: '" + pdv.getUserId() + "'!");
+            PageFeedback.failure(Text.get("feedback.personDataValueCommands.saveError", pdv.getDataId(), pdv.getType(),
+                    pdv.getUserId()));
             log.error("Error while saving PersonDataValue: ", ex);
             result = false;
         } catch (final IOException ex) {
-            PageFeedback.failure("Error saving PersonDataValue '" + pdv.getDataId() + "' of type '" + pdv.getType()
-                            + "' for user: '" + pdv.getUserId() + "'!");
+            PageFeedback.failure(Text.get("feedback.personDataValueCommands.saveError", pdv.getDataId(), pdv.getType(),
+                    pdv.getUserId()));
             log.warn("Error while saving PersonDataValue: ", ex);
             result = false;
         }

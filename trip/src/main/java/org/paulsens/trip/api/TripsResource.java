@@ -40,6 +40,7 @@ import org.paulsens.trip.action.TripCommands;
 import org.paulsens.trip.action.TripPictureCommands;
 import org.paulsens.trip.action.TripTags;
 import org.paulsens.trip.action.PhotoUploadBean;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.media.PhotoProcessor;
 import org.paulsens.trip.model.TripPicture;
 import org.paulsens.trip.api.dto.TripPictureDto;
@@ -85,10 +86,7 @@ public class TripsResource extends BaseResource {
     private static final String V1 = ApiMediaTypes.TRIPS_V1;
     /** Matches the window the itinerary pages use, so "active" means the same thing in both places. */
     private static final int PAST_DAYS_STILL_ACTIVE = 3;
-    private static final String NOT_THEIR_ITINERARY = "Not permitted to view this person's itinerary.";
     private static final int MAX_LIST_LIMIT = 200;
-    private static final String PAYMENTS_ADMIN_REQUIRED =
-            "Payment settings need the organization's Payments Admin privilege.";
 
     /** {@link #fallbackPictureOf}'s answers by organization id, for this request (one instance serves one). */
     private final Map<String, Optional<String>> fallbackByOrg = new HashMap<>();
@@ -123,7 +121,7 @@ public class TripsResource extends BaseResource {
         final Person.Id subject = subjectOf(personIdParam);
         final boolean admin = privileges().isSiteAdmin();
         if (!subject.equals(me) && !admin && !actsFor(subject)) {
-            return error(403, ApiErrors.FORBIDDEN, "Not permitted to list this person's trips.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.trips.listNotPermitted"));
         }
         final int capped = Math.min(Math.max(limit, 1), MAX_LIST_LIMIT);
         final List<Trip> found = switch (filter == null ? "mine" : filter.toLowerCase()) {
@@ -136,7 +134,7 @@ public class TripsResource extends BaseResource {
         };
         if (found == null) {
             return error(400, ApiErrors.BAD_REQUEST,
-                    "Unknown filter; expected mine, active, inactive, recent or open.");
+                    Text.get("api.trips.unknownFilter"));
         }
         final boolean listing = "open".equalsIgnoreCase(filter);
         // active/recent are not per-user queries, so they are filtered down to what this caller may see. Without
@@ -279,14 +277,14 @@ public class TripsResource extends BaseResource {
             @QueryParam("personId") final String personIdParam) {
         final Trip trip = findTrip(tripId);
         if (trip == null) {
-            return error(404, ApiErrors.NOT_FOUND, "No such trip.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.shared.noSuchTrip"));
         }
         if (!canReadTrip(trip)) {
-            return error(403, ApiErrors.FORBIDDEN, "Not a member of this trip.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.shared.notTripMember"));
         }
         final Person.Id subject = subjectOf(personIdParam);
         if (!canActFor(subject, tripId)) {
-            return error(403, ApiErrors.FORBIDDEN, NOT_THEIR_ITINERARY);
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.trips.itineraryViewNotPermitted"));
         }
         // The page options are the managers' business; the payment settings (processor, who pays fees, the
         // mail addresses) are the organization's payments admins', exactly whom the trip editor shows its
@@ -312,14 +310,14 @@ public class TripsResource extends BaseResource {
             @QueryParam("personId") final String personIdParam) {
         final Trip trip = findTrip(tripId);
         if (trip == null) {
-            return error(404, ApiErrors.NOT_FOUND, "No such trip.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.shared.noSuchTrip"));
         }
         if (!canReadTrip(trip)) {
-            return error(403, ApiErrors.FORBIDDEN, "Not a member of this trip.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.shared.notTripMember"));
         }
         final Person.Id subject = subjectOf(personIdParam);
         if (!canActFor(subject, tripId)) {
-            return error(403, ApiErrors.FORBIDDEN, NOT_THEIR_ITINERARY);
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.trips.itineraryViewNotPermitted"));
         }
         return ok(eventDtos(trip, subject));
     }
@@ -332,18 +330,18 @@ public class TripsResource extends BaseResource {
             @QueryParam("personId") final String personIdParam) {
         final Trip trip = findTrip(tripId);
         if (trip == null) {
-            return error(404, ApiErrors.NOT_FOUND, "No such trip.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.shared.noSuchTrip"));
         }
         if (!canReadTrip(trip)) {
-            return error(403, ApiErrors.FORBIDDEN, "Not a member of this trip.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.shared.notTripMember"));
         }
         final Person.Id subject = subjectOf(personIdParam);
         if (!canActFor(subject, tripId)) {
-            return error(403, ApiErrors.FORBIDDEN, NOT_THEIR_ITINERARY);
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.trips.itineraryViewNotPermitted"));
         }
         final TripEvent event = trip.getTripEvent(eventId);
         if (event == null) {
-            return error(404, ApiErrors.NOT_FOUND, "No such event on this trip.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.trips.noSuchEvent"));
         }
         return ok(eventDto(event, subject));
     }
@@ -366,18 +364,18 @@ public class TripsResource extends BaseResource {
             @QueryParam("personId") final String personIdParam) {
         final Trip trip = findTrip(tripId);
         if (trip == null) {
-            return error(404, ApiErrors.NOT_FOUND, "No such trip.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.shared.noSuchTrip"));
         }
         if (!canReadTrip(trip)) {
-            return error(403, ApiErrors.FORBIDDEN, "Not a member of this trip.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.shared.notTripMember"));
         }
         final Person.Id subject = subjectOf(personIdParam);
         if (!canActFor(subject, tripId)) {
-            return error(403, ApiErrors.FORBIDDEN, NOT_THEIR_ITINERARY);
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.trips.itineraryViewNotPermitted"));
         }
         final TripEvent event = trip.getTripEvent(eventId);
         if (event == null) {
-            return error(404, ApiErrors.NOT_FOUND, "No such event on this trip.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.trips.noSuchEvent"));
         }
         final Map<String, Object> result = new LinkedHashMap<>();
         final LodgingViews.ItineraryRow reserved = reservationRow(trip, event, subject);
@@ -426,10 +424,10 @@ public class TripsResource extends BaseResource {
     public Response roster(@PathParam("tripId") final String tripId) {
         final Trip trip = findTrip(tripId);
         if (trip == null) {
-            return error(404, ApiErrors.NOT_FOUND, "No such trip.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.shared.noSuchTrip"));
         }
         if (!canReadTrip(trip)) {
-            return error(403, ApiErrors.FORBIDDEN, "Not a member of this trip.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.shared.notTripMember"));
         }
         final List<Person.Id> directors = trip.getDirectorIds() == null ? List.of() : trip.getDirectorIds();
         final List<Person.Id> facilitators = trip.getFacilitatorIds() == null ? List.of() : trip.getFacilitatorIds();
@@ -500,16 +498,16 @@ public class TripsResource extends BaseResource {
             @PathParam("personId") final String personIdParam) {
         final Trip trip = findTrip(tripId);
         if (trip == null) {
-            return error(404, ApiErrors.NOT_FOUND, "No such trip.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.shared.noSuchTrip"));
         }
         final Person subject = findPerson(Person.Id.from(personIdParam));
         if (subject == null) {
-            return error(404, ApiErrors.NOT_FOUND, "No such person.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.shared.noSuchPerson"));
         }
         final ItineraryAccess.Level level = ItineraryAccess.of(caller(), findPerson(personId()), trip, subject,
                 () -> new OrgCommands(this::caller).canManageOrg(trip.getOrgId()));
         if (level == ItineraryAccess.Level.NONE) {
-            return error(403, ApiErrors.ITINERARY_NOT_SHARED, "This person's itinerary is not shared with you.");
+            return error(403, ApiErrors.ITINERARY_NOT_SHARED, Text.get("api.trips.itineraryNotShared"));
         }
         final List<TripEventDto> events = trip.getTripEventsForUser(subject.getId()).stream()
                 .map(TripsResource::sharedEventDto)
@@ -544,11 +542,11 @@ public class TripsResource extends BaseResource {
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response create(@HeaderParam(CSRF_HEADER) final String csrf, final TripDto body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         final String orgId = (body == null) ? null : body.orgId();
         if (orgId == null || orgId.isBlank()) {
-            return error(400, ApiErrors.VALIDATION_FAILED, "orgId is required to create a trip.");
+            return error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.trips.orgIdRequiredToCreate"));
         }
         // OrgCommands with THIS request's caller, so the page rule and the REST rule are one rule. A conference
         // has its own gate (docs/conference.md, "Access"); a trip-creator may not make one.
@@ -556,12 +554,11 @@ public class TripsResource extends BaseResource {
         final boolean conference = isConference(body.kind());
         if (conference ? !orgs.canCreateConferenceFor(orgId) : !orgs.canCreateTripFor(orgId)) {
             return error(403, ApiErrors.FORBIDDEN, conference
-                    ? "Not permitted to create conferences for this organization (Create Conferences required)."
-                    : "Not permitted to create trips for this organization.");
+                    ? Text.get("api.trips.createConferenceNotPermitted")
+                    : Text.get("api.trips.createNotPermitted"));
         }
         if (eventsCarryIds(body)) {
-            return error(400, ApiErrors.VALIDATION_FAILED, "tripEvents on a write are append-only: ids "
-                    + "must be null (editing an existing event is the editor page's job).");
+            return error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.trips.eventsAppendOnly"));
         }
         final String notesProblem = appendedNotesProblem(body);
         if (notesProblem != null) {
@@ -579,7 +576,7 @@ public class TripsResource extends BaseResource {
         final Trip trip = trips.createTrip();
         // Creating a trip is not a license to set its payment settings: addTrip@org is not paymentsAdmin@org.
         if (writesPaymentConfig(body, trip) && !isPaymentsAdminOf(orgId)) {
-            return error(403, ApiErrors.FORBIDDEN, PAYMENTS_ADMIN_REQUIRED);
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.trips.paymentsAdminRequired"));
         }
         apply(body, trip);
         trip.setDescription(cleanedHtml("description", trip.getDescription()));
@@ -597,7 +594,7 @@ public class TripsResource extends BaseResource {
             return error(400, ApiErrors.VALIDATION_FAILED, linkProblem);
         }
         if (!trips.saveTrip(trip, orgs)) {
-            return error(500, ApiErrors.STORE_FAILED, "Could not save the trip.");
+            return error(500, ApiErrors.STORE_FAILED, Text.get("api.trips.notSaved"));
         }
         // Creator roles, allow-list-bounded; withheld roles were already reported to the support channel.
         new OrgCommands(this::caller).grantCreatorTripRoles(trip);
@@ -613,20 +610,19 @@ public class TripsResource extends BaseResource {
             @HeaderParam(CSRF_HEADER) final String csrf,
             final TripDto body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         if (!privileges().has(ApiPrivileges.TRIP_MGR, tripId)) {
-            return error(403, ApiErrors.FORBIDDEN, "Trip manager required.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.shared.tripManagerRequired"));
         }
         // Load, mutate, save the SAME object: a DAO read hands back a copy, so editing anything else and saving
         // its parent writes nothing while reporting success.
         final Trip trip = findTrip(tripId);
         if (trip == null) {
-            return error(404, ApiErrors.NOT_FOUND, "No such trip.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.shared.noSuchTrip"));
         }
         if (eventsCarryIds(body)) {
-            return error(400, ApiErrors.VALIDATION_FAILED, "tripEvents on a write are append-only: ids "
-                    + "must be null (editing an existing event is the editor page's job).");
+            return error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.trips.eventsAppendOnly"));
         }
         final String notesProblem = appendedNotesProblem(body);
         if (notesProblem != null) {
@@ -644,17 +640,16 @@ public class TripsResource extends BaseResource {
         if (moved && !privileges().isSiteAdmin()
                 && !(orgs.canManageOrg(fromOrg) && orgs.canManageOrg(body.orgId()))) {
             return error(403, ApiErrors.FORBIDDEN,
-                    "Moving a trip to another organization needs an administrator of both organizations.");
+                    Text.get("api.trips.moveNeedsBothAdmins"));
         }
         if (moved && body.orgId().isBlank()) {
-            return error(400, ApiErrors.VALIDATION_FAILED, "A trip must belong to an organization.");
+            return error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.trips.orgRequired"));
         }
         // A ledger row's organization is its trip's, so a trip with rows on its books takes them along
         // (TripCommands.saveTrip re-stamps them): money leaving one organization's books for another's is a
         // site administrator's decision, not the two organizations' admins'.
         if (moved && !privileges().isSiteAdmin() && TripCommands.hasLedgerRows(trip.getId())) {
-            return error(403, ApiErrors.FORBIDDEN, "This trip has transactions on its books: only a site "
-                    + "administrator may move it to another organization.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.trips.moveNeedsSiteAdmin"));
         }
         // Payment settings and people are checked against the org the trip will END UP in, not the one it
         // is leaving (applyPeople reads the body's orgId the same way).
@@ -666,7 +661,7 @@ public class TripsResource extends BaseResource {
         // An echoed, unchanged paymentConfig is not a payment write: a manager's client that sends back what
         // it read (or nothing) keeps working without the payments grant.
         if (writesPaymentConfig(body, trip) && !isPaymentsAdminOf(toOrg)) {
-            return error(403, ApiErrors.FORBIDDEN, PAYMENTS_ADMIN_REQUIRED);
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.trips.paymentsAdminRequired"));
         }
         final String carried = moved ? carriedPaymentProblem(paymentConfigAfter(body, trip), toOrg) : null;
         if (carried != null) {
@@ -677,7 +672,7 @@ public class TripsResource extends BaseResource {
         if (body.kind() != null && isConference(body.kind()) != trip.isConference()
                 && !orgs.canCreateConferenceFor(trip.getOrgId())) {
             return error(403, ApiErrors.FORBIDDEN,
-                    "Only a holder of Create Conferences for the organization may make or unmake a conference.");
+                    Text.get("api.trips.conferenceNeedsPrivilege"));
         }
         final String storedExternal = trip.getNonHostedTripUrl();
         final String storedFlyer = trip.getFlyerUrl();
@@ -685,7 +680,7 @@ public class TripsResource extends BaseResource {
         trip.setDescription(cleanedHtml("description", trip.getDescription()));
         if (trip.getOrgId() == null || trip.getOrgId().isBlank()) {
             // A legacy row with no organization cannot be saved as it is (TripCommands.saveTrip refuses it).
-            return error(400, ApiErrors.VALIDATION_FAILED, "A trip must belong to an organization: send orgId.");
+            return error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.trips.orgRequiredSendOrgId"));
         }
         final String pageProblem = pageProblem(trip);
         if (pageProblem != null) {
@@ -697,7 +692,7 @@ public class TripsResource extends BaseResource {
             return error(400, ApiErrors.VALIDATION_FAILED, linkProblem);
         }
         if (!Beans.get(TripCommands.class).saveTrip(trip, orgs)) {
-            return error(500, ApiErrors.STORE_FAILED, "Could not save the trip.");
+            return error(500, ApiErrors.STORE_FAILED, Text.get("api.trips.notSaved"));
         }
         return ok(listingDto(trip, TripTags.current()));
     }
@@ -754,22 +749,22 @@ public class TripsResource extends BaseResource {
             @HeaderParam(CSRF_HEADER) final String csrf,
             final TripEventDto body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         if (!privileges().has(ApiPrivileges.TRIP_MGR, tripId)) {
-            return error(403, ApiErrors.FORBIDDEN, "Trip manager required.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.shared.tripManagerRequired"));
         }
         final Trip trip = findTrip(tripId);
         if (trip == null) {
-            return error(404, ApiErrors.NOT_FOUND, "No such trip.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.shared.noSuchTrip"));
         }
         // The trip's OWN instance, for the same reason setParticipation resolves ids: a copy saves nothing.
         final TripEvent event = trip.getTripEvent(eventId);
         if (event == null) {
-            return error(404, ApiErrors.NOT_FOUND, "No such event on this trip.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.trips.noSuchEvent"));
         }
         if (body == null) {
-            return error(400, ApiErrors.BAD_REQUEST, "A body is required.");
+            return error(400, ApiErrors.BAD_REQUEST, Text.get("api.shared.bodyRequired"));
         }
         final String notesProblem = TripCommands.eventNotesProblem(body.notes());
         if (notesProblem != null) {
@@ -778,7 +773,7 @@ public class TripsResource extends BaseResource {
         if (body.type() != null) {
             final TripEvent.Type type = eventType(body.type());
             if (type == null) {
-                return error(400, ApiErrors.VALIDATION_FAILED, "Unknown event type: " + body.type());
+                return error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.trips.unknownEventType", body.type()));
             }
             event.setType(type);
         }
@@ -795,7 +790,7 @@ public class TripsResource extends BaseResource {
             event.setEnd(body.end());
         }
         if (!Beans.get(TripCommands.class).saveTrip(trip, new OrgCommands(this::caller))) {
-            return error(500, ApiErrors.STORE_FAILED, "Could not save the trip.");
+            return error(500, ApiErrors.STORE_FAILED, Text.get("api.trips.notSaved"));
         }
         return ok(eventDto(event, personId()));
     }
@@ -827,31 +822,32 @@ public class TripsResource extends BaseResource {
             @QueryParam("personId") final String personIdParam,
             final Map<String, Object> body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         final Trip trip = findTrip(tripId);
         if (trip == null) {
-            return error(404, ApiErrors.NOT_FOUND, "No such trip.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.shared.noSuchTrip"));
         }
         // The trip gate first, as on every itinerary read: acting "for yourself" is always allowed, so by
         // itself it let any signed-in account join the events of a trip it has nothing to do with.
         if (!canReadTrip(trip)) {
-            return error(403, ApiErrors.FORBIDDEN, "Not a member of this trip.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.shared.notTripMember"));
         }
         final Person.Id subject = subjectOf(personIdParam);
         if (!canActFor(subject, tripId)) {
-            return error(403, ApiErrors.FORBIDDEN, "Not permitted to change this person's itinerary.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.trips.itineraryChangeNotPermitted"));
         }
         final List<TripEvent> selected = new ArrayList<>();
         for (final String eventId : eventIds(body)) {
             final TripEvent event = trip.getTripEvent(eventId);
             if (event == null) {
-                return error(400, ApiErrors.BAD_REQUEST, "Unknown event on this trip: " + eventId);
+                return error(400, ApiErrors.BAD_REQUEST,
+                        Text.get("api.trips.unknownEventOnTrip", String.valueOf(eventId)));
             }
             selected.add(event);
         }
         if (!Beans.get(TripCommands.class).setEventParticipation(trip, selected, subject)) {
-            return error(500, ApiErrors.STORE_FAILED, "Could not save participation.");
+            return error(500, ApiErrors.STORE_FAILED, Text.get("api.trips.participationNotSaved"));
         }
         return ok(eventDtos(trip, subject));
     }
@@ -868,27 +864,27 @@ public class TripsResource extends BaseResource {
             @QueryParam("personId") final String personIdParam,
             final Map<String, Object> body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         final Trip trip = findTrip(tripId);
         if (trip == null) {
-            return error(404, ApiErrors.NOT_FOUND, "No such trip.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.shared.noSuchTrip"));
         }
         // Before the event lookup, so a stranger learns nothing about which event ids exist.
         if (!canReadTrip(trip)) {
-            return error(403, ApiErrors.FORBIDDEN, "Not a member of this trip.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.shared.notTripMember"));
         }
         final TripEvent event = trip.getTripEvent(eventId);
         if (event == null) {
-            return error(404, ApiErrors.NOT_FOUND, "No such event on this trip.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.trips.noSuchEvent"));
         }
         final Person.Id subject = subjectOf(personIdParam);
         if (!canActFor(subject, tripId)) {
-            return error(403, ApiErrors.FORBIDDEN, "Not permitted to write this person's note.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.trips.noteWriteNotPermitted"));
         }
         final Object note = body == null ? null : body.get("note");
         if (!Beans.get(TripCommands.class).saveEventNote(trip, event, subject, note == null ? "" : note.toString())) {
-            return error(500, ApiErrors.STORE_FAILED, "Could not save the note.");
+            return error(500, ApiErrors.STORE_FAILED, Text.get("api.trips.noteNotSaved"));
         }
         return ok(eventDto(trip.getTripEvent(eventId), subject));
     }
@@ -1035,7 +1031,7 @@ public class TripsResource extends BaseResource {
         }
         if (config.feesPaidBy() != null && !config.feesPaidBy().isBlank()
                 && !List.of("ORGANIZATION", "PAYER").contains(config.feesPaidBy().trim())) {
-            return "paymentConfig.feesPaidBy must be ORGANIZATION or PAYER.";
+            return Text.get("api.trips.feesPaidByInvalid");
         }
         // The trip editor's composer offers only the owning org's domains; the API must not be the way around
         // it (a From on another tenant's domain would send as that tenant). Only a CHANGED From is checked: an
@@ -1065,7 +1061,7 @@ public class TripsResource extends BaseResource {
     /** Why a trip of {@code orgId} cannot send payment mail from {@code from}, or null. */
     private static String mailFromProblem(final String from, final String orgId) {
         return new OrgCommands().isOrgFromSendable(orgId, from) ? null
-                : "paymentConfig.mailFrom must be an address on one of this organization's sending domains.";
+                : Text.get("api.trips.mailFromNotSendable");
     }
 
     /** Why a trip of {@code orgId} cannot name this processor configuration, or null (blank names none). */
@@ -1074,12 +1070,11 @@ public class TripsResource extends BaseResource {
             return null;
         }
         if (orgId == null || orgId.isBlank()) {
-            return "paymentConfig.processorConfigId needs a trip that belongs to an organization.";
+            return Text.get("api.trips.processorNeedsOrg");
         }
         final boolean known = DAO.getInstance().getPaymentProcessorConfig(Organization.Id.from(orgId),
                 PaymentProcessorConfig.Id.from(processorId.trim()), Cached.NO).isPresent();
-        return known ? null : "paymentConfig.processorConfigId is not one of this organization's payment "
-                + "processor configurations.";
+        return known ? null : Text.get("api.trips.processorNotOfOrg");
     }
 
     /**
@@ -1138,12 +1133,12 @@ public class TripsResource extends BaseResource {
             return null;
         }
         if (body.kind() != null && parseKind(body.kind()) == null) {
-            return "Unknown trip kind: " + body.kind();
+            return Text.get("api.trips.unknownKind", body.kind());
         }
         if (body.regOptions() != null) {
             for (final RegOptionDto option : body.regOptions()) {
                 if (option.type() != null && !option.type().isBlank() && parseQuestionType(option.type()) == null) {
-                    return "Unknown question type: " + option.type();
+                    return Text.get("api.trips.unknownQuestionType", option.type());
                 }
             }
         }
@@ -1321,17 +1316,17 @@ public class TripsResource extends BaseResource {
             @QueryParam("cropH") final Integer cropH,
             final InputStream body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         // Refuse before buffering up to 16 MB: otherwise anyone signed in could hold that much memory per request
         // for a trip that does not exist or is not theirs. add() asks again on the row it saves.
         final Trip trip = findTrip(tripId);
         if (trip == null) {
-            return error(404, ApiErrors.NOT_FOUND, "No such trip.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.shared.noSuchTrip"));
         }
         final TripPictureCommands pictures = Beans.get(TripPictureCommands.class);
         if (!pictures.mayEdit(caller(), trip)) {
-            return error(403, ApiErrors.FORBIDDEN, "Not permitted to change this trip's pictures.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.trips.picturesNotPermitted"));
         }
         final PhotoProcessor.CropRect rect;
         try {
@@ -1343,14 +1338,14 @@ public class TripsResource extends BaseResource {
         try {
             bytes = readUpload(body, contentLength, PhotoUploadBean.MAX_UPLOAD_BYTES);
         } catch (final IOException ex) {
-            return error(400, ApiErrors.BAD_REQUEST, "The upload could not be read.");
+            return error(400, ApiErrors.BAD_REQUEST, Text.get("api.shared.uploadUnreadable"));
         }
         if (bytes.isEmpty()) {
             return error(413, ApiErrors.PAYLOAD_TOO_LARGE,
-                    "A picture can be at most " + (PhotoUploadBean.MAX_UPLOAD_BYTES / (1024 * 1024)) + " MB.");
+                    Text.get("api.trips.pictureTooLarge", PhotoUploadBean.MAX_UPLOAD_BYTES / (1024 * 1024)));
         }
         if (bytes.get().length == 0) {
-            return error(400, ApiErrors.VALIDATION_FAILED, "The upload was empty.");
+            return error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.shared.uploadEmpty"));
         }
         return pictureResponse(pictures, pictures.add(caller(), tripId, bytes.get(), rect, alt));
     }
@@ -1364,7 +1359,7 @@ public class TripsResource extends BaseResource {
             @QueryParam("key") final String key,
             @HeaderParam(CSRF_HEADER) final String csrf) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         final TripPictureCommands pictures = Beans.get(TripPictureCommands.class);
         return pictureResponse(pictures, pictures.remove(caller(), tripId, key));
@@ -1384,14 +1379,14 @@ public class TripsResource extends BaseResource {
             @HeaderParam(CSRF_HEADER) final String csrf,
             final Map<String, Object> body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         final Object key = body == null ? null : body.get("key");
         final Object position = body == null ? null : body.get("position");
         if (!(key instanceof String) || position != null && !(position instanceof Number)
                 || position == null && !body.containsKey("alt")) {
             return error(400, ApiErrors.VALIDATION_FAILED,
-                    "Give the picture's key and a numeric position, an alt, or both.");
+                    Text.get("api.trips.pictureKeyAndChangeRequired"));
         }
         final TripPictureCommands pictures = Beans.get(TripPictureCommands.class);
         TripPictureCommands.PictureResult result = null;

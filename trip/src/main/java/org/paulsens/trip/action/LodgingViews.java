@@ -8,10 +8,16 @@ import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.paulsens.trip.audit.RequestContext;
+import org.paulsens.trip.i18n.Formats;
+import org.paulsens.trip.i18n.Text;
+import org.paulsens.trip.model.ReservationOffer;
+import org.paulsens.trip.pay.MoneyMath;
 
 /**
  * The scalar shapes the lodging pages bind to: edit FORMS (what a dialog's inputs hold in the view) and ROWS
@@ -25,6 +31,81 @@ import lombok.NoArgsConstructor;
 public final class LodgingViews {
 
     private LodgingViews() {
+    }
+
+    // ------------------------------------------------------------------ sentences with optional parts
+    // One message per complete variant (docs/i18n.md) takes more lines than the concatenation it replaced, and
+    // LodgingCommands sits at its 3000-line cap, so the sentences it assembles are chosen here.
+
+    /** A stay's arrival or departure; English keeps the "Sep 3, 3:05 PM" it has always shown. */
+    private static final String STAY = "MMMdjm";
+    private static final String STAY_ENGLISH = "MMM d, h:mm a";
+
+    /** "Sep 21, 3:00 PM – Sep 26, 11:00 AM" for the person reading; "…" stands for a missing end. */
+    static String range(final LocalDateTime from, final LocalDateTime to) {
+        if (from == null && to == null) {
+            return "";
+        }
+        final Locale reader = RequestContext.currentLocale();
+        return (from == null ? "…" : stay(from, reader)) + " – " + (to == null ? "…" : stay(to, reader));
+    }
+
+    /** A stay's moment for {@code reader}; the audit trail passes English, the language it is kept in. */
+    static String stay(final LocalDateTime when, final Locale reader) {
+        return Formats.format(when, STAY, STAY_ENGLISH, reader);
+    }
+
+    /** "$25.00 + 10.0% of the bill", either part alone, or "no cancellation fee". */
+    static String feeRule(final ReservationOffer offer) {
+        if (offer == null || !offer.hasCancellationFee()) {
+            return Text.get("feedback.lodgingViews.feeRuleNone");
+        }
+        final boolean fixed = offer.getCancelFeeFixedCents() != null && offer.getCancelFeeFixedCents() > 0;
+        final boolean percent = offer.getCancelFeeBps() != null && offer.getCancelFeeBps() > 0;
+        final String amount = fixed ? MoneyMath.formatCents(offer.getCancelFeeFixedCents()) : "";
+        final String rate = percent ? String.valueOf(offer.getCancelFeeBps() / 100.0) : "";
+        if (fixed && percent) {
+            return Text.get("feedback.lodgingViews.feeRuleFixedAndPercent", amount, rate);
+        }
+        return percent ? Text.get("feedback.lodgingViews.feeRulePercent", rate) : amount;
+    }
+
+    /** "114 (Double, floor 1)" for the reservation dialogs' room menu; a room with no floor names none. */
+    static String roomChoice(final String number, final String typeName, final String floor) {
+        return floor == null ? number + " (" + typeName + ")"
+                : Text.get("feedback.lodgingViews.roomChoiceOnFloor", number, typeName, floor);
+    }
+
+    /** What the board says once a stay is in a room; {@code from} is the room it left, null for a first room. */
+    static String assigned(final String names, final String room, final boolean over, final String from) {
+        if (from == null) {
+            return over ? Text.get("feedback.lodgingViews.assignedOverCapacity", names, room)
+                    : Text.get("feedback.lodgingViews.assigned", names, room);
+        }
+        return over ? Text.get("feedback.lodgingViews.movedOverCapacity", names, from, room)
+                : Text.get("feedback.lodgingViews.moved", names, from, room);
+    }
+
+    /** What the placement dialog says once it made a stay and roomed it. */
+    static String placed(final String names, final String room, final String option, final boolean waived,
+            final boolean over) {
+        if (waived) {
+            return over ? Text.get("feedback.lodgingViews.placedWaivedOverCapacity", names, room, option)
+                    : Text.get("feedback.lodgingViews.placedWaived", names, room, option);
+        }
+        return over ? Text.get("feedback.lodgingViews.placedOverCapacity", names, room, option)
+                : Text.get("feedback.lodgingViews.placed", names, room, option);
+    }
+
+    /**
+     * What a mid-stay room switch did; {@code next} is null when the second half has no room yet. The audit
+     * trail stores this sentence too and stays English whoever asked, hence {@code english}.
+     */
+    static String split(final boolean english, final String names, final String first, final String day,
+            final String next) {
+        final Locale locale = english ? Locale.ENGLISH : RequestContext.currentLocale();
+        return next == null ? Text.forLocale(locale, "feedback.lodgingViews.splitNoRoomYet", names, first, day)
+                : Text.forLocale(locale, "feedback.lodgingViews.split", names, first, day, next);
     }
 
     /** The accommodation dialog's inputs. Money never appears here; a hotel has no price. */
@@ -634,8 +715,7 @@ public final class LodgingViews {
 
         /** "23/28 rooms · 33 people", the pill's whole text. Numbers, never a colour alone. */
         public String getSummary() {
-            return roomsOccupied + "/" + roomsTotal + " rooms · " + people
-                    + (people == 1 ? " person" : " people");
+            return Text.get("feedback.lodgingViews.calendarSummary", roomsOccupied, roomsTotal, people);
         }
     }
 
@@ -1044,7 +1124,7 @@ public final class LodgingViews {
         public String getStayTail() {
             final boolean room = roomLabel != null && !roomLabel.isBlank();
             final boolean type = roomTypeName != null && !roomTypeName.isBlank();
-            final String nightsText = nights + (nights == 1 ? " night" : " nights");
+            final String nightsText = Text.get("common.nightCount", nights);
             if (room && type) {
                 return " (" + roomTypeName + "), " + nightsText;
             }

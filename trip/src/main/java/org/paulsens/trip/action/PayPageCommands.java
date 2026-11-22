@@ -193,6 +193,10 @@ public class PayPageCommands {
      * anonymous GET refilled a page someone had just cleared. A page authored before its first render is adopted
      * as it is. The starter row's id is fixed per organization, so two first visits at once write one row. Asked
      * of the cached organization first: a render reads the store only while the page still looks unseeded.
+     *
+     * <p>The key answered is the language VERSION this request reads ({@code PageVersionCommands.forThisRequest},
+     * {@code docs/i18n.md}): the page's own key, or its {@code @es} twin once one is written, or the one an
+     * editor's {@code ?version=} names. Only the page's own key is ever seeded.
      */
     public String ensurePage(final String orgId) {
         final Organization org = reachableOrg(orgId);
@@ -210,7 +214,9 @@ public class PayPageCommands {
             }
             noteSeedAttempt(org.getId().getValue(), settled);
         }
-        return key;
+        // The starter text is the page's own (unmarked) key; the reader gets the version in their language when
+        // one is written, exactly as SiteCommands.pageKey answers for a Site Page.
+        return PageVersionCommands.forThisRequest(key, null);
     }
 
     /** Whether this organization's seed may be tried now: always, unless a recent try recorded nothing. */

@@ -105,10 +105,11 @@ public class SessionRecoveryFilter implements Filter {
             // run(): doFilter throws checked exceptions -- tunneled through one carrier type because call()
             // infers a single throws clause. A bearer request binds the principal's SCOPE-CAPPED role
             // (boundRole), never the raw one stamped on the token row: Caller.bound() reads this.
-            ScopedValue.where(RequestContext.SCOPE, principal != null
-                            ? RequestContext.of(principal.actor(), principal.boundRole(), site)
-                            : RequestContext.from(session, site))
-                    .call(() -> runChain(chain, request, response));
+            final RequestContext identity = principal != null
+                    ? RequestContext.of(principal.actor(), principal.boundRole(), site)
+                    : RequestContext.from(session, site);
+            ScopedValue.where(RequestContext.SCOPE, identity)
+                    .call(() -> runLocalized(identity, chain, request, response));
         } catch (final Tunnel tunneled) {
             handleFailure(request, response, tunneled.getCause());
         } catch (final RuntimeException | Error ex) {
@@ -174,6 +175,20 @@ public class SessionRecoveryFilter implements Filter {
         Tunnel(final Exception cause) {
             super(cause);
         }
+    }
+
+    /**
+     * Resolves the request's language and re-binds the context with it for the chain. Two bindings because the
+     * language depends on the first: the site's offered languages are an org-overridable setting, and settings
+     * resolve through the bound site ({@code RequestLocale}, {@code docs/i18n.md}).
+     */
+    private static Void runLocalized(final RequestContext identity, final FilterChain chain,
+            final ServletRequest request, final ServletResponse response) throws Tunnel {
+        if (!(request instanceof HttpServletRequest req) || !(response instanceof HttpServletResponse res)) {
+            return runChain(chain, request, response);
+        }
+        final RequestContext localized = identity.withLocale(RequestLocale.resolve(req, res, identity));
+        return ScopedValue.where(RequestContext.SCOPE, localized).call(() -> runChain(chain, request, response));
     }
 
     private static Void runChain(final FilterChain chain, final ServletRequest request,

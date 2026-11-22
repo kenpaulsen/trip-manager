@@ -24,7 +24,9 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.audit.RequestContext;
 import org.paulsens.trip.dynamo.LocalMode;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.util.ScopeUtil;
 import org.paulsens.trip.web.Sessions;
 import org.primefaces.model.SortMeta;
@@ -151,16 +153,14 @@ public class TripUtilCommands {
         final String base = (privName == null) ? "" : privName.trim();
         final String roleName = OrgCommands.tripRoleName(base);
         final String description = PrivilegeCommands.canonicalDescription(base);
-        final String advice;
         if (roleName != null) {
-            advice = " It needs the " + roleName + " role on this trip; ask the trip's organizer to add it.";
-        } else if (!description.isEmpty()) {
-            advice = " It needs permission to " + Character.toLowerCase(description.charAt(0))
-                    + description.substring(1) + ".";
-        } else {
-            advice = " Ask a site admin if you need access.";
+            return Text.get("feedback.tripUtilCommands.needsRole", roleName);
         }
-        return "You don't have permission to open that page." + advice;
+        if (!description.isEmpty()) {
+            return Text.get("feedback.tripUtilCommands.needsPermission", Character.toLowerCase(description.charAt(0))
+                    + description.substring(1));
+        }
+        return Text.get("feedback.tripUtilCommands.askAdmin");
     }
 
     /**
@@ -283,8 +283,9 @@ public class TripUtilCommands {
         return false;
     }
 
+    /** A pattern's formatter in the request's language, so its month and day names are the reader's. */
     public DateTimeFormatter getDateTimeFormatter(final String pattern) {
-        return DateTimeFormatter.ofPattern(pattern);
+        return DateTimeFormatter.ofPattern(pattern, RequestContext.currentLocale());
     }
 
     public String formatDateTime(final String pattern, final TemporalAccessor dateTime) {

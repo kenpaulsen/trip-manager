@@ -28,6 +28,7 @@ import org.paulsens.trip.content.ContentRenderer;
 import org.paulsens.trip.content.HtmlFragmentValidator;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.content.OrgPageBootstrap;
+import org.paulsens.trip.content.PageVersions;
 import org.paulsens.trip.content.PageHtml;
 import org.paulsens.trip.content.PersonType;
 import org.paulsens.trip.content.ProgrammaticContentTemplate;
@@ -49,6 +50,7 @@ import org.paulsens.trip.model.Privilege;
 import org.paulsens.trip.model.TemplateKind;
 import org.paulsens.trip.model.TemplateRecord;
 import org.paulsens.trip.cache.Cached;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.site.SiteContext;
 import org.paulsens.trip.util.ScopeUtil;
 
@@ -148,8 +150,8 @@ public class ContentCommands {
         final Caller caller = callerSource.get();
         if (!mayEdit(caller, instance.getSection())) {
             log.warn("Refusing content save in '{}': caller lacks edit rights", instance.getSection());
-            PageFeedback.error("Not saved",
-                    "You do not have permission to edit this section.");
+            PageFeedback.error(Text.get("feedback.shared.notSaved"),
+                    Text.get("feedback.contentCommands.noPermission"));
             return false;
         }
         guardContainerConfig(caller, instance);
@@ -159,7 +161,7 @@ public class ContentCommands {
         final String problem = validateForSave(instance);
         if (problem != null) {
             log.warn("Refusing content save of '{}': {}", instance.getId(), problem);
-            PageFeedback.error("Not saved", problem);
+            PageFeedback.error(Text.get("feedback.shared.notSaved"), problem);
             return false;
         }
         final List<String> removed = cleanAuthoredHtml(instance);
@@ -173,9 +175,7 @@ public class ContentCommands {
             return false;
         }
         if (!saved) {
-            PageFeedback.error("Not saved",
-                    "The content could not be saved. It may have been edited by someone else; reopen it and try "
-                            + "again.");
+            PageFeedback.error(Text.get("feedback.shared.notSaved"), Text.get("feedback.contentCommands.saveFailed"));
         }
         if (saved) {
             warnOfRemovals(removed);
@@ -259,7 +259,7 @@ public class ContentCommands {
         }
         order.add(at, instance.getId());
         if (!applyOrder(instance.getSection(), order)) {
-            PageFeedback.warn("Saved, but the sections after it could not be moved down; use Arrange sections.");
+            PageFeedback.warn(Text.get("feedback.contentCommands.savedNotPlaced"));
         }
         return true;
     }
@@ -384,7 +384,7 @@ public class ContentCommands {
         if (PageHtml.titleHasMarkup(instance.getTitle())) {
             final PageHtml.Cleaned title = PageHtml.storedTitle(instance.getTitle());
             instance.setTitle(title.body());
-            removed.addAll(StripNotes.lines("Title", title));
+            removed.addAll(StripNotes.lines(Text.get("common.title"), title));
         }
         final ContentTemplate template = resolveTemplate(instance);
         if (template == null) {
@@ -434,7 +434,7 @@ public class ContentCommands {
      */
     private String validateForSave(final ContentInstance instance) {
         if (instance.getId() != null && instance.getId().equals(instance.getSection())) {
-            return "An item cannot be placed inside itself.";
+            return Text.get("feedback.contentCommands.insideItself");
         }
         final String requiredProblem = validateRequired(instance);
         if (requiredProblem != null) {
@@ -453,7 +453,7 @@ public class ContentCommands {
             parent = DAO.getInstance().getContent(instance.getSection(), Cached.NO).orElse(null);
         } catch (final RuntimeException ex) {
             log.error("Unable to resolve the parent of content: " + instance.getId(), ex);
-            return "The containing section could not be checked; try again.";
+            return Text.get("feedback.contentCommands.parentUnchecked");
         }
         return parent == null ? null : validateAsChild(instance, parent);
     }
@@ -471,7 +471,7 @@ public class ContentCommands {
         for (final Placeholder ph : ProgrammaticTypes.placeholdersOf(template)) {
             if (ph.isRequired() && showsProperty(instance, ph.getName())
                     && isBlankValue(ph, instance.getValues().get(ph.getName()))) {
-                return promptLabel(ph) + " is required.";
+                return Text.get("feedback.contentCommands.required", promptLabel(ph));
             }
         }
         return null;
@@ -499,7 +499,8 @@ public class ContentCommands {
         }
         final String label = ph.getLabel();
         return ph.getType() == Placeholder.Type.RICH_TEXT
-                && ("Text".equalsIgnoreCase(label) || "Body".equalsIgnoreCase(label)) ? "Content" : label;
+                && ("Text".equalsIgnoreCase(label) || "Body".equalsIgnoreCase(label))
+                ? Text.get("feedback.contentCommands.contentPrompt") : label;
     }
 
     /** The dialog widget id editing this prompt (the repeat row keeps ids apart), for its label's {@code for}. */
@@ -578,8 +579,8 @@ public class ContentCommands {
         };
         // No label for a plain section template: "Section" named both the thing being added and one kind of it.
         final String kindLabel = switch (kind) {
-            case CONTAINER -> "Group";
-            case PROGRAMMATIC -> "Live";
+            case CONTAINER -> Text.get("feedback.contentCommands.kindGroup");
+            case PROGRAMMATIC -> Text.get("feedback.contentCommands.kindLive");
             default -> "";
         };
         final String description = template.getDescription() == null ? "" : template.getDescription();
@@ -623,8 +624,12 @@ public class ContentCommands {
                 .filter(Objects::nonNull)
                 .map(ContentTemplate::getName)
                 .collect(Collectors.joining(", "));
-        final String what = names.isEmpty() ? "Any item" : names;
-        return template.getMaxChildren() == null ? what : what + " (up to " + template.getMaxChildren() + ")";
+        if (template.getMaxChildren() == null) {
+            return names.isEmpty() ? Text.get("feedback.contentCommands.anyItem") : names;
+        }
+        final String max = String.valueOf(template.getMaxChildren());
+        return names.isEmpty() ? Text.get("feedback.contentCommands.anyItemUpTo", max)
+                : Text.get("feedback.contentCommands.itemsUpTo", names, max);
     }
 
     /** How many sample items a group's sample render lists (fewer when the group holds fewer). */
@@ -848,9 +853,10 @@ public class ContentCommands {
     public String drawerTitle(final ContentInstance working, final String section, final String pageKey) {
         final boolean item = section != null && !section.equals(pageKey);
         if (working != null && !isNewContent(working)) {
-            return item ? "Edit item" : "Edit section";
+            return item ? Text.get("feedback.contentCommands.editItem")
+                    : Text.get("feedback.contentCommands.editSection");
         }
-        return item ? "Add an item" : "Add a section";
+        return item ? Text.get("feedback.contentCommands.addItem") : Text.get("feedback.contentCommands.addSection");
     }
 
     /**
@@ -955,13 +961,15 @@ public class ContentCommands {
         }
         if (!section.equals(pageKey)) {
             final String group = plainTitleOf(section);
-            return group.isEmpty() ? "Adding to this group" : "Adding to \u201c" + group + "\u201d";
+            return group.isEmpty() ? Text.get("feedback.contentCommands.addingToThisGroup")
+                    : Text.get("feedback.contentCommands.addingToGroup", group);
         }
         if (beforeId == null || !idsFor(section, true).contains(beforeId)) {
-            return "Adding at the end of the page";
+            return Text.get("feedback.contentCommands.addingAtEnd");
         }
         final String next = plainTitleOf(beforeId);
-        return next.isEmpty() ? "Adding above an untitled section" : "Adding above \u201c" + next + "\u201d";
+        return next.isEmpty() ? Text.get("feedback.contentCommands.addingAboveUntitled")
+                : Text.get("feedback.contentCommands.addingAbove", next);
     }
 
     /** A stored item's title as plain text (a title may carry markup); "" when there is none or no such item. */
@@ -991,7 +999,7 @@ public class ContentCommands {
         if (PageHtml.titleHasMarkup(instance.getTitle())) {
             final String titleProblem = HtmlFragmentValidator.validate(instance.getTitle());
             if (titleProblem != null) {
-                return "Title: " + titleProblem;
+                return Text.get("common.title") + ": " + titleProblem;
             }
         }
         final ContentTemplate template = resolveTemplate(instance);
@@ -1040,14 +1048,14 @@ public class ContentCommands {
             person = DAO.getInstance().getPerson(Person.Id.from(personId), Cached.NO).orElse(null);
         } catch (final RuntimeException ex) {
             log.error("Unable to resolve the person picked for content: " + personId, ex);
-            return "the person could not be checked; try again.";
+            return Text.get("feedback.contentCommands.personUnchecked");
         }
         if (person == null) {
-            return "no such person; pick one from the list.";
+            return Text.get("feedback.contentCommands.noSuchPerson");
         }
         final Organization.Id org = orgOf(section, containerOf(section));
         if (org != null && !isMember(org, person.getId())) {
-            return "pick a member of this organization.";
+            return Text.get("feedback.contentCommands.personNotMember");
         }
         return null;
     }
@@ -1146,7 +1154,7 @@ public class ContentCommands {
     private String validateAsChild(final ContentInstance child, final ContentInstance parent) {
         final ContentTemplate childTemplate = resolveTemplate(child);
         if (childTemplate != null && childTemplate.getKind() == TemplateKind.CONTAINER) {
-            return "A container cannot be placed inside another container.";
+            return Text.get("feedback.contentCommands.containerInContainer");
         }
         final ContentTemplate containerTemplate =
                 DAO.getInstance().getTemplate(parent.getTemplateId(), Cached.NO).orElse(null);
@@ -1155,7 +1163,7 @@ public class ContentCommands {
         }
         final List<String> allowed = effectiveAllowList(parent, containerTemplate);
         if (allowed != null && !allowed.isEmpty() && !allowed.contains(child.getTemplateId())) {
-            return "This container does not allow '" + child.getTemplateId() + "' content.";
+            return Text.get("feedback.contentCommands.notAllowedHere", child.getTemplateId());
         }
         final Integer max = containerTemplate.getMaxChildren();
         if (max != null) {
@@ -1163,7 +1171,7 @@ public class ContentCommands {
                     .filter(sibling -> !sibling.getId().equals(child.getId()))
                     .count();
             if (others >= max) {
-                return "This container is full (limit " + max + ").";
+                return Text.get("feedback.contentCommands.containerFull", String.valueOf(max));
             }
         }
         return null;
@@ -1338,8 +1346,8 @@ public class ContentCommands {
     private static void reportCarry(final ContentInstance instance, final TemplateValueMigrator.Result result,
             final boolean cancelUndoes) {
         if (result != null && (!result.renamed().isEmpty() || !result.dropped().isEmpty())) {
-            PageFeedback.warn("This item follows the latest template, now v" + instance.getTemplateVersion()
-                    + " -- " + migrationSummary(result, cancelUndoes));
+            PageFeedback.warn(Text.get("feedback.contentCommands.followsLatest",
+                    String.valueOf(instance.getTemplateVersion()), migrationSummary(result, cancelUndoes)));
         }
     }
 
@@ -1402,6 +1410,80 @@ public class ContentCommands {
             audit(caller, row.getId(), "Deleted '" + row.getTitle() + "' from " + row.getSection());
         }
         return all && deleted;
+    }
+
+    /**
+     * Starts a language version of a page from a copy of another version of the SAME page
+     * ({@code content/PageVersions}): every top-level row and every container's children, each a new row with
+     * a new id and its own history from version 1. Refused unless the caller may edit the target, the two keys
+     * are versions of one page, and the target is still empty: copying over written content would silently
+     * double it. Rows keep their template and pinned version; nothing links the copy back to its source.
+     *
+     * @return whether every row was copied
+     */
+    public boolean copyPage(final String fromKey, final String toKey) {
+        final Caller caller = callerSource.get();
+        if (fromKey == null || toKey == null || fromKey.equals(toKey)
+                || !PageVersions.baseOf(fromKey).equals(PageVersions.baseOf(toKey))
+                || !mayEdit(caller, toKey) || !readSection(toKey).isEmpty()) {
+            log.warn("Refusing page copy from '{}' to '{}'", fromKey, toKey);
+            return false;
+        }
+        boolean all = true;
+        try {
+            for (final ContentInstance row : DAO.getInstance().getContentForSection(fromKey, Cached.NO)) {
+                all &= copyRow(caller, row, toKey, fromKey);
+            }
+        } catch (final RuntimeException ex) {
+            log.error("Unable to copy page " + fromKey + " to " + toKey, ex);
+            return false;
+        }
+        return all;
+    }
+
+    /** One row and, beneath it, its children, into {@code section}; the children's section is the NEW row's id. */
+    private boolean copyRow(final Caller caller, final ContentInstance row, final String section,
+            final String copiedFrom) {
+        final ContentInstance copy = new ContentInstance(UUID.randomUUID().toString(), section, row.getTitle(),
+                row.getTemplateId(), row.getTemplateVersion(), new HashMap<>(row.getValues()), row.getEventDate(),
+                row.getPosition(), 0, null, caller.auditActor().email(),
+                row.getEditorPrivileges() == null ? null : new ArrayList<>(row.getEditorPrivileges()),
+                row.getAllowedChildTemplateIds() == null ? null : new ArrayList<>(row.getAllowedChildTemplateIds()),
+                row.isStayOnLatest());
+        if (!DAO.getInstance().saveContent(copy, retainCount())) {
+            return false;
+        }
+        audit(caller, copy.getId(), "Copied '" + copy.getTitle() + "' into " + section + " from " + copiedFrom);
+        boolean all = true;
+        for (final ContentInstance child : DAO.getInstance().getContentForSection(row.getId(), Cached.NO)) {
+            all &= copyRow(caller, child, copy.getId(), row.getId());
+        }
+        return all;
+    }
+
+    /**
+     * Deletes a whole language version of a page: every row in it, each through {@link #deleteWithChildren} so
+     * the trail names every row. Only a VERSION key is accepted: a page's own key is the one every reader falls
+     * back to, and removing it is the Site Pages page's job ({@code SitePageCommands.deletePage}), not this.
+     *
+     * @return whether every row was deleted
+     */
+    public boolean deleteVersion(final String versionKey) {
+        final Caller caller = callerSource.get();
+        if (PageVersions.languageOf(versionKey).isEmpty() || !mayEdit(caller, versionKey)) {
+            log.warn("Refusing to delete page version '{}'", versionKey);
+            return false;
+        }
+        boolean all = true;
+        try {
+            for (final ContentInstance row : DAO.getInstance().getContentForSection(versionKey, Cached.NO)) {
+                all &= deleteWithChildren(caller, row);
+            }
+        } catch (final RuntimeException ex) {
+            log.error("Unable to delete page version " + versionKey, ex);
+            return false;
+        }
+        return all;
     }
 
     /**
@@ -1955,8 +2037,6 @@ public class ContentCommands {
 
     /** The version menu's "Stay on Latest" choice, as the menu submits it (every other choice is a number). */
     public static final String STAY_ON_LATEST = "latest";
-    /** What the version menu calls {@link #STAY_ON_LATEST}: the owner's wording, exactly. */
-    public static final String STAY_ON_LATEST_LABEL = "Stay on Latest";
 
     /**
      * Whether the dialog offers the "Template version" menu: for every instance whose template exists, new ones
@@ -1987,7 +2067,7 @@ public class ContentCommands {
     /** One version-menu row's label: "Stay on Latest", or {@link #versionLabel} for a version number. */
     public String choiceLabel(final ContentInstance instance, final String choice) {
         if (STAY_ON_LATEST.equals(choice)) {
-            return STAY_ON_LATEST_LABEL;
+            return Text.get("feedback.contentCommands.stayOnLatest");
         }
         final Integer version = parseVersion(choice);
         return version == null ? "" : versionLabel(instance, version);
@@ -2067,15 +2147,13 @@ public class ContentCommands {
     /** The version menu's row label, marking the newest one and the instance's own. */
     public String versionLabel(final ContentInstance instance, final int version) {
         final ContentTemplate current = instance == null ? null : currentRetained(instance.getTemplateId());
-        final String suffix;
         if (current != null && current.getVersion() == version) {
-            suffix = " (latest)";
-        } else if (instance != null && !instance.isStayOnLatest() && instance.getTemplateVersion() == version) {
-            suffix = " (in use)";
-        } else {
-            suffix = "";
+            return Text.get("feedback.contentCommands.versionLatest", String.valueOf(version));
         }
-        return "v" + version + suffix;
+        if (instance != null && !instance.isStayOnLatest() && instance.getTemplateVersion() == version) {
+            return Text.get("feedback.contentCommands.versionInUse", String.valueOf(version));
+        }
+        return "v" + version;
     }
 
     /**
@@ -2117,13 +2195,13 @@ public class ContentCommands {
         }
         final ContentTemplate to = loadTemplateVersion(instance.getTemplateId(), wanted, Cached.NO);
         if (to == null) {
-            PageFeedback.error("Version unavailable",
-                    "v" + wanted + " of this template is no longer retained.");
+            PageFeedback.error(Text.get("feedback.contentCommands.versionUnavailable"),
+                    Text.get("feedback.contentCommands.versionNotRetained", String.valueOf(wanted)));
             return false;
         }
         if (!mayFollow(savedAgainst(instance, Cached.NO), to)) {
-            PageFeedback.error("Version unavailable", "v" + wanted + " of this template belongs to another "
-                    + "organization, so it cannot be used here.");
+            PageFeedback.error(Text.get("feedback.contentCommands.versionUnavailable"),
+                    Text.get("feedback.contentCommands.versionOtherOrg", String.valueOf(wanted)));
             return false;
         }
         moveValues(instance, to);
@@ -2135,12 +2213,13 @@ public class ContentCommands {
     private boolean retargetToLatest(final ContentInstance instance) {
         final ContentTemplate to = currentTemplate(instance.getTemplateId(), Cached.NO);
         if (to == null) {
-            PageFeedback.error("Version unavailable", "This template no longer exists.");
+            PageFeedback.error(Text.get("feedback.contentCommands.versionUnavailable"),
+                    Text.get("feedback.contentCommands.templateGone"));
             return false;
         }
         if (!mayFollow(savedAgainst(instance, Cached.NO), to)) {
-            PageFeedback.error("Version unavailable", "The newest version of this template belongs to another "
-                    + "organization, so this item cannot follow it here.");
+            PageFeedback.error(Text.get("feedback.contentCommands.versionUnavailable"),
+                    Text.get("feedback.contentCommands.newestOtherOrg"));
             return false;
         }
         moveValues(instance, to);
@@ -2154,7 +2233,8 @@ public class ContentCommands {
             return false;
         }
         instance.setStayOnLatest(false);
-        PageFeedback.info("Now editing v" + instance.getTemplateVersion() + " -- " + UNCHANGED);
+        PageFeedback.info(Text.get("feedback.contentCommands.nowEditing",
+                String.valueOf(instance.getTemplateVersion()), unchanged()));
         return true;
     }
 
@@ -2171,24 +2251,26 @@ public class ContentCommands {
         instance.setValues(result.values());
         // The whole report goes in the SUMMARY: this site's growl renders details only for the
         // URL-parameter messages (template.xhtml's hasDetail), so a detail-only warning is invisible.
-        PageFeedback.info("Now editing v" + to.getVersion() + " -- " + migrationSummary(result, true));
+        PageFeedback.info(Text.get("feedback.contentCommands.nowEditing", String.valueOf(to.getVersion()),
+                migrationSummary(result, true)));
     }
 
     /** The migration summary when nothing was renamed or dropped. */
-    private static final String UNCHANGED = "every value carried over unchanged";
+    private static String unchanged() {
+        return Text.get("feedback.contentCommands.unchanged");
+    }
 
     /** What a migration did, for a growl; {@code cancelUndoes} adds that the dialog's Cancel keeps the old values. */
     private static String migrationSummary(final TemplateValueMigrator.Result result, final boolean cancelUndoes) {
         final StringBuilder summary = new StringBuilder();
-        result.renamed().forEach((oldName, newName) -> summary.append(oldName).append(" moved to ")
-                .append(newName).append("; "));
+        result.renamed().forEach((oldName, newName) -> summary
+                .append(Text.get("feedback.contentCommands.valueMoved", oldName, newName)).append("; "));
         if (!result.dropped().isEmpty()) {
-            summary.append("DROPPED (nowhere to put it): ").append(String.join(", ", result.dropped()));
-            if (cancelUndoes) {
-                summary.append("; Cancel keeps the old version");
-            }
+            final String dropped = String.join(", ", result.dropped());
+            summary.append(cancelUndoes ? Text.get("feedback.contentCommands.droppedCancelKeeps", dropped)
+                    : Text.get("feedback.contentCommands.dropped", dropped));
         }
-        return summary.isEmpty() ? UNCHANGED : summary.toString().replaceAll("; $", "");
+        return summary.isEmpty() ? unchanged() : summary.toString().replaceAll("; $", "");
     }
 
     private static ContentTemplate loadTemplateVersion(final String templateId, final int version,

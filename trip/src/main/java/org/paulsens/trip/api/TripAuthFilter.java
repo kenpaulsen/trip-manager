@@ -13,6 +13,7 @@ import jakarta.ws.rs.ext.Provider;
 import java.io.IOException;
 import java.util.Map;
 import org.paulsens.trip.action.PersonCommands;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.security.BearerTokens;
 import org.paulsens.trip.security.TokenPrincipal;
@@ -45,12 +46,12 @@ public class TripAuthFilter implements ContainerRequestFilter {
         }
         final HttpSession session = request.getSession(false);
         if (session == null) {
-            abort(ctx, 401, ApiErrors.NOT_AUTHENTICATED, "Sign in required.");
+            abort(ctx, 401, ApiErrors.NOT_AUTHENTICATED, Text.get("api.shared.signInRequired"));
             return;
         }
         final Object raw = session.getAttribute(PersonCommands.ACTIVE_USER_ID);
         if (raw == null) {
-            abort(ctx, 401, ApiErrors.NOT_AUTHENTICATED, "Sign in required.");
+            abort(ctx, 401, ApiErrors.NOT_AUTHENTICATED, Text.get("api.shared.signInRequired"));
             return;
         }
         final Person.Id personId = raw instanceof Person.Id pid ? pid : Person.Id.from(raw.toString());

@@ -17,6 +17,7 @@ import org.paulsens.trip.action.TodoCommands;
 import org.paulsens.trip.api.dto.TodoDto;
 import org.paulsens.trip.api.dto.TodoStatusDto;
 import org.paulsens.trip.api.mapper.TodoMapper;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.DataId;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Status;
@@ -46,8 +47,6 @@ import org.paulsens.trip.model.TodoStatus;
 public class TodosResource extends BaseResource {
 
     private static final String V1 = ApiMediaTypes.TODOS_V1;
-    private static final String NOT_A_MEMBER = "Not a member of this trip.";
-    private static final String NOT_THEIR_STATUS = "Not permitted to edit this todo status.";
 
     @Override
     protected String versionedType() {
@@ -62,7 +61,7 @@ public class TodosResource extends BaseResource {
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response list(@PathParam("tripId") final String tripId) {
         if (!canReadTrip(requireTrip(tripId))) {
-            return error(403, ApiErrors.FORBIDDEN, NOT_A_MEMBER);
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.shared.notTripMember"));
         }
         return ok(Beans.get(TodoCommands.class).getTodos(tripId).stream()
                 .map(TodoMapper.INSTANCE::toDto)
@@ -74,11 +73,11 @@ public class TodosResource extends BaseResource {
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response get(@PathParam("tripId") final String tripId, @PathParam("dataId") final String dataId) {
         if (!canReadTrip(requireTrip(tripId))) {
-            return error(403, ApiErrors.FORBIDDEN, NOT_A_MEMBER);
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.shared.notTripMember"));
         }
         final TodoItem todo = Beans.get(TodoCommands.class).getTodo(tripId, DataId.from(dataId));
         if (todo == null) {
-            return error(404, ApiErrors.NOT_FOUND, "No such todo.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.todos.noSuchTodo"));
         }
         return ok(TodoMapper.INSTANCE.toDto(todo));
     }
@@ -96,7 +95,7 @@ public class TodosResource extends BaseResource {
             @PathParam("tripId") final String tripId, @PathParam("personId") final String personIdParam) {
         final Person.Id subject = Person.Id.from(personIdParam);
         if (!canSee(tripId, subject)) {
-            return error(403, ApiErrors.FORBIDDEN, "Not permitted to read this person's todos.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.todos.readNotPermitted"));
         }
         final boolean staff = isTripStaff(tripId);
         final List<TodoStatus> found = Beans.get(TodoCommands.class).getTodosForUser(tripId, subject, staff);
@@ -124,10 +123,10 @@ public class TodosResource extends BaseResource {
             @HeaderParam(CSRF_HEADER) final String csrf,
             final TodoDto body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         if (!isWriteStaff(tripId)) {
-            return error(403, ApiErrors.FORBIDDEN, "Trip manager required.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.shared.tripManagerRequired"));
         }
         requireTrip(tripId);
         final TodoCommands todos = Beans.get(TodoCommands.class);
@@ -135,7 +134,7 @@ public class TodosResource extends BaseResource {
         apply(body, todo);
         todo.setMoreDetails(cleanedHtml("moreDetails", todo.getMoreDetails()));
         if (!todos.saveTodo(todo)) {
-            return error(500, ApiErrors.STORE_FAILED, "Could not save the todo.");
+            return error(500, ApiErrors.STORE_FAILED, Text.get("api.todos.notSaved"));
         }
         return ok(TodoMapper.INSTANCE.toDto(todo));
     }
@@ -150,21 +149,21 @@ public class TodosResource extends BaseResource {
             @HeaderParam(CSRF_HEADER) final String csrf,
             final TodoDto body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         if (!isWriteStaff(tripId)) {
-            return error(403, ApiErrors.FORBIDDEN, "Trip manager required.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.shared.tripManagerRequired"));
         }
         final TodoCommands todos = Beans.get(TodoCommands.class);
         // Load and save the same object; a DAO read hands back a copy.
         final TodoItem todo = todos.getTodo(tripId, DataId.from(dataId));
         if (todo == null) {
-            return error(404, ApiErrors.NOT_FOUND, "No such todo.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.todos.noSuchTodo"));
         }
         apply(body, todo);
         todo.setMoreDetails(cleanedHtml("moreDetails", todo.getMoreDetails()));
         if (!todos.saveTodo(todo)) {
-            return error(500, ApiErrors.STORE_FAILED, "Could not save the todo.");
+            return error(500, ApiErrors.STORE_FAILED, Text.get("api.todos.notSaved"));
         }
         return ok(TodoMapper.INSTANCE.toDto(todo));
     }
@@ -194,12 +193,12 @@ public class TodosResource extends BaseResource {
             @HeaderParam(CSRF_HEADER) final String csrf,
             final TodoStatusDto body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         final TodoCommands todos = Beans.get(TodoCommands.class);
         final TodoItem todo = todos.getTodo(tripId, DataId.from(dataId));
         if (todo == null) {
-            return error(404, ApiErrors.NOT_FOUND, "No such todo.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.todos.noSuchTodo"));
         }
         final Person.Id subject = Person.Id.from(personIdParam);
         final boolean staff = isWriteStaff(tripId);
@@ -207,12 +206,12 @@ public class TodosResource extends BaseResource {
         final TodoStatus status = staff ? todos.getOrCreateTodoStatus(todo, subject)
                 : todos.getTodoStatus(todo, subject);
         if (status == null || (!staff && travelerRefusal(todos, status, subject, body))) {
-            return error(403, ApiErrors.FORBIDDEN, NOT_THEIR_STATUS);
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.todos.statusEditNotPermitted"));
         }
         final String before = String.valueOf(status.getStatusValue());
         applyStatus(body, status, staff);
         if (!todos.saveTodoStatus(status)) {
-            return error(500, ApiErrors.STORE_FAILED, "Could not save the todo status.");
+            return error(500, ApiErrors.STORE_FAILED, Text.get("api.todos.statusNotSaved"));
         }
         auditIfChanged(status, subject, before);
         return ok(dto(status, subject, staff));

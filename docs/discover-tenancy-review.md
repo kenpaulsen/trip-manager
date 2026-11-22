@@ -106,7 +106,10 @@ Deliberately absent, each for a reason:
 
 Search (`q`) reads only text derived from the DTO (`DiscoverIndex.Entry.of`): title, destination, every
 country's code and name, organization name, tag labels. A word cannot match on something a response would not
-show. Facets are counts of listed trips by those same public values.
+show. Facets are counts of listed trips by those same public values. A facet's label (a country's name, a month,
+a trip kind) is worded per request in the reader's language (`DiscoverSearch.search(..., locale)`), never stored
+in the index, which is built once for every reader; it is derived from the same public value, so a label says
+nothing the value does not.
 
 ## Ended trips and the public album (owner-approved, 2026-11-19)
 

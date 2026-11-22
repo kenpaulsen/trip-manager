@@ -7,7 +7,6 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.time.LocalDate;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -22,6 +21,8 @@ import org.apache.pdfbox.pdmodel.font.PDType0Font;
 import org.apache.pdfbox.pdmodel.graphics.image.JPEGFactory;
 import org.apache.pdfbox.pdmodel.graphics.image.LosslessFactory;
 import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
+import org.paulsens.trip.i18n.Formats;
+import org.paulsens.trip.i18n.Text;
 
 /**
  * A plain report sheet for the trip's money documents ({@link BudgetPdf}, {@link ExpenseReportPdf}): US Letter,
@@ -33,6 +34,12 @@ import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
  * <p>Liberation Sans is EMBEDDED, as in {@code RoomInvoicePdf}, so names like Dragi&#263;evi&#263; draw. A character
  * the font has no glyph for prints as "?" rather than failing the whole document, and line breaks in typed text
  * become separate lines. Text arrives already formatted ("$1,440.00"): this class draws, it does not compute.
+ *
+ * <p>The few words the sheet itself writes (the footer, "Page n of m") come from the {@code pdf} bundle in the
+ * READER's language, which the document's own class names: a sheet may be mailed or kept, so the language of
+ * the request that happens to draw it is not assumed here. A translated heading or label is often longer than
+ * the English one: a number column's heading wraps once shrinking is not enough, and the label column of
+ * {@link #fields} widens to its longest label.
  *
  * <p>Use: build, draw, then {@link #finish}, which writes the footers and returns the bytes. One instance per
  * document; not thread-safe.
@@ -47,7 +54,6 @@ final class PdfSheet {
 
     private static final String REGULAR = "/liberation/LiberationSans-Regular.ttf";
     private static final String BOLD = "/liberation/LiberationSans-Bold.ttf";
-    private static final DateTimeFormatter PRINTED = DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.ROOT);
     private static final float TOP = SHEET.getHeight() - MARGIN;
     /** Room kept at the bottom for the page footer. */
     private static final float BOTTOM = MARGIN + 24f;
@@ -61,6 +67,10 @@ final class PdfSheet {
     private static final Color HEAD_FILL = new Color(0xBB, 0xBB, 0xBB);
     private static final Color TOTAL_FILL = new Color(0xF0, 0xF0, 0xF0);
     private static final Color RULE = new Color(0xD8, 0xD8, 0xD8);
+    /** The label column of {@link #fields}: its usual width, the most it grows to, and the gap it keeps. */
+    private static final float LABELS = 150f;
+    private static final float WIDEST_LABELS = 250f;
+    private static final float LABEL_GAP = 8f;
 
     /**
      * A table's shape: columns sized in proportion to {@code weights} across the printable width, their
@@ -93,17 +103,22 @@ final class PdfSheet {
     private final PDFont regular;
     private final PDFont bold;
     private final String shortTitle;
+    private final Locale locale;
     /** Appended PDFs stay open until the document is saved: their pages are shared, not copied. */
     private final List<PDDocument> sources = new ArrayList<>();
     private PDPageContentStream page;
     private float y;
 
-    /** A new document whose continuation pages and footers are labelled {@code shortTitle}. */
-    PdfSheet(final String shortTitle) throws IOException {
+    /**
+     * A new document whose continuation pages and footers are labelled {@code shortTitle}, with the sheet's own
+     * words in the reader's {@code locale}.
+     */
+    PdfSheet(final String shortTitle, final Locale locale) throws IOException {
         this.doc = new PDDocument();
         this.regular = load(doc, REGULAR);
         this.bold = load(doc, BOLD);
         this.shortTitle = (shortTitle == null) ? "" : shortTitle;
+        this.locale = (locale == null) ? Locale.ENGLISH : locale;
     }
 
     private static PDFont load(final PDDocument doc, final String resource) throws IOException {
@@ -152,28 +167,33 @@ final class PdfSheet {
     void table(final Table table, final List<String[]> rows, final String[] total) throws IOException {
         heads(table);
         for (final String[] row : rows) {
-            final List<List<String>> lines = layout(table, regular, row);
+            final List<List<String>> lines = layout(table, regular, row, false);
             ensure(heightOf(lines), table);
-            draw(table, regular, lines);
+            draw(table, regular, lines, false);
             rule();
         }
         if (total != null) {
-            final List<List<String>> lines = layout(table, bold, total);
+            final List<List<String>> lines = layout(table, bold, total, false);
             ensure(heightOf(lines) + 2, table);
             fill(TOTAL_FILL, heightOf(lines));
-            draw(table, bold, lines);
+            draw(table, bold, lines, false);
         }
         y -= 4;
     }
 
-    /** Label/value lines, the value wrapped beside a fixed label column. */
+    /**
+     * Label/value lines, the value wrapped beside the label column. The column is {@link #LABELS} wide unless a
+     * label needs more (a translated one often does), up to {@link #WIDEST_LABELS}; a label longer than that
+     * shrinks to fit rather than run into its value.
+     */
     void fields(final List<String[]> pairs) throws IOException {
-        final float labelWidth = 150f;
+        final float labelWidth = labelWidth(pairs);
         for (final String[] pair : pairs) {
             final List<String> lines = wrapAll(regular, BODY, pair[1], WIDTH - labelWidth);
             ensure(LINE * lines.size() + 2, null);
             y -= LINE;
-            text(bold, BODY, INK, pair[0], MARGIN);
+            final String label = clean(bold, pair[0]);
+            text(bold, fitted(bold, label, labelWidth - LABEL_GAP), INK, label, MARGIN);
             for (int i = 0; i < lines.size(); i++) {
                 if (i > 0) {
                     y -= LINE;
@@ -182,6 +202,14 @@ final class PdfSheet {
             }
         }
         y -= 4;
+    }
+
+    private float labelWidth(final List<String[]> pairs) throws IOException {
+        float width = LABELS;
+        for (final String[] pair : pairs) {
+            width = Math.max(width, widthOf(bold, BODY, clean(bold, pair[0])) + LABEL_GAP);
+        }
+        return Math.min(width, WIDEST_LABELS);
     }
 
     /** A wrapped paragraph; {@code muted} draws it small and grey (a note). */
@@ -220,7 +248,7 @@ final class PdfSheet {
                     : LosslessFactory.createFromImage(doc, decode(imageBytes));
         } catch (final IOException | IllegalArgumentException ex) {
             y -= LINE;
-            text(regular, BODY, MUTED, "This receipt's image could not be drawn.", MARGIN);
+            text(regular, BODY, MUTED, Text.forLocale(locale, "pdf.shared.receiptImageNotDrawn"), MARGIN);
             return;
         }
         final float roomHeight = y - BOTTOM;
@@ -285,8 +313,11 @@ final class PdfSheet {
                         PDPageContentStream.AppendMode.APPEND, true, true)) {
                     page = foot;
                     y = MARGIN;
-                    text(regular, SMALL, MUTED, shortTitle + ", printed " + PRINTED.format(printed), MARGIN);
-                    textRight(regular, SMALL, MUTED, "Page " + (i + 1) + " of " + pages, MARGIN + WIDTH);
+                    text(regular, SMALL, MUTED, Text.forLocale(locale, "pdf.shared.printedFooter", shortTitle,
+                            Formats.format(printed, "yMMMd", locale)), MARGIN);
+                    // Page numbers go in as text: a number argument would be grouped ("1,000") by the format.
+                    textRight(regular, SMALL, MUTED, Text.forLocale(locale, "pdf.shared.pageOf",
+                            String.valueOf(i + 1), String.valueOf(pages)), MARGIN + WIDTH);
                 }
             }
             page = null;
@@ -328,19 +359,30 @@ final class PdfSheet {
 
     private void heads(final Table table) throws IOException {
         ensure(ROW * 2 + 2, null);
-        final List<List<String>> lines = layout(table, bold, table.heads());
+        final List<List<String>> lines = layout(table, bold, table.heads(), true);
         fill(HEAD_FILL, heightOf(lines) + 2);
-        draw(table, bold, lines);
+        draw(table, bold, lines, true);
         y -= 2;
     }
 
-    /** Each cell's lines: a text cell wrapped to its column, a number cell as one line. */
-    private static List<List<String>> layout(final Table table, final PDFont font, final String[] cells)
-            throws IOException {
+    /**
+     * Each cell's lines: a text cell wrapped to its column, a number cell as one line. A number column's
+     * HEADING ({@code heads}) is words, not a number: one too long for its column even at the smallest size (a
+     * translated one) wraps instead of running into the column on its left.
+     */
+    private static List<List<String>> layout(final Table table, final PDFont font, final String[] cells,
+            final boolean heads) throws IOException {
         final List<List<String>> lines = new ArrayList<>();
         for (int i = 0; i < cells.length; i++) {
             final String cell = clean(font, cells[i]);
-            lines.add(table.right()[i] ? List.of(cell) : wrap(font, BODY, cell, table.widths()[i] - 8));
+            final float width = table.widths()[i] - 8;
+            if (!table.right()[i]) {
+                lines.add(wrap(font, BODY, cell, width));
+            } else if (heads && widthOf(font, SMALL, cell) > width) {
+                lines.add(wrap(font, SMALL, cell, width));
+            } else {
+                lines.add(List.of(cell));
+            }
         }
         return lines;
     }
@@ -354,22 +396,30 @@ final class PdfSheet {
         return ROW + (most - 1) * WRAPPED;
     }
 
-    private void draw(final Table table, final PDFont font, final List<List<String>> lines) throws IOException {
+    /**
+     * One row at the cursor. In the heading row ({@code heads}) a single word wider than its column shrinks
+     * (never under {@link #SMALL}) instead of overhanging into the next heading; a body cell is left alone.
+     */
+    private void draw(final Table table, final PDFont font, final List<List<String>> lines, final boolean heads)
+            throws IOException {
         y -= ROW - 4;
         final float top = y;
         float left = MARGIN + 4;
         for (int i = 0; i < lines.size(); i++) {
             final List<String> cell = lines.get(i);
             if (table.right()[i]) {
-                final String value = cell.get(0);
-                final boolean negative = i == lines.size() - 1 && value.startsWith("-");
-                y = top;
-                textRight(font, fitted(font, value, table.widths()[i] - 8), negative ? NEGATIVE : INK, value,
-                        table.columnRight(i));
+                final boolean negative = i == lines.size() - 1 && cell.get(0).startsWith("-");
+                // More than one line only for a wrapped heading (see layout).
+                for (int k = 0; k < cell.size(); k++) {
+                    y = top - k * WRAPPED;
+                    textRight(font, fitted(font, cell.get(k), table.widths()[i] - 8), negative ? NEGATIVE : INK,
+                            cell.get(k), table.columnRight(i));
+                }
             } else {
                 for (int k = 0; k < cell.size(); k++) {
                     y = top - k * WRAPPED;
-                    text(font, BODY, INK, cell.get(k), left);
+                    text(font, heads ? fitted(font, cell.get(k), table.widths()[i] - 8) : BODY, INK, cell.get(k),
+                            left);
                 }
             }
             left += table.widths()[i];

@@ -38,6 +38,7 @@ public class SettingDefTest {
         withers.put("email", SettingDef::withEmail);
         withers.put("siteFrom", SettingDef::withSiteFrom);
         withers.put("analyticsId", SettingDef::withAnalyticsId);
+        withers.put("translatable", SettingDef::withTranslatable);
         return withers;
     }
 

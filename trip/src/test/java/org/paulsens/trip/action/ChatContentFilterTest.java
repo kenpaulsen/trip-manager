@@ -54,7 +54,8 @@ public class ChatContentFilterTest {
                 actor(alice));
         Assert.assertFalse(refused.isOk());
         Assert.assertEquals(refused.getCode(), "blocked_content");
-        Assert.assertEquals(refused.getMessage(), ChatCommands.BLOCKED_CONTENT_MESSAGE);
+        Assert.assertEquals(refused.getMessage(),
+                "That message contains language this chat doesn't allow. Please reword it.");
         Assert.assertFalse(refused.getMessage().contains("darn"), "the matched term is never echoed");
 
         final ChatCommands.SendResult sent = chat.send(tripId, alice.getId(), "a darning needle", null, null,

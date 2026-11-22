@@ -6,6 +6,7 @@ import java.util.Map;
 import java.util.Set;
 import org.paulsens.trip.action.MediaCommands;
 import org.paulsens.trip.action.TripPageCommands;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.Placeholder;
 
@@ -25,9 +26,7 @@ final class PhotoAlbumsType implements ProgrammaticContentTemplate {
      * blank meaning the page's own event on a conference page (and the recent trips anywhere else). What lets a
      * conference page show its own photos, which is why the type no longer refuses trip pages.
      */
-    private static final Placeholder EVENT = new Placeholder(TripPageCommands.PROP_TRIP_ID, Placeholder.Type.CHOICE,
-            "Event", "Blank: recent trips' albums (an event's own on its page); pick an event to show its album alone",
-            false);
+    private static final String PROP_EVENT = TripPageCommands.PROP_TRIP_ID;
 
     @Override
     public String getTypeId() {
@@ -36,7 +35,7 @@ final class PhotoAlbumsType implements ProgrammaticContentTemplate {
 
     @Override
     public String getDisplayName() {
-        return "Trip Photo Albums";
+        return Text.get("server.types.photoAlbums.name");
     }
 
     @Override
@@ -46,17 +45,20 @@ final class PhotoAlbumsType implements ProgrammaticContentTemplate {
 
     @Override
     public String getDescription() {
-        return "A photo gallery per recent trip, from the publicly-visible chat photos.";
+        return Text.get("server.types.photoAlbums.description");
     }
 
     @Override
     public List<Placeholder> getProperties() {
         return List.of(
-                new Placeholder(PROP_WINDOW_DAYS, Placeholder.Type.TEXT, "Window (days)",
-                        "How far back a trip may have ended; blank = the site default", false),
-                new Placeholder(PROP_MIN_PHOTOS, Placeholder.Type.TEXT, "Minimum photos",
-                        "Fewest visible photos a trip needs to show; blank = the site default", false),
-                EVENT,
+                new Placeholder(PROP_WINDOW_DAYS, Placeholder.Type.TEXT,
+                        Text.get("server.types.photoAlbums.windowDaysLabel"),
+                        Text.get("server.types.photoAlbums.windowDaysHint"), false),
+                new Placeholder(PROP_MIN_PHOTOS, Placeholder.Type.TEXT,
+                        Text.get("server.types.photoAlbums.minPhotosLabel"),
+                        Text.get("server.types.photoAlbums.minPhotosHint"), false),
+                new Placeholder(PROP_EVENT, Placeholder.Type.CHOICE, Text.get("common.event"),
+                        Text.get("server.types.photoAlbums.eventHint"), false),
                 SharedSiteOrgChoices.property());
     }
 
@@ -96,8 +98,8 @@ final class PhotoAlbumsType implements ProgrammaticContentTemplate {
 
     @Override
     public List<Choice> choicesFor(final String propertyName) {
-        if (EVENT.getName().equals(propertyName)) {
-            return EventTripChoices.choices("Recent trips (on an event's page: that event)");
+        if (PROP_EVENT.equals(propertyName)) {
+            return EventTripChoices.choices(Text.get("server.types.photoAlbums.recentTrips"));
         }
         return SharedSiteOrgChoices.PROP_INCLUDE_ORGS.equals(propertyName)
                 ? SharedSiteOrgChoices.choices() : List.of();

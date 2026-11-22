@@ -28,6 +28,8 @@ import org.paulsens.trip.action.ExpenseViews;
 import org.paulsens.trip.action.ExpenseViews.ReceiptRow;
 import org.paulsens.trip.action.PhotoUploadBean;
 import org.paulsens.trip.api.dto.RotateRequest;
+import org.paulsens.trip.audit.RequestContext;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.media.QuarterTurn;
 import org.paulsens.trip.model.MediaItem;
 
@@ -43,9 +45,6 @@ import org.paulsens.trip.model.MediaItem;
 public class ExpenseReportResource extends BaseResource {
 
     private static final String V1 = ApiMediaTypes.EXPENSE_REPORT_V1;
-    private static final String CSRF_MESSAGE = "Missing " + CSRF_HEADER + " header.";
-    private static final String EDIT_REQUIRED = "Trip manager or finance admin required.";
-    private static final String SETTLE_REQUIRED = "Finance admin required.";
 
     @Override
     protected String versionedType() {
@@ -71,7 +70,7 @@ public class ExpenseReportResource extends BaseResource {
         requireTrip(tripId);
         final ExpenseCommands expenses = expenses();
         if (!expenses.canViewExpenses(tripId)) {
-            return error(403, ApiErrors.FORBIDDEN, "Finance viewer required.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.shared.financeViewerRequired"));
         }
         final Map<String, Object> out = new LinkedHashMap<>();
         out.put("header", expenses.headerFormFor(tripId));
@@ -118,7 +117,8 @@ public class ExpenseReportResource extends BaseResource {
         form.setSubmittedBy(str(body, "submittedBy"));
         form.setPaymentInstructions(str(body, "paymentInstructions"));
         return expenses().saveHeader(tripId, form) ? ok(Map.of("ok", true))
-                : error(400, ApiErrors.VALIDATION_FAILED, problemOr(form.getProblem(), "The report was not saved."));
+                : error(400, ApiErrors.VALIDATION_FAILED, problemOr(form.getProblem(),
+                        Text.get("api.expenses.reportNotSaved")));
     }
 
     /** Stamps the report submitted by the caller, now. 400 while it has no expenses. */
@@ -131,7 +131,7 @@ public class ExpenseReportResource extends BaseResource {
             return refused;
         }
         return expenses().submit(tripId) ? ok(Map.of("ok", true))
-                : error(400, ApiErrors.VALIDATION_FAILED, "The report was not submitted: add an expense first.");
+                : error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.expenses.reportNotSubmitted"));
     }
 
     /**
@@ -148,8 +148,7 @@ public class ExpenseReportResource extends BaseResource {
             return refused;
         }
         return expenses().emailTreasurer(tripId) ? ok(Map.of("ok", true))
-                : error(400, ApiErrors.VALIDATION_FAILED, "The report was not emailed: no treasurer email is set "
-                        + "for the trip's organization, or the send failed.");
+                : error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.expenses.reportNotEmailed"));
     }
 
     /** The report as a PDF; {@code receipts=true} appends the receipts. */
@@ -158,9 +157,9 @@ public class ExpenseReportResource extends BaseResource {
     @Produces("application/pdf")
     public Response pdf(@PathParam("tripId") final String tripId, @QueryParam("receipts") final boolean receipts) {
         final org.paulsens.trip.model.Trip trip = requireTrip(tripId);
-        final byte[] pdf = expenses().reportPdf(tripId, receipts);
+        final byte[] pdf = expenses().reportPdf(tripId, receipts, RequestContext.currentLocale());
         if (pdf == null) {
-            return error(403, ApiErrors.FORBIDDEN, "Finance viewer required.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.shared.financeViewerRequired"));
         }
         return Response.ok(pdf, "application/pdf").header("Content-Disposition",
                 attachmentDisposition(ExpenseReportPdf.fileName(trip.getTitle())))
@@ -177,7 +176,7 @@ public class ExpenseReportResource extends BaseResource {
             return refused;
         }
         return expenses().unsubmit(tripId) ? ok(Map.of("ok", true))
-                : error(400, ApiErrors.VALIDATION_FAILED, "The submission was not withdrawn.");
+                : error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.expenses.submissionNotWithdrawn"));
     }
 
     /** Body: {@code {code, rate, note}}, rate = how many of the currency one US dollar buys. Answers {@code {code}}. */
@@ -211,7 +210,7 @@ public class ExpenseReportResource extends BaseResource {
             return refused;
         }
         return expenses().deleteCurrency(tripId, code) ? ok(Map.of("ok", true))
-                : error(400, ApiErrors.VALIDATION_FAILED, "The currency is in use and was not removed.");
+                : error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.expenses.currencyInUse"));
     }
 
     /**
@@ -250,7 +249,7 @@ public class ExpenseReportResource extends BaseResource {
             return refused;
         }
         return expenses().deleteLine(tripId, lineId) ? ok(Map.of("ok", true))
-                : error(400, ApiErrors.VALIDATION_FAILED, "The expense was not deleted.");
+                : error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.expenses.expenseNotDeleted"));
     }
 
     /**
@@ -276,11 +275,11 @@ public class ExpenseReportResource extends BaseResource {
         try {
             bytes = readUpload(body, contentLength, PhotoUploadBean.MAX_UPLOAD_BYTES);
         } catch (final IOException ex) {
-            return error(400, ApiErrors.BAD_REQUEST, "The upload could not be read.");
+            return error(400, ApiErrors.BAD_REQUEST, Text.get("api.shared.uploadUnreadable"));
         }
         if (bytes.isEmpty()) {
             return error(413, ApiErrors.PAYLOAD_TOO_LARGE,
-                    "A receipt can be at most " + (PhotoUploadBean.MAX_UPLOAD_BYTES / (1024 * 1024)) + " MB.");
+                    Text.get("api.expenses.receiptTooLarge", PhotoUploadBean.MAX_UPLOAD_BYTES / (1024 * 1024)));
         }
         final ExpenseReceipts.Outcome outcome = receipts().store(tripId, lineId, bytes.get(), name);
         if (!outcome.ok()) {
@@ -327,7 +326,7 @@ public class ExpenseReportResource extends BaseResource {
         }
         final Optional<QuarterTurn> turn = (body == null) ? Optional.empty() : body.turn();
         if (turn.isEmpty()) {
-            return error(400, ApiErrors.VALIDATION_FAILED, "direction must be left or right.");
+            return error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.shared.directionInvalid"));
         }
         final ExpenseReceipts.RotateOutcome outcome = receipts().rotate(tripId, receiptId, turn.get());
         if (!outcome.ok()) {
@@ -337,7 +336,7 @@ public class ExpenseReportResource extends BaseResource {
         final String path = ExpenseReceipts.path(item.getId());
         final Map<String, Object> out = new LinkedHashMap<>();
         out.put("id", item.getId());
-        out.put("title", (item.getTitle() == null) ? "Receipt" : item.getTitle());
+        out.put("title", (item.getTitle() == null) ? Text.get("common.receipt") : item.getTitle());
         out.put("pdf", false);
         out.put("url", absoluteUrl(path + item.getCacheBuster()));
         out.put("thumbUrl", absoluteUrl(path + ExpenseReceipts.THUMB + item.getCacheBuster()));
@@ -393,7 +392,7 @@ public class ExpenseReportResource extends BaseResource {
             return refused;
         }
         return expenses().deletePayment(tripId, paymentId) ? ok(Map.of("ok", true))
-                : error(400, ApiErrors.VALIDATION_FAILED, "The payment was not deleted.");
+                : error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.expenses.paymentNotDeleted"));
     }
 
     /**
@@ -435,7 +434,7 @@ public class ExpenseReportResource extends BaseResource {
             return refused;
         }
         return expenses().deleteAdvance(tripId, advanceId) ? ok(Map.of("ok", true))
-                : error(400, ApiErrors.VALIDATION_FAILED, "The advance was not deleted.");
+                : error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.expenses.advanceNotDeleted"));
     }
 
     // ------------------------------------------------------------------ plumbing
@@ -460,10 +459,11 @@ public class ExpenseReportResource extends BaseResource {
         try {
             form.setDate(date(body, "date"));
         } catch (final DateTimeParseException ex) {
-            return error(400, ApiErrors.VALIDATION_FAILED, "date must be a date like 2026-10-20.");
+            return error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.expenses.dateInvalid"));
         }
         if (!expenses().saveAdvance(tripId, form)) {
-            return error(400, ApiErrors.VALIDATION_FAILED, problemOr(form.getProblem(), "The advance was not saved."));
+            return error(400, ApiErrors.VALIDATION_FAILED, problemOr(form.getProblem(),
+                    Text.get("api.expenses.advanceNotSaved")));
         }
         final Map<String, Object> out = new LinkedHashMap<>();
         out.put("id", form.getId());
@@ -486,10 +486,11 @@ public class ExpenseReportResource extends BaseResource {
         try {
             form.setDate(date(body, "date"));
         } catch (final DateTimeParseException ex) {
-            return error(400, ApiErrors.VALIDATION_FAILED, "date must be a date like 2026-10-20.");
+            return error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.expenses.dateInvalid"));
         }
         if (!expenses().recordPayment(tripId, form)) {
-            return error(400, ApiErrors.VALIDATION_FAILED, problemOr(form.getProblem(), "The payment was not saved."));
+            return error(400, ApiErrors.VALIDATION_FAILED, problemOr(form.getProblem(),
+                    Text.get("api.expenses.paymentNotSaved")));
         }
         return ok(Map.of("id", form.getId()));
     }
@@ -498,9 +499,10 @@ public class ExpenseReportResource extends BaseResource {
     private Response refuseSettle(final String tripId, final String csrf) {
         requireTrip(tripId);
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, CSRF_MESSAGE);
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
-        return expenses().canRecordPayments(tripId) ? null : error(403, ApiErrors.FORBIDDEN, SETTLE_REQUIRED);
+        return expenses().canRecordPayments(tripId) ? null : error(403, ApiErrors.FORBIDDEN,
+                Text.get("api.expenses.financeAdminRequired"));
     }
 
     private Response saveCurrency(final String tripId, final String code, final boolean existing,
@@ -516,7 +518,7 @@ public class ExpenseReportResource extends BaseResource {
         form.setExisting(existing);
         if (!expenses().saveCurrency(tripId, form)) {
             return error(400, ApiErrors.VALIDATION_FAILED,
-                    problemOr(form.getProblem(), "The currency was not saved."));
+                    problemOr(form.getProblem(), Text.get("api.expenses.currencyNotSaved")));
         }
         return ok(Map.of("code", form.getCode()));
     }
@@ -546,10 +548,11 @@ public class ExpenseReportResource extends BaseResource {
         try {
             form.setDate(date(body, "date"));
         } catch (final DateTimeParseException ex) {
-            return error(400, ApiErrors.VALIDATION_FAILED, "date must be a date like 2026-09-20, or null.");
+            return error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.expenses.dateOrNullInvalid"));
         }
         if (!expenses().saveLine(tripId, form)) {
-            return error(400, ApiErrors.VALIDATION_FAILED, problemOr(form.getProblem(), "The expense was not saved."));
+            return error(400, ApiErrors.VALIDATION_FAILED, problemOr(form.getProblem(),
+                    Text.get("api.expenses.expenseNotSaved")));
         }
         return ok(Map.of("id", form.getId()));
     }
@@ -558,9 +561,10 @@ public class ExpenseReportResource extends BaseResource {
     private Response refuseWrite(final String tripId, final String csrf) {
         requireTrip(tripId);
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, CSRF_MESSAGE);
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
-        return expenses().canEditExpenses(tripId) ? null : error(403, ApiErrors.FORBIDDEN, EDIT_REQUIRED);
+        return expenses().canEditExpenses(tripId) ? null : error(403, ApiErrors.FORBIDDEN,
+                Text.get("api.shared.tripManagerOrFinanceAdminRequired"));
     }
 
     private static String problemOr(final String problem, final String fallback) {

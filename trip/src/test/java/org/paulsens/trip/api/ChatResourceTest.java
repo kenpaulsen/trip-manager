@@ -30,6 +30,9 @@ import org.testng.annotations.Test;
  */
 public class ChatResourceTest extends ResourceTestSupport {
 
+    /** The refusal a blocked word gets; the resource passes the chat's own sentence through. */
+    private static final String BLOCKED = "That message contains language this chat doesn't allow. Please reword it.";
+
     private static final String TRIP_ID = "trip-chat";
     private static final String CHANNEL = "trip:" + TRIP_ID;
     private static final Person.Id ME = Person.Id.from("chat-me");
@@ -1095,11 +1098,11 @@ public class ChatResourceTest extends ResourceTestSupport {
         Mockito.when(chat.send(ArgumentMatchers.eq(TRIP_ID), ArgumentMatchers.eq(ME), ArgumentMatchers.any(),
                 ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
                 ArgumentMatchers.any()))
-                .thenReturn(ChatCommands.SendResult.fail("blocked_content", ChatCommands.BLOCKED_CONTENT_MESSAGE));
+                .thenReturn(ChatCommands.SendResult.fail("blocked_content", BLOCKED));
         assertError(send("darn"), 400, ChatErrors.BLOCKED_CONTENT);
         Mockito.when(chat.editMessage(ArgumentMatchers.eq(TRIP_ID), ArgumentMatchers.eq(ME), ArgumentMatchers.any(),
                 ArgumentMatchers.any()))
-                .thenReturn(ChatCommands.ReactResult.fail("blocked_content", ChatCommands.BLOCKED_CONTENT_MESSAGE));
+                .thenReturn(ChatCommands.ReactResult.fail("blocked_content", BLOCKED));
         assertError(resource.edit(CHANNEL, "m1", CSRF_OK, Map.of("body", "darn")), 400, ChatErrors.BLOCKED_CONTENT);
     }
 

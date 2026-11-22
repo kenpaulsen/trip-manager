@@ -290,7 +290,7 @@ public class LedgerCommandsTest {
                 "newest trip first, the rows on no trip last");
         final TripGroup unassigned = statement.trips().getLast();
         Assert.assertFalse(unassigned.assigned());
-        Assert.assertEquals(unassigned.title(), LedgerCommands.UNASSIGNED_TRIP_TITLE);
+        Assert.assertEquals(unassigned.title(), "Not yet assigned to a trip");
         Assert.assertNull(unassigned.startDate());
         Assert.assertEquals(unassigned.rows().getFirst().txId(), stray.getTxId());
         Assert.assertNull(unassigned.rows().getFirst().tripId());
@@ -555,18 +555,24 @@ public class LedgerCommandsTest {
         Assert.assertEquals(State.NO_ACTIVITY.label(), "No activity");
         Assert.assertEquals(List.of(State.OWES.chipStyle(), State.CREDIT.chipStyle(), State.PAID_UP.chipStyle(),
                 State.NO_ACTIVITY.chipStyle()), List.of("due", "ok", "ok", ""));
-        Assert.assertEquals("You " + State.OWES.phrase(true) + " Acme", "You owe Acme");
-        Assert.assertEquals("Ken " + State.OWES.phrase(false) + " Acme", "Ken owes Acme");
-        Assert.assertEquals(State.CREDIT.phrase(true), "have a credit with");
-        Assert.assertEquals(State.CREDIT.phrase(false), "has a credit with");
-        Assert.assertEquals(State.PAID_UP.phrase(true), "are all paid up with");
-        Assert.assertEquals(State.PAID_UP.phrase(false), "is all paid up with");
-        Assert.assertEquals(State.NO_ACTIVITY.phrase(true), "have no activity yet with");
-        Assert.assertEquals(State.NO_ACTIVITY.phrase(false), "has no activity yet with");
-        Assert.assertEquals(List.of(State.OWES.pillWords(), State.CREDIT.pillWords(), State.PAID_UP.pillWords(),
-                State.NO_ACTIVITY.pillWords()), List.of(" due", " credit", "Paid up", "No activity"));
-        Assert.assertEquals(List.of(State.OWES.closingWords(), State.CREDIT.closingWords(),
-                State.PAID_UP.closingWords(), State.NO_ACTIVITY.closingWords()), List.of(" due", " credit", "", ""));
+        Assert.assertEquals(State.OWES.line("you", "Ken", "Acme"), "You owe Acme");
+        Assert.assertEquals(State.OWES.line("person", "Ken", "Acme"), "Ken owes Acme");
+        Assert.assertEquals(State.OWES.line("yourFamily", "Ken", "Acme"), "Your family owes Acme");
+        Assert.assertEquals(State.OWES.line("theFamily", "Ken", "Acme"), "The family owes Acme");
+        Assert.assertEquals(State.CREDIT.line("you", "Ken", "Acme"), "You have a credit with Acme");
+        Assert.assertEquals(State.CREDIT.line("person", "Ken", "Acme"), "Ken has a credit with Acme");
+        Assert.assertEquals(State.PAID_UP.line("you", "Ken", "Acme"), "You are all paid up with Acme");
+        Assert.assertEquals(State.PAID_UP.line("theFamily", "Ken", "Acme"), "The family is all paid up with Acme");
+        Assert.assertEquals(State.NO_ACTIVITY.line("you", "Ken", "Acme"), "You have no activity yet with Acme");
+        Assert.assertEquals(State.NO_ACTIVITY.line("yourFamily", "Ken", "Acme"),
+                "Your family has no activity yet with Acme");
+        Assert.assertEquals(State.OWES.line("Ken", "Ken", "Acme"), "Ken owes Acme", "an unknown code is a person");
+        Assert.assertEquals(List.of(State.OWES.pillText(-1200), State.CREDIT.pillText(500),
+                State.PAID_UP.pillText(0), State.NO_ACTIVITY.pillText(0)),
+                List.of("$12.00 due", "$5.00 credit", "Paid up", "No activity"));
+        Assert.assertEquals(List.of(State.OWES.closingText(-123456), State.CREDIT.closingText(500),
+                State.PAID_UP.closingText(0), State.NO_ACTIVITY.closingText(0)),
+                List.of("$1,234.56 due", "$5.00 credit", "$0.00", "$0.00"));
         Assert.assertEquals(List.of(State.OWES.amountStyle(), State.CREDIT.amountStyle(),
                 State.PAID_UP.amountStyle(), State.NO_ACTIVITY.amountStyle()), List.of("balOwe", "balCredit", "", ""));
     }
@@ -603,7 +609,7 @@ public class LedgerCommandsTest {
                 "the shared host: its tenant, then the row with no organization, never the hosted org's");
         final OrgBalance unassigned = onShared.getLast();
         Assert.assertTrue(unassigned.unassigned());
-        Assert.assertEquals(unassigned.orgName(), LedgerCommands.UNASSIGNED_ORG_NAME);
+        Assert.assertEquals(unassigned.orgName(), "No organization");
         Assert.assertEquals(unassigned.balanceCents(), -4000L);
         final Statement stray = onSite(SHARED, () -> ledger.statement(subject, LedgerCommands.UNASSIGNED_ORG_ID));
         Assert.assertTrue(stray.unassigned());

@@ -12,6 +12,7 @@ import org.paulsens.trip.action.LodgingViews.OfferCostForm;
 import org.paulsens.trip.action.LodgingViews.OfferForm;
 import org.paulsens.trip.action.RatePlanViews.AttachForm;
 import org.paulsens.trip.action.RatePlanViews.RatePlanForm;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.CostExtra;
 import org.paulsens.trip.model.PricingModel;
 import org.paulsens.trip.model.RatePlan;
@@ -291,12 +292,14 @@ final class OfferSchedules {
 
     private static String scheduleProblem(final String side, final Double nightly, final Double supplement,
             final boolean perNightOn, final Map<String, String> perNight) {
+        final boolean price = "price".equals(side);
         if (nightly != null && nightly < 0) {
-            return "The nightly " + side + " cannot be negative.";
+            return price ? Text.get("feedback.offerSchedules.nightlyPriceNegative")
+                    : Text.get("feedback.offerSchedules.nightlyCostNegative");
         }
         if (supplement != null && supplement < 0) {
-            return "price".equals(side) ? "The single supplement cannot be negative."
-                    : "The cost single supplement cannot be negative.";
+            return price ? Text.get("feedback.offerSchedules.supplementNegative")
+                    : Text.get("feedback.offerSchedules.costSupplementNegative");
         }
         if (!perNightOn || perNight == null) {
             return null;
@@ -304,10 +307,12 @@ final class OfferSchedules {
         for (final Map.Entry<String, String> entry : perNight.entrySet()) {
             final Double dollars = parseDollars(entry.getValue());
             if (entry.getValue() != null && !entry.getValue().isBlank() && dollars == null) {
-                return "'" + entry.getValue() + "' is not a " + side + " (for " + entry.getKey() + ").";
+                return price ? Text.get("feedback.offerSchedules.notAPrice", entry.getValue(), entry.getKey())
+                        : Text.get("feedback.offerSchedules.notACost", entry.getValue(), entry.getKey());
             }
             if (dollars != null && dollars < 0) {
-                return "The " + side + " for " + entry.getKey() + " cannot be negative.";
+                return price ? Text.get("feedback.offerSchedules.priceForNegative", entry.getKey())
+                        : Text.get("feedback.offerSchedules.costForNegative", entry.getKey());
             }
         }
         return null;
@@ -322,13 +327,13 @@ final class OfferSchedules {
                 continue;
             }
             if (form.getLabel() == null || form.getLabel().isBlank()) {
-                return "Each cost extra needs a label.";
+                return Text.get("feedback.offerSchedules.extraNeedsLabel");
             }
             if (form.getAmount() == null) {
-                return "'" + form.getLabel() + "' needs an amount.";
+                return Text.get("feedback.offerSchedules.extraNeedsAmount", form.getLabel());
             }
             if (form.getBasis() != null && !form.getBasis().isBlank() && !knownBasis(form.getBasis())) {
-                return "'" + form.getLabel() + "' has an unknown basis.";
+                return Text.get("feedback.offerSchedules.extraUnknownBasis", form.getLabel());
             }
         }
         return null;

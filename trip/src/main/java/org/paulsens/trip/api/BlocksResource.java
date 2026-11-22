@@ -12,6 +12,7 @@ import jakarta.ws.rs.core.Response;
 import java.util.List;
 import java.util.Map;
 import org.paulsens.trip.action.BlockListCommands;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.Person;
 
 /**
@@ -44,7 +45,7 @@ public class BlocksResource extends BaseResource {
             @PathParam("personId") final String target,
             @HeaderParam(CSRF_HEADER) final String csrf) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         final BlockListCommands.BlockOutcome outcome =
                 Beans.get(BlockListCommands.class).block(personId(), idOf(target));
@@ -59,7 +60,7 @@ public class BlocksResource extends BaseResource {
             @PathParam("personId") final String target,
             @HeaderParam(CSRF_HEADER) final String csrf) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         final BlockListCommands.BlockOutcome outcome =
                 Beans.get(BlockListCommands.class).unblock(personId(), idOf(target));

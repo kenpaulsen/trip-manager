@@ -71,9 +71,14 @@ public class SiteCommands {
      * The content section key of this site's home page: the classic shared page, the org's own page, or
      * the marketing page -- what the landing-page host passes to the contentSections include. Computed
      * from the request's host, never stored anywhere a later request could read it back.
+     *
+     * <p>This, {@link #pageKey(String)} and {@link #tripPageKey} answer the key of the language VERSION this
+     * request reads ({@code PageVersionCommands.forThisRequest}): the page's own key, or its {@code @es} twin
+     * when one has been written. Everything a host does with the key (rendering, edit mode, saving a new
+     * section into it) then lands on that version with no other change.
      */
     public String getPageKey() {
-        return OrgPageBootstrap.pageKeyOf(getCurrent());
+        return PageVersionCommands.forThisRequest(OrgPageBootstrap.pageKeyOf(getCurrent()), null);
     }
 
     /**
@@ -82,7 +87,7 @@ public class SiteCommands {
      * Same per-request rule as {@link #getPageKey()}.
      */
     public String pageKey(final String pageName) {
-        return OrgPageBootstrap.pageKeyOf(getCurrent(), pageName);
+        return PageVersionCommands.forThisRequest(OrgPageBootstrap.pageKeyOf(getCurrent(), pageName), null);
     }
 
     /**
@@ -99,7 +104,9 @@ public class SiteCommands {
             return null;
         }
         try {
-            return OrgPageBootstrap.tripPageKey(trip.getId());
+            // A trip's own page is in the language OrgPageBootstrap.pageLanguageOf names (the trip's, if offered).
+            return PageVersionCommands.forThisRequest(OrgPageBootstrap.tripPageKey(trip.getId()),
+                    OrgPageBootstrap.pageLanguageOf(trip));
         } catch (final IllegalArgumentException notAUuid) {
             return null;
         }
@@ -200,19 +207,31 @@ public class SiteCommands {
     }
 
     /**
+     * THE lookup of an organization by its site's slug, from the cached org list: empty for none, for a null
+     * slug, and for an unreadable list (logged). Each caller decides what an absent org means to it.
+     */
+    public static Optional<Organization> orgWithSlug(final String slug) {
+        if (slug == null) {
+            return Optional.empty();
+        }
+        try {
+            return DAO.getInstance().getOrganizations(Cached.YES).stream()
+                    .filter(org -> slug.equals(org.getSlug()))
+                    .findFirst();
+        } catch (final RuntimeException ex) {
+            log.warn("Unable to read the organizations for the site of '{}'", slug, ex);
+            return Optional.empty();
+        }
+    }
+
+    /**
      * The organization whose site {@code slug} names, from the cached org list; when none holds it (a stale
      * cache, an unreadable list), an org carrying only that slug, so the link keeps its subdomain shape.
      */
     private static Organization orgOfSlug(final String slug) {
-        try {
-            final Optional<Organization> holder = DAO.getInstance().getOrganizations(Cached.YES).stream()
-                    .filter(org -> slug != null && slug.equals(org.getSlug()))
-                    .findFirst();
-            if (holder.isPresent()) {
-                return holder.get();
-            }
-        } catch (final RuntimeException ex) {
-            log.warn("Unable to read the organizations for the site of '{}'", slug, ex);
+        final Optional<Organization> holder = orgWithSlug(slug);
+        if (holder.isPresent()) {
+            return holder.get();
         }
         final Organization bare = new Organization();
         bare.setSlug(slug);

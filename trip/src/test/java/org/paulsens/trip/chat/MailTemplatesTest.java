@@ -17,11 +17,10 @@ public class MailTemplatesTest {
     @Test
     public void stringValuesAreEscapedAutomatically() {
         final String out = MailTemplates.render("chat-mention", Map.of(
-                "authorName", "<script>alert(1)</script>",
-                "tripTitle", "Trip & Co",
+                "lead", "<script>alert(1)</script> in Trip & Co",
                 "chatUrl", "https://example.com/trip/chat.jsf?trip=t1",
                 "snippetBlock", new MailTemplates.Raw(""),
-                "addressee", "you", "possessive", "your", "footerNote", "why"));
+                "linkLabel", "Open", "footerNote", "why"));
 
         Assert.assertNotNull(out, "the template must render");
         Assert.assertFalse(out.contains("<script>"), "a script tag must never survive into a mail body");
@@ -34,11 +33,10 @@ public class MailTemplatesTest {
         // The opt-out exists so a caller can assemble markup it has escaped field by field -- and it has to be
         // spelled out at the call site, which is the point of the wrapper type.
         final String out = MailTemplates.render("chat-mention", Map.of(
-                "authorName", "Ken",
-                "tripTitle", "Fest",
+                "lead", "Ken in Fest",
                 "chatUrl", "https://example.com",
                 "snippetBlock", new MailTemplates.Raw("<blockquote>hi</blockquote>"),
-                "addressee", "you", "possessive", "your", "footerNote", "why"));
+                "linkLabel", "Open", "footerNote", "why"));
 
         Assert.assertTrue(out.contains("<blockquote>hi</blockquote>"));
     }
@@ -49,23 +47,23 @@ public class MailTemplatesTest {
         // Failing loudly here means that mistake is a red test rather than unescaped user text in an inbox.
         final IllegalArgumentException ex = Assert.expectThrows(IllegalArgumentException.class,
                 () -> MailTemplates.render("chat-mention", Map.of(
-                        "authorName", "Ken",
-                        "tripTitle", "Fest",
+                        "lead", "Ken in Fest",
                         "chatUrl", "https://example.com",
                         "snippetBlock", Person.Id.from("p1"),
-                        "addressee", "you", "possessive", "your", "footerNote", "why")));
+                        "linkLabel", "Open", "footerNote", "why")));
         Assert.assertTrue(ex.getMessage().contains("escaped scalars only"), ex.getMessage());
     }
 
     @Test
     public void numbersAndBooleansAreAllowed() {
         final String out = MailTemplates.render("chat-digest", Map.of(
-                "tripTitle", "Fest",
+                "lead", "Fest",
                 "chatUrl", "https://example.com",
-                "messageCount", 7,
+                "countLine", 7,
                 "messageBlock", new MailTemplates.Raw("<p>a</p>"),
-                "addressee", "you", "footerNote", "why"));
-        Assert.assertTrue(out.contains("7 new message(s)"));
+                "linkLabel", true, "footerNote", "why"));
+        Assert.assertTrue(out.contains("<p style=\"color:#666;\">7</p>"), out);
+        Assert.assertTrue(out.contains(">true</a>"), out);
     }
 
     @Test
@@ -76,10 +74,10 @@ public class MailTemplatesTest {
 
     @Test
     public void anUnrenderableTemplateReturnsNullRatherThanThrowing() {
-        // chat-mention references #{authorName}; omitting it makes EL throw. One broken template must not be able
+        // chat-mention references #{lead}; omitting it makes EL throw. One broken template must not be able
         // to abort a digest run part-way through.
         final Map<String, Object> tooFew = new HashMap<>();
-        tooFew.put("tripTitle", "Fest");
+        tooFew.put("footerNote", "why");
         Assert.assertNull(MailTemplates.render("chat-mention", tooFew));
     }
 
@@ -93,12 +91,10 @@ public class MailTemplatesTest {
     @Test
     public void nullValuesRenderEmptyRatherThanTheWordNull() {
         final Map<String, Object> values = new HashMap<>();
-        values.put("authorName", null);
-        values.put("tripTitle", "Fest");
+        values.put("lead", null);
         values.put("chatUrl", "https://example.com");
         values.put("snippetBlock", new MailTemplates.Raw(""));
-        values.put("addressee", "you");
-        values.put("possessive", "your");
+        values.put("linkLabel", "Open");
         values.put("footerNote", "why");
         final String out = MailTemplates.render("chat-mention", values);
         Assert.assertNotNull(out);

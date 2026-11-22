@@ -7,6 +7,7 @@ import java.util.Set;
 import java.util.function.UnaryOperator;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.ContentTemplate;
 import org.paulsens.trip.model.Placeholder;
@@ -253,18 +254,16 @@ public final class ContentRenderer {
             }
         }
         if (starts > 1 || ends > 1) {
-            return "A container body may open and close {{children:start}} / {{children:end}} only once.";
+            return Text.get("server.containerBody.childrenOnce");
         }
         if (starts != ends || endBeforeStart) {
-            return "A container body must use {{children:start}} and {{children:end}} as a pair, in that "
-                    + "order, around the row (or use neither).";
+            return Text.get("server.containerBody.childrenPair");
         }
         // The RAW row, not containerBody()'s -- that one answers the built-in row for anything unusable,
         // which would report every slotless body as fine.
         final ContainerBody parsed = parseContainerBody(body);
         if (parsed == null || !hasChildSlot(parsed.row())) {
-            return "A container body must contain {{child}} to mark where each item renders "
-                    + "(leave it blank for the default row).";
+            return Text.get("server.containerBody.childSlotMissing");
         }
         return null;
     }

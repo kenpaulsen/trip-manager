@@ -1,5 +1,6 @@
 package org.paulsens.trip.model;
 
+import java.util.Locale;
 import java.util.Optional;
 
 /**
@@ -9,18 +10,8 @@ import java.util.Optional;
  * trip stored before this field existed has none and reads as {@link #PILGRIMAGE}.
  */
 public enum TripKind {
-    PILGRIMAGE("Pilgrimage", "Join Pilgrimage", "travelers"),
-    CONFERENCE("Conference", "Register", "attendees");
-
-    private final String displayValue;
-    private final String registerLabel;
-    private final String peopleNoun;
-
-    TripKind(final String displayValue, final String registerLabel, final String peopleNoun) {
-        this.displayValue = displayValue;
-        this.registerLabel = registerLabel;
-        this.peopleNoun = peopleNoun;
-    }
+    PILGRIMAGE,
+    CONFERENCE;
 
     /**
      * The constant a stored {@link #name()} names, or empty for null and for a name this build does not know (a
@@ -36,21 +27,35 @@ public enum TripKind {
     }
 
     public String getDisplayValue() {
-        return displayValue;
+        return EnumLabels.of(this);
+    }
+
+    /** {@link #getDisplayValue()} in {@code locale}: for a reader named outright (a Discover facet). */
+    public String displayValueIn(final Locale locale) {
+        return EnumLabels.of(this, locale);
     }
 
     /** The call to action on a public trip page: "Join Pilgrimage" or "Register". */
     public String getRegisterLabel() {
-        return registerLabel;
+        return EnumLabels.of("labels.tripKind.register", this);
+    }
+
+    /**
+     * {@link #getRegisterLabel()} in {@code locale}: the button text a seeded trip page STORES, which is written
+     * in the page's own language, not in the language of whoever happened to create the trip.
+     */
+    public String registerLabelIn(final Locale locale) {
+        return EnumLabels.ofIn(locale, "labels.tripKind.register", this);
     }
 
     /** The lower-case plural for the people who go: "travelers" or "attendees". */
     public String getPeopleNoun() {
-        return peopleNoun;
+        return EnumLabels.of("labels.tripKind.people", this);
     }
 
     /** {@link #getPeopleNoun()} capitalized, for button labels: "Travelers" or "Attendees". */
     public String getPeopleNounTitle() {
-        return Character.toUpperCase(peopleNoun.charAt(0)) + peopleNoun.substring(1);
+        final String noun = getPeopleNoun();
+        return Character.toUpperCase(noun.charAt(0)) + noun.substring(1);
     }
 }

@@ -9,6 +9,7 @@ import java.util.UUID;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import lombok.Setter;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.BrandColor;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.theme.ThemeColorMath;
@@ -80,7 +81,8 @@ public class BrandColors {
     public BrandColor findForEdit(final String orgId, final String id) {
         final BrandColor found = find(orgId, id);
         if (found == null) {
-            PageFeedback.refuse("Unknown color", "That color no longer exists. Reload the page.");
+            PageFeedback.refuse(Text.get("feedback.brandColors.unknownColor"),
+                    Text.get("feedback.brandColors.colorGone"));
             return null;
         }
         PageFeedback.callbackParam("found", true);
@@ -123,11 +125,21 @@ public class BrandColors {
         final Organization org = orgId == null ? null : orgSource.apply(orgId);
         final double light = ThemeColorMath.contrast(color.light(), EditorColors.cardOf(org, false));
         final double dark = ThemeColorMath.contrast(color.valueFor(true), EditorColors.cardOf(org, true));
-        return "As text on cards: " + ratio(light, "light") + ", " + ratio(dark, "dark") + ".";
+        final String onLight = ratio(light);
+        final String onDark = ratio(dark);
+        if (light < READABLE) {
+            return dark < READABLE
+                    ? Text.get("feedback.brandColors.readNoteBothHard", onLight, onDark)
+                    : Text.get("feedback.brandColors.readNoteLightHard", onLight, onDark);
+        }
+        return dark < READABLE
+                ? Text.get("feedback.brandColors.readNoteDarkHard", onLight, onDark)
+                : Text.get("feedback.brandColors.readNote", onLight, onDark);
     }
 
-    private static String ratio(final double value, final String mode) {
-        return String.format(Locale.ROOT, "%.1f to 1 in %s", value, mode) + (value < READABLE ? " (hard to read)" : "");
+    /** A contrast ratio's number, in the one fixed form the note has always shown ("4.5"). */
+    private static String ratio(final double value) {
+        return String.format(Locale.ROOT, "%.1f", value);
     }
 
     /**
@@ -157,24 +169,27 @@ public class BrandColors {
         final boolean adding = id == null || id.isBlank();
         final int index = adding ? -1 : indexOf(colors, id);
         if (!adding && index < 0) {
-            return PageFeedback.refuse("Unknown color", "That color no longer exists. Reload the page.");
+            return PageFeedback.refuse(Text.get("feedback.brandColors.unknownColor"),
+                    Text.get("feedback.brandColors.colorGone"));
         }
         if (adding && colors.size() >= MAX_COLORS) {
-            return PageFeedback.refuse("Too many colors", "An organization can keep up to " + MAX_COLORS
-                    + " brand colors. Delete one first.");
+            return PageFeedback.refuse(Text.get("feedback.brandColors.tooManyColors"),
+                    Text.get("feedback.brandColors.limit", MAX_COLORS));
         }
         final String cleanName = cleanName(name);
         if (cleanName == null) {
-            return PageFeedback.refuse("Name needed", "Give the color a name of at most " + MAX_NAME + " characters.");
+            return PageFeedback.refuse(Text.get("feedback.customPalettes.nameNeeded"),
+                    Text.get("feedback.brandColors.nameRule", MAX_NAME));
         }
         if (!nameFree(colors, cleanName, adding ? null : id)) {
-            return PageFeedback.refuse("Name taken", "This organization already has a color called \"" + cleanName
-                    + "\". Choose another name.");
+            return PageFeedback.refuse(Text.get("feedback.customPalettes.nameTaken"),
+                    Text.get("feedback.brandColors.nameInUse", cleanName));
         }
         final String lightValue = opaque(light);
         final String darkValue = dark == null || dark.isBlank() ? null : opaque(dark);
         if (lightValue == null || (dark != null && !dark.isBlank() && darkValue == null)) {
-            return PageFeedback.refuse("Not saved", "Choose each color with the color picker (a value like #a07a2c).");
+            return PageFeedback.refuse(Text.get("feedback.shared.notSaved"),
+                    Text.get("feedback.brandColors.usePicker"));
         }
         final String newId = adding ? UUID.randomUUID().toString().replace("-", "").substring(0, 8) : id;
         final BrandColor made = new BrandColor(newId, cleanName, lightValue, darkValue);
@@ -189,7 +204,7 @@ public class BrandColors {
         }
         orgs.audit(callerSource.get(), fresh, "Brand color '" + cleanName + "' (" + newId + ") "
                 + (adding ? "added" : "saved"));
-        PageFeedback.info("Saved \"" + cleanName + "\".");
+        PageFeedback.info(Text.get("feedback.customPalettes.saved", cleanName));
         PageFeedback.callbackParam("saved", true);
         return true;
     }
@@ -206,7 +221,8 @@ public class BrandColors {
         final List<BrandColor> colors = new ArrayList<>(colorsOf(fresh));
         final int index = indexOf(colors, id);
         if (index < 0) {
-            return PageFeedback.refuse("Unknown color", "That color no longer exists. Reload the page.");
+            return PageFeedback.refuse(Text.get("feedback.brandColors.unknownColor"),
+                    Text.get("feedback.brandColors.colorGone"));
         }
         final BrandColor removed = colors.remove(index);
         fresh.setBrandColors(colors.isEmpty() ? null : colors);
@@ -214,7 +230,7 @@ public class BrandColors {
             return false;
         }
         orgs.audit(callerSource.get(), fresh, "Brand color '" + removed.name() + "' (" + id + ") deleted");
-        PageFeedback.info("Deleted \"" + removed.name() + "\".");
+        PageFeedback.info(Text.get("feedback.customPalettes.deleted", removed.name()));
         return true;
     }
 
@@ -222,7 +238,7 @@ public class BrandColors {
 
     /** A fresh org the caller may manage, or null (growled). */
     private Organization editable(final String orgId) {
-        return OrgOwnedLists.editable(orgs, orgId, "brand colors");
+        return OrgOwnedLists.editable(orgs, orgId, Text.get("feedback.brandColors.adminsOnly"));
     }
 
     /** {@code #rrggbb}, or null for anything else (translucent colors are refused: a brand color is a solid ink). */

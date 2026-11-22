@@ -8,6 +8,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.Semaphore;
@@ -410,7 +411,17 @@ public class MailCommands {
      */
     public ManagedMail renderManagedTemplateForOrg(final String templateId, final String orgId,
             final Map<String, Object> values) {
-        final org.paulsens.trip.model.ContentTemplate template = templates.resolveForOrg(templateId, orgId);
+        return renderManagedTemplateForOrg(templateId, orgId, null, values);
+    }
+
+    /**
+     * The same render for a reader of one language: the email's version in {@code locale} when one is written
+     * ({@code TemplateCommands.resolveForOrg(String, String, Locale)} decides). Senders pass the RECIPIENT's
+     * language ({@code i18n/ReaderLanguage}); a null locale is the template's own (English) row.
+     */
+    public ManagedMail renderManagedTemplateForOrg(final String templateId, final String orgId, final Locale locale,
+            final Map<String, Object> values) {
+        final org.paulsens.trip.model.ContentTemplate template = templates.resolveForOrg(templateId, orgId, locale);
         if (template == null || template.getKind() != org.paulsens.trip.model.TemplateKind.MAIL) {
             log.error("No MAIL template '{}' (missing, or not MAIL kind); mail skipped. Run "
                     + "install-starter-templates.sh or create it on the Templates page.", templateId);
@@ -478,7 +489,17 @@ public class MailCommands {
     public boolean sendManagedTemplateForOrg(final String templateId, final String orgId,
             final Map<String, Object> values, final String to, final String from, final String replyTo,
             final String bcc, final AuditActor actor) {
-        final ManagedMail rendered = renderManagedTemplateForOrg(templateId, orgId, values);
+        return sendManagedTemplateForOrg(templateId, orgId, null, values, to, from, replyTo, bcc, actor);
+    }
+
+    /**
+     * {@link #sendManagedTemplateForOrg(String, String, Map, String, String, String, String, AuditActor)} in the
+     * RECIPIENT's language: the email's version in {@code locale} when one is written, else the English row.
+     */
+    public boolean sendManagedTemplateForOrg(final String templateId, final String orgId, final Locale locale,
+            final Map<String, Object> values, final String to, final String from, final String replyTo,
+            final String bcc, final AuditActor actor) {
+        final ManagedMail rendered = renderManagedTemplateForOrg(templateId, orgId, locale, values);
         if (rendered == null || to == null || to.isBlank()) {
             return false;
         }

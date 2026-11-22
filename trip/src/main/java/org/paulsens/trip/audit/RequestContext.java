@@ -1,6 +1,8 @@
 package org.paulsens.trip.audit;
 
 import jakarta.servlet.http.HttpSession;
+import java.util.Locale;
+import org.paulsens.trip.model.Language;
 import org.paulsens.trip.site.SiteContext;
 
 /**
@@ -14,7 +16,13 @@ import org.paulsens.trip.site.SiteContext;
  * component tree and view state are single-thread by design), never {@code HttpSession} or
  * {@code HttpServletRequest}, never a {@code Caller} (its memo map is documented single-request,
  * single-thread). A fat context is how non-thread-safe state gets smuggled across forks; this record stays
- * three immutable fields on purpose.</p>
+ * a handful of immutable fields on purpose.</p>
+ *
+ * <p>The {@link #locale} is the language this REQUEST is answered in ({@code docs/i18n.md}, "Who decides the
+ * language"), resolved once by {@code web/RequestLocale} and never null. It is the READER's language only for
+ * what the request itself renders: mail and push go to somebody else, so background senders take the
+ * recipient's locale explicitly and never read this one. {@link #system()} and every explicit-actor form carry
+ * English.</p>
  *
  * <p>The {@link SiteContext} is here because it is a fact about the request's hostname, not about the user:
  * once the session cookie spans {@code *.unitetrip.com}, one session serves several sites, so the site must
@@ -25,7 +33,7 @@ import org.paulsens.trip.site.SiteContext;
  * must rebind explicitly via {@code TripThreads.startAs}, and scheduled work binds
  * {@link AuditActor#system()}.</p>
  */
-public record RequestContext(AuditActor actor, String userRole, SiteContext site) {
+public record RequestContext(AuditActor actor, String userRole, SiteContext site, Locale locale) {
 
     /** The one binding point is {@code SessionRecoveryFilter}; everyone else only reads. */
     public static final ScopedValue<RequestContext> SCOPE = ScopedValue.newInstance();
@@ -34,6 +42,29 @@ public record RequestContext(AuditActor actor, String userRole, SiteContext site
         if (site == null) {
             site = SiteContext.shared(null);
         }
+        if (locale == null) {
+            locale = Locale.ENGLISH;
+        }
+    }
+
+    /** A context answered in English: every caller that has no reader's language in hand. */
+    public RequestContext(final AuditActor actor, final String userRole, final SiteContext site) {
+        this(actor, userRole, site, null);
+    }
+
+    /** This context answered in {@code newLocale}; the filter's one step after it has resolved the language. */
+    public RequestContext withLocale(final Locale newLocale) {
+        return new RequestContext(actor, userRole, site, newLocale);
+    }
+
+    /** The language of the request in progress; English off a bound request (schedulers, senders, unit tests). */
+    public static Locale currentLocale() {
+        return SCOPE.isBound() ? SCOPE.get().locale() : Locale.ENGLISH;
+    }
+
+    /** {@link #currentLocale()} as one of the product's languages; English for a language it does not speak. */
+    public static Language currentLanguage() {
+        return Language.forTag(currentLocale().getLanguage()).orElse(Language.English);
     }
 
     /** Derives the context from the request's session (null session = anonymous visitor). */

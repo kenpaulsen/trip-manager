@@ -42,7 +42,8 @@ public final class OrgSettingsTabs {
             KnownSettings.SITE_SIDEBAR_TITLE);
 
     private static final Map<String, List<SettingDef>> GENERIC_ROWS = Map.of(
-            PROFILE, List.of(KnownSettings.SITE_CONTACT_NAME, KnownSettings.SITE_CONTACT_PHONE),
+            PROFILE, List.of(KnownSettings.SITE_CONTACT_NAME, KnownSettings.SITE_CONTACT_PHONE,
+                    KnownSettings.SITE_LANGUAGES),
             HOME, List.of(KnownSettings.HOME_PHOTOS_WINDOW_DAYS, KnownSettings.HOME_PHOTOS_MIN_COUNT,
                     KnownSettings.HOME_COUNTDOWN_SOON_DAYS, KnownSettings.SITE_SIDEBAR_TITLE,
                     KnownSettings.SITE_DONATE_URL, KnownSettings.SITE_DONATE_TITLE, KnownSettings.SITE_DONATE_TEXT,
@@ -86,6 +87,19 @@ public final class OrgSettingsTabs {
                 out.put(def.getName(), values.get(def.getName()));
             }
         }
+        // A translatable row's other-language fields ride with it ("site.donate.text@es" with the donate text).
+        for (final Map.Entry<String, String> entry : values.entrySet()) {
+            if (isTranslationOfAny(entry.getKey(), defsFor(key))) {
+                out.put(entry.getKey(), entry.getValue());
+            }
+        }
         return out;
+    }
+
+    /** Whether {@code key} is one translatable setting of {@code defs} in one language ({@code site.title@es}). */
+    private static boolean isTranslationOfAny(final String key, final List<SettingDef> defs) {
+        final String base = SettingDef.baseNameOf(key);
+        return SettingDef.languageOfKey(key).isPresent()
+                && defs.stream().anyMatch(def -> def.isTranslatable() && def.getName().equals(base));
     }
 }

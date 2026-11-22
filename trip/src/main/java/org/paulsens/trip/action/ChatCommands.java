@@ -28,6 +28,7 @@ import org.paulsens.trip.cache.CacheKeys;
 import org.paulsens.trip.chat.ChatNotifications;
 import org.paulsens.trip.chat.ChatRateLimiter;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.media.PhotoRejectedException;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
@@ -72,9 +73,6 @@ public class ChatCommands {
 
     public static final String MEDIA_TYPE_V1 = "application/vnd.trip.chat.v1+json";
     public static final String CSRF_HEADER = "X-Trip-Chat";
-    /** The refusal a blocked-words hit shows; the matched term is deliberately NOT echoed back. */
-    public static final String BLOCKED_CONTENT_MESSAGE =
-            "That message contains language this chat doesn't allow. Please reword it.";
 
     /** How often a non-administrator may have an @all actually emailed to the trip. */
     private static final java.time.Duration EVERYONE_WINDOW = java.time.Duration.ofHours(24);
@@ -248,7 +246,7 @@ public class ChatCommands {
                 .target(AuditEventBuilder.TARGET_CHAT_CHANNEL, ChatChannel.Id.forTrip(tripId).getValue())
                 .message("denied: " + what + " (chatMgr required)")
                 .build());
-        growlError("You do not have permission to administer this chat.");
+        growlError(Text.get("feedback.chatCommands.noAdminPermission"));
         return true;
     }
 
@@ -439,19 +437,19 @@ public class ChatCommands {
     public String postDenialForTrip(final String tripId, final Person.Id personId) {
         final ChatChannel channel = channelForPage(tripId);
         if (channel == null || personId == null) {
-            return "This chat is not available.";
+            return Text.get("feedback.chatCommands.notAvailable");
         }
         final Instant now = Instant.now();
         if (ChatVisibility.isArchived(channel, tripOf(channel), now)) {
-            return "This chat is closed. The trip is over, so it is read-only now.";
+            return Text.get("feedback.chatCommands.closedTripOver");
         }
         if (channel.getSettings().getPostPolicy() == ChatSettings.PostPolicy.ADMINS_ONLY
                 && !canAdminister(tripId)) {
-            return "Only trip administrators can post in this chat.";
+            return Text.get("feedback.chatCommands.onlyTripAdminsPost");
         }
         final ChatMembership row = membershipFor(channel.getId(), personId);
         if (row != null && row.isMuted(now)) {
-            return "You are muted and cannot post right now.";
+            return Text.get("feedback.chatCommands.muted");
         }
         return "";
     }
@@ -711,9 +709,9 @@ public class ChatCommands {
                 mentionEmail != null && mentionEmail, dailyDigest != null && dailyDigest, pushModeOf(pushMode),
                 color, imageUrl);
         if (saved) {
-            growlWarn("Chat settings saved.");
+            growlWarn(Text.get("feedback.chatCommands.prefsSaved"));
         } else {
-            growlError("Unable to save your chat settings.");
+            growlError(Text.get("feedback.chatCommands.prefsNotSaved"));
         }
         return saved;
     }
@@ -902,11 +900,11 @@ public class ChatCommands {
         } else {
             final ChatSettings settings = channel.getSettings();
             if (!settings.isAllowMedia()) {
-                return SendResult.fail("attachment", "Photos are turned off for this chat.");
+                return SendResult.fail("attachment", Text.get("feedback.chatCommands.photosOff"));
             }
             if (attachmentRefs.size() > settings.getMaxAttachmentsPerMessage()) {
-                return SendResult.fail("too_many_photos", "At most "
-                        + settings.getMaxAttachmentsPerMessage() + " photos per message.");
+                return SendResult.fail("too_many_photos",
+                        Text.get("feedback.chatCommands.tooManyPhotos", settings.getMaxAttachmentsPerMessage()));
             }
             try {
                 attachments = ChatPhotos.getChatPhotos().resolveStaged(tripId, authorId, attachmentRefs);
@@ -918,19 +916,19 @@ public class ChatCommands {
         final int cps = text.codePointCount(0, text.length());
         final int max = channel.getSettings().getMaxMessageChars();
         if (cps == 0 && attachments.isEmpty()) {
-            return SendResult.fail("empty", "Message cannot be empty.");
+            return SendResult.fail("empty", Text.get("feedback.chatCommands.empty"));
         }
         if (cps > max) {
-            return SendResult.fail("too_long", "Message is too long (max " + max + " characters).");
+            return SendResult.fail("too_long", Text.get("feedback.chatCommands.tooLong", max));
         }
         if (blockedTerm(text) != null) {
-            return SendResult.fail("blocked_content", BLOCKED_CONTENT_MESSAGE);
+            return SendResult.fail("blocked_content", Text.get("feedback.chatCommands.blockedContent"));
         }
         // The one server-side effect of a block: a blocked person cannot @mention their blocker. Everything
         // else about a block is the blocker's own display preference, enforced by the client.
         for (final Person.Id mentioned : ChatMentions.extract(text)) {
             if (blocks.isBlocked(mentioned, authorId)) {
-                return SendResult.fail("forbidden", "You can't mention that person.");
+                return SendResult.fail("forbidden", Text.get("feedback.chatCommands.cannotMention"));
             }
         }
 
@@ -940,9 +938,8 @@ public class ChatCommands {
                     "auto-mute after repeated rate-limit hits", who);
             // Report it as a mute, not a rate limit: the two must stay distinguishable to the user, and from
             // here on it is a mute that is blocking them.
-            growlWarn("You have been muted until " + decision.getAutoMuteUntil()
-                    + " after repeated rate-limit hits.");
-            return SendResult.fail("muted", "You are muted and cannot post right now.");
+            growlWarn(Text.get("feedback.chatCommands.autoMuted", String.valueOf(decision.getAutoMuteUntil())));
+            return SendResult.fail("muted", Text.get("feedback.chatCommands.muted"));
         }
         if (!decision.isAllowed()) {
             growlWarn(decision.userMessage());
@@ -972,8 +969,8 @@ public class ChatCommands {
             saved = logSaveFailure(ex);
         }
         if (saved.isEmpty()) {
-            growlError("Message was not delivered. Try again.");
-            return SendResult.fail("store", "Message was not delivered. Try again.");
+            growlError(Text.get("feedback.chatCommands.notDelivered"));
+            return SendResult.fail("store", Text.get("feedback.chatCommands.notDelivered"));
         }
         // AFTER the durable write, never before: a notification about a message that failed to save would point at
         // nothing. Everything past this point is fire-and-forget on a pool thread and cannot fail the send.
@@ -1005,8 +1002,7 @@ public class ChatCommands {
             // out later that it did not is worse off than someone who is told now.
             ChatNotifications.mentionsFor(
                     withoutEveryone(stored), channel, trip, ChatOnBehalf.byline(stored));
-            return SendResult.ok(stored, "Only one @all a day is emailed. This one is posted in the chat, but "
-                    + "nobody was emailed about it. Please use @all sparingly.");
+            return SendResult.ok(stored, Text.get("feedback.chatCommands.everyoneNotEmailed"));
         }
         ChatNotifications.mentionsFor(stored, channel, trip, ChatOnBehalf.byline(stored));
         return SendResult.ok(stored);
@@ -1056,21 +1052,21 @@ public class ChatCommands {
     private SendResult postDenial(
             final ChatChannel channel, final Person.Id me, final ChatMembership row, final Instant now) {
         if (row != null && row.isMuted(now)) {
-            return SendResult.fail("muted", "You are muted and cannot post right now.");
+            return SendResult.fail("muted", Text.get("feedback.chatCommands.muted"));
         }
         if (!isTripMember(channel.getTripId(), me) && !guestJoined(row)) {
-            return SendResult.fail("forbidden", "You cannot post in this chat.");
+            return SendResult.fail("forbidden", Text.get("feedback.chatCommands.cannotPost"));
         }
         if (row != null && (row.getState() == ChatMembership.MemberState.LEFT
                 || row.getState() == ChatMembership.MemberState.REMOVED)) {
-            return SendResult.fail("forbidden", "You are not in this chat.");
+            return SendResult.fail("forbidden", Text.get("feedback.chatCommands.notInChat"));
         }
         if (ChatVisibility.isArchived(channel, tripOf(channel), now)) {
-            return SendResult.fail("archived", "This chat is archived and read-only.");
+            return SendResult.fail("archived", Text.get("feedback.chatCommands.archived"));
         }
         if (channel.getSettings().getPostPolicy() == ChatSettings.PostPolicy.ADMINS_ONLY
                 && !canAdminister(channel.getTripId())) {
-            return SendResult.fail("forbidden", "Only administrators can post in this chat.");
+            return SendResult.fail("forbidden", Text.get("feedback.chatCommands.onlyAdminsPost"));
         }
         return null;
     }
@@ -1100,7 +1096,7 @@ public class ChatCommands {
         }
         final ChatSettings settings = channel.getSettings();
         if (!settings.isAllowMedia() || settings.getMaxAttachmentsPerMessage() <= 0) {
-            return new AttachGate(channel, "attachment", "Photos are turned off for this chat.");
+            return new AttachGate(channel, "attachment", Text.get("feedback.chatCommands.photosOff"));
         }
         return new AttachGate(channel, null, null);
     }
@@ -1211,12 +1207,12 @@ public class ChatCommands {
     public ReactResult editMessage(
             final String tripId, final Person.Id me, final ChatMessage.Id msgId, final String newBody) {
         if (msgId == null) {
-            return ReactResult.fail("not_found", "Message not found.");
+            return ReactResult.fail("not_found", Text.get("api.chat.messageNotFound"));
         }
         final Instant now = Instant.now();
         final ChatChannel channel = getChannel(tripId);
         if (channel == null) {
-            return ReactResult.fail("not_found", "No chat for this trip.");
+            return ReactResult.fail("not_found", Text.get("feedback.chatCommands.noChatForTrip"));
         }
         final String denial = editDenial(channel, me, now);
         if (denial != null) {
@@ -1226,31 +1222,31 @@ public class ChatCommands {
         final Optional<ChatMessage> target = dao().getVisibleChatMessage(
                 channel.getId(), msgId, row, channel, tripOf(channel), now, Cached.NO);
         if (target.isEmpty() || target.get().isDeleted()) {
-            return ReactResult.fail("not_found", "Message not found.");
+            return ReactResult.fail("not_found", Text.get("api.chat.messageNotFound"));
         }
         final ChatMessage original = target.get();
         if (original.getAuthorId() == null || !original.getAuthorId().equals(me)) {
-            return ReactResult.fail("FORBIDDEN", "You can only edit your own messages.");
+            return ReactResult.fail("FORBIDDEN", Text.get("feedback.chatCommands.onlyOwnMessages"));
         }
         if (!withinEditWindow(original.getSentAt(), now)) {
             return ReactResult.fail("EDIT_WINDOW_CLOSED",
-                    "Messages can only be edited within " + editWindowMinutes() + " minutes of sending.");
+                    Text.get("feedback.chatCommands.editWindowClosed", editWindowMinutes()));
         }
         final String text = newBody == null ? "" : newBody;
         final int cps = text.codePointCount(0, text.length());
         if (cps == 0) {
-            return ReactResult.fail("empty", "Message cannot be empty.");
+            return ReactResult.fail("empty", Text.get("feedback.chatCommands.empty"));
         }
         if (cps > channel.getSettings().getMaxMessageChars()) {
             return ReactResult.fail("too_long",
-                    "Message is too long (max " + channel.getSettings().getMaxMessageChars() + " characters).");
+                    Text.get("feedback.chatCommands.tooLong", channel.getSettings().getMaxMessageChars()));
         }
         if (blockedTerm(text) != null) {
-            return ReactResult.fail("blocked_content", BLOCKED_CONTENT_MESSAGE);
+            return ReactResult.fail("blocked_content", Text.get("feedback.chatCommands.blockedContent"));
         }
         return dao().editChatMessage(channel.getId(), msgId, text).isPresent()
                 ? ReactResult.success()
-                : ReactResult.fail("store", "Edit was not saved. Try again.");
+                : ReactResult.fail("store", Text.get("feedback.chatCommands.editNotSaved"));
     }
 
     /**
@@ -1572,13 +1568,13 @@ public class ChatCommands {
     public DraftResult saveDraft(final String tripId, final Person.Id me, final String body,
             final List<ChatPhotos.AttachmentRef> refs) {
         if (me == null || tripId == null || tripId.isBlank()) {
-            return DraftResult.fail("forbidden", "Sign in and open a trip chat first.");
+            return DraftResult.fail("forbidden", Text.get("feedback.chatCommands.openChatFirst"));
         }
         if (!chatEnabledForTrip(tripId)) {
-            return DraftResult.fail("disabled", "Chat is turned off for this trip.");
+            return DraftResult.fail("disabled", Text.get("api.chat.disabled"));
         }
         if (!canParticipate(tripId, me)) {
-            return DraftResult.fail("forbidden", "Not a member of this trip.");
+            return DraftResult.fail("forbidden", Text.get("api.shared.notTripMember"));
         }
         final ChatSettings settings = channelForPage(tripId).getSettings();
         final String text = clampCodePoints(body == null ? "" : body, settings.getMaxMessageChars());
@@ -1597,7 +1593,7 @@ public class ChatCommands {
         }
         return Boolean.TRUE.equals(dao().saveChatDraft(cid, me, draft))
                 ? DraftResult.saved(kept.size())
-                : DraftResult.fail("store", "Draft was not saved.");
+                : DraftResult.fail("store", Text.get("api.chat.draftNotSaved"));
     }
 
     /**
@@ -1674,9 +1670,10 @@ public class ChatCommands {
      */
     public String chatTabLabelForCurrentUser(final String tripId) {
         if (isUnreadForCurrentUser(tripId)) {
-            return "Chat ●";
+            return Text.get("feedback.chatCommands.tabUnread");
         }
-        return hasDraftForCurrentUser(tripId) ? "Chat ✎" : "Chat";
+        return hasDraftForCurrentUser(tripId) ? Text.get("feedback.chatCommands.tabDraft")
+                : Text.get("common.chat");
     }
 
     public boolean clearDraft(final String tripId, final Person.Id me) {
@@ -1744,15 +1741,15 @@ public class ChatCommands {
             final String emoji,
             final boolean add) {
         if (!ChatEmoji.isAllowed(emoji, getEmojiPalette())) {
-            return ReactResult.fail("bad_emoji", "That reaction is not available.");
+            return ReactResult.fail("bad_emoji", Text.get("feedback.chatCommands.reactionUnavailable"));
         }
         if (msgId == null) {
-            return ReactResult.fail("not_found", "Message not found.");
+            return ReactResult.fail("not_found", Text.get("api.chat.messageNotFound"));
         }
         final Instant now = Instant.now();
         final ChatChannel channel = getChannel(tripId);
         if (channel == null) {
-            return ReactResult.fail("not_found", "No chat for this trip.");
+            return ReactResult.fail("not_found", Text.get("feedback.chatCommands.noChatForTrip"));
         }
         final String denial = reactDenial(channel, me, now);
         if (denial != null) {
@@ -1764,13 +1761,14 @@ public class ChatCommands {
         final Optional<ChatMessage> target = dao().getVisibleChatMessage(
                 channel.getId(), msgId, row, channel, tripOf(channel), now, Cached.NO);
         if (target.isEmpty()) {
-            return ReactResult.fail("not_found", "Message not found.");
+            return ReactResult.fail("not_found", Text.get("api.chat.messageNotFound"));
         }
         final boolean ok = add
                 ? dao().putChatReaction(new ChatReaction(
                         channel.getId(), msgId, me, emoji, now, target.get().getExpiresAt()))
                 : dao().deleteChatReaction(channel.getId(), msgId, me, emoji);
-        return ok ? ReactResult.success() : ReactResult.fail("store", "Reaction was not saved. Try again.");
+        return ok ? ReactResult.success()
+                : ReactResult.fail("store", Text.get("feedback.chatCommands.reactionNotSaved"));
     }
 
     /**
@@ -1799,11 +1797,11 @@ public class ChatCommands {
 
     private static String reactDenialMessage(final String code) {
         return switch (code) {
-            case "REACTIONS_DISABLED" -> "Reactions are turned off in this chat.";
-            case "EDIT_DISABLED" -> "Editing is turned off in this chat.";
-            case "CHANNEL_ARCHIVED" -> "This chat is archived and read-only.";
-            case "MUTED" -> "You are muted and cannot post, react or edit right now.";
-            default -> "You cannot do that in this chat.";
+            case "REACTIONS_DISABLED" -> Text.get("feedback.chatCommands.reactionsOff");
+            case "EDIT_DISABLED" -> Text.get("feedback.chatCommands.editingOff");
+            case "CHANNEL_ARCHIVED" -> Text.get("feedback.chatCommands.archived");
+            case "MUTED" -> Text.get("feedback.chatCommands.mutedForAll");
+            default -> Text.get("feedback.chatCommands.cannotDoThat");
         };
     }
 
@@ -1937,7 +1935,7 @@ public class ChatCommands {
         }
         final String url = createInvite(tripId, currentUserId(), AuditActor.current());
         if (url == null) {
-            growlError("Unable to create an invite link for this chat.");
+            growlError(Text.get("feedback.chatCommands.inviteNotCreated"));
             return null;
         }
         if (ctx != null) {
@@ -2256,7 +2254,7 @@ public class ChatCommands {
      */
     private boolean noOneChosen(final String personId) {
         if (isBlank(personId)) {
-            growlError("Choose a person first.");
+            growlError(Text.get("feedback.chatCommands.choosePerson"));
             return true;
         }
         return false;
@@ -2271,7 +2269,7 @@ public class ChatCommands {
             final String tripId, final String personId, final Integer minutes,
             final String reason) {
         if (isBlank(personId) || minutes == null || minutes <= 0) {
-            growlError("Choose a person and a positive number of minutes to mute them for.");
+            growlError(Text.get("feedback.chatCommands.choosePersonAndMinutes"));
             return false;
         }
         return mute(tripId, Person.Id.from(personId),
@@ -2520,7 +2518,7 @@ public class ChatCommands {
         // The acknowledgement IS the control here: the requirement is that a person is never re-enabled without
         // their permission, so an add with nothing confirmed must fail rather than be recorded as unacknowledged.
         if (acknowledgement == null || acknowledgement.isBlank()) {
-            growlError("Confirm you have this person's permission before adding them.");
+            growlError(Text.get("feedback.chatCommands.confirmPermission"));
             return false;
         }
         final ChatChannel channel = ensureChannel(tripId, who);
@@ -2556,25 +2554,20 @@ public class ChatCommands {
         final Person person = PersonCommands.getPersonCommands().getPerson(target);
         final String name = person == null ? target.getValue() : person.getPreferredName();
         if (row.isEmpty()) {
-            return "Add " + name + " to this chat? Confirm you have their permission.";
+            return Text.get("feedback.chatCommands.addWarning", name);
         }
         final ChatMembership m = row.get();
         if (m.getState() == ChatMembership.MemberState.LEFT) {
-            return name + " chose to leave this chat on " + m.getLeftAt()
-                    + ". Adding them back will resume notifications and expose the full history. "
-                    + "Confirm you have their permission.";
+            return Text.get("feedback.chatCommands.addWarningLeft", name, String.valueOf(m.getLeftAt()));
         }
         if (m.getState() == ChatMembership.MemberState.REMOVED) {
             // Names the administrator AND the reason. Also states plainly that re-adding exposes what was said
             // while they were out -- which may include discussion of the removal itself. Making that a conscious
             // human decision is this warning's whole job.
-            final String by = m.getRemovedBy() == null ? "an administrator" : displayName(m.getRemovedBy());
-            return name + " was removed by " + by + " on " + m.getLeftAt()
-                    + (m.getLeftReason() == null ? "" : " (" + m.getLeftReason() + ")")
-                    + ". Adding them back lets them read everything said while they were removed. "
-                    + "Confirm you intend to reverse that.";
+            final String by = m.getRemovedBy() == null ? null : displayName(m.getRemovedBy());
+            return ChatRoster.removedWarning(name, by, String.valueOf(m.getLeftAt()), m.getLeftReason());
         }
-        return "Add " + name + " to this chat? Confirm you have their permission.";
+        return Text.get("feedback.chatCommands.addWarning", name);
     }
 
     private String displayName(final String personId) {
@@ -2636,20 +2629,20 @@ public class ChatCommands {
 
     public static String validateSettings(final ChatSettings s) {
         if (s == null) {
-            return "Settings required";
+            return Text.get("feedback.chatCommands.settingsRequired");
         }
         if (s.getBurstLimit() < 1 || s.getSustainedLimit() < 1) {
-            return "Rate limits must be at least 1 (0 would mute the channel).";
+            return Text.get("feedback.chatCommands.rateLimitsTooLow");
         }
         if (s.getBurstLimit() > 10_000 || s.getSustainedLimit() > 10_000) {
-            return "Rate limits cannot exceed 10,000.";
+            return Text.get("feedback.chatCommands.rateLimitsTooHigh");
         }
         if (s.getBurstWindowSeconds() < 1 || s.getBurstWindowSeconds() > 3600
                 || s.getSustainedWindowSeconds() < 1 || s.getSustainedWindowSeconds() > 3600) {
-            return "Rate-limit windows must be between 1 second and 1 hour.";
+            return Text.get("feedback.chatCommands.rateWindowRange");
         }
         if (s.getMaxMessageChars() < 1) {
-            return "maxMessageChars must be at least 1.";
+            return Text.get("feedback.chatCommands.maxCharsTooLow");
         }
         return null;
     }

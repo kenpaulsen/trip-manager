@@ -10,6 +10,7 @@ import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.Audit;
 import org.paulsens.trip.audit.AuditEventBuilder;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.media.PendingUploads;
 import org.paulsens.trip.media.PhotoProcessor;
 import org.paulsens.trip.media.PhotoRejectedException;
@@ -72,11 +73,11 @@ public class BrandingUploadCommands extends PhotoUploadBean {
         cancelUpload();
         final Optional<BrandingRole> role = BrandingRole.of(roleKey);
         if (role.isEmpty()) {
-            error("Unknown image: that is not one of this site's images.");
+            error(Text.get("feedback.brandingUploadCommands.unknownImage"));
             return;
         }
         if (!orgs.canManageOrg(orgId)) {
-            error("Not allowed: only this organization's administrators can change its appearance.");
+            error(Text.get("feedback.brandingUploadCommands.notAllowed"));
             return;
         }
         sessionPut(ORG_KEY, orgId);
@@ -97,8 +98,7 @@ public class BrandingUploadCommands extends PhotoUploadBean {
     @Override
     protected UploadGate authorization() {
         return (role() != null && orgs.canManageOrg(orgId())) ? UploadGate.allow()
-                : UploadGate.deny("Not allowed: only this organization's administrators can change its "
-                        + "appearance.");
+                : UploadGate.deny(Text.get("feedback.brandingUploadCommands.notAllowed"));
     }
 
     /**
@@ -120,7 +120,7 @@ public class BrandingUploadCommands extends PhotoUploadBean {
     /** The dialog's title while this role is being uploaded. */
     public String getDialogHeader() {
         final BrandingRole role = role();
-        return role == null ? "Upload Image" : role.getLabel();
+        return role == null ? Text.get("feedback.brandingUploadCommands.uploadImage") : role.getLabel();
     }
 
     /** The dialog's crop ratio for this role: blank crops free, a number locks the shape. */
@@ -151,7 +151,7 @@ public class BrandingUploadCommands extends PhotoUploadBean {
         final BrandingRole role = role();
         final String orgId = orgId();
         if (role == null || !orgs.canManageOrg(orgId)) {
-            error("Not allowed: only this organization's administrators can change its appearance.");
+            error(Text.get("feedback.brandingUploadCommands.notAllowed"));
             return false;
         }
         final Optional<PendingUploads.Pending> claimed = claim();
@@ -164,20 +164,20 @@ public class BrandingUploadCommands extends PhotoUploadBean {
         try {
             stored = render(role, pending.original(), rect);
         } catch (final PhotoRejectedException ex) {
-            error("Image rejected: " + ex.getMessage());
+            error(Text.get("feedback.photoUploadBean.rejected.image", ex.getMessage()));
             return false;
         }
         final String key = brandingPhotos.store(orgId, role.getKey(), stored, role.getContentType(),
                 role.getExtension());
         if (key == null) {
-            error("Not stored: the image could not be stored. Try again.");
+            error(Text.get("feedback.lodgingUploadCommands.notStored"));
             return false;
         }
         warnIfSmall(role, rect, pending);
         applyToPreview(orgId, role, brandingPhotos.urlFor(key));
         finish(pending);
         audit(orgId, role, key, "uploaded");
-        info(role.getLabel() + " uploaded. It is not saved yet: check it, then use Save.");
+        info(Text.get("feedback.brandingUploadCommands.uploaded", role.getLabel()));
         return true;
     }
 
@@ -191,17 +191,17 @@ public class BrandingUploadCommands extends PhotoUploadBean {
     public boolean useVersion(final String orgId, final String key) {
         final BrandingPhotos.BrandingKey parsed = BrandingPhotos.parse(key);
         if (parsed == null || orgId == null || !orgId.equals(parsed.orgId())) {
-            error("Not found: that image does not belong to this organization.");
+            error(Text.get("feedback.brandingUploadCommands.notThisOrgs"));
             return false;
         }
         final Optional<BrandingRole> role = BrandingRole.of(parsed.role());
         if (role.isEmpty() || !orgs.canManageOrg(orgId)) {
-            error("Not allowed: only this organization's administrators can change its appearance.");
+            error(Text.get("feedback.brandingUploadCommands.notAllowed"));
             return false;
         }
         applyToPreview(orgId, role.get(), brandingPhotos.urlFor(key));
         audit(orgId, role.get(), key, "restored");
-        info(role.get().getLabel() + " restored. It is not saved yet: check it, then use Save.");
+        info(Text.get("feedback.brandingUploadCommands.restored", role.get().getLabel()));
         return true;
     }
 
@@ -218,42 +218,41 @@ public class BrandingUploadCommands extends PhotoUploadBean {
     public boolean rotateVersion(final String orgId, final String key, final String direction) {
         final BrandingPhotos.BrandingKey parsed = BrandingPhotos.parse(key);
         if (parsed == null || orgId == null || !orgId.equals(parsed.orgId())) {
-            error("Not found: that image does not belong to this organization.");
+            error(Text.get("feedback.brandingUploadCommands.notThisOrgs"));
             return false;
         }
         final Optional<BrandingRole> role = BrandingRole.of(parsed.role());
         if (role.isEmpty() || !orgs.canManageOrg(orgId)) {
-            error("Not allowed: only this organization's administrators can change its appearance.");
+            error(Text.get("feedback.brandingUploadCommands.notAllowed"));
             return false;
         }
         final Optional<QuarterTurn> turn = QuarterTurn.parse(direction);
         if (turn.isEmpty()) {
-            error("Not rotated: say left or right.");
+            error(Text.get("feedback.photo.badRotation"));
             return false;
         }
         final Optional<byte[]> current = brandingPhotos.currentBytes(key);
         if (current.isEmpty()) {
-            error("Not found: that image is no longer stored.");
+            error(Text.get("feedback.brandingUploadCommands.noLongerStored"));
             return false;
         }
         final String stored;
         try {
             stored = storeRotated(orgId, role.get(), current.get(), turn.get());
         } catch (final PhotoRejectedException ex) {
-            error("Image rejected: " + ex.getMessage());
+            error(Text.get("feedback.photoUploadBean.rejected.image", ex.getMessage()));
             return false;
         }
         if (stored == null) {
-            error("Not stored: the image could not be stored. Try again.");
+            error(Text.get("feedback.lodgingUploadCommands.notStored"));
             return false;
         }
         applyToPreview(orgId, role.get(), brandingPhotos.urlFor(stored));
         audit(orgId, role.get(), stored, "rotated " + turn.get().name().toLowerCase(Locale.ROOT));
         if (role.get() == BrandingRole.OG_IMAGE) {
-            warn("Shape: link previews are shown wide (1200x630), and the turned image is tall. It was stored "
-                    + "anyway; check how it looks before you Save.");
+            warn(Text.get("feedback.brandingUploadCommands.tallPreview"));
         }
-        info(role.get().getLabel() + " rotated. It is not saved yet: check it, then use Save.");
+        info(Text.get("feedback.brandingUploadCommands.rotated", role.get().getLabel()));
         return true;
     }
 
@@ -309,10 +308,8 @@ public class BrandingUploadCommands extends PhotoUploadBean {
                 pending.fullHeight(), role.getAspect());
         final int longSide = Math.max(cut.width(), cut.height());
         if (longSide < role.getRecommendedLongSide()) {
-            warn("Low resolution: the selected area is " + cut.width() + "×" + cut.height()
-                    + " px, and the " + role.getLabel().toLowerCase(Locale.ROOT)
-                    + " is recommended at " + role.getRecommendedLongSide()
-                    + " px or more on its longest side. It was stored anyway and may look soft.");
+            warn(Text.get("feedback.brandingUploadCommands.lowResolution", cut.width(), cut.height(),
+                    role.getLabel().toLowerCase(Locale.ROOT), role.getRecommendedLongSide()));
         }
     }
 

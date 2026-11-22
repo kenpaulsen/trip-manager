@@ -88,7 +88,7 @@ public final class BootstrapScriptJson {
     }
 
     private static String variableName(final String id) {
-        return id.toUpperCase(Locale.ROOT).replace('-', '_');
+        return id.toUpperCase(Locale.ROOT).replace('-', '_').replace('@', '_');
     }
 
     private static void heredoc(final String variable, final String json) {

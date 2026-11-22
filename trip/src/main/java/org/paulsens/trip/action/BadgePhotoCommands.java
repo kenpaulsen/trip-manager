@@ -9,6 +9,7 @@ import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.Audit;
 import org.paulsens.trip.audit.AuditEventBuilder;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.media.LocalObjectStore;
 import org.paulsens.trip.media.PendingUploads;
 import org.paulsens.trip.media.PhotoProcessor;
@@ -118,13 +119,13 @@ public class BadgePhotoCommands extends PhotoUploadBean {
     @Override
     protected UploadGate authorization() {
         return mayEdit(subjectTrip()) ? UploadGate.allow()
-                : UploadGate.deny("Not allowed: only this trip's managers can add badge images.");
+                : UploadGate.deny(Text.get("feedback.badgePhotoCommands.addGate"));
     }
 
     @Override
     protected String limit() {
         return subjectTrip().getBadgeImages().size() >= MAX_IMAGES
-                ? "Image limit reached: this trip already has " + MAX_IMAGES + " custom badge images. Delete one first."
+                ? Text.get("feedback.badgePhotoCommands.limitReached", MAX_IMAGES)
                 : null;
     }
 
@@ -171,7 +172,7 @@ public class BadgePhotoCommands extends PhotoUploadBean {
      */
     public boolean applyCrop(final Trip trip, final CroppedImage crop) {
         if (!mayEdit(trip)) {
-            error("Not allowed: only this trip's managers can add badge images.");
+            error(Text.get("feedback.badgePhotoCommands.addGate"));
             return false;
         }
         final Optional<PendingUploads.Pending> claimed = claim(trip.getId());
@@ -180,8 +181,7 @@ public class BadgePhotoCommands extends PhotoUploadBean {
         }
         final PendingUploads.Pending pending = claimed.get();
         if (trip.getBadgeImages().size() >= MAX_IMAGES) {
-            error("Image limit reached: this trip already has " + MAX_IMAGES
-                    + " custom badge images. Delete one first.");
+            error(Text.get("feedback.badgePhotoCommands.limitReached", MAX_IMAGES));
             return false;
         }
         final PhotoProcessor.CropRect rect = scaledRect(crop, pending);
@@ -189,20 +189,20 @@ public class BadgePhotoCommands extends PhotoUploadBean {
         try {
             jpeg = processor.processSquare(pending.original(), rect, BADGE_SIZE);
         } catch (final PhotoRejectedException ex) {
-            error("Image rejected: " + ex.getMessage());
+            error(Text.get("feedback.photoUploadBean.rejected.image", ex.getMessage()));
             return false;
         }
         warnIfSmall(rect, pending);
         final String key = PREFIX + trip.getId() + "/" + System.currentTimeMillis() + ".jpg";
         if (!storeBytes(key, jpeg)) {
-            error("Not stored: the image could not be stored. Try again.");
+            error(Text.get("feedback.lodgingUploadCommands.notStored"));
             return false;
         }
         trip.getBadgeImages().add(new BadgeImage(key, label()));
         if (!saveTrip(trip)) {
             removeStored(key);
             trip.getBadgeImages().removeIf(img -> key.equals(img.getKey()));
-            error("Not saved: the trip could not be updated with the new image. Try again.");
+            error(Text.get("feedback.badgePhotoCommands.addNotSaved"));
             return false;
         }
         finish(pending);
@@ -210,7 +210,7 @@ public class BadgePhotoCommands extends PhotoUploadBean {
         // Select the new picture, so the reload the dialog triggers shows it on the badge immediately.
         sessionPut(SELECTED_KEY, key);
         audit("Badge image added", trip, key);
-        info("Badge image added.");
+        info(Text.get("feedback.badgePhotoCommands.added"));
         return true;
     }
 
@@ -222,18 +222,18 @@ public class BadgePhotoCommands extends PhotoUploadBean {
      */
     public boolean delete(final Trip trip, final String key) {
         if (!mayEdit(trip)) {
-            error("Not allowed: only this trip's managers can delete badge images.");
+            error(Text.get("feedback.badgePhotoCommands.deleteGate"));
             return false;
         }
         final BadgeImage image = trip.getBadgeImage(key);
         if (image == null) {
-            error("Not found: that badge image is no longer on this trip.");
+            error(Text.get("feedback.badgePhotoCommands.notFound"));
             return false;
         }
         trip.getBadgeImages().remove(image);
         if (!saveTrip(trip)) {
             trip.getBadgeImages().add(image);
-            error("Not saved: the trip could not be updated. The image was not deleted.");
+            error(Text.get("feedback.badgePhotoCommands.deleteNotSaved"));
             return false;
         }
         removeStored(key);
@@ -241,7 +241,7 @@ public class BadgePhotoCommands extends PhotoUploadBean {
             sessionPut(SELECTED_KEY, null);
         }
         audit("Badge image deleted", trip, key);
-        info("Badge image deleted.");
+        info(Text.get("feedback.badgePhotoCommands.deleted"));
         return true;
     }
 
@@ -266,32 +266,32 @@ public class BadgePhotoCommands extends PhotoUploadBean {
      */
     public boolean rotate(final Trip trip, final String key, final QuarterTurn turn) {
         if (!mayEdit(trip)) {
-            error("Not allowed: only this trip's managers can rotate badge images.");
+            error(Text.get("feedback.badgePhotoCommands.rotateGate"));
             return false;
         }
         final BadgeImage image = trip.getBadgeImage(key);
         final Optional<byte[]> current = (image == null) ? Optional.empty() : storedBytes(key);
         if (current.isEmpty()) {
-            error("Not found: that badge image is no longer on this trip.");
+            error(Text.get("feedback.badgePhotoCommands.notFound"));
             return false;
         }
         final byte[] jpeg;
         try {
             jpeg = processor.rotate(current.get(), turn).bytes();
         } catch (final PhotoRejectedException ex) {
-            error("Image rejected: " + ex.getMessage());
+            error(Text.get("feedback.photoUploadBean.rejected.image", ex.getMessage()));
             return false;
         }
         final String newKey = PREFIX + trip.getId() + "/" + nextVersion(key) + ".jpg";
         if (!storeBytes(newKey, jpeg)) {
-            error("Not stored: the image could not be stored. Try again.");
+            error(Text.get("feedback.lodgingUploadCommands.notStored"));
             return false;
         }
         image.setKey(newKey);
         if (!saveTrip(trip)) {
             image.setKey(key);
             removeStored(newKey);
-            error("Not saved: the trip could not be updated. The image was not rotated.");
+            error(Text.get("feedback.badgePhotoCommands.rotateNotSaved"));
             return false;
         }
         removeStored(key);
@@ -299,7 +299,7 @@ public class BadgePhotoCommands extends PhotoUploadBean {
             sessionPut(SELECTED_KEY, newKey);
         }
         audit("Badge image rotated " + turn.name().toLowerCase(Locale.ROOT), trip, newKey);
-        info("Badge image rotated.");
+        info(Text.get("feedback.badgePhotoCommands.rotated"));
         return true;
     }
 
@@ -311,7 +311,7 @@ public class BadgePhotoCommands extends PhotoUploadBean {
     public void rotateFromUi(final String key, final String direction) {
         final Optional<QuarterTurn> turn = QuarterTurn.parse(direction);
         if (turn.isEmpty()) {
-            error("Not rotated: say left or right.");
+            error(Text.get("feedback.photo.badRotation"));
             publishParam("badgeRotated", false);
             return;
         }
@@ -384,9 +384,9 @@ public class BadgePhotoCommands extends PhotoUploadBean {
     private void warnIfSmall(final PhotoProcessor.CropRect rect, final PendingUploads.Pending pending) {
         final int side = PhotoProcessor.squareSideOf(rect, pending.fullWidth(), pending.fullHeight());
         if (side < BADGE_SIZE) {
-            final String message = "Low resolution: the selected area is " + side + "×" + side
-                    + " px, but the badge prints from " + BADGE_SIZE + "×" + BADGE_SIZE
-                    + " px, so it may look blurry when printed.";
+            // The sizes go in as text: a number argument would be grouped ("1,275").
+            final String message = Text.get("feedback.badgePhotoCommands.lowResolution", Integer.toString(side),
+                    Integer.toString(BADGE_SIZE));
             warn(message);
             publishParam("badgeWarn", message);
         }

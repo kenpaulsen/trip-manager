@@ -25,6 +25,7 @@ import java.util.function.Supplier;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.config.KnownSettings;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.CustomPalette;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.theme.ThemeColorMath;
@@ -81,7 +82,10 @@ public class CustomPalettes {
     /** The id an unsaved (draft) palette carries until its first Save gives it a real one. */
     static final String DRAFT_ID = "new";
 
-    /** The editor's groups, in page order. */
+    /**
+     * The editor's groups, in page order. These are IDS (the page asks for a group's fields by them), not words:
+     * a heading reads {@link #groupLabelKey}.
+     */
     public static final String GROUP_ACCENT = "Accent";
     public static final String GROUP_TEXT = "Text";
     public static final String GROUP_SURFACES = "Surfaces";
@@ -104,71 +108,74 @@ public class CustomPalettes {
     public record ReadPair(String label, String fgLight, String bgLight, String fgDark, String bgDark, double min) {
     }
 
+    // The three tables below hold each label as a message KEY; worded() turns one into the reader's words.
     static final List<ReadPair> READ_PAIRS = List.of(
-            new ReadPair("Text on cards", "shade700", "shade000", "shade000", "shade800", 4.5),
-            new ReadPair("Text on the page ground", "shade700", "body-bg-color", "shade000", "body-bg-color", 4.5),
-            new ReadPair("Secondary text on cards", "shade600", "shade000", "shade100", "shade800", 3),
-            new ReadPair("Text on the accent", ThemeColorMath.ON_ACCENT, ThemeColorMath.ACCENT,
+            new ReadPair("feedback.customPalettes.textOnCards", "shade700", "shade000", "shade000", "shade800", 4.5),
+            new ReadPair("feedback.customPalettes.textOnPageGround", "shade700", "body-bg-color", "shade000",
+                    "body-bg-color", 4.5),
+            new ReadPair("feedback.customPalettes.secondaryTextOnCards", "shade600", "shade000", "shade100",
+                    "shade800", 3),
+            new ReadPair("feedback.customPalettes.textOnAccent", ThemeColorMath.ON_ACCENT, ThemeColorMath.ACCENT,
                     ThemeColorMath.ON_ACCENT, ThemeColorMath.ACCENT, 4.5),
-            new ReadPair("Accent as a link on cards", ThemeColorMath.ACCENT, "shade000", ThemeColorMath.ACCENT,
-                    "shade800", 4.5));
+            new ReadPair("feedback.customPalettes.accentLinkOnCards", ThemeColorMath.ACCENT, "shade000",
+                    ThemeColorMath.ACCENT, "shade800", 4.5));
 
     private static final List<PaletteField> LIGHT_FIELDS = List.of(
-            new PaletteField(ThemeColorMath.ACCENT, "Accent", GROUP_ACCENT),
-            new PaletteField(ThemeColorMath.ON_ACCENT, "Text on the accent", GROUP_ACCENT),
-            new PaletteField(ThemeColorMath.HOVER, "Accent, pointed at", GROUP_ACCENT),
-            new PaletteField(ThemeColorMath.PRESSED, "Accent, pressed", GROUP_ACCENT),
-            new PaletteField(ThemeColorMath.SOFT, "Soft accent (focus ring)", GROUP_ACCENT),
-            new PaletteField("shade700", "Text", GROUP_TEXT),
-            new PaletteField("shade600", "Secondary text", GROUP_TEXT),
-            new PaletteField("shade500", "Input icons", GROUP_TEXT),
-            new PaletteField("text-shade100", "Menu text", GROUP_TEXT),
-            new PaletteField("text-shade200", "Menu text, quieter", GROUP_TEXT),
-            new PaletteField("text-shade300", "Menu text, faint", GROUP_TEXT),
-            new PaletteField("text-secondary-color", "Layout secondary text", GROUP_TEXT),
-            new PaletteField("body-bg-color", "Page ground", GROUP_SURFACES),
-            new PaletteField("shade000", "Cards and panels", GROUP_SURFACES),
-            new PaletteField("shade100", "Panel headers", GROUP_SURFACES),
-            new PaletteField("shade300", "Borders", GROUP_SURFACES),
-            new PaletteField("shade400", "Input borders", GROUP_SURFACES),
-            new PaletteField("divider-color", "Dividers", GROUP_SURFACES),
-            new PaletteField("content-shade100", "Layout panels", GROUP_SURFACES),
-            new PaletteField("content-shade200", "Layout panels, tinted", GROUP_SURFACES),
-            new PaletteField("content-shade300", "Layout panels, selected", GROUP_SURFACES),
-            new PaletteField("content-shade400", "Layout panels, quiet", GROUP_SURFACES),
-            new PaletteField("menu-bgcolor", "Menu background", GROUP_MENU),
-            new PaletteField("sub-menu-bgcolor", "Submenu background", GROUP_MENU),
-            new PaletteField("menu-tooltip-bg-color", "Menu tooltip", GROUP_MENU),
-            new PaletteField("menu-tooltip-text-color", "Menu tooltip text", GROUP_MENU),
-            new PaletteField("right-sidebar-bg", "Right sidebar", GROUP_MENU));
+            new PaletteField(ThemeColorMath.ACCENT, "feedback.colors.accent", GROUP_ACCENT),
+            new PaletteField(ThemeColorMath.ON_ACCENT, "feedback.customPalettes.textOnAccent", GROUP_ACCENT),
+            new PaletteField(ThemeColorMath.HOVER, "feedback.customPalettes.accentHover", GROUP_ACCENT),
+            new PaletteField(ThemeColorMath.PRESSED, "feedback.customPalettes.accentPressed", GROUP_ACCENT),
+            new PaletteField(ThemeColorMath.SOFT, "feedback.customPalettes.accentSoft", GROUP_ACCENT),
+            new PaletteField("shade700", "feedback.colors.text", GROUP_TEXT),
+            new PaletteField("shade600", "feedback.customPalettes.secondaryText", GROUP_TEXT),
+            new PaletteField("shade500", "feedback.customPalettes.inputIcons", GROUP_TEXT),
+            new PaletteField("text-shade100", "feedback.customPalettes.menuText", GROUP_TEXT),
+            new PaletteField("text-shade200", "feedback.customPalettes.menuTextQuieter", GROUP_TEXT),
+            new PaletteField("text-shade300", "feedback.customPalettes.menuTextFaint", GROUP_TEXT),
+            new PaletteField("text-secondary-color", "feedback.customPalettes.layoutSecondaryText", GROUP_TEXT),
+            new PaletteField("body-bg-color", "feedback.customPalettes.pageGround", GROUP_SURFACES),
+            new PaletteField("shade000", "feedback.customPalettes.cardsAndPanels", GROUP_SURFACES),
+            new PaletteField("shade100", "feedback.customPalettes.panelHeaders", GROUP_SURFACES),
+            new PaletteField("shade300", "feedback.customPalettes.borders", GROUP_SURFACES),
+            new PaletteField("shade400", "feedback.customPalettes.inputBorders", GROUP_SURFACES),
+            new PaletteField("divider-color", "feedback.customPalettes.dividers", GROUP_SURFACES),
+            new PaletteField("content-shade100", "feedback.customPalettes.layoutPanels", GROUP_SURFACES),
+            new PaletteField("content-shade200", "feedback.customPalettes.layoutPanelsTinted", GROUP_SURFACES),
+            new PaletteField("content-shade300", "feedback.customPalettes.layoutPanelsSelected", GROUP_SURFACES),
+            new PaletteField("content-shade400", "feedback.customPalettes.layoutPanelsQuiet", GROUP_SURFACES),
+            new PaletteField("menu-bgcolor", "feedback.customPalettes.menuBackground", GROUP_MENU),
+            new PaletteField("sub-menu-bgcolor", "feedback.customPalettes.submenuBackground", GROUP_MENU),
+            new PaletteField("menu-tooltip-bg-color", "feedback.customPalettes.menuTooltip", GROUP_MENU),
+            new PaletteField("menu-tooltip-text-color", "feedback.customPalettes.menuTooltipText", GROUP_MENU),
+            new PaletteField("right-sidebar-bg", "feedback.customPalettes.rightSidebar", GROUP_MENU));
 
     private static final List<PaletteField> DARK_FIELDS = List.of(
-            new PaletteField(ThemeColorMath.ACCENT, "Accent", GROUP_ACCENT),
-            new PaletteField(ThemeColorMath.ON_ACCENT, "Text on the accent", GROUP_ACCENT),
-            new PaletteField(ThemeColorMath.HOVER, "Accent, pointed at", GROUP_ACCENT),
-            new PaletteField(ThemeColorMath.PRESSED, "Accent, pressed", GROUP_ACCENT),
-            new PaletteField(ThemeColorMath.SOFT, "Soft accent (focus ring)", GROUP_ACCENT),
-            new PaletteField("shade000", "Text", GROUP_TEXT),
-            new PaletteField("shade100", "Secondary text", GROUP_TEXT),
-            new PaletteField("text-shade100", "Menu text", GROUP_TEXT),
-            new PaletteField("text-shade200", "Menu text, quieter", GROUP_TEXT),
-            new PaletteField("text-shade300", "Menu text, faint", GROUP_TEXT),
-            new PaletteField("text-secondary-color", "Layout secondary text", GROUP_TEXT),
-            new PaletteField("body-bg-color", "Page ground", GROUP_SURFACES),
-            new PaletteField("shade900", "Ground surface", GROUP_SURFACES),
-            new PaletteField("shade800", "Cards and panels", GROUP_SURFACES),
-            new PaletteField("shade700", "Alternate table rows", GROUP_SURFACES),
-            new PaletteField("shade600", "Inputs, borders and dividers", GROUP_SURFACES),
-            new PaletteField("divider-color", "Dividers", GROUP_SURFACES),
-            new PaletteField("content-shade100", "Layout panels", GROUP_SURFACES),
-            new PaletteField("content-shade200", "Layout panels, tinted", GROUP_SURFACES),
-            new PaletteField("content-shade300", "Layout panels, selected", GROUP_SURFACES),
-            new PaletteField("content-shade400", "Layout panels, quiet", GROUP_SURFACES),
-            new PaletteField("menu-bgcolor", "Menu background", GROUP_MENU),
-            new PaletteField("sub-menu-bgcolor", "Submenu background", GROUP_MENU),
-            new PaletteField("menu-tooltip-bg-color", "Menu tooltip", GROUP_MENU),
-            new PaletteField("menu-tooltip-text-color", "Menu tooltip text", GROUP_MENU),
-            new PaletteField("right-sidebar-bg", "Right sidebar", GROUP_MENU));
+            new PaletteField(ThemeColorMath.ACCENT, "feedback.colors.accent", GROUP_ACCENT),
+            new PaletteField(ThemeColorMath.ON_ACCENT, "feedback.customPalettes.textOnAccent", GROUP_ACCENT),
+            new PaletteField(ThemeColorMath.HOVER, "feedback.customPalettes.accentHover", GROUP_ACCENT),
+            new PaletteField(ThemeColorMath.PRESSED, "feedback.customPalettes.accentPressed", GROUP_ACCENT),
+            new PaletteField(ThemeColorMath.SOFT, "feedback.customPalettes.accentSoft", GROUP_ACCENT),
+            new PaletteField("shade000", "feedback.colors.text", GROUP_TEXT),
+            new PaletteField("shade100", "feedback.customPalettes.secondaryText", GROUP_TEXT),
+            new PaletteField("text-shade100", "feedback.customPalettes.menuText", GROUP_TEXT),
+            new PaletteField("text-shade200", "feedback.customPalettes.menuTextQuieter", GROUP_TEXT),
+            new PaletteField("text-shade300", "feedback.customPalettes.menuTextFaint", GROUP_TEXT),
+            new PaletteField("text-secondary-color", "feedback.customPalettes.layoutSecondaryText", GROUP_TEXT),
+            new PaletteField("body-bg-color", "feedback.customPalettes.pageGround", GROUP_SURFACES),
+            new PaletteField("shade900", "feedback.customPalettes.groundSurface", GROUP_SURFACES),
+            new PaletteField("shade800", "feedback.customPalettes.cardsAndPanels", GROUP_SURFACES),
+            new PaletteField("shade700", "feedback.customPalettes.alternateTableRows", GROUP_SURFACES),
+            new PaletteField("shade600", "feedback.customPalettes.inputsBordersDividers", GROUP_SURFACES),
+            new PaletteField("divider-color", "feedback.customPalettes.dividers", GROUP_SURFACES),
+            new PaletteField("content-shade100", "feedback.customPalettes.layoutPanels", GROUP_SURFACES),
+            new PaletteField("content-shade200", "feedback.customPalettes.layoutPanelsTinted", GROUP_SURFACES),
+            new PaletteField("content-shade300", "feedback.customPalettes.layoutPanelsSelected", GROUP_SURFACES),
+            new PaletteField("content-shade400", "feedback.customPalettes.layoutPanelsQuiet", GROUP_SURFACES),
+            new PaletteField("menu-bgcolor", "feedback.customPalettes.menuBackground", GROUP_MENU),
+            new PaletteField("sub-menu-bgcolor", "feedback.customPalettes.submenuBackground", GROUP_MENU),
+            new PaletteField("menu-tooltip-bg-color", "feedback.customPalettes.menuTooltip", GROUP_MENU),
+            new PaletteField("menu-tooltip-text-color", "feedback.customPalettes.menuTooltipText", GROUP_MENU),
+            new PaletteField("right-sidebar-bg", "feedback.customPalettes.rightSidebar", GROUP_MENU));
     private static final List<String> ACCENT_KEYS = List.of(ThemeColorMath.ACCENT, ThemeColorMath.HOVER,
             ThemeColorMath.PRESSED, ThemeColorMath.SOFT, ThemeColorMath.ON_ACCENT);
     private static final ObjectMapper JSON = new ObjectMapper();
@@ -325,7 +332,8 @@ public class CustomPalettes {
         final Set<String> inputs = inputNames(dark);
         final List<PaletteField> catalog = dark ? DARK_FIELDS : LIGHT_FIELDS;
         final List<PaletteField> out = new ArrayList<>();
-        catalog.stream().filter(f -> f.group().equals(group) && inputs.contains(f.input())).forEach(out::add);
+        catalog.stream().filter(f -> f.group().equals(group) && inputs.contains(f.input()))
+                .map(CustomPalettes::worded).forEach(out::add);
         if (GROUP_MENU.equals(group)) {
             final Set<String> named = new HashSet<>();
             catalog.forEach(f -> named.add(f.input()));
@@ -338,7 +346,7 @@ public class CustomPalettes {
     /** The readability checks as JSON, for the editor's live checklist. */
     public String readabilityJson() {
         try {
-            return JSON.writeValueAsString(READ_PAIRS);
+            return JSON.writeValueAsString(READ_PAIRS.stream().map(CustomPalettes::worded).toList());
         } catch (final JsonProcessingException ex) {
             return "[]";
         }
@@ -356,17 +364,40 @@ public class CustomPalettes {
                 final double ratio = ThemeColorMath.contrast(in.get(dark ? pair.fgDark() : pair.fgLight()),
                         in.get(dark ? pair.bgDark() : pair.bgLight()));
                 if (ratio > 0 && ratio < pair.min()) {
-                    out.add(String.format(Locale.ROOT, "%s, %s mode (%.1f to 1)", pair.label(),
-                            dark ? "dark" : "light", ratio));
+                    final String shown = String.format(Locale.ROOT, "%.1f", ratio);
+                    out.add(dark ? Text.get("feedback.customPalettes.hardToReadDark", Text.get(pair.label()), shown)
+                            : Text.get("feedback.customPalettes.hardToReadLight", Text.get(pair.label()), shown));
                 }
             }
         }
         return out;
     }
 
+    private static PaletteField worded(final PaletteField field) {
+        return new PaletteField(field.input(), Text.get(field.label()), field.group());
+    }
+
+    private static ReadPair worded(final ReadPair pair) {
+        return new ReadPair(Text.get(pair.label()), pair.fgLight(), pair.bgLight(), pair.fgDark(), pair.bgDark(),
+                pair.min());
+    }
+
     /** The editor's groups in page order. */
     public List<String> getGroups() {
         return List.of(GROUP_ACCENT, GROUP_TEXT, GROUP_SURFACES, GROUP_MENU);
+    }
+
+    /**
+     * The message key of a group's heading, for {@code msg[...]} on the page (the light panel's fieldsets name the
+     * same keys); the menu group's is page copy, read from the pages' bundle like any other key.
+     */
+    public String groupLabelKey(final String group) {
+        return switch (group == null ? "" : group) {
+            case GROUP_ACCENT -> "feedback.themeColors.groupAccent";
+            case GROUP_TEXT -> "feedback.themeColors.groupText";
+            case GROUP_SURFACES -> "feedback.themeColors.groupSurfaces";
+            default -> "content.palette.menu";
+        };
     }
 
     /** A palette's colors in one mode as JSON, for the editor's script ({@code {}} for none). */
@@ -446,16 +477,18 @@ public class CustomPalettes {
     private CustomPalette draftOrRefuse(final Organization org, final String from) {
         final CustomPalette draft = draftFor(org, from);
         if (draft == null && !isAvailable()) {
-            PageFeedback.refuse("Not available", "Custom palettes are not available on this site yet.");
+            PageFeedback.refuse(Text.get("feedback.orgCommands.unavailable"),
+                    Text.get("feedback.customPalettes.notAvailableYet"));
         } else if (draft == null) {
-            PageFeedback.refuse("Unknown palette", "That palette no longer exists. Reload the page.");
+            PageFeedback.refuse(Text.get("feedback.customPalettes.unknownPalette"),
+                    Text.get("feedback.customPalettes.noLongerExists"));
         }
         return draft;
     }
 
     private static boolean roomFor(final List<CustomPalette> palettes) {
-        return palettes.size() < MAX_PALETTES || PageFeedback.refuse("Too many palettes",
-                "An organization may keep at most " + MAX_PALETTES + " palettes. Delete one first.");
+        return palettes.size() < MAX_PALETTES || PageFeedback.refuse(Text.get("feedback.customPalettes.tooMany"),
+                Text.get("feedback.customPalettes.tooManyDetail", MAX_PALETTES));
     }
 
     /**
@@ -515,7 +548,8 @@ public class CustomPalettes {
             return null;
         }
         if (source == null || !manifest().containsKey(source)) {
-            PageFeedback.refuse("Not saved", "The palette's colors could not be read. Reload the page and retry.");
+            PageFeedback.refuse(Text.get("feedback.shared.notSaved"),
+                    Text.get("feedback.customPalettes.colorsNotRead"));
             return null;
         }
         final String id = UUID.randomUUID().toString().replace("-", "").substring(0, 10);
@@ -553,7 +587,8 @@ public class CustomPalettes {
         final List<CustomPalette> palettes = new ArrayList<>(palettesOf(fresh));
         final int index = indexOf(palettes, id);
         if (index < 0) {
-            return PageFeedback.refuse("Unknown palette", "That palette no longer exists. Reload the page.");
+            return PageFeedback.refuse(Text.get("feedback.customPalettes.unknownPalette"),
+                    Text.get("feedback.customPalettes.noLongerExists"));
         }
         final CustomPalette made = written(palettes, palettes.get(index), name, lightJson, darkJson);
         if (made == null) {
@@ -575,12 +610,13 @@ public class CustomPalettes {
             final String lightJson, final String darkJson) {
         final String cleanName = cleanName(name);
         if (cleanName == null) {
-            PageFeedback.refuse("Name needed", "Give the palette a name of at most " + MAX_NAME + " characters.");
+            PageFeedback.refuse(Text.get("feedback.customPalettes.nameNeeded"),
+                    Text.get("feedback.customPalettes.nameNeededDetail", MAX_NAME));
             return null;
         }
         if (!nameFree(palettes, cleanName, palette.id())) {
-            PageFeedback.refuse("Name taken", "This organization already has a palette called \"" + cleanName
-                    + "\". Choose another name.");
+            PageFeedback.refuse(Text.get("feedback.customPalettes.nameTaken"),
+                    Text.get("feedback.customPalettes.nameTakenDetail", cleanName));
             return null;
         }
         final Map<String, String> light = cleanColors(parse(lightJson), inputNames(false), true);
@@ -591,8 +627,8 @@ public class CustomPalettes {
     /** What a save says: the name, and every pair that is hard to read (saving one is allowed). */
     private String savedMessage(final CustomPalette palette) {
         final List<String> hard = hardToRead(palette);
-        return "Saved \"" + palette.name() + "\"." + (hard.isEmpty() ? ""
-                : " Some colors are hard to read: " + String.join("; ", hard) + ".");
+        return hard.isEmpty() ? Text.get("feedback.customPalettes.saved", palette.name())
+                : Text.get("feedback.customPalettes.savedHardToRead", palette.name(), String.join("; ", hard));
     }
 
     /**
@@ -622,7 +658,8 @@ public class CustomPalettes {
         final List<CustomPalette> palettes = new ArrayList<>(palettesOf(fresh));
         final int index = indexOf(palettes, id);
         if (index < 0) {
-            PageFeedback.refuse("Unknown palette", "That palette no longer exists. Reload the page.");
+            PageFeedback.refuse(Text.get("feedback.customPalettes.unknownPalette"),
+                    Text.get("feedback.customPalettes.noLongerExists"));
             return null;
         }
         final CustomPalette removed = palettes.remove(index);
@@ -637,8 +674,8 @@ public class CustomPalettes {
         }
         orgs.audit(callerSource.get(), fresh, "Color palette '" + removed.name() + "' (" + id + ") deleted"
                 + (inUse ? "; the site was using it and now uses the platform default" : ""));
-        return "Deleted \"" + removed.name() + "\"." + (inUse
-                ? " The site was using it, so it now uses the platform default palette." : "");
+        return inUse ? Text.get("feedback.customPalettes.deletedWasInUse", removed.name())
+                : Text.get("feedback.customPalettes.deleted", removed.name());
     }
 
     /** The editor's address for a palette card's {@code custom:<id>}, or null for a stock card. */
@@ -691,7 +728,7 @@ public class CustomPalettes {
 
     /** A fresh org the caller may manage, or null (growled). */
     private Organization editable(final String orgId) {
-        return OrgOwnedLists.editable(orgs, orgId, "color palettes");
+        return OrgOwnedLists.editable(orgs, orgId, Text.get("feedback.customPalettes.adminsOnly"));
     }
 
     /**
@@ -701,21 +738,23 @@ public class CustomPalettes {
     static Map<String, String> cleanColors(final Map<String, String> colors, final Set<String> known,
             final boolean complete) {
         if (colors == null) {
-            PageFeedback.refuse("Not saved", "The palette's colors could not be read. Reload the page and retry.");
+            PageFeedback.refuse(Text.get("feedback.shared.notSaved"),
+                    Text.get("feedback.customPalettes.colorsNotRead"));
             return null;
         }
         final Map<String, String> out = new TreeMap<>();
         for (final Map.Entry<String, String> entry : colors.entrySet()) {
             final String color = ThemeColorMath.normalize(entry.getValue());
             if (!known.contains(entry.getKey()) || color == null) {
-                PageFeedback.refuse("Not saved", "'" + entry.getValue() + "' is not a color this palette can use for "
-                        + entry.getKey() + ".");
+                PageFeedback.refuse(Text.get("feedback.shared.notSaved"),
+                        Text.get("feedback.customPalettes.notAColor", entry.getValue(), entry.getKey()));
                 return null;
             }
             out.put(entry.getKey(), color);
         }
         if (complete && !out.keySet().containsAll(known)) {
-            PageFeedback.refuse("Not saved", "The palette is missing some of its colors. Reload the page and retry.");
+            PageFeedback.refuse(Text.get("feedback.shared.notSaved"),
+                    Text.get("feedback.customPalettes.colorsMissing"));
             return null;
         }
         return out;

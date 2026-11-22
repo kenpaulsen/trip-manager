@@ -34,8 +34,11 @@ import org.paulsens.trip.action.LodgingViews.DayRoom;
 import org.paulsens.trip.action.LodgingViews.DayStay;
 import org.paulsens.trip.action.LodgingViews.HotelCalendar;
 import org.paulsens.trip.audit.AuditEventBuilder;
+import org.paulsens.trip.audit.RequestContext;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.i18n.Formats;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.Accommodation;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
@@ -162,11 +165,11 @@ public class HotelCommands {
      */
     public boolean saveBlock(final String accId, final BlockForm form) {
         if (!canEdit(accId)) {
-            return refuse("Not allowed: only this hotel's managers can change what it has available.");
+            return refuse(Text.get("feedback.hotelCommands.notAllowed"));
         }
         final Accommodation acc = accommodation(accId);
         if (acc == null || form == null) {
-            return refuse("That accommodation no longer exists.");
+            return refuse(Text.get("feedback.hotelCommands.accommodationGone"));
         }
         final String problem = blockProblem(acc, form);
         if (problem != null) {
@@ -187,44 +190,46 @@ public class HotelCommands {
         final String what = (block == null ? "Blocked rooms " : "Changed the block on rooms ")
                 + roomLabels(acc, saving) + ": " + RoomAvailability.describe(saving);
         audit(acc, what);
-        info((block == null ? "Blocked " : "Updated the block on ") + roomLabels(acc, saving) + ", "
-                + RoomAvailability.nights(saving) + ".");
+        final String nights = RoomAvailability.nights(saving);
+        info(block == null ? Text.get("feedback.hotelCommands.blocked", roomLabels(acc, saving), nights)
+                : Text.get("feedback.hotelCommands.blockUpdated", roomLabels(acc, saving), nights));
         return true;
     }
 
     /** Frees the rooms a block was holding. The rooms themselves are untouched. */
     public boolean deleteBlock(final String accId, final String blockId) {
         if (!canEdit(accId)) {
-            return refuse("Not allowed: only this hotel's managers can change what it has available.");
+            return refuse(Text.get("feedback.hotelCommands.notAllowed"));
         }
         final Accommodation acc = accommodation(accId);
         final RoomBlock block = findBlock(accId, blockId);
         if (acc == null || block == null) {
-            return refuse("That block is already gone.");
+            return refuse(Text.get("feedback.hotelCommands.blockGone"));
         }
         if (!Boolean.TRUE.equals(DAO.getInstance().deleteRoomBlock(acc.getId(), block.getId()))) {
-            return refuse("The block could not be removed.");
+            return refuse(Text.get("feedback.hotelCommands.blockNotRemoved"));
         }
         audit(acc, "Removed the block on rooms " + roomLabels(acc, block) + ": "
                 + RoomAvailability.describe(block));
-        info("Rooms " + roomLabels(acc, block) + " are available again " + RoomAvailability.nights(block) + ".");
+        info(Text.get("feedback.hotelCommands.roomsAvailableAgain", roomLabels(acc, block),
+                RoomAvailability.nights(block)));
         return true;
     }
 
     private String blockProblem(final Accommodation acc, final BlockForm form) {
         if (form.getRoomIds().isEmpty()) {
-            return "Choose at least one room to block.";
+            return Text.get("feedback.hotelCommands.chooseRoom");
         }
         if (form.getRoomIds().size() > MAX_BLOCK_ROOMS) {
-            return "A block holds at most " + MAX_BLOCK_ROOMS + " rooms.";
+            return Text.get("feedback.hotelCommands.tooManyRooms", MAX_BLOCK_ROOMS);
         }
         for (final String roomId : form.getRoomIds()) {
             if (acc.room(roomId) == null) {
-                return "One of those rooms is not at " + acc.getName() + " any more; reopen the dialog.";
+                return Text.get("feedback.hotelCommands.roomNotThere", acc.getName());
             }
         }
         if (form.start() == null || form.end() == null || !form.end().isAfter(form.start())) {
-            return "Pick the first blocked night and the morning the rooms are free again.";
+            return Text.get("feedback.hotelCommands.pickNights");
         }
         return null;
     }
@@ -232,12 +237,12 @@ public class HotelCommands {
     private boolean store(final RoomBlock block) {
         try {
             return Boolean.TRUE.equals(DAO.getInstance().saveRoomBlock(block))
-                    || refuse("The block could not be saved.");
+                    || refuse(Text.get("feedback.hotelCommands.blockNotSaved"));
         } catch (final ConditionalCheckFailedException ex) {
-            return refuse("Saved by someone else: reload the page and try again.");
+            return refuse(Text.get("feedback.shared.savedBySomeoneElse"));
         } catch (final IOException ex) {
             log.error("Unable to save room block {}", block.getId(), ex);
-            return refuse("The block could not be saved: " + ex.getMessage());
+            return refuse(Text.get("feedback.hotelCommands.blockNotSavedBecause", ex.getMessage()));
         }
     }
 
@@ -324,9 +329,9 @@ public class HotelCommands {
 
     private static String label(final Trip trip, final boolean mine) {
         if (trip == null) {
-            return "a trip that no longer exists";
+            return Text.get("feedback.hotelCommands.tripGone");
         }
-        return mine ? trip.getTitle() : "another organization's trip";
+        return mine ? trip.getTitle() : Text.get("feedback.hotelCommands.otherOrgTrip");
     }
 
     private String orgName(final Trip trip, final boolean mine) {
@@ -457,7 +462,7 @@ public class HotelCommands {
 
     private ScheduleEvent<String> blockEvent(final Accommodation acc, final RoomBlock block) {
         final String reason = (block.getReason() == null || block.getReason().isBlank())
-                ? "not available" : block.getReason();
+                ? Text.get("feedback.hotelCommands.blockNotAvailable") : block.getReason();
         return DefaultScheduleEvent.<String>builder()
                 .id("block-" + block.getId().getValue())
                 .title("⊘ " + roomLabels(acc, block) + ": " + reason)
@@ -613,7 +618,9 @@ public class HotelCommands {
         final String label = (res.getRoomId() == null) ? null : acc.roomLabel(res.getRoomId());
         final HotelStayRow row = new HotelStayRow(res.getId().getValue(), guestsOf(lodging, res),
                 dateSpan(dateOf(res.getStart()), dateOf(res.getEnd())), res.nights(),
-                label == null ? "not assigned" : "Room " + label, LodgingConcessions.label(res.getCostConcession()),
+                label == null ? Text.get("feedback.hotelCommands.roomNotAssigned")
+                        : Text.get("common.roomNumbered", label),
+                        LodgingConcessions.label(res.getCostConcession()),
                 offer == null ? "?" : offer.getName(), OfferSchedules.COST_NOT_SET, null);
         if (offer == null || offer.getCost() == null) {
             return row;
@@ -653,13 +660,20 @@ public class HotelCommands {
         return (when == null) ? null : when.toLocalDate();
     }
 
-    /** "Sep 21 - Oct 1, 2026", or "Dec 30, 2026 - Jan 2, 2027" across a year end; one date when only one is set. */
+    /**
+     * "Sep 21 - Oct 1, 2026", or "Dec 30, 2026 - Jan 2, 2027" across a year end; one date when only one is set.
+     * Another language gets its own range shape ("21 sept – 1 oct 2026").
+     */
     static String dateSpan(final LocalDate from, final LocalDate to) {
         if (from == null && to == null) {
             return "";
         }
+        final Locale reader = RequestContext.currentLocale();
         if (from == null || to == null) {
-            return (from == null ? to : from).format(MONTH_DAY_YEAR);
+            return Formats.format(from == null ? to : from, "yMMMd", reader);
+        }
+        if (!Formats.isEnglish(reader)) {
+            return Formats.dateRange(from, to, "yMMMd", reader);
         }
         final String first = (from.getYear() == to.getYear()) ? from.format(MONTH_DAY) : from.format(MONTH_DAY_YEAR);
         return first + " - " + to.format(MONTH_DAY_YEAR);

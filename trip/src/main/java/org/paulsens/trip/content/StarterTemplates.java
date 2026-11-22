@@ -69,7 +69,7 @@ public final class StarterTemplates {
     public static final List<String> TONES = List.of("plain", "tint", "dark");
 
     /** Ids never deleted by the cleanup script without {@code --include-starters}. */
-    public static final List<String> IDS = List.of(YOUTUBE_VIDEO_ID, IMAGE_ID, TEXT_ONLY_ID,
+    public static final List<String> IDS = withVersions(List.of(YOUTUBE_VIDEO_ID, IMAGE_ID, TEXT_ONLY_ID,
             CONTAINER_ID, PILGRIMAGES_ID, PHOTO_ALBUMS_ID, FILE_ID, PERSON_ID, PEOPLE_LIST_ID,
             REGISTRATION_RECEIVED_ID, REGISTRATION_APPROVED_ID, SUPPORT_REQUEST_ID,
             PAYMENT_CONFIRMATION_ID, PAYMENT_FAILED_ID, CHECKOUT_CONFIRMATION_ID, ORG_INVITE_ID,
@@ -78,7 +78,7 @@ public final class StarterTemplates {
             BAND_FEATURES_ID, BAND_STATS_ID, BAND_FAQ_ID, BAND_LOGOS_ID,
             TRIP_SCHEDULE_ID, TRIP_REGISTRATION_ID,
             ReminderDefaults.BALANCE_DUE_ID, ReminderDefaults.WAIVER_ID, ReminderDefaults.PASSPORT_ID,
-            ReminderDefaults.COUNTDOWN_ID);
+            ReminderDefaults.COUNTDOWN_ID));
 
     private StarterTemplates() {
     }
@@ -101,6 +101,17 @@ public final class StarterTemplates {
         for (final ReminderDefaults.Text text : ReminderDefaults.TEXTS) {
             all.add(mail(text.id(), text.subject(), text.description(), text.body()));
         }
+        // Last: the other-language versions of the email starters ({id}@es), each a MAIL row of its own.
+        for (final StarterTranslations.Version version : StarterTranslations.VERSIONS) {
+            all.add(mail(version.id(), version.subject(), StarterTranslations.descriptionOf(version), version.body()));
+        }
+        return List.copyOf(all);
+    }
+
+    /** The starters' ids followed by their language versions' ids, in the order {@link #all()} lists them. */
+    private static List<String> withVersions(final List<String> ids) {
+        final List<String> all = new ArrayList<>(ids);
+        StarterTranslations.VERSIONS.forEach(version -> all.add(version.id()));
         return List.copyOf(all);
     }
 

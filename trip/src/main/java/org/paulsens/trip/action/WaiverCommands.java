@@ -13,13 +13,17 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.AuditEventBuilder;
+import org.paulsens.trip.audit.RequestContext;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.i18n.Formats;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
@@ -51,9 +55,6 @@ public class WaiverCommands {
 
     static final int MAX_TITLE = 120;
     static final int MAX_NOTE = 500;
-    static final String CONFLICT_MESSAGE = "Saved by someone else: reload the page and try again.";
-    private static final java.time.format.DateTimeFormatter SIGNED_DATE = java.time.format.DateTimeFormatter
-            .ofPattern("MMM d, yyyy", java.util.Locale.ROOT).withZone(java.time.ZoneOffset.UTC);
 
     private final Supplier<Caller> callerSource;
     private final Supplier<OrgCommands> orgSource;
@@ -150,15 +151,21 @@ public class WaiverCommands {
         }
     }
 
-    /** "I have read and agree to {title}." -- the first box, and the words the record and the PDF repeat. */
-    public static String agreeText(final String title) {
-        return "I have read and agree to " + (title == null ? "this document" : title) + ".";
+    /**
+     * "I have read and agree to {title}." -- the first box, and the words the record and the PDF repeat. Made
+     * again wherever it is shown, in that reader's language: the sign page's and the apps' (the signer's), the
+     * signed copy's (the trip's, {@link #signedPdf}).
+     */
+    public static String agreeText(final String title, final Locale locale) {
+        return (title == null) ? Text.forLocale(locale, "feedback.waiverCommands.agreeUntitled")
+                : Text.forLocale(locale, "feedback.waiverCommands.agree", title);
     }
 
     /** The second box: the signer attests they are the traveler, or may sign for them. */
-    public static String authorityText(final String travelerName) {
-        final String name = (travelerName == null || travelerName.isBlank()) ? "this traveler" : travelerName;
-        return "I attest that I am " + name + ", or that I am authorized to sign on " + name + "'s behalf.";
+    public static String authorityText(final String travelerName, final Locale locale) {
+        return (travelerName == null || travelerName.isBlank())
+                ? Text.forLocale(locale, "feedback.waiverCommands.authorityUnnamed")
+                : Text.forLocale(locale, "feedback.waiverCommands.authority", travelerName);
     }
 
     // ================================================================== org library
@@ -210,7 +217,7 @@ public class WaiverCommands {
     /** A new document at version 1. */
     public Result createDocument(final String orgId, final String title, final String bodyHtml, final String note) {
         if (!canManage(orgId)) {
-            return refusal(Result.NOT_ALLOWED, "Organization admin required.");
+            return refusal(Result.NOT_ALLOWED, Text.get("api.orgWaivers.adminRequired"));
         }
         final String problem = problemWith(title, bodyHtml, note);
         if (problem != null) {
@@ -225,7 +232,8 @@ public class WaiverCommands {
                 .created(now)
                 .versions(List.of(newVersion(1, title, bodyHtml, note, caller.personId(), now)))
                 .build();
-        return store(doc, "Created document '" + doc.getTitle() + "' (version 1).", caller);
+        return store(doc, "Created document '" + doc.getTitle() + "' (version 1).",
+                Text.get("feedback.waiverCommands.created", doc.getTitle()), caller);
     }
 
     /**
@@ -235,7 +243,7 @@ public class WaiverCommands {
     public Result publishVersion(final String orgId, final String id, final String title, final String bodyHtml,
             final String note) {
         if (!canManage(orgId)) {
-            return refusal(Result.NOT_ALLOWED, "Organization admin required.");
+            return refusal(Result.NOT_ALLOWED, Text.get("api.orgWaivers.adminRequired"));
         }
         final String problem = problemWith(title, bodyHtml, note);
         if (problem != null) {
@@ -243,35 +251,37 @@ public class WaiverCommands {
         }
         final WaiverDocument fresh = DAO.getInstance().getWaiverDocument(orgId, id, Cached.NO).orElse(null);
         if (fresh == null) {
-            return refusal(Result.NOT_FOUND, "That document no longer exists.");
+            return refusal(Result.NOT_FOUND, Text.get("feedback.waiverCommands.documentGone"));
         }
         final WaiverVersion current = fresh.getCurrent();
         final String clean = WaiverHtml.sanitize(bodyHtml);
         if (current != null && clean.equals(current.getBodyHtml()) && title.trim().equals(current.getTitle())) {
-            return refusal(Result.VALIDATION_FAILED, "Nothing changed: edit the title or the text first.");
+            return refusal(Result.VALIDATION_FAILED, Text.get("feedback.waiverCommands.nothingChanged"));
         }
         final Caller caller = callerSource.get();
         final int next = fresh.getCurrentNumber() + 1;
         fresh.getVersions().add(newVersion(next, title, bodyHtml, note, caller.personId(), LocalDateTime.now()));
         fresh.setTitle(title.trim());
-        return store(fresh, "Published version " + next + " of '" + fresh.getTitle() + "'.", caller);
+        return store(fresh, "Published version " + next + " of '" + fresh.getTitle() + "'.",
+                Text.get("feedback.waiverCommands.published", String.valueOf(next), fresh.getTitle()), caller);
     }
 
     /** Retires (hides from the trip pickers) or restores a document. Trips already requiring it keep it. */
     public Result setRetired(final String orgId, final String id, final boolean retired) {
         if (!canManage(orgId)) {
-            return refusal(Result.NOT_ALLOWED, "Organization admin required.");
+            return refusal(Result.NOT_ALLOWED, Text.get("api.orgWaivers.adminRequired"));
         }
         final WaiverDocument fresh = DAO.getInstance().getWaiverDocument(orgId, id, Cached.NO).orElse(null);
         if (fresh == null) {
-            return refusal(Result.NOT_FOUND, "That document no longer exists.");
+            return refusal(Result.NOT_FOUND, Text.get("feedback.waiverCommands.documentGone"));
         }
         if (fresh.isRetired() == retired) {
             return new Result(Result.OK, null, fresh);
         }
         fresh.setRetired(retired);
         return store(fresh, (retired ? "Retired" : "Restored") + " document '" + fresh.getTitle() + "'.",
-                callerSource.get());
+                retired ? Text.get("feedback.waiverCommands.retiredDocument", fresh.getTitle())
+                        : Text.get("feedback.waiverCommands.restoredDocument", fresh.getTitle()), callerSource.get());
     }
 
     // ------------------------------------------------------------------ the pages' growling wrappers
@@ -287,10 +297,11 @@ public class WaiverCommands {
         final Result result = (id == null || id.isBlank())
                 ? createDocument(orgId, title, bodyHtml, note) : publishVersion(orgId, id, title, bodyHtml, note);
         if (result.ok()) {
-            PageFeedback.info("Saved", result.message() + " Trips keep the version they pinned.");
+            PageFeedback.info(Text.get("common.saved"),
+                    Text.get("feedback.waiverCommands.savedTripsKeep", result.message()));
             return result.document().getId();
         }
-        PageFeedback.error("Not saved", result.message());
+        PageFeedback.error(Text.get("feedback.shared.notSaved"), result.message());
         return null;
     }
 
@@ -298,11 +309,12 @@ public class WaiverCommands {
     public void retireFromPage(final String orgId, final String id, final boolean retired) {
         final Result result = setRetired(orgId, id, retired);
         if (result.ok()) {
-            PageFeedback.info(retired ? "Retired" : "Restored", retired
-                    ? "New trips can no longer add it; trips that require it keep it."
-                    : "Trips can add it again.");
+            PageFeedback.info(retired ? Text.get("common.retired")
+                    : Text.get("common.restored"),
+                    retired ? Text.get("feedback.waiverCommands.retiredDetail")
+                            : Text.get("feedback.waiverCommands.restoredDetail"));
         } else {
-            PageFeedback.error("Not changed", result.message());
+            PageFeedback.error(Text.get("feedback.waiverCommands.notChanged"), result.message());
         }
     }
 
@@ -313,28 +325,29 @@ public class WaiverCommands {
             case "add" -> addToTrip(trip, waiverId);
             case "move" -> moveVersion(trip, waiverId, version, acceptOlder);
             case "remove" -> removeFromTrip(trip, waiverId);
-            default -> "Unknown change.";
+            default -> Text.get("feedback.waiverCommands.unknownChange");
         };
         if (problem == null) {
-            PageFeedback.info("Required documents saved", "Changes here are saved immediately.");
+            PageFeedback.info(Text.get("feedback.waiverCommands.requiredSaved"),
+                    Text.get("feedback.waiverCommands.requiredSavedDetail"));
             return true;
         }
-        PageFeedback.error("Not saved", problem);
+        PageFeedback.error(Text.get("feedback.shared.notSaved"), problem);
         return false;
     }
 
     private static String problemWith(final String title, final String bodyHtml, final String note) {
         if (title == null || title.isBlank()) {
-            return "Give the document a title.";
+            return Text.get("feedback.waiverCommands.titleNeeded");
         }
         if (title.trim().length() > MAX_TITLE) {
-            return "The title is too long (at most " + MAX_TITLE + " characters).";
+            return Text.get("feedback.waiverCommands.titleTooLong", MAX_TITLE);
         }
         if (bodyHtml == null || WaiverHtml.isBlank(WaiverHtml.sanitize(bodyHtml))) {
-            return "The document has no text.";
+            return Text.get("feedback.waiverCommands.noText");
         }
         if (note != null && note.trim().length() > MAX_NOTE) {
-            return "The note is too long (at most " + MAX_NOTE + " characters).";
+            return Text.get("feedback.waiverCommands.noteTooLong", MAX_NOTE);
         }
         return null;
     }
@@ -353,22 +366,23 @@ public class WaiverCommands {
                 .build();
     }
 
-    private Result store(final WaiverDocument doc, final String message, final Caller caller) {
+    /** {@code message} is the audit trail's line, which stays English; {@code shown} is what the caller reads. */
+    private Result store(final WaiverDocument doc, final String message, final String shown, final Caller caller) {
         try {
             if (!DAO.getInstance().saveWaiverDocument(doc)) {
-                return refusal(Result.STORE_FAILED, "The document was not saved.");
+                return refusal(Result.STORE_FAILED, Text.get("feedback.waiverCommands.documentNotSaved"));
             }
         } catch (final ConditionalCheckFailedException ex) {
-            return refusal(Result.CONFLICT, CONFLICT_MESSAGE);
+            return refusal(Result.CONFLICT, Text.get("feedback.shared.savedBySomeoneElse"));
         } catch (final IllegalArgumentException ex) {
             return refusal(Result.VALIDATION_FAILED, ex.getMessage());
         } catch (final IOException ex) {
             log.error("Saving waiver document {} failed", doc.getId(), ex);
-            return refusal(Result.STORE_FAILED, "The document was not saved.");
+            return refusal(Result.STORE_FAILED, Text.get("feedback.waiverCommands.documentNotSaved"));
         }
         auditSource.get().waiver(AuditEventBuilder.TARGET_WAIVER, doc.getId(), doc.getOrgId(), message,
                 caller.auditActor());
-        return new Result(Result.OK, message, doc);
+        return new Result(Result.OK, shown, doc);
     }
 
     private static Result refusal(final String code, final String message) {
@@ -407,7 +421,8 @@ public class WaiverCommands {
         final List<PinRow> rows = new ArrayList<>();
         for (final TripWaiver pin : trip.getWaivers()) {
             final WaiverDocument doc = orgDocument(trip, pin.getWaiverId());
-            rows.add(new PinRow(pin.getWaiverId(), doc == null ? "(missing document)" : titleAt(doc, pin.getVersion()),
+            rows.add(new PinRow(pin.getWaiverId(), doc == null
+                    ? Text.get("feedback.waiverCommands.missingDocument") : titleAt(doc, pin.getVersion()),
                     pin.getVersion(), pin.isAcceptOlder(), doc == null ? 0 : doc.getCurrentNumber(),
                     doc != null && doc.isRetired(), doc == null));
         }
@@ -433,14 +448,14 @@ public class WaiverCommands {
      */
     public String addToTrip(final Trip trip, final String waiverId) {
         if (!canConfigure(trip)) {
-            return "Registration admin or trip manager required.";
+            return Text.get("api.tripWaivers.adminOrManagerRequired");
         }
         final WaiverDocument doc = orgDocument(trip, waiverId);
         if (doc == null || doc.isRetired()) {
-            return "That document is not available for this trip.";
+            return Text.get("feedback.waiverCommands.documentNotAvailable");
         }
         if (trip.waiver(waiverId) != null) {
-            return "The trip already requires '" + doc.getTitle() + "'.";
+            return Text.get("feedback.waiverCommands.alreadyRequired", doc.getTitle());
         }
         final List<TripWaiver> pins = new ArrayList<>(trip.getWaivers());
         pins.add(TripWaiver.builder().waiverId(waiverId).version(doc.getCurrentNumber()).acceptOlder(true)
@@ -454,12 +469,12 @@ public class WaiverCommands {
      */
     public String moveVersion(final Trip trip, final String waiverId, final int version, final boolean acceptOlder) {
         if (!canConfigure(trip)) {
-            return "Registration admin or trip manager required.";
+            return Text.get("api.tripWaivers.adminOrManagerRequired");
         }
         final TripWaiver pin = trip.waiver(waiverId);
         final WaiverDocument doc = orgDocument(trip, waiverId);
         if (pin == null || doc == null || doc.version(version) == null) {
-            return "That version is not available.";
+            return Text.get("feedback.waiverCommands.versionNotAvailable");
         }
         final List<TripWaiver> pins = new ArrayList<>();
         for (final TripWaiver existing : trip.getWaivers()) {
@@ -475,7 +490,7 @@ public class WaiverCommands {
     /** Stops requiring a document. Signatures already given stay on record. */
     public String removeFromTrip(final Trip trip, final String waiverId) {
         if (!canConfigure(trip)) {
-            return "Registration admin or trip manager required.";
+            return Text.get("api.tripWaivers.adminOrManagerRequired");
         }
         if (trip.waiver(waiverId) == null) {
             return null;
@@ -493,16 +508,17 @@ public class WaiverCommands {
      */
     public String replacePins(final Trip trip, final List<TripWaiver> wanted) {
         if (!canConfigure(trip)) {
-            return "Registration admin or trip manager required.";
+            return Text.get("api.tripWaivers.adminOrManagerRequired");
         }
         final Map<String, TripWaiver> byId = new LinkedHashMap<>();
         for (final TripWaiver pin : (wanted == null) ? List.<TripWaiver>of() : wanted) {
             final WaiverDocument doc = orgDocument(trip, pin.getWaiverId());
             if (doc == null || doc.version(pin.getVersion()) == null) {
-                return "Unknown document or version: " + pin.getWaiverId() + " v" + pin.getVersion() + ".";
+                return Text.get("feedback.waiverCommands.unknownPin", pin.getWaiverId(),
+                        String.valueOf(pin.getVersion()));
             }
             if (byId.containsKey(pin.getWaiverId())) {
-                return "A document is listed twice: " + doc.getTitle() + ".";
+                return Text.get("feedback.waiverCommands.listedTwice", doc.getTitle());
             }
             final TripWaiver existing = trip.waiver(pin.getWaiverId());
             byId.put(pin.getWaiverId(), TripWaiver.builder().waiverId(pin.getWaiverId()).version(pin.getVersion())
@@ -523,12 +539,12 @@ public class WaiverCommands {
                 final Trip fresh = stored.get();
                 fresh.setWaivers(pins);
                 if (!dao.saveTrip(fresh)) {
-                    return "The trip was not saved.";
+                    return Text.get("feedback.waiverCommands.tripNotSaved");
                 }
             }
         } catch (final IOException | RuntimeException ex) {
             log.error("Saving the required documents of trip {} failed", trip.getId(), ex);
-            return "The trip was not saved.";
+            return Text.get("feedback.waiverCommands.tripNotSaved");
         }
         trip.setWaivers(pins);
         auditSource.get().waiver(AuditEventBuilder.TARGET_TRIP, trip.getId(), trip.getOrgId(),
@@ -597,16 +613,14 @@ public class WaiverCommands {
         final long outdated = reqs.stream().filter(r -> r.getStanding() == Standing.OUTDATED).count();
         if (missing == 0 && outdated == 0) {
             return reqs.stream().anyMatch(r -> r.getStanding() == Standing.SIGNED_OLDER)
-                    ? "Signed (earlier version)" : "Signed";
+                    ? Text.get("feedback.waiverCommands.signedEarlier") : Text.get("feedback.waiverCommands.signed");
         }
-        final List<String> parts = new ArrayList<>();
-        if (missing > 0) {
-            parts.add("Missing " + missing);
+        if (outdated == 0) {
+            return Text.get("feedback.waiverCommands.missing", String.valueOf(missing));
         }
-        if (outdated > 0) {
-            parts.add("Must re-sign " + outdated);
-        }
-        return String.join(", ", parts);
+        return (missing == 0) ? Text.get("feedback.waiverCommands.mustResign", String.valueOf(outdated))
+                : Text.get("feedback.waiverCommands.missingAndMustResign", String.valueOf(missing),
+                        String.valueOf(outdated));
     }
 
     static Standing standingOf(final TripWaiver pin, final List<WaiverAcceptance> forDoc) {
@@ -643,30 +657,32 @@ public class WaiverCommands {
             final boolean agreed, final boolean authorityAttested, final ClientInfo client) {
         final Caller caller = callerSource.get();
         if (!caller.isAuthenticated()) {
-            return new AcceptResult(AcceptResult.NOT_ALLOWED, "Sign in to agree to documents.", null);
+            return new AcceptResult(AcceptResult.NOT_ALLOWED, Text.get("feedback.waiverCommands.signInToAgree"), null);
         }
         if (trip == null || subject == null) {
-            return new AcceptResult(AcceptResult.NOT_FOUND, "Unknown trip or traveler.", null);
+            return new AcceptResult(AcceptResult.NOT_FOUND, Text.get("feedback.waiverCommands.unknownTripOrTraveler"),
+                    null);
         }
         if (!agreed || !authorityAttested) {
             return new AcceptResult(AcceptResult.MISSING_ATTESTATION,
-                    "Tick both boxes to agree to the document.", null);
+                    Text.get("feedback.waiverCommands.tickBoth"), null);
         }
         final Person me = DAO.getInstance().getPerson(caller.personId(), Cached.NO).orElse(null);
         if (me == null || !mayActFor(caller, me, subject)) {
             // A signature names a real signer: an account with no person row (a bare site-admin login) cannot sign.
-            return new AcceptResult(AcceptResult.NOT_ALLOWED, "You cannot sign for this traveler.", null);
+            return new AcceptResult(AcceptResult.NOT_ALLOWED, Text.get("feedback.waiverCommands.cannotSignFor"), null);
         }
         final TripWaiver pin = trip.waiver(waiverId);
         if (pin == null || pin.getVersion() != version) {
             return new AcceptResult(AcceptResult.NOT_PINNED,
-                    "This document has changed. Reload the page and read the current version.", null);
+                    Text.get("feedback.waiverCommands.documentChanged"), null);
         }
         final WaiverDocument doc = orgDocument(trip, waiverId);
         final WaiverVersion text = (doc == null) ? null : doc.version(version);
         final Person traveler = DAO.getInstance().getPerson(subject, Cached.NO).orElse(null);
         if (text == null || traveler == null) {
-            return new AcceptResult(AcceptResult.NOT_FOUND, "Unknown document or traveler.", null);
+            return new AcceptResult(AcceptResult.NOT_FOUND,
+                    Text.get("feedback.waiverCommands.unknownDocumentOrTraveler"), null);
         }
         final ClientInfo from = (client == null) ? new ClientInfo(WaiverAcceptance.Client.API, null, null) : client;
         final WaiverAcceptance row = WaiverAcceptance.builder()
@@ -694,7 +710,7 @@ public class WaiverCommands {
         } catch (final IOException | RuntimeException ex) {
             log.error("Recording {}'s agreement to {} v{} on trip {} failed", subject, waiverId, version,
                     trip.getId(), ex);
-            return new AcceptResult(AcceptResult.STORE_FAILED, "Your agreement was not recorded. Try again.", null);
+            return new AcceptResult(AcceptResult.STORE_FAILED, Text.get("feedback.waiverCommands.notRecorded"), null);
         }
         if (!created) {
             return new AcceptResult(AcceptResult.OK, null, existing(trip.getId(), subject, waiverId, version, row));
@@ -776,14 +792,15 @@ public class WaiverCommands {
         }
         final List<Agreement> mine = agreementsFromChecks(checks).getOrDefault(personId, List.of());
         if (mine.isEmpty()) {
-            PageFeedback.warn("Not signed", "Tick both boxes under each document first.");
+            PageFeedback.warn(Text.get("feedback.waiverCommands.notSigned"),
+                    Text.get("feedback.waiverCommands.tickBothEach"));
             return;
         }
         final List<String> problems = applyAgreements(trip, Person.Id.from(personId), mine, ClientInfo.web());
         if (problems.isEmpty()) {
-            PageFeedback.info("Signed", "Thank you. Your agreement has been recorded.");
+            PageFeedback.info(Text.get("feedback.waiverCommands.signed"), Text.get("feedback.waiverCommands.thankYou"));
         } else {
-            PageFeedback.error("Not signed", String.join(" ", problems));
+            PageFeedback.error(Text.get("feedback.waiverCommands.notSigned"), String.join(" ", problems));
         }
     }
 
@@ -850,8 +867,13 @@ public class WaiverCommands {
             return null;
         }
         final Organization org = trip.getOrganization();
+        // The record is kept in the TRIP's language, not the reader's: a signed copy is a record, and the
+        // organizer, the signer and anyone the organization hands it to should all hold the same document
+        // whoever downloads it. The trip's language is the one its documents are written in, so the frame
+        // and the two attestations (made again here, WaiverPdf) then match the text that was signed.
         try {
-            return WaiverPdf.render(trip, org == null ? null : org.getName(), text, row);
+            return WaiverPdf.render(trip, org == null ? null : org.getName(), text, row,
+                    TripCommands.languageOf(trip).getLocale());
         } catch (final IOException ex) {
             log.error("Rendering the signed copy of {} v{} for {} failed", waiverId, version, subject, ex);
             return null;
@@ -874,14 +896,14 @@ public class WaiverCommands {
         return checkKey(personId, waiverId, version, part);
     }
 
-    /** {@link #authorityText} for EL. */
+    /** {@link #authorityText} for EL, in the language of the page the signer is reading. */
     public String authority(final String travelerName) {
-        return authorityText(travelerName);
+        return authorityText(travelerName, RequestContext.currentLocale());
     }
 
-    /** {@link #authorityText} naming a traveler by their full name, for EL. */
+    /** {@link #authorityText} naming a traveler by their full name, for EL, in the page's language. */
     public String authorityFor(final Person traveler) {
-        return authorityText(traveler == null ? null : fullName(traveler));
+        return authorityText(traveler == null ? null : fullName(traveler), RequestContext.currentLocale());
     }
 
     /** "Signed v2 on Oct 27, 2026 by Ken Parent" (UTC date), for the registration page. */
@@ -889,14 +911,21 @@ public class WaiverCommands {
         if (acceptance == null) {
             return "";
         }
-        final String when = (acceptance.getAcceptedAt() == null) ? "" : " on " + SIGNED_DATE.format(
-                acceptance.getAcceptedAt());
-        return "Signed v" + acceptance.getVersion() + when
-                + (acceptance.getSignerName() == null ? "" : " by " + acceptance.getSignerName());
+        final String version = String.valueOf(acceptance.getVersion());
+        final String by = acceptance.getSignerName();
+        if (acceptance.getAcceptedAt() == null) {
+            return (by == null) ? Text.get("feedback.waiverCommands.signedVersion", version)
+                    : Text.get("feedback.waiverCommands.signedVersionBy", version, by);
+        }
+        // The day in UTC, the zone the signing moment is recorded in, so the page and the PDF agree.
+        final String when = Formats.formatter("yMMMd", RequestContext.currentLocale())
+                .withZone(java.time.ZoneOffset.UTC).format(acceptance.getAcceptedAt());
+        return (by == null) ? Text.get("feedback.waiverCommands.signedVersionOn", version, when)
+                : Text.get("feedback.waiverCommands.signedVersionOnBy", version, when, by);
     }
 
-    /** {@link #agreeText} for EL. */
+    /** {@link #agreeText} for EL, in the language of the page the signer is reading. */
     public String agree(final String title) {
-        return agreeText(title);
+        return agreeText(title, RequestContext.currentLocale());
     }
 }

@@ -18,7 +18,9 @@ travels per call in `RequestOptions`, never the global `Stripe.apiKey`) · Apach
 unversioned `libheif.so` on `java.library.path`; without it HEIC uploads get a clean "convert to JPEG" rejection and
 everything else works) · metadata-extractor (EXIF orientation) · OWASP Java HTML Sanitizer (Apache-2.0 or
 BSD-2-Clause, no runtime dependencies; parses and writes hand-authored page HTML for `content/PageHtml`,
-`docs/migrations/html-clean.md`; keep it current, its 2026 releases are bypass fixes).
+`docs/migrations/html-clean.md`; keep it current, its 2026 releases are bypass fixes) · ICU4J (Unicode
+License v3, MIT-style, no runtime dependencies; plural-aware message formatting for `i18n/MessageText`, since the
+JDK's `MessageFormat` cannot express Croatian's three plural forms, `docs/i18n.md`).
 
 Build-only tooling (never on the application classpath, never in the WAR): checkstyle (LGPL-2.1), JaCoCo (EPL-2.0),
 and SpotBugs (engine LGPL-2.1; its Maven plugin Apache-2.0) with Find Security Bugs (LGPL-3.0). The LGPL tools are run

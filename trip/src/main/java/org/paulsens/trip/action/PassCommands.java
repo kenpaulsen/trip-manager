@@ -18,6 +18,7 @@ import org.paulsens.trip.audit.Audit;
 import org.paulsens.trip.cache.CacheKeys;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.Creds;
@@ -309,7 +310,7 @@ public class PassCommands {
      */
     public Boolean setPass(final String email, final String currPass, final String pass, final String pass2) {
         if (!pass.equals(pass2)) {
-            PageFeedback.error("Passwords do not match!");
+            PageFeedback.error(Text.get("feedback.passCommands.passwordsDoNotMatch"));
             return false;
         }
         if (!acceptable(pass)) {
@@ -319,11 +320,11 @@ public class PassCommands {
         final Person person = dao.getPersonByEmail(email, Cached.NO);
         final Creds currCreds = getCreds(email, currPass);
         if ((currCreds == null) || (person == null)) {
-            PageFeedback.error("Person or credentials missing!");
+            PageFeedback.error(Text.get("feedback.passCommands.personOrCredsMissing"));
             return false;
         }
         if (!currCreds.getUserId().equals(person.getId())) {
-            PageFeedback.error("You do not have permission to change this person's password!");
+            PageFeedback.error(Text.get("feedback.passCommands.notYourPersonsPassword"));
             return false;
         }
         return setPass(email, pass);
@@ -342,7 +343,7 @@ public class PassCommands {
                     .message("Refused to remove credentials for " + email + ": not permitted to change this"
                             + " person's sign-in")
                     .log();
-            return PageFeedback.refuse(OrgCommands.SIGN_IN_CHANGE_REFUSED);
+            return PageFeedback.refuse(PersonCommands.signInChangeRefused());
         }
         final Boolean result = DAO.getInstance().removeCreds(email);
         if (Boolean.TRUE.equals(result) && doomed != null && doomed.getUserId() != null) {
@@ -373,14 +374,14 @@ public class PassCommands {
         }
         // A blank old address has no login to move (see below), so there is nothing here to authorize.
         if (!Util.isBlank(oldEmail) && !orgSource.get().canChangeSignInOf(person.getId())) {
-            return PageFeedback.refuse(OrgCommands.SIGN_IN_CHANGE_REFUSED);
+            return PageFeedback.refuse(PersonCommands.signInChangeRefused());
         }
         final Boolean result;
         // Update their old Creds to use their new email
         final Creds newCreds = adminGetCreds(newEmail);
         if (newCreds != null && !newCreds.getUserId().equals(person.getId())) {
             // Trying to use an email address that is not theirs and already in use!
-            final String msg = person.getEmail() + " is already in use! Reverting.";
+            final String msg = Text.get("feedback.passCommands.emailInUseReverting", person.getEmail());
             addMessage(null, new FacesMessage(FacesMessage.SEVERITY_WARN, msg, ""));
             person.setEmail(oldEmail);
             try {
@@ -390,7 +391,9 @@ public class PassCommands {
                     throw new IOException("Failed to revert email!");
                 }
             } catch (final IOException ex) {
-                addMessage(null, new FacesMessage(FacesMessage.SEVERITY_ERROR, "Unable to revert email!", ""));
+                addMessage(null,
+                        new FacesMessage(FacesMessage.SEVERITY_ERROR,
+                        Text.get("feedback.passCommands.emailNotReverted"), ""));
             }
             result = false;
         } else {
@@ -438,7 +441,7 @@ public class PassCommands {
         final DAO dao = DAO.getInstance();
         final Person person = dao.getPersonByEmail(email, Cached.NO);
         if (person == null) {
-            PageFeedback.error("Check email address, and make sure you have registered.");
+            PageFeedback.error(Text.get("feedback.passCommands.checkEmail"));
             return false;
         }
         // The stored row with a new password, NOT a fresh row: the row also carries the account's role and
@@ -474,7 +477,7 @@ public class PassCommands {
      */
     public Boolean setPassAfterCodeLogin(final String pass, final String pass2) {
         if (Util.isBlank(pass) || !pass.equals(pass2)) {
-            PageFeedback.error("Passwords do not match!");
+            PageFeedback.error(Text.get("feedback.passCommands.passwordsDoNotMatch"));
             return false;
         }
         if (!acceptable(pass)) {
@@ -484,7 +487,7 @@ public class PassCommands {
         final Object flag = session == null ? null : session.getAttribute(Sessions.CODE_LOGIN);
         final Object email = session == null ? null : session.getAttribute(Sessions.LOGIN_EMAIL);
         if (!Boolean.TRUE.equals(flag) || email == null) {
-            PageFeedback.error("You do not have permission to change this password!");
+            PageFeedback.error(Text.get("feedback.passCommands.notYourPassword"));
             return false;
         }
         // One shot: consumed before the attempt, so a failed save cannot leave the authorization behind.

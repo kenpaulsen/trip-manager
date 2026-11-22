@@ -17,6 +17,7 @@ import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.Audit;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.Creds;
@@ -90,17 +91,17 @@ public class PasskeyResource extends BaseResource {
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response registerStart(@HeaderParam(CSRF_HEADER) final String csrf) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         if (viewingAs()) {
             return viewAsRefused();
         }
         if (!passkeys.enabled()) {
-            return error(404, ApiErrors.NOT_FOUND, "Passkeys are not enabled.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.passkeys.disabled"));
         }
         final String email = sessionEmail();
         if (email == null) {
-            return error(401, ApiErrors.NOT_AUTHENTICATED, "Not signed in.");
+            return error(401, ApiErrors.NOT_AUTHENTICATED, Text.get("api.passkeys.notSignedIn"));
         }
         try {
             final String options = passkeys.startRegistration(personId(), email,
@@ -108,7 +109,7 @@ public class PasskeyResource extends BaseResource {
             return ok(Map.of("publicKey", options));
         } catch (final Exception ex) {
             log.warn("Passkey registration could not start.", ex);
-            return error(500, ApiErrors.INTERNAL, "Could not start passkey registration.");
+            return error(500, ApiErrors.INTERNAL, Text.get("api.passkeys.registrationNotStarted"));
         }
     }
 
@@ -119,24 +120,24 @@ public class PasskeyResource extends BaseResource {
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response registerFinish(@HeaderParam(CSRF_HEADER) final String csrf, final Map<String, Object> body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         if (viewingAs()) {
             return viewAsRefused();
         }
         if (!passkeys.enabled()) {
-            return error(404, ApiErrors.NOT_FOUND, "Passkeys are not enabled.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.passkeys.disabled"));
         }
         final String email = sessionEmail();
         final String credential = string(body == null ? null : body.get("credential"));
         if (email == null || credential == null || credential.isBlank()) {
-            return error(400, ApiErrors.BAD_REQUEST, "Missing credential.");
+            return error(400, ApiErrors.BAD_REQUEST, Text.get("api.passkeys.credentialMissing"));
         }
         final String label = string(body.get("label"));
         final PasskeyCredential passkey = passkeys.finishRegistration(personId(), email,
                 request.getServerName(), request.isSecure(), request.getSession().getId(), credential, label);
         if (passkey == null) {
-            return error(400, ApiErrors.BAD_REQUEST, "Passkey registration failed.");
+            return error(400, ApiErrors.BAD_REQUEST, Text.get("api.passkeys.registrationFailed"));
         }
         Audit.builder(AuditAction.PASSKEY_REGISTER, AuditOutcome.SUCCESS)
                 .actor(email, personId().getValue())
@@ -151,7 +152,7 @@ public class PasskeyResource extends BaseResource {
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response loginStart() {
         if (!passkeys.enabled()) {
-            return error(404, ApiErrors.NOT_FOUND, "Passkeys are not enabled.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.passkeys.disabled"));
         }
         try {
             final PasskeyService.StartedAssertion started = passkeys
@@ -162,7 +163,7 @@ public class PasskeyResource extends BaseResource {
             return ok(result);
         } catch (final Exception ex) {
             log.warn("Passkey assertion could not start.", ex);
-            return error(500, ApiErrors.INTERNAL, "Could not start passkey sign-in.");
+            return error(500, ApiErrors.INTERNAL, Text.get("api.passkeys.signInNotStarted"));
         }
     }
 
@@ -175,13 +176,13 @@ public class PasskeyResource extends BaseResource {
         final String challengeToken = string(body == null ? null : body.get("challengeToken"));
         final String credential = string(body == null ? null : body.get("credential"));
         if (challengeToken == null || challengeToken.isBlank() || credential == null || credential.isBlank()) {
-            return error(400, ApiErrors.BAD_REQUEST, "Missing challengeToken or credential.");
+            return error(400, ApiErrors.BAD_REQUEST, Text.get("api.passkeys.challengeOrCredentialMissing"));
         }
         final Creds creds = passkeys.finishAssertion(request.getServerName(),
                 request.isSecure(), challengeToken, credential);
         if (creds == null) {
             // One message for every failure mode -- see auth/login's enumeration note.
-            return error(401, ApiErrors.NOT_AUTHENTICATED, "Passkey sign-in failed.");
+            return error(401, ApiErrors.NOT_AUTHENTICATED, Text.get("api.passkeys.signInFailed"));
         }
         Sessions.establish(request, creds.getEmail(), creds);
         RememberMeService.getInstance().issue(request, response, creds);
@@ -204,7 +205,7 @@ public class PasskeyResource extends BaseResource {
     public Response delete(@HeaderParam(CSRF_HEADER) final String csrf,
             @PathParam("credentialId") final String credentialId) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         if (viewingAs()) {
             return viewAsRefused();
@@ -213,7 +214,7 @@ public class PasskeyResource extends BaseResource {
         if (!Boolean.TRUE.equals(DAO.getInstance().deletePasskey(credentialId, owner))) {
             // Owner mismatch and not-found read the same: whether someone ELSE has this key is not an
             // answerable question.
-            return error(404, ApiErrors.NOT_FOUND, "No such passkey.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.passkeys.noSuchPasskey"));
         }
         Audit.builder(AuditAction.PASSKEY_DELETE, AuditOutcome.SUCCESS)
                 .actor(sessionEmail(), owner.getValue())
@@ -229,7 +230,7 @@ public class PasskeyResource extends BaseResource {
      * key is refused for the same reason: it would be the administrator editing that person's sign-in.
      */
     private Response viewAsRefused() {
-        return error(403, ApiErrors.FORBIDDEN, VIEW_AS_REFUSED);
+        return error(403, ApiErrors.FORBIDDEN, viewAsRefusedMessage());
     }
 
     private String sessionEmail() {

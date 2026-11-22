@@ -16,6 +16,7 @@ import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.audit.AuditEventBuilder;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.FakeData;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
@@ -152,8 +153,8 @@ public class DeployCommands {
         }
         final String name = pipelineName();
         if (name == null) {
-            growl(FacesMessage.SEVERITY_ERROR, "No pipeline configured",
-                    "This deployment has no pipeline, so there is nothing to start.");
+            growl(FacesMessage.SEVERITY_ERROR, Text.get("feedback.deployCommands.noPipeline"),
+                    Text.get("feedback.deployCommands.noPipelineDetail"));
             return null;
         }
         // No fallback to AuditActor.current(): the guard above already required a known actor, and a fallback
@@ -161,8 +162,8 @@ public class DeployCommands {
         final AuditActor actor = who;
         final PipelineStatus current = getStatus();
         if (current.isRunning()) {
-            growl(FacesMessage.SEVERITY_WARN, "Already deploying",
-                    "A run is already in progress. Starting another would supersede it.");
+            growl(FacesMessage.SEVERITY_WARN, Text.get("feedback.deployCommands.alreadyDeploying"),
+                    Text.get("feedback.deployCommands.alreadyDeployingDetail"));
             return null;
         }
         try {
@@ -173,8 +174,8 @@ public class DeployCommands {
                     .target(AuditEventBuilder.TARGET_PIPELINE, name)
                     .message("Started a deployment of '" + name + "'; execution " + executionId)
                     .log();
-            growl(FacesMessage.SEVERITY_INFO, "Deployment started",
-                    "Execution " + executionId + ". It takes several minutes; this page follows along.");
+            growl(FacesMessage.SEVERITY_INFO, Text.get("feedback.deployCommands.started"),
+                    Text.get("feedback.deployCommands.startedDetail", executionId));
             return executionId;
         } catch (final RuntimeException ex) {
             log.error("Unable to start pipeline '" + name + "'", ex);
@@ -185,7 +186,7 @@ public class DeployCommands {
                     .target(AuditEventBuilder.TARGET_PIPELINE, name)
                     .message("Failed to start a deployment of '" + name + "': " + ex.getMessage())
                     .log();
-            growl(FacesMessage.SEVERITY_ERROR, "Could not start the deployment", describe(ex));
+            growl(FacesMessage.SEVERITY_ERROR, Text.get("feedback.deployCommands.notStarted"), describe(ex));
             return null;
         }
     }
@@ -298,12 +299,10 @@ public class DeployCommands {
     static String describe(final RuntimeException ex) {
         final String type = ex.getClass().getSimpleName();
         if (type.contains("AccessDenied") || String.valueOf(ex.getMessage()).contains("not authorized")) {
-            return "This deployment is not permitted to use the pipeline. The task role needs "
-                    + "codepipeline:GetPipelineState and codepipeline:StartPipelineExecution -- run "
-                    + "'cdk deploy TripApp'.";
+            return Text.get("feedback.deployCommands.notPermitted");
         }
         if (type.contains("PipelineNotFound")) {
-            return "No pipeline named '" + System.getenv(PIPELINE_VAR) + "' exists in this account and region.";
+            return Text.get("feedback.deployCommands.pipelineNotFound", System.getenv(PIPELINE_VAR));
         }
         return type + ": " + ex.getMessage();
     }

@@ -22,6 +22,7 @@ import java.util.concurrent.StructuredTaskScope;
 import javax.net.ssl.SSLException;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.dynamo.LocalMode;
+import org.paulsens.trip.i18n.Text;
 
 /**
  * The live proof a custom domain gives before an organization may claim it ({@code docs/org-admin.md}, "Custom
@@ -191,8 +192,7 @@ public final class DomainProbe {
             if (response.statusCode() == HttpURLConnection.HTTP_OK && code.equals(answer)) {
                 return null;
             }
-            return domain + " answered, but not as this site (HTTP " + response.statusCode()
-                    + "). Check that its DNS points here.";
+            return Text.get("server.domainProbe.wrongAnswer", domain, String.valueOf(response.statusCode()));
         } catch (final IOException ex) {
             // The deadline's interrupt surfaces from the body read as IOException(InterruptedException). The scope
             // has already answered "did not answer", so this is no failure to log with a stack trace.
@@ -205,11 +205,11 @@ public final class DomainProbe {
     }
 
     private static String notAnswered(final String domain) {
-        return domain + " did not answer over HTTPS. Check that its DNS points here.";
+        return Text.get("server.domainProbe.notAnswered", domain);
     }
 
     private static String interrupted(final String domain) {
-        return "Interrupted while checking " + domain + ".";
+        return Text.get("server.domainProbe.interrupted", domain);
     }
 
     /**
@@ -219,16 +219,16 @@ public final class DomainProbe {
     private static String problemOf(final String domain, final IOException ex) {
         if (causedBy(ex, SSLException.class)) {
             log.info("Custom domain probe of {}: TLS refused", domain, ex);
-            return domain + " has no valid certificate here yet. Attach its certificate first.";
+            return Text.get("server.domainProbe.noCertificate", domain);
         }
         if (causedBy(ex, UnknownHostException.class) || causedBy(ex, UnresolvedAddressException.class)) {
-            return domain + " does not resolve. Add its DNS records first.";
+            return Text.get("server.domainProbe.notResolved", domain);
         }
         if (causedBy(ex, HttpTimeoutException.class) || causedBy(ex, ConnectException.class)) {
             return notAnswered(domain);
         }
         log.info("Custom domain probe of {} failed", domain, ex);
-        return domain + " could not be reached over HTTPS (" + ex.getClass().getSimpleName() + ").";
+        return Text.get("server.domainProbe.unreachable", domain, ex.getClass().getSimpleName());
     }
 
     private static boolean causedBy(final Throwable thrown, final Class<? extends Throwable> type) {

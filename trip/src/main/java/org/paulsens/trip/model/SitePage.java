@@ -2,9 +2,13 @@ package org.paulsens.trip.model;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.io.Serial;
 import java.io.Serializable;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
  * One entry of an organization site's menu ({@link Organization#getSitePages()}): either a PAGE -- an editable
@@ -17,12 +21,18 @@ import java.io.Serializable;
  * {@link Placement} NAME so a value from a newer build reads back as {@link Placement#HIDDEN} rather than failing
  * the whole organization row.
  *
+ * <p>The {@link #titles} are the entry's title in the site's OTHER languages ({@code docs/i18n.md}, "Language
+ * versions of a page"), keyed by language tag; {@link #title} stays the one in the site's default language and
+ * the one every reader falls back to. An older row has none and reads exactly as it did.
+ *
  * @param name      the page's address and content key, {@code [a-z][a-z0-9-]{0,39}}; unique within the org
- * @param title     the menu label and the page's browser title
+ * @param title     the menu label and the page's browser title, in the site's default language
  * @param url       the target of a LINK; null for a PAGE
  * @param placement where the menu shows it, a {@link Placement} name
+ * @param titles    language tag to the title in that language; never null, empty when there are none
  */
-public record SitePage(String name, String title, String url, String placement) implements Serializable {
+public record SitePage(String name, String title, String url, String placement,
+        @JsonInclude(JsonInclude.Include.NON_EMPTY) Map<String, String> titles) implements Serializable {
     @Serial
     private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
 
@@ -56,11 +66,50 @@ public record SitePage(String name, String title, String url, String placement) 
             @JsonProperty("name") final String name,
             @JsonProperty("title") final String title,
             @JsonProperty("url") final String url,
-            @JsonProperty("placement") final String placement) {
+            @JsonProperty("placement") final String placement,
+            @JsonProperty("titles") final Map<String, String> titles) {
         this.name = name;
         this.title = title;
         this.url = (url == null || url.isBlank()) ? null : url.trim();
         this.placement = placement;
+        this.titles = cleaned(titles);
+    }
+
+    /** An entry with its title in the site's default language only. */
+    public SitePage(final String name, final String title, final String url, final String placement) {
+        this(name, title, url, placement, null);
+    }
+
+    /**
+     * The title a reader of {@code language} sees: the one written for that language, else {@link #title}. Null
+     * (an unknown tag) is the default title too.
+     */
+    public String titleIn(final String language) {
+        final String own = language == null ? null : titles.get(language);
+        return own == null ? title : own;
+    }
+
+    /** This entry with other per-language titles (blanks dropped); everything else unchanged. */
+    public SitePage withTitles(final Map<String, String> newTitles) {
+        return new SitePage(name, title, url, placement, newTitles);
+    }
+
+    /**
+     * A read-only copy holding only non-blank titles, trimmed, over a {@link LinkedHashMap}: serializable for the
+     * session, stable in its order, and never null, so an older row without titles is one with none.
+     */
+    private static Map<String, String> cleaned(final Map<String, String> titles) {
+        final Map<String, String> out = new LinkedHashMap<>();
+        if (titles != null) {
+            titles.forEach((tag, text) -> putIfWritten(out, tag, text));
+        }
+        return Collections.unmodifiableMap(out);
+    }
+
+    private static void putIfWritten(final Map<String, String> out, final String tag, final String text) {
+        if (tag != null && text != null && !text.isBlank()) {
+            out.put(tag.trim(), text.trim());
+        }
     }
 
     /** True for a LINK entry (it has a URL), false for an editable content page. */
@@ -77,6 +126,6 @@ public record SitePage(String name, String title, String url, String placement) 
 
     /** This entry with another title and placement (the URL too for a link); the name never changes. */
     public SitePage withDetails(final String newTitle, final String newUrl, final Placement newPlacement) {
-        return new SitePage(name, newTitle, isLink() ? newUrl : null, newPlacement.name());
+        return new SitePage(name, newTitle, isLink() ? newUrl : null, newPlacement.name(), titles);
     }
 }

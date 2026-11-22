@@ -16,9 +16,11 @@ import java.util.Optional;
 import org.paulsens.trip.api.dto.DiscoverListDto;
 import org.paulsens.trip.api.dto.DiscoverTripDto;
 import org.paulsens.trip.api.mapper.DiscoverTripMapper;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.site.DiscoverIndex;
 import org.paulsens.trip.site.DiscoverQuery;
 import org.paulsens.trip.site.DiscoverSearch;
+import org.paulsens.trip.audit.RequestContext;
 import org.paulsens.trip.site.SiteContext;
 import org.paulsens.trip.web.SessionlessPaths;
 
@@ -53,7 +55,11 @@ public class DiscoverResource extends BaseResource {
     private static final String V1 = ApiMediaTypes.DISCOVER_V1;
     /** A minute: the index's own refresh interval, so a cached answer is never staler than a fresh one could be. */
     private static final String CACHE_CONTROL = "public, max-age=60";
-    private static final String NO_SUCH_TRIP = "No such trip.";
+    /**
+     * What a shared cache must key an answer on: the media type, and the language. Nothing personal: this path
+     * is sessionless, and its language comes from {@code Accept-Language} alone ({@code RequestLocale}).
+     */
+    private static final String VARY = "Accept, Accept-Language";
 
     private final DiscoverIndex index;
     private final PublicRateLimiter limiter;
@@ -91,7 +97,7 @@ public class DiscoverResource extends BaseResource {
     /** {@link #list()} on explicit parameters (the testable half; a JAX-RS multivalued map is this shape). */
     Response list(final Map<String, List<String>> params) {
         if (!SessionlessPaths.matches(request)) {
-            return error(404, ApiErrors.NOT_FOUND, NO_SUCH_TRIP);
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.shared.noSuchTrip"));
         }
         final PublicRateLimiter.Decision allowance = limiter.check(request.getRemoteAddr(), Instant.now());
         if (!allowance.allowed()) {
@@ -109,8 +115,11 @@ public class DiscoverResource extends BaseResource {
         if (matches(etag)) {
             return notModified(etag);
         }
-        final DiscoverSearch.Result found = DiscoverSearch.search(snapshot.list(query.past()).stream()
-                .filter(entry -> site.admits(entry.trip().orgId())).toList(), query);
+        // The facets are worded here, per request, in the reader's language (the index is everyone's); the ETag
+        // above already carries that language, and the response varies on Accept-Language.
+        final List<DiscoverIndex.Entry> listed = snapshot.list(query.past()).stream()
+                .filter(entry -> site.admits(entry.trip().orgId())).toList();
+        final DiscoverSearch.Result found = DiscoverSearch.search(listed, query, RequestContext.currentLocale());
         return cacheable(new DiscoverListDto(found.items().stream().map(this::absolute).toList(), found.total(),
                 found.nextCursor(), found.facets()), etag);
     }
@@ -130,7 +139,7 @@ public class DiscoverResource extends BaseResource {
         }
         final Optional<DiscoverIndex.Entry> listed = listed(tripId);
         if (listed.isEmpty()) {
-            return error(404, ApiErrors.NOT_FOUND, NO_SUCH_TRIP);
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.shared.noSuchTrip"));
         }
         final String etag = etagOf(listed.get().etag(), "", SiteContext.current());
         return matches(etag) ? notModified(etag) : cacheable(absolute(listed.get().trip()), etag);
@@ -152,7 +161,7 @@ public class DiscoverResource extends BaseResource {
         }
         final Optional<DiscoverIndex.Entry> listed = listed(tripId);
         if (listed.isEmpty()) {
-            return error(404, ApiErrors.NOT_FOUND, NO_SUCH_TRIP);
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.shared.noSuchTrip"));
         }
         final String etag = etagOf(listed.get().photosEtag(), "photos", SiteContext.current());
         return matches(etag) ? notModified(etag) : cacheable(listed.get().photos().stream()
@@ -165,7 +174,7 @@ public class DiscoverResource extends BaseResource {
      */
     private Response refusal() {
         if (!SessionlessPaths.matches(request)) {
-            return error(404, ApiErrors.NOT_FOUND, NO_SUCH_TRIP);
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.shared.noSuchTrip"));
         }
         final PublicRateLimiter.Decision allowance = limiter.check(request.getRemoteAddr(), Instant.now());
         return allowance.allowed() ? null : tooMany(allowance);
@@ -184,7 +193,7 @@ public class DiscoverResource extends BaseResource {
     private Response cacheable(final Object entity, final String etag) {
         return Response.ok(entity)
                 .type(negotiatedType())
-                .header("Vary", "Accept")
+                .header("Vary", VARY)
                 .header("Cache-Control", CACHE_CONTROL)
                 .header("ETag", etag)
                 .build();
@@ -192,14 +201,14 @@ public class DiscoverResource extends BaseResource {
 
     private Response notModified(final String etag) {
         return Response.notModified()
-                .header("Vary", "Accept")
+                .header("Vary", VARY)
                 .header("Cache-Control", CACHE_CONTROL)
                 .header("ETag", etag)
                 .build();
     }
 
     private Response tooMany(final PublicRateLimiter.Decision allowance) {
-        return Response.fromResponse(error(429, ApiErrors.RATE_LIMITED, "Too many requests. Try again shortly."))
+        return Response.fromResponse(error(429, ApiErrors.RATE_LIMITED, Text.get("api.discover.tooManyRequests")))
                 .header("Retry-After", allowance.retryAfterSeconds())
                 .header("Cache-Control", "no-store")
                 .build();
@@ -209,12 +218,12 @@ public class DiscoverResource extends BaseResource {
      * A weak validator for one answer: what the listed trips say ({@code content}, which changes only when they
      * do, so a rebuild that changed nothing keeps it), which question was asked, and the three request facts an
      * answer also depends on: the host's organization (it narrows the list), the origin its local-mode URLs are
-     * made absolute on, and the media type it is stamped with. Weak because the same trips serialize to
-     * different bytes under gzip.
+     * made absolute on, and the media type it is stamped with; and a fourth, the language its labels are in
+     * ({@code docs/i18n.md}). Weak because the same trips serialize to different bytes under gzip.
      */
     private String etagOf(final String content, final String question, final SiteContext site) {
         final String asked = String.join("|", question, site.isOrg() ? site.orgId().getValue() : "",
-                absoluteUrl("/"), negotiatedType());
+                absoluteUrl("/"), negotiatedType(), RequestContext.currentLocale().toLanguageTag());
         return "W/\"" + content + "-" + Integer.toHexString(asked.hashCode()) + "\"";
     }
 

@@ -21,6 +21,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Pattern;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.Audit;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.audit.AuditEventBuilder;
@@ -153,18 +154,18 @@ public class TripStylesheets {
      */
     public static String check(final String css) {
         if (css == null) {
-            return "The stylesheet is empty.";
+            return Text.get("feedback.tripStylesheets.empty");
         }
         if (css.getBytes(StandardCharsets.UTF_8).length > MAX_BYTES) {
-            return "The stylesheet is larger than " + (MAX_BYTES / 1024) + " KB.";
+            return Text.get("feedback.tripStylesheets.tooLarge", MAX_BYTES / 1024);
         }
         if (closesStyleBlock(css)) {
-            return "The stylesheet holds '</style', which would end the page's style block; CSS only, no markup.";
+            return Text.get("feedback.tripStylesheets.closesStyleBlock");
         }
         for (int i = 0; i < css.length(); i++) {
             final char c = css.charAt(i);
             if (c < ' ' && c != '\n' && c != '\r' && c != '\t') {
-                return "The stylesheet holds a control character.";
+                return Text.get("feedback.tripStylesheets.controlCharacter");
             }
         }
         return null;
@@ -206,12 +207,13 @@ public class TripStylesheets {
      */
     public MediaItem create(final String orgId, final String title, final String css) {
         if (!canEdit(orgId)) {
-            PageFeedback.warn("Not allowed", "Only this organization's admins and media admins edit its stylesheets.");
+            PageFeedback.warn(Text.get("feedback.shared.notAllowed"),
+                    Text.get("feedback.tripStylesheets.adminsOnly"));
             return null;
         }
         final String refusal = check(css);
         if (refusal != null) {
-            PageFeedback.warn("Not saved", refusal);
+            PageFeedback.warn(Text.get("feedback.shared.notSaved"), refusal);
             return null;
         }
         final String owner = orgId.trim();
@@ -219,13 +221,13 @@ public class TripStylesheets {
         final String key = freeKey(owner, slugOf(cleanTitle));
         final byte[] bytes = css.getBytes(StandardCharsets.UTF_8);
         if (!storeBytes(key, bytes)) {
-            PageFeedback.failure("Not saved: the stylesheet could not be stored.");
+            PageFeedback.failure(Text.get("feedback.tripStylesheets.notStored"));
             return null;
         }
         final MediaItem item = new MediaItem(UUID.randomUUID().toString(), key, cleanTitle,
                 "Trip page stylesheet", "text/css", bytes.length, null, 0, LocalDateTime.now(),
                 actorEmail(), null, null, owner);
-        if (!record(item, "Not saved: the stylesheet was stored but could not be listed.")) {
+        if (!record(item, Text.get("feedback.tripStylesheets.storedNotListed"))) {
             return null;
         }
         MediaEvents.fire(MediaEvents.Change.ADDED, key);
@@ -265,21 +267,22 @@ public class TripStylesheets {
     public boolean save(final String itemId, final String css) {
         final MediaItem item = editable(itemId);
         if (item == null) {
-            PageFeedback.warn("Not allowed", "Only this organization's admins and media admins edit its stylesheets.");
+            PageFeedback.warn(Text.get("feedback.shared.notAllowed"),
+                    Text.get("feedback.tripStylesheets.adminsOnly"));
             return false;
         }
         final String refusal = check(css);
         if (refusal != null) {
-            PageFeedback.warn("Not saved", refusal);
+            PageFeedback.warn(Text.get("feedback.shared.notSaved"), refusal);
             return false;
         }
         final byte[] bytes = css.getBytes(StandardCharsets.UTF_8);
         if (!storeBytes(item.getS3Key(), bytes)) {
-            PageFeedback.failure("Not saved: the stylesheet could not be stored.");
+            PageFeedback.failure(Text.get("feedback.tripStylesheets.notStored"));
             return false;
         }
         final MediaItem rewritten = item.withRewritten(bytes.length);
-        if (!record(rewritten, "Saved, but the stylesheet's listing could not be updated.")) {
+        if (!record(rewritten, Text.get("feedback.tripStylesheets.savedListingNotUpdated"))) {
             return false;
         }
         if (media.isUploadEnabled()) {
@@ -299,7 +302,7 @@ public class TripStylesheets {
         if (title.trim().equals(item.getTitle())) {
             return true;
         }
-        if (!record(item.withTitle(title.trim()), "Not renamed: the stylesheet's listing could not be updated.")) {
+        if (!record(item.withTitle(title.trim()), Text.get("feedback.tripStylesheets.notRenamed"))) {
             return false;
         }
         audit(item.getS3Key(), "Renamed stylesheet " + item.getS3Key() + " to '" + title.trim() + "'");
@@ -388,7 +391,8 @@ public class TripStylesheets {
         final MediaItem item = editable(itemId);
         final String text = item == null ? null : read(item.getId());
         if (text == null) {
-            PageFeedback.warn("Not opened", "That stylesheet could not be read.");
+            PageFeedback.warn(Text.get("feedback.tripStylesheets.notOpened"),
+                    Text.get("feedback.tripStylesheets.notRead"));
             return false;
         }
         stashAll(item.getId(), item.getTitle(), text);
@@ -408,7 +412,8 @@ public class TripStylesheets {
         boolean ok = false;
         String url = null;
         if (title == null || title.isBlank()) {
-            PageFeedback.warn("Not saved", "Title is required.");
+            PageFeedback.warn(Text.get("feedback.shared.notSaved"),
+                    Text.get("feedback.tripStylesheets.titleRequired"));
         } else if (itemId == null || itemId.isBlank()) {
             final String org = orgInView();
             final MediaItem created = org == null ? null : create(org, title, css);

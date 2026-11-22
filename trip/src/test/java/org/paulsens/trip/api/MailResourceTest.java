@@ -187,7 +187,8 @@ public class MailResourceTest extends ResourceTestSupport {
                     List.of("a@x.org"), null, null, "A subject", "A body"));
             assertError(refused, 422, ApiErrors.VALIDATION_FAILED);
             Assert.assertEquals(((Map<?, ?>) refused.getEntity()).get("message"),
-                    OrgCommands.INVALID_MERGE_FROM, "the page's wording");
+                    "The From address must use one of your verified sending domains.",
+                    "the page's wording");
         }
         assertError(scoped.send(CSRF_OK, new MailResource.SendRequest(null, List.of("a@x.org"), null, null,
                 "A subject", "A body")), 422, ApiErrors.VALIDATION_FAILED);

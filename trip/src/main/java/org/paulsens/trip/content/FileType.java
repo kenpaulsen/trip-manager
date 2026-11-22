@@ -6,6 +6,7 @@ import java.util.Locale;
 import java.util.Map;
 import org.paulsens.trip.action.ChatPhotos;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.MediaItem;
 import org.paulsens.trip.model.Placeholder;
 import org.paulsens.trip.cache.Cached;
@@ -29,7 +30,7 @@ final class FileType implements ProgrammaticContentTemplate {
 
     @Override
     public String getDisplayName() {
-        return "File (from media library)";
+        return Text.get("server.types.file.name");
     }
 
     @Override
@@ -39,13 +40,13 @@ final class FileType implements ProgrammaticContentTemplate {
 
     @Override
     public String getDescription() {
-        return "A link to one media-library document; its name and size stay in sync with the library.";
+        return Text.get("server.types.file.description");
     }
 
     @Override
     public List<Placeholder> getProperties() {
-        return List.of(new Placeholder(PROP_MEDIA_ID, Placeholder.Type.CHOICE, "Document",
-                "Pick the media-library item to show", true));
+        return List.of(new Placeholder(PROP_MEDIA_ID, Placeholder.Type.CHOICE,
+                Text.get("common.document"), Text.get("server.types.file.documentHint"), true));
     }
 
     @Override

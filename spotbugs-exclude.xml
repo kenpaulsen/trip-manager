@@ -28,10 +28,16 @@
         escaped. In each method below EVERY user-entered value passes through an escaper before it is
         appended; what is appended raw is literals, numbers, dates and enum names.
     -->
-    <!-- The org notice email: every free-text value goes through esc() (ModerationCommands.escape). -->
+    <!-- The org notice email: every free-text value goes through esc() (ModerationCommands.escape), and its
+         words are the product's own bundle text, escaped too. appendTrips and appendTransactions were split
+         out of noticeBody when the notice learned the office's language (approved by the owner 2026-11-21). -->
     <Match>
         <Class name="org.paulsens.trip.action.AccountDeletionCommands"/>
-        <Method name="noticeBody"/>
+        <Or>
+            <Method name="noticeBody"/>
+            <Method name="appendTrips"/>
+            <Method name="appendTransactions"/>
+        </Or>
         <Bug pattern="POTENTIAL_XML_INJECTION"/>
     </Match>
     <!-- The treasurer email: every dynamic value goes through the local esc(). -->
@@ -55,10 +61,15 @@
         <Method name="answersLine"/>
         <Bug pattern="POTENTIAL_XML_INJECTION"/>
     </Match>
-    <!-- row() does not escape; its only callers (body()) pass escape(...) of every user value. -->
+    <!-- row() does not escape; its only callers (body()) pass escape(...) of every user value. body() itself
+         writes two of the product's own bundle sentences, which carry their markup (approved by the owner
+         2026-11-21). -->
     <Match>
         <Class name="org.paulsens.trip.action.ModerationCommands"/>
-        <Method name="row"/>
+        <Or>
+            <Method name="row"/>
+            <Method name="body"/>
+        </Or>
         <Bug pattern="POTENTIAL_XML_INJECTION"/>
     </Match>
     <!-- Text and link (href and label) go through escapeHtml; an href can only start http(s):// or /. -->
@@ -114,6 +125,14 @@
         <Method name="doFilter"/>
         <Bug pattern="UNVALIDATED_REDIRECT"/>
     </Match>
+    <!-- Target is /page.jsf?name= a name from the deployment's own legacy-pages.json, or the link-out
+         organization's stored site address (custom domain or {slug}.{base}); the request picks no host but a
+         local-mode {slug}.localhost (approved by the owner 2026-11-21). -->
+    <Match>
+        <Class name="org.paulsens.trip.web.LegacyPageFilter"/>
+        <Method name="doFilter"/>
+        <Bug pattern="UNVALIDATED_REDIRECT"/>
+    </Match>
     <!-- Both redirect to LocalRedirect.samePathOrRoot: the request's own path, or "/" (rejects //host). -->
     <Match>
         <Class name="org.paulsens.trip.web.RememberMeFilter"/>
@@ -128,7 +147,7 @@
 
     <!-- ======================================== cookies ======================================== -->
     <!--
-        All three set Secure from SecureCookies.flagFor: always true in production, the request's scheme
+        All four set Secure from SecureCookies.flagFor: always true in production, the request's scheme
         only in plain-http local mode. The scanner wants a literal true and cannot follow the call.
     -->
     <Match>
@@ -144,6 +163,12 @@
     <Match>
         <Class name="org.paulsens.trip.web.Sessions"/>
         <Method name="logout"/>
+        <Bug pattern="INSECURE_COOKIE"/>
+    </Match>
+    <!-- The language-choice cookie (docs/i18n.md): the same SecureCookies.flagFor, the same false positive. -->
+    <Match>
+        <Class name="org.paulsens.trip.web.RequestLocale"/>
+        <Method name="remember"/>
         <Bug pattern="INSECURE_COOKIE"/>
     </Match>
 

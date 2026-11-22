@@ -4,6 +4,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Named;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.media.PendingUploads;
 import org.paulsens.trip.media.PhotoRejectedException;
 import org.paulsens.trip.media.UploadRateLimiter;
@@ -68,11 +69,11 @@ public class ChatPhotoUpload extends PhotoUploadBean {
         final String tripId = tripId();
         final Person.Id me = caller().personId();
         if (tripId == null || me == null) {
-            return UploadGate.deny("Not allowed: sign in and open a trip chat to attach photos.");
+            return UploadGate.deny(Text.get("feedback.chatPhotoUpload.signInFirst"));
         }
         final ChatCommands.AttachGate gate = checkAttach(tripId, me);
         if (gate.denial() != null) {
-            return UploadGate.deny("Not allowed: " + gate.denial());
+            return UploadGate.deny(Text.get("feedback.chatPhotoUpload.notAllowed", gate.denial()));
         }
         return UploadGate.allow(gate.channel().getSettings().getMaxAttachmentBytes());
     }
@@ -81,7 +82,7 @@ public class ChatPhotoUpload extends PhotoUploadBean {
     @Override
     protected String limit() {
         return limiter().allow(caller().personId().getValue())
-                ? null : "Too many uploads: wait a minute and try again.";
+                ? null : Text.get("api.chat.tooManyUploads");
     }
 
     /** Stage the (possibly cropped) photo and hand its details to the tray JS; a failure reports itself. */
@@ -101,11 +102,11 @@ public class ChatPhotoUpload extends PhotoUploadBean {
             finish(pending);
             publishOutcome(true, staged, photos.getPhotoPageBase());
         } catch (final PhotoRejectedException ex) {
-            error("Photo rejected: " + ex.getMessage());
+            error(Text.get("feedback.photoUploadBean.rejected.photo", ex.getMessage()));
             publishOutcome(false, null, null);
         } catch (final IllegalStateException ex) {
             log.error("Chat photo store failed for trip {}", tripId, ex);
-            error("Not stored: the photo could not be stored. Try again.");
+            error(Text.get("feedback.albumLibrary.notStored"));
             publishOutcome(false, null, null);
         }
     }

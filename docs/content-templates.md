@@ -240,6 +240,69 @@ believing they were fixing everyone.
 subject line and the suffix would ship in the subject of every email the org sends. Nothing is lost: in the
 org's own list the Scope column and the Customized badge say whose row it is.
 
+## Language versions of an email (2026-11)
+
+An email goes out in its RECIPIENT's language (`docs/i18n.md`), and its wording is an author's, so a language
+is a whole MAIL row of its own, never a bundle key: the template's id plus `@` and the language tag, the
+`content/PageVersions` convention (`registration-received@es`; an organization's copy's version is
+`registration-received-acme@es`). The template's own row is written in **English**; that is also what the
+old two-argument `resolveForOrg` and every sender not yet converted read.
+
+**Resolution -- `TemplateCommands.resolveForOrg(templateId, orgId, locale)`**, the first that exists:
+
+1. the organization's own version in the language (`{id}-{slug}@es`);
+2. the organization's own copy (`{id}-{slug}`): an organization's wording outranks the site's translation of
+   words it chose to replace;
+3. the shared version in the language (`{id}@es`);
+4. the shared row.
+
+English, a null locale and a language this build does not speak resolve exactly as the two-argument form; the
+locale's LANGUAGE counts, not its region (`es-MX` reads `@es`). Every level checks the OWNER as well as the id:
+an organization's version is served only to that organization, and a "shared" version some organization owns
+is served to nobody. `saveTemplate` refuses a version whose scope differs from its template's
+(`feedback.templateCommands.versionScopeFixed`), so an organization's editor cannot plant its wording under a
+shared template's version id.
+
+**Senders pass the recipient's language** (`i18n/ReaderLanguage`) through the locale overloads
+`MailCommands.sendManagedTemplateForOrg(id, orgId, locale, ...)` / `renderManagedTemplateForOrg(id, orgId,
+locale, values)`:
+
+| Sender | Language |
+|--------|----------|
+| `PaymentMailer` (confirmation, payment failed, checkout confirmation) | the payer's, about the trip |
+| `RegistrationCommands.sendRegistrationMail` (`registration-received`) | the registrant's |
+| `RegistrationCommands.approvePending` (`registration-approved`) | the traveler's, also when their family's managers are mailed |
+| `OrgCommands.sendOrgInvite` (`org-invite`) | the invited org's site default (`ReaderLanguage.ofInvitee`): the invitee has no account |
+| `OrgCommands.sendPaymentTestMail` / the payment-mail preview | the signed-in admin's, about the trip |
+| `ReminderCommands` "Add suggested messages" and the automatic-mail list | the TRIP's: a trip's messages are written in its language |
+
+Still English (the old signature): the support-request notice (site staff, nobody's behalf) and the approval
+preview on `admin/tripRegistrations.xhtml`. The code-built token values inside these emails (fee notes,
+amounts blocks, dates) are not yet in the recipient's language.
+
+**Shipped versions.** `content/StarterTranslations` holds Spanish and Croatian versions of the seven
+transactional starters and the four reminder starting texts. They are DRAFT translations: each installed row's
+description starts "DRAFT translation, not yet reviewed by a native speaker." Their tokens are the English
+starters' character for character (`MailTemplateVersionsTest` checks). They install exactly as the starters do,
+after them (`StarterTemplates.all()` / `IDS`, so the Install button, `FakeData` and
+`install-starter-templates.sh`), and a later install never rewrites one. A count inside a sentence cannot use
+plural rules through a `{{token}}`, so the countdown versions put `{{daysUntilDeparture}}` after a label.
+`ReminderDefaults.text(id, language)` is the built-in fallback in a language.
+
+**Customize and Revert take the versions along.** Customizing copies the shared versions into the
+organization's scope (otherwise its English copy would outrank the site's Spanish and switch Spanish readers to
+English); Revert to site default deletes the organization's versions with its copy.
+
+**The manager page** (`/admin/templates.jsf?kind=MAIL`). A version never lists as a row of its own
+(`getTemplates` hides ids carrying a language mark); under each email's id the "Language versions:" block
+(`TemplateCommands.versionsOf`) lists one entry per language the page's site offers besides English
+(`versionLanguages`: `SiteLanguages.parse(site.languages)` for the scope organization, or the shared site's on
+the site-wide page), so an English-only site shows nothing new. A written version shows its language's name,
+with Edit and "Delete this version" (behind a `p:confirm`) where the caller may author it; a missing one offers
+"Add a version in {language}" to anyone who may author the template (`addVersion`: a copy of the template, in
+its scope, opened in the editor at once). Privileges are the template's: an organization's editor reads the
+shared versions and authors only their own organization's. `OrgSubdomainPwIT` drives it on Beta's site.
+
 ## Programmatic types
 
 `ProgrammaticContentTemplate` (in `org.paulsens.trip.content`, EL-friendly getter naming):

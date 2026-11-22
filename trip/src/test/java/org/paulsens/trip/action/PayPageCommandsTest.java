@@ -175,6 +175,38 @@ public class PayPageCommandsTest {
     // ------------------------------------------------------------------ the starter text
 
     @Test
+    public void aReaderGetsTheVersionInTheirLanguageOnceOneIsWritten() throws Exception {
+        final Organization org = TenancyFixtures.org("PayVersions");
+        final String orgId = org.getId().getValue();
+        Assert.assertTrue(TenancyFixtures.asSiteAdmin().saveOrgSettings(orgId, Map.of("site.languages", "en,es")));
+        final String key = OrgPageBootstrap.payPageKey(org.getId());
+        final SiteContext site = siteOf(org);
+        Assert.assertEquals(reading(site, Locale.of("es"), () -> pay.ensurePage(orgId)), key,
+                "nothing written in Spanish: the whole page itself");
+        Assert.assertEquals(stored(key).size(), 1, "the starter text went to the page's own key");
+        Assert.assertEquals(stored(key + "@es").size(), 0, "never to a version");
+
+        final ContentInstance spanish = new ContentInstance("pay-es-" + UUID.randomUUID(), key + "@es", "Pagar",
+                "text-only", 1, new HashMap<>(Map.of("body", "<p>Pague por cheque.</p>")), null, 0, 0, null, "t");
+        Assert.assertTrue(DAO.getInstance().saveContent(spanish, 5));
+        try {
+            Assert.assertEquals(reading(site, Locale.of("es"), () -> pay.ensurePage(orgId)), key + "@es");
+            Assert.assertEquals(reading(site, Locale.ENGLISH, () -> pay.ensurePage(orgId)), key);
+            Assert.assertEquals(reading(site, Locale.of("hr"), () -> pay.ensurePage(orgId)), key,
+                    "a language the site does not offer reads the page itself");
+            Assert.assertEquals(stored(key + "@es").size(), 1, "the version's own rows, untouched");
+        } finally {
+            DAO.getInstance().deleteContent(spanish.getId());
+        }
+    }
+
+    private static <T> T reading(final SiteContext site, final Locale locale,
+            final ScopedValue.CallableOp<T, Exception> body) throws Exception {
+        return ScopedValue.where(RequestContext.SCOPE, RequestContext.of(null, null, site).withLocale(locale))
+                .call(body);
+    }
+
+    @Test
     public void aPageGetsItsStarterTextOnceAndAnAuthoredPageIsLeftAlone() throws IOException {
         final Organization org = TenancyFixtures.org("PaySeed");
         final Organization fresh = reread(org);

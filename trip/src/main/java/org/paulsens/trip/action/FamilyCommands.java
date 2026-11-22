@@ -9,6 +9,7 @@ import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.Family;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
@@ -158,21 +159,21 @@ public class FamilyCommands {
             return missing;
         }
         if (person.getBirthdate() == null) {
-            missing.add("Birthdate");
+            missing.add(Text.get("common.birthdate"));
         }
         if (trip != null && trip.isConference()) {
             if (isBlank(person.getEmergencyContactName())) {
-                missing.add("Emergency contact");
+                missing.add(Text.get("feedback.familyCommands.fieldEmergencyContact"));
             }
             return missing;
         }
         if (isBlank(person.getPassport().getNumber())) {
-            missing.add("Passport number");
+            missing.add(Text.get("feedback.familyCommands.fieldPassportNumber"));
         } else if (person.getPassport().getExpires() == null) {
-            missing.add("Passport expiration");
+            missing.add(Text.get("feedback.familyCommands.fieldPassportExpiration"));
         }
         if (isBlank(person.getEmergencyContactName())) {
-            missing.add("Emergency contact");
+            missing.add(Text.get("feedback.familyCommands.fieldEmergencyContact"));
         }
         return missing;
     }
@@ -208,15 +209,15 @@ public class FamilyCommands {
             return null;
         }
         return PassCommands.hasOwnLogin(member)
-                ? "This person signs in with their own account. Ask an administrator to remove them instead." : null;
+                ? Text.get("feedback.familyCommands.hasOwnAccount") : null;
     }
 
     private String historyBlock(final Person.Id memberId) {
         if (!DAO.getInstance().getTripsForUser(memberId, Cached.NO).isEmpty()) {
-            return "This person has trip registrations. Ask an administrator to remove them instead.";
+            return Text.get("feedback.familyCommands.hasRegistrations");
         }
         if (!DAO.getInstance().getTransactions(memberId, Cached.NO).isEmpty()) {
-            return "This person has financial history. Ask an administrator to remove them instead.";
+            return Text.get("feedback.familyCommands.hasFinancialHistory");
         }
         return null;
     }
@@ -296,12 +297,13 @@ public class FamilyCommands {
             final LocalDate birthdate, final Person.Sex sex, final String email, final boolean manager) {
         final Person me = currentPerson();
         if (me == null) {
-            return FamilyResult.refused(FamilyResult.NOT_SIGNED_IN, "Not signed in", "Sign in to manage your family.");
+            return FamilyResult.refused(FamilyResult.NOT_SIGNED_IN, Text.get("feedback.shared.notSignedIn"),
+                    Text.get("feedback.familyCommands.signInToManage"));
         }
         final Person anchor = resolveAnchor(me, subjectId);
         if (anchor == null) {
-            return FamilyResult.refused(FamilyResult.NOT_ALLOWED, "Not allowed",
-                    "You cannot manage that person's family.");
+            return FamilyResult.refused(FamilyResult.NOT_ALLOWED, Text.get("feedback.shared.notAllowed"),
+                    Text.get("feedback.familyCommands.cannotManageThatFamily"));
         }
         return createOutcome(anchor, first, last, birthdate, sex, email, manager);
     }
@@ -342,62 +344,64 @@ public class FamilyCommands {
             final LocalDate birthdate, final Person.Sex sex, final String email, final boolean manager) {
         final Person me = currentPerson();
         if (me == null || anchor == null) {
-            return FamilyResult.refused(FamilyResult.NOT_SIGNED_IN, "Not signed in", "Sign in to manage your family.");
+            return FamilyResult.refused(FamilyResult.NOT_SIGNED_IN, Text.get("feedback.shared.notSignedIn"),
+                    Text.get("feedback.familyCommands.signInToManage"));
         }
         if (isBlank(first) || isBlank(last)) {
-            return FamilyResult.refused(FamilyResult.NAME_REQUIRED, "Name required",
-                    "A family member needs at least a first and last name.");
+            return FamilyResult.refused(FamilyResult.NAME_REQUIRED, Text.get("feedback.familyCommands.nameRequired"),
+                    Text.get("feedback.familyCommands.needsFirstAndLast"));
         }
         if (sex == null) {
-            return FamilyResult.refused(FamilyResult.SEX_REQUIRED, "Sex required", "Choose Male or Female for "
-                    + first + " -- passports and rooming assignments both need it.");
+            return FamilyResult.refused(FamilyResult.SEX_REQUIRED, Text.get("feedback.familyCommands.sexRequired"),
+                    Text.get("feedback.familyCommands.chooseSex", first));
         }
         if (birthdate == null) {
-            return FamilyResult.refused(FamilyResult.BIRTHDATE_REQUIRED, "Birthdate required", "Enter " + first
-                    + "'s birthdate -- passports, insurance, and age-based pricing all need it.");
+            return FamilyResult.refused(FamilyResult.BIRTHDATE_REQUIRED,
+                    Text.get("feedback.familyCommands.birthdateRequired"),
+                    Text.get("feedback.familyCommands.enterBirthdate", first));
         }
         if (birthdate.isAfter(LocalDate.now())) {
-            return FamilyResult.refused(FamilyResult.BIRTHDATE_FUTURE, "Birthdate is in the future",
-                    "Check " + first + "'s birthdate.");
+            return FamilyResult.refused(FamilyResult.BIRTHDATE_FUTURE,
+                    Text.get("feedback.familyCommands.birthdateInFuture"),
+                    Text.get("feedback.familyCommands.checkBirthdate", first));
         }
         if (manager && !EmailAddresses.isValid(email)) {
             // A manager signs in and acts for the family; without their own WORKING address they cannot.
             // Validity, not merely presence: "foo" is an email field with no mailbox behind it, and it
             // would satisfy a blank check while still leaving them unable to sign in or be mailed.
             // Checked before ensureFamilyFor so a refusal writes nothing, not even an empty family row.
-            return FamilyResult.refused(FamilyResult.MANAGER_NEEDS_EMAIL, "Manager needs an email",
-                    "A valid separate email address is required for " + first + " to be a family manager. Add"
-                    + " them with their own email, or add them now and grant manager once they have one.");
+            return FamilyResult.refused(FamilyResult.MANAGER_NEEDS_EMAIL,
+                    Text.get("feedback.familyCommands.managerNeedsEmail"),
+                    Text.get("feedback.familyCommands.managerNeedsOwnEmail", first));
         }
         Family family = familyOf(anchor);
         if (family != null && !family.isManager(me.getId()) && !caller().isSiteAdmin()) {
-            return FamilyResult.refused(FamilyResult.NOT_MANAGER, "Not a family manager",
-                    "Only a family manager can add family members.");
+            return FamilyResult.refused(FamilyResult.NOT_MANAGER, Text.get("feedback.family.notAManager"),
+                    Text.get("feedback.familyCommands.onlyManagerAdds"));
         }
         if (family == null) {
             family = createdFamilyFor(anchor);
             if (family == null) {
-                return FamilyResult.refused(FamilyResult.STORE_FAILED, "Unable to save",
-                        "Unable to create the family.");
+                return FamilyResult.refused(FamilyResult.STORE_FAILED, Text.get("feedback.shared.unableToSave"),
+                        Text.get("feedback.familyCommands.familyNotCreated"));
             }
         }
         if (family.getSize() >= getMaxMembers()) {
-            return FamilyResult.refused(FamilyResult.FAMILY_FULL, "Family is full",
-                    "Your family has reached the size limit (" + getMaxMembers()
-                    + "). You can request an increase from the family page.");
+            return FamilyResult.refused(FamilyResult.FAMILY_FULL, Text.get("feedback.familyCommands.familyFull"),
+                    Text.get("feedback.familyCommands.yourFamilyAtLimit", getMaxMembers()));
         }
         final String cleanEmail = isBlank(email) ? null : email.trim();
         if (cleanEmail != null && emailInUse(cleanEmail, null)) {
-            return FamilyResult.refused(FamilyResult.EMAIL_IN_USE, "Email already in use",
-                    "Another person already uses '" + cleanEmail + "'. Leave the email blank, or use another.");
+            return FamilyResult.refused(FamilyResult.EMAIL_IN_USE, Text.get("feedback.personCommands.emailInUse"),
+                    Text.get("feedback.familyCommands.anotherPersonUses", cleanEmail));
         }
 
         final Person member = Person.builder().first(first).last(last).birthdate(birthdate).sex(sex).build();
         member.setEmail(cleanEmail);
         member.setFamilyId(family.getId());
         if (!savePersonOrWarn(member)) {
-            return FamilyResult.refused(FamilyResult.STORE_FAILED, "Unable to save",
-                    "Unable to save the new family member.");
+            return FamilyResult.refused(FamilyResult.STORE_FAILED, Text.get("feedback.shared.unableToSave"),
+                    Text.get("feedback.familyCommands.memberNotSaved"));
         }
         family.getMemberIds().add(member.getId());
         if (manager) {
@@ -447,26 +451,29 @@ public class FamilyCommands {
         // what lets a site admin work the subject-aware family page (?id=) for someone else's household.
         final Family family = familyOf(member);
         if (me == null || family == null) {
-            return FamilyResult.refused(FamilyResult.NO_FAMILY, "No family",
-                    "That person is not in a family you can manage.");
+            return FamilyResult.refused(FamilyResult.NO_FAMILY, Text.get("feedback.familyCommands.noFamily"),
+                    Text.get("feedback.familyCommands.notInYourFamily"));
         }
         if (!family.isManager(me.getId()) && !caller().isSiteAdmin()) {
-            return FamilyResult.refused(FamilyResult.NOT_MANAGER, "Not a family manager",
-                    "Only a family manager can remove family members.");
+            return FamilyResult.refused(FamilyResult.NOT_MANAGER, Text.get("feedback.family.notAManager"),
+                    Text.get("feedback.familyCommands.onlyManagerRemoves"));
         }
         if (me.getId().equals(memberId)) {
-            return FamilyResult.refused(FamilyResult.CANNOT_DELETE_SELF, "Cannot delete yourself",
-                    "You cannot delete your own profile.");
+            return FamilyResult.refused(FamilyResult.CANNOT_DELETE_SELF,
+                    Text.get("feedback.familyCommands.cannotDeleteYourself"),
+                    Text.get("feedback.familyCommands.cannotDeleteOwnProfile"));
         }
         // Site admins included: for somebody with their own login the admin path is the UNLINK on Manage
         // People, which removes them from the family and deletes nothing.
         final String ownAccount = ownAccountBlock(memberId);
         if (ownAccount != null) {
-            return FamilyResult.refused(FamilyResult.HAS_OWN_ACCOUNT, "Cannot delete", ownAccount);
+            return FamilyResult.refused(FamilyResult.HAS_OWN_ACCOUNT, Text.get("feedback.familyCommands.cannotDelete"),
+                    ownAccount);
         }
         final String blocked = historyBlock(memberId);
         if (blocked != null) {
-            return FamilyResult.refused(FamilyResult.HAS_HISTORY, "Cannot delete", blocked);
+            return FamilyResult.refused(FamilyResult.HAS_HISTORY, Text.get("feedback.familyCommands.cannotDelete"),
+                    blocked);
         }
         final boolean wasManager = family.isManager(memberId);
         family.getMemberIds().remove(memberId);
@@ -499,25 +506,26 @@ public class FamilyCommands {
         // a site admin manage another household from the subject-aware family page.
         final Family family = familyOf(member);
         if (me == null || family == null) {
-            return FamilyResult.refused(FamilyResult.NO_FAMILY, "No family",
-                    "That person is not in a family you can manage.");
+            return FamilyResult.refused(FamilyResult.NO_FAMILY, Text.get("feedback.familyCommands.noFamily"),
+                    Text.get("feedback.familyCommands.notInYourFamily"));
         }
         if (!family.isManager(me.getId()) && !caller().isSiteAdmin()) {
-            return FamilyResult.refused(FamilyResult.NOT_MANAGER, "Not a family manager",
-                    "Only a family manager can change who manages the family.");
+            return FamilyResult.refused(FamilyResult.NOT_MANAGER, Text.get("feedback.family.notAManager"),
+                    Text.get("feedback.familyCommands.onlyManagerChangesManagers"));
         }
         if (grant == family.isManager(memberId)) {
             return FamilyResult.ok(member, family);
         }
         if (!grant && family.getManagerIds().size() == 1 && family.getSize() >= 2) {
-            return FamilyResult.refused(FamilyResult.LAST_MANAGER, "A manager must remain",
-                    "A family with more than one person needs at least one manager.");
+            return FamilyResult.refused(FamilyResult.LAST_MANAGER,
+                    Text.get("feedback.familyCommands.managerMustRemain"),
+                    Text.get("feedback.familyCommands.needsOneManager"));
         }
         if (grant && !EmailAddresses.isValid(member.getEmail())) {
             // A manager signs in and acts for the family; without their own WORKING address they cannot.
-            return FamilyResult.refused(FamilyResult.MANAGER_NEEDS_EMAIL, "Manager needs an email",
-                    "A valid separate email address is required for them to be a family manager. Add a real"
-                    + " email address to their profile first.");
+            return FamilyResult.refused(FamilyResult.MANAGER_NEEDS_EMAIL,
+                    Text.get("feedback.familyCommands.managerNeedsEmail"),
+                    Text.get("feedback.familyCommands.memberNeedsRealEmail"));
         }
         if (grant) {
             family.getManagerIds().add(memberId);
@@ -550,7 +558,8 @@ public class FamilyCommands {
         final Person anchor = DAO.getInstance().getPerson(anchorId, Cached.NO).orElse(null);
         final Person person = DAO.getInstance().getPerson(personId, Cached.NO).orElse(null);
         if (anchor == null || person == null) {
-            return fail("Unknown person", "Both people must exist to link a family.");
+            return fail(Text.get("feedback.familyCommands.unknownPerson"),
+                    Text.get("feedback.familyCommands.bothMustExist"));
         }
         // ...and over everyone ALREADY in the anchor's family: the link changes who manages whom across the
         // whole household (a new manager gains every member, every manager gains the newcomer), and a member
@@ -566,17 +575,17 @@ public class FamilyCommands {
             if (person.getFamilyId().equals(anchorFamily.getId())) {
                 return true;
             }
-            return fail("Already in a family", AuditCommands.describe(person)
-                    + " is already in another family. Unlink them there first.");
+            return fail(Text.get("feedback.familyCommands.alreadyInFamily"),
+                    Text.get("feedback.familyCommands.inAnotherFamily", AuditCommands.describe(person)));
         }
         if (anchorFamily.getSize() >= getMaxMembers()) {
-            return fail("Family is full", "This family has reached the size limit (" + getMaxMembers()
-                    + "). Raise family.maxMembers in Settings first.");
+            return fail(Text.get("feedback.familyCommands.familyFull"),
+                    Text.get("feedback.familyCommands.thisFamilyAtLimit", getMaxMembers()));
         }
         if (manager && !EmailAddresses.isValid(person.getEmail())) {
             // Same rule as self-service: a manager must be able to sign in, which takes a real address.
-            return fail("Manager needs an email", "A valid separate email address is required for "
-                    + AuditCommands.describe(person) + " to be a family manager.");
+            return fail(Text.get("feedback.familyCommands.managerNeedsEmail"),
+                    Text.get("feedback.familyCommands.personNeedsEmailToManage", AuditCommands.describe(person)));
         }
         person.setFamilyId(anchorFamily.getId());
         if (!savePersonOrWarn(person)) {
@@ -604,7 +613,7 @@ public class FamilyCommands {
         final Person member = DAO.getInstance().getPerson(memberId, Cached.NO).orElse(null);
         final Family family = familyOf(member);
         if (family == null || !family.isMember(memberId)) {
-            return "That person is not in a family.";
+            return Text.get("feedback.familyCommands.notInAFamily");
         }
         final List<Person.Id> remaining = new ArrayList<>(family.getMemberIds());
         remaining.remove(memberId);
@@ -612,10 +621,10 @@ public class FamilyCommands {
             return null;    // last member out: the family row is deleted, nothing to protect
         }
         if (remaining.size() >= 2 && remainingManagers(family, memberId) == 0) {
-            return "No family manager would remain. Make someone else a manager first.";
+            return Text.get("feedback.familyCommands.noManagerWouldRemain");
         }
         if (!anyoneHasEmail(remaining)) {
-            return "No remaining family member would have an email address. Set one first.";
+            return Text.get("feedback.familyCommands.noEmailWouldRemain");
         }
         return null;
     }
@@ -630,12 +639,13 @@ public class FamilyCommands {
         }
         final String blocked = unlinkBlockReason(memberId);
         if (blocked != null) {
-            return fail("Cannot remove from family", blocked);
+            return fail(Text.get("feedback.familyCommands.cannotRemoveFromFamily"), blocked);
         }
         final Person member = DAO.getInstance().getPerson(memberId, Cached.NO).orElse(null);
         final Family family = familyOf(member);
         if (member == null || family == null) {
-            return fail("Not in a family", "That person is not in a family.");
+            return fail(Text.get("feedback.familyCommands.notInFamilyTitle"),
+                    Text.get("feedback.familyCommands.notInAFamily"));
         }
         final boolean wasManager = family.isManager(memberId);
         family.getMemberIds().remove(memberId);
@@ -658,7 +668,8 @@ public class FamilyCommands {
     public boolean resyncFamily(final String familyId) {
         final Family family = DAO.getInstance().getFamily(Family.Id.from(familyId), Cached.NO).orElse(null);
         if (family == null) {
-            return fail("Unknown family", "No family with id " + familyId);
+            return fail(Text.get("feedback.familyCommands.unknownFamily"),
+                    Text.get("feedback.familyCommands.noFamilyWithId", familyId));
         }
         // Repair touches every member's managedUsers, so it needs people-admin reach over each of them
         // (trivially true for the site admins and ops flows this tool serves).
@@ -825,7 +836,7 @@ public class FamilyCommands {
         if (orgSource.get().canAdminPerson(subjectId)) {
             return true;
         }
-        return fail("Not authorized", "Managing family links requires people-admin access to this person.");
+        return fail(Text.get("feedback.shared.notAuthorized"), Text.get("feedback.familyCommands.needsPeopleAdmin"));
     }
 
     /**
@@ -840,8 +851,8 @@ public class FamilyCommands {
         if (orgSource.get().canChangeSignInOf(subjectId)) {
             return true;
         }
-        return fail("Not authorized", "Linking these people into a family takes a site administrator: one of them"
-                + " belongs to an organization you are not the people admin of, or holds an administrator role.");
+        return fail(Text.get("feedback.shared.notAuthorized"),
+                Text.get("feedback.familyCommands.linkNeedsSiteAdmin"));
     }
 
     /** {@link #requireLinkAuthorityOver} each member of this person's family; true when they have none yet. */
@@ -877,14 +888,15 @@ public class FamilyCommands {
             if (DAO.getInstance().saveFamily(family)) {
                 return null;
             }
-            return FamilyResult.refused(FamilyResult.STORE_FAILED, "Unable to save", "Unable to save the family.");
+            return FamilyResult.refused(FamilyResult.STORE_FAILED, Text.get("feedback.shared.unableToSave"),
+                    Text.get("feedback.familyCommands.familyNotSaved"));
         } catch (final ConditionalCheckFailedException ex) {
-            return FamilyResult.refused(FamilyResult.FAMILY_CHANGED, "Family changed",
-                    "Someone else changed this family at the same time. Please reload the page and try again.");
+            return FamilyResult.refused(FamilyResult.FAMILY_CHANGED, Text.get("feedback.familyCommands.familyChanged"),
+                    Text.get("feedback.familyCommands.changedBySomeoneElse"));
         } catch (final RuntimeException | IOException ex) {
             log.error("Unable to save family {}", family.getId(), ex);
-            return FamilyResult.refused(FamilyResult.STORE_FAILED, "Unable to save",
-                    "Unable to save the family: " + ex.getMessage());
+            return FamilyResult.refused(FamilyResult.STORE_FAILED, Text.get("feedback.shared.unableToSave"),
+                    Text.get("feedback.familyCommands.familyNotSavedBecause", ex.getMessage()));
         }
     }
 
@@ -897,7 +909,7 @@ public class FamilyCommands {
     }
 
     private Family failFamily() {
-        fail("Unable to save", "Unable to create the family.");
+        fail(Text.get("feedback.shared.unableToSave"), Text.get("feedback.familyCommands.familyNotCreated"));
         return null;
     }
 

@@ -31,21 +31,15 @@ public class ReminderSend implements Serializable {
 
     /** Where the send stands. A row left {@code CLAIMED} is a send that died mid-flight: never retried silently. */
     public enum Outcome {
-        CLAIMED("Sending"),
-        SENT("Sent"),
-        FAILED("Failed"),
-        NO_ADDRESS("No email address"),
+        CLAIMED,
+        SENT,
+        FAILED,
+        NO_ADDRESS,
         /** The run happened and nobody was in the audience: the one row with no traveler. */
-        NOBODY("Nobody needed it");
-
-        private final String label;
-
-        Outcome(final String label) {
-            this.label = label;
-        }
+        NOBODY;
 
         public String getLabel() {
-            return label;
+            return EnumLabels.of(this);
         }
     }
 

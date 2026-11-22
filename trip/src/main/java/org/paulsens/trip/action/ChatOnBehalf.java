@@ -1,5 +1,6 @@
 package org.paulsens.trip.action;
 
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.chat.ChatMessage;
@@ -35,15 +36,15 @@ public final class ChatOnBehalf {
             return null;
         }
         if (onBehalfOfId.equals(authorId)) {
-            return ChatCommands.SendResult.fail("on_behalf", "You cannot post on behalf of yourself.");
+            return ChatCommands.SendResult.fail("on_behalf", Text.get("feedback.chatOnBehalf.notYourself"));
         }
         final PersonCommands people = PersonCommands.getPersonCommands();
         if (!people.canAccessUserId(people.getPerson(authorId), onBehalfOfId)) {
             return ChatCommands.SendResult.fail("on_behalf",
-                    "Only a family manager can post on behalf of that member.");
+                    Text.get("feedback.chatOnBehalf.managerOnly"));
         }
         if (trip == null || !trip.getPeople().contains(onBehalfOfId)) {
-            return ChatCommands.SendResult.fail("on_behalf", "That person is not on this trip.");
+            return ChatCommands.SendResult.fail("on_behalf", Text.get("api.transactions.personNotOnTrip"));
         }
         return null;
     }

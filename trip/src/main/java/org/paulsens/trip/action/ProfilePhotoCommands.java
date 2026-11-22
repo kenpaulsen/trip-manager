@@ -9,6 +9,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.Audit;
 import org.paulsens.trip.audit.AuditEventBuilder;
 import org.paulsens.trip.config.KnownSettings;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.media.BackgroundRemover;
 import org.paulsens.trip.media.PendingUploads;
 import org.paulsens.trip.media.PhotoProcessor;
@@ -72,7 +73,7 @@ public class ProfilePhotoCommands extends PhotoUploadBean {
     @Override
     protected UploadGate authorization() {
         return mayEdit(caller(), subject()) ? UploadGate.allow()
-                : UploadGate.deny("Not allowed: you may not change this profile picture.");
+                : UploadGate.deny(Text.get("feedback.profilePhotoCommands.notAllowed"));
     }
 
     /**
@@ -133,7 +134,7 @@ public class ProfilePhotoCommands extends PhotoUploadBean {
      */
     public boolean applyCrop(final Person subject, final CroppedImage crop, final Integer targetSlot) {
         if (!mayEdit(caller(), subject)) {
-            error("Not allowed: you may not change this profile picture.");
+            error(Text.get("feedback.profilePhotoCommands.notAllowed"));
             return false;
         }
         final Optional<PendingUploads.Pending> claimed = claim(subject.getId().getValue());
@@ -148,7 +149,7 @@ public class ProfilePhotoCommands extends PhotoUploadBean {
             return false;
         }
         finish(pending);
-        info("Profile picture saved: slot " + result.slot() + " updated.");
+        info(Text.get("feedback.profilePhotoCommands.saved", result.slot()));
         return true;
     }
 
@@ -168,23 +169,24 @@ public class ProfilePhotoCommands extends PhotoUploadBean {
             final PhotoProcessor.CropRect rect, final Integer targetSlot) {
         if (!mayEdit(who, subject)) {
             return PhotoResult.refused(PhotoResult.NOT_ALLOWED,
-                    "Not allowed: you may not change this profile picture.");
+                    Text.get("feedback.profilePhotoCommands.notAllowed"));
         }
         final int slot = (targetSlot == null || targetSlot < 1)
                 ? profilePhotos.nextFreeSlot(subject.getId().getValue()) : targetSlot;
         if (slot < 1 || slot > ProfilePhotos.MAX_SLOTS) {
-            return PhotoResult.refused(PhotoResult.NO_FREE_SLOT, "No free slot: all " + ProfilePhotos.MAX_SLOTS
-                    + " picture slots are in use. Replace or delete one instead.");
+            return PhotoResult.refused(PhotoResult.NO_FREE_SLOT,
+                    Text.get("feedback.profilePhotoCommands.noFreeSlot", ProfilePhotos.MAX_SLOTS));
         }
         final byte[] jpeg;
         try {
             jpeg = processor.processProfile(original, rect);
         } catch (final PhotoRejectedException ex) {
-            return PhotoResult.refused(PhotoResult.REJECTED, "Photo rejected: " + ex.getMessage());
+            return PhotoResult.refused(PhotoResult.REJECTED,
+                    Text.get("feedback.photoUploadBean.rejected.photo", ex.getMessage()));
         }
         if (!profilePhotos.store(subject.getId().getValue(), slot, jpeg)) {
             return PhotoResult.refused(PhotoResult.STORE_FAILED,
-                    "Not stored: the photo could not be stored. Try again.");
+                    Text.get("feedback.albumLibrary.notStored"));
         }
         audit(who, "Profile picture stored", subject, slot);
         return PhotoResult.ok(slot);
@@ -209,7 +211,7 @@ public class ProfilePhotoCommands extends PhotoUploadBean {
 
     private boolean deleteConfirmed(final Person subject, final int slot, final String challenge) {
         if (!isDeleteConfirmed(challenge)) {
-            error("Not deleted: type 'delete' in the box to confirm.");
+            error(Text.get("feedback.profilePhotoCommands.typeDelete"));
             return false;
         }
         final PhotoResult result = deleteSlotFor(caller(), subject, slot);
@@ -217,7 +219,7 @@ public class ProfilePhotoCommands extends PhotoUploadBean {
             error(result.message());
             return false;
         }
-        info("Profile picture deleted: picture " + slot + " removed.");
+        info(Text.get("feedback.profilePhotoCommands.deleted", slot));
         return true;
     }
 
@@ -234,12 +236,12 @@ public class ProfilePhotoCommands extends PhotoUploadBean {
     public PhotoResult deleteSlotFor(final Caller who, final Person subject, final int slot) {
         if (!mayEdit(who, subject)) {
             return PhotoResult.refused(PhotoResult.NOT_ALLOWED,
-                    "Not allowed: you may not change this profile picture.");
+                    Text.get("feedback.profilePhotoCommands.notAllowed"));
         }
         if (!profilePhotos.deleteSlot(subject.getId().getValue(), slot)) {
             // The dialog offers only occupied slots, but a page can be stale (another tab, a family manager).
             return PhotoResult.refused(PhotoResult.EMPTY_SLOT,
-                    "Not deleted: that picture was already removed. Reload the page to see your pictures.");
+                    Text.get("feedback.profilePhotoCommands.alreadyRemoved"));
         }
         audit(who, "Profile picture deleted", subject, slot);
         return PhotoResult.ok(slot);
@@ -259,12 +261,12 @@ public class ProfilePhotoCommands extends PhotoUploadBean {
             error(result.message());
             return false;
         }
-        info("Profile picture rotated: picture " + slot + " updated.");
+        info(Text.get("feedback.profilePhotoCommands.rotated", slot));
         return true;
     }
 
     private static PhotoResult badDirection() {
-        return PhotoResult.refused(PhotoResult.BAD_DIRECTION, "Not rotated: say left or right.");
+        return PhotoResult.refused(PhotoResult.BAD_DIRECTION, Text.get("feedback.photo.badRotation"));
     }
 
     /**
@@ -276,13 +278,13 @@ public class ProfilePhotoCommands extends PhotoUploadBean {
     public PhotoResult rotateFor(final Caller who, final Person subject, final int slot, final QuarterTurn turn) {
         if (!mayEdit(who, subject)) {
             return PhotoResult.refused(PhotoResult.NOT_ALLOWED,
-                    "Not allowed: you may not change this profile picture.");
+                    Text.get("feedback.profilePhotoCommands.notAllowed"));
         }
         final String personId = subject.getId().getValue();
         final String guardKey = ProfilePhotos.PREFIX + personId + "/" + slot;
         if (!RotationGuard.begin(guardKey)) {
             return PhotoResult.refused(PhotoResult.BUSY,
-                    "Not rotated: that picture is already being rotated. Try again in a moment.");
+                    Text.get("feedback.profilePhotoCommands.rotationBusy"));
         }
         try {
             return rotateGuarded(who, subject, slot, turn);
@@ -298,17 +300,18 @@ public class ProfilePhotoCommands extends PhotoUploadBean {
                 ? Optional.empty() : profilePhotos.currentBytes(personId, slot);
         if (current.isEmpty()) {
             return PhotoResult.refused(PhotoResult.EMPTY_SLOT,
-                    "Not rotated: that picture is no longer there. Reload the page to see your pictures.");
+                    Text.get("feedback.profilePhotoCommands.rotationGone"));
         }
         final byte[] jpeg;
         try {
             jpeg = processor.rotate(current.get(), turn).bytes();
         } catch (final PhotoRejectedException ex) {
-            return PhotoResult.refused(PhotoResult.REJECTED, "Photo rejected: " + ex.getMessage());
+            return PhotoResult.refused(PhotoResult.REJECTED,
+                    Text.get("feedback.photoUploadBean.rejected.photo", ex.getMessage()));
         }
         if (!profilePhotos.store(personId, slot, jpeg)) {
             return PhotoResult.refused(PhotoResult.STORE_FAILED,
-                    "Not stored: the photo could not be stored. Try again.");
+                    Text.get("feedback.albumLibrary.notStored"));
         }
         audit(who, "Profile picture rotated " + turn.name().toLowerCase(Locale.ROOT), subject, slot);
         return PhotoResult.ok(slot);
@@ -328,13 +331,13 @@ public class ProfilePhotoCommands extends PhotoUploadBean {
      */
     public void startBgRemoval(final Person subject, final int slot) {
         if (!mayEdit(caller(), subject) || !bgRemovalEnabled()) {
-            error("Not available: background replacement is not available.");
+            error(Text.get("feedback.profilePhotoCommands.backgroundUnavailable"));
             publishParam("bgReady", false);
             return;
         }
         final Optional<byte[]> current = profilePhotos.currentBytes(subject.getId().getValue(), slot);
         if (current.isEmpty()) {
-            error("No picture: that slot has no picture to edit.");
+            error(Text.get("feedback.profilePhotoCommands.noPicture"));
             publishParam("bgReady", false);
             return;
         }
@@ -342,12 +345,12 @@ public class ProfilePhotoCommands extends PhotoUploadBean {
         try {
             cutout = removeBackground(current.get());
         } catch (final PhotoRejectedException ex) {
-            error("Photo rejected: " + ex.getMessage());
+            error(Text.get("feedback.photoUploadBean.rejected.photo", ex.getMessage()));
             publishParam("bgReady", false);
             return;
         }
         if (cutout.isEmpty()) {
-            error("Busy: background replacement is busy or unavailable right now. Try again shortly.");
+            error(Text.get("feedback.profilePhotoCommands.backgroundBusy"));
             publishParam("bgReady", false);
             return;
         }
@@ -368,7 +371,7 @@ public class ProfilePhotoCommands extends PhotoUploadBean {
      */
     public boolean applyBackground(final Person subject) {
         if (!mayEdit(caller(), subject) || !bgRemovalEnabled()) {
-            error("Not available: background replacement is not available.");
+            error(Text.get("feedback.profilePhotoCommands.backgroundUnavailable"));
             publishParam("bgApplied", false);
             return false;
         }
@@ -378,14 +381,14 @@ public class ProfilePhotoCommands extends PhotoUploadBean {
         final String targetPrefix = subject.getId().getValue() + "#";
         if (found.isEmpty() || !BG_PURPOSE.equals(found.get().purpose())
                 || !found.get().targetId().startsWith(targetPrefix)) {
-            error("Expired: the background preview is no longer available. Start over.");
+            error(Text.get("feedback.profilePhotoCommands.previewExpired"));
             publishParam("bgApplied", false);
             return false;
         }
         final PendingUploads.Pending pending = found.get();
         final Integer rgb = parseColor(viewMap("bgPhotoColor"));
         if (rgb == null) {
-            error("Pick a color: choose a background color first.");
+            error(Text.get("feedback.profilePhotoCommands.pickColor"));
             publishParam("bgApplied", false);
             return false;
         }
@@ -394,19 +397,19 @@ public class ProfilePhotoCommands extends PhotoUploadBean {
         try {
             jpeg = PhotoProcessor.compositeOnColor(pending.original(), rgb);
         } catch (final PhotoRejectedException ex) {
-            error("Photo rejected: " + ex.getMessage());
+            error(Text.get("feedback.photoUploadBean.rejected.photo", ex.getMessage()));
             publishParam("bgApplied", false);
             return false;
         }
         if (!profilePhotos.store(subject.getId().getValue(), slot, jpeg)) {
-            error("Not stored: the picture could not be stored. Try again.");
+            error(Text.get("feedback.tripPictureCommands.notStored"));
             publishParam("bgApplied", false);
             return false;
         }
         pendingUploads().consume(pending.token());
         sessionPut(BG_TOKEN_KEY, null);
         audit(caller(), "Profile picture background replaced", subject, slot);
-        info("Background replaced: slot " + slot + " updated.");
+        info(Text.get("feedback.profilePhotoCommands.backgroundReplaced", slot));
         publishParam("bgApplied", true);
         return true;
     }

@@ -3,6 +3,7 @@ package org.paulsens.trip.action;
 import java.io.IOException;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Locale;
 import org.paulsens.trip.action.BudgetViews.BudgetPage;
 import org.paulsens.trip.action.BudgetViews.LineRow;
 import org.paulsens.trip.action.BudgetViews.LodgingRow;
@@ -11,6 +12,7 @@ import org.paulsens.trip.action.BudgetViews.PayeeRow;
 import org.testng.annotations.Test;
 
 import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertTrue;
 
 /** The budget PDF: every section of the page, the bottom line, page breaks with repeated headings. */
@@ -111,6 +113,47 @@ public class BudgetPdfTest {
         assertTrue(pages.get(1).contains("Trip: Budget"), "a continuation page names the document");
         assertTrue(pages.get(1).contains("Name") && pages.get(1).contains("Amount"), "and repeats the headings");
         assertTrue(pages.get(0).contains("Page 1 of " + pages.size()));
+    }
+
+    private static BudgetPage pageWithACroatianPayee() {
+        final BudgetPage page = page();
+        final PayeeRow payee = new PayeeRow();
+        payee.setName("Šibenik Đurđević");
+        payee.setCategory("Guide");
+        payee.setItems(2);
+        payee.setAmount("$300.00");
+        page.getPayees().add(payee);
+        return page;
+    }
+
+    /** The sheet's own words follow the reader; a name with č, ć, đ, š, ž is drawn, not dropped. */
+    @Test
+    public void aCroatianReaderGetsCroatianHeadingsAndNamesIntact() throws IOException {
+        final String text = String.join("\n", PdfText.pages(BudgetPdf.render(pageWithACroatianPayee(),
+                "Šibenik 2027", "CFPW", LocalDate.of(2026, 10, 26), Locale.forLanguageTag("hr"))));
+        for (final String expected : List.of("Šibenik 2027: Proračun", "46 osoba, 10 noćenja", "Ulazni podaci",
+                "Zajednički troškovi", "Tips (plaćeno prije putovanja)", "Smještaj", "Pansion Dragićević",
+                "postavljeno", "Snacks (po noćenju)", "Primatelji", "Šibenik Đurđević",
+                "Plaćanja tijekom putovanja", "Sažetak", "Marža na smještaju",
+                "Šibenik 2027: Proračun, ispisano: 26. lis 2026.", "Stranica 1 od")) {
+            assertTrue(text.contains(expected), "missing '" + expected + "' in:\n" + text);
+        }
+        for (final String english : List.of("Shared Expenses", "Payees", "Summary", "printed", "Page 1")) {
+            assertFalse(text.contains(english), "English '" + english + "' in a Croatian sheet:\n" + text);
+        }
+    }
+
+    @Test
+    public void aSpanishReaderGetsSpanishHeadings() throws IOException {
+        final String text = String.join("\n", PdfText.pages(BudgetPdf.render(pageWithACroatianPayee(), null,
+                "CFPW", LocalDate.of(2026, 10, 26), Locale.forLanguageTag("es"))));
+        for (final String expected : List.of("Viaje: Presupuesto", "46 personas, 10 noches de viaje",
+                "Gastos compartidos", "Tips (pagado antes del viaje)", "Alojamiento", "sin definir",
+                "Beneficiarios", "Šibenik Đurđević", "Pagos durante el viaje", "Resumen",
+                "Viaje: Presupuesto, impreso el 26 oct 2026", "Página 1 de")) {
+            assertTrue(text.contains(expected), "missing '" + expected + "' in:\n" + text);
+        }
+        assertFalse(text.contains("Shared Expenses"), text);
     }
 
     @Test

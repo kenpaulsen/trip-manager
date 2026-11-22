@@ -18,6 +18,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.content.PageHtml;
 import org.paulsens.trip.content.StripNotes;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.DataId;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.PersonDataValue;
@@ -62,11 +63,11 @@ public class TodoCommands {
         try {
             result = DAO.getInstance().saveTodo(todo);
         } catch (final RuntimeException ex) {
-            PageFeedback.failure("Error saving todo '" + todo.getDescription() + "': " + todo.getTripId());
+            PageFeedback.failure(Text.get("feedback.todoCommands.saveError", todo.getDescription(), todo.getTripId()));
             log.error("Error while saving todo: ", ex);
             result = false;
         } catch (final IOException ex) {
-            PageFeedback.failure("Unable to save todo '" + todo.getDescription() + "': " + todo.getTripId());
+            PageFeedback.failure(Text.get("feedback.todoCommands.saveFailed", todo.getDescription(), todo.getTripId()));
             log.warn("Error while saving todo: ", ex);
             result = false;
         }
@@ -240,7 +241,7 @@ public class TodoCommands {
             }
         }
         setRunScript("newTodoError = false;");
-        final String msg = "'" + desc + "' Todo Created!";
+        final String msg = Text.get("feedback.todoCommands.created", desc);
         PageFeedback.info(msg);
     }
 
@@ -248,14 +249,14 @@ public class TodoCommands {
         boolean goodRequest = true;
         if (people == null || people.length == 0) {
             final String selPeopleId = (String) getRequestAttribute("selPeopleId").orElse(null);
-            final String msg = "You must select at least 1 person!";
+            final String msg = Text.get("feedback.todoCommands.selectPerson");
             TripUtilCommands.addMessage(selPeopleId, new FacesMessage(FacesMessage.SEVERITY_ERROR, msg, msg));
             setRunScript("newTodoError = true;");
             goodRequest = false;
         }
         if (desc == null || desc.isBlank()) {
             final String descClientId = (String) getRequestAttribute("newTodoDescClientId").orElse(null);
-            final String msg = "You must provide a description!";
+            final String msg = Text.get("feedback.todoCommands.needsDescription");
             TripUtilCommands.addMessage(descClientId, new FacesMessage(FacesMessage.SEVERITY_ERROR, msg, msg));
             setRunScript("newTodoError = true;");
             goodRequest = false;

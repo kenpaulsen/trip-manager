@@ -2,8 +2,6 @@ package org.paulsens.trip.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.sun.jsft.util.Util;
-import jakarta.faces.context.FacesContext;
 import java.io.Serial;
 import java.io.Serializable;
 import java.time.LocalDateTime;
@@ -25,7 +23,9 @@ import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.ToString;
+import org.paulsens.trip.audit.RequestContext;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.i18n.Formats;
 import org.paulsens.trip.cache.Cached;
 
 @Data
@@ -855,9 +855,17 @@ public final class Trip implements Serializable {
         return (language == null ? Language.English : language).getLocale().getLanguage();
     }
 
+    /**
+     * The trip's dates as one range in the viewer's language: "Sep 3 - 12, 2026", "3–12 sept 2026". English keeps
+     * the shape it has always had (one year, the end's, even across a new year); every other language gets its
+     * own range format, which writes each shared part once.
+     */
     @JsonIgnore
     public String getTripDateRange() {
-        final Locale locale = Util.getLocale(FacesContext.getCurrentInstance());
+        final Locale locale = RequestContext.currentLocale();
+        if (!Formats.isEnglish(locale)) {
+            return Formats.dateRange(startDate.toLocalDate(), endDate.toLocalDate(), "yMMMd", locale);
+        }
         final String startMonth = startDate.getMonth().getDisplayName(TextStyle.SHORT, locale) + ' ';
         final String endMonth = (startDate.getMonth() == endDate.getMonth()) ? ""
                 : endDate.getMonth().getDisplayName(TextStyle.SHORT, locale) + ' ';

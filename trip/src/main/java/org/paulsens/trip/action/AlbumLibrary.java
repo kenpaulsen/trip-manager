@@ -14,6 +14,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.Audit;
 import org.paulsens.trip.audit.AuditEventBuilder;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.media.LocalObjectStore;
 import org.paulsens.trip.media.PhotoProcessor;
 import org.paulsens.trip.media.PhotoRejectedException;
@@ -141,11 +142,11 @@ public class AlbumLibrary {
      */
     public CopyResult copy(final Caller caller, final List<String> mediaIds) {
         if (!mayAdd(caller)) {
-            return new CopyResult(List.of(), "Not allowed: you may not add to this site's media library.");
+            return new CopyResult(List.of(), Text.get("feedback.albumLibrary.gate"));
         }
         final List<MediaItem> made = new ArrayList<>();
         String refusal = mediaIds.size() > MAX_PER_ADD
-                ? "Too many: at most " + MAX_PER_ADD + " photos can be added at once." : null;
+                ? Text.get("feedback.albumLibrary.tooMany", MAX_PER_ADD) : null;
         for (final String mediaId : mediaIds.subList(0, Math.min(MAX_PER_ADD, mediaIds.size()))) {
             final Copied one = copyOne(caller, mediaId);
             if (one.item() != null) {
@@ -164,22 +165,22 @@ public class AlbumLibrary {
     private Copied copyOne(final Caller caller, final String mediaId) {
         final Optional<MediaItem> photo = albums.offered(caller, AlbumPhotoSource.SCOPE_SITE, mediaId);
         if (photo.isEmpty()) {
-            return new Copied(null, "Not available: that album photo cannot be used here.");
+            return new Copied(null, Text.get("feedback.photoUploadBean.albumPhotoNotAvailable"));
         }
         final Optional<byte[]> original = albums.bytesOf(photo.get());
         if (original.isEmpty()) {
-            return new Copied(null, "Not read: an album photo could not be read. Try again.");
+            return new Copied(null, Text.get("feedback.albumLibrary.notRead"));
         }
         final byte[] jpeg;
         try {
             jpeg = processor.cropToBoundedJpeg(original.get(), null, 0d, MAX_WIDTH, MAX_BYTES);
         } catch (final PhotoRejectedException ex) {
-            return new Copied(null, "Photo rejected: " + ex.getMessage());
+            return new Copied(null, Text.get("feedback.photoUploadBean.rejected.photo", ex.getMessage()));
         }
         final String orgId = siteOrgId();
         final String key = MediaCommands.keyForOwner(orgId, FOLDER + nextStamp() + ".jpg");
         if (!store(key, jpeg)) {
-            return new Copied(null, "Not stored: the photo could not be stored. Try again.");
+            return new Copied(null, Text.get("feedback.albumLibrary.notStored"));
         }
         // Neither the album row's title nor its description: the title is the caption the sender typed for the
         // trip's members, the description names who shared it and the trip's chat, and a library row is public
@@ -188,7 +189,7 @@ public class AlbumLibrary {
                 COPY_DESCRIPTION, "image/jpeg", jpeg.length, null, 0, LocalDateTime.now(),
                 caller.auditActor().email(), null, null, orgId);
         if (!record(item)) {
-            return new Copied(null, "Not listed: the photo was stored but could not be added to the library.");
+            return new Copied(null, Text.get("feedback.albumLibrary.notListed"));
         }
         MediaEvents.fire(MediaEvents.Change.ADDED, key);
         Audit.builder(AuditAction.MEDIA, AuditOutcome.SUCCESS)
@@ -214,19 +215,19 @@ public class AlbumLibrary {
         final List<String> ids = AlbumPicks.parse(picks, MAX_PER_ADD + 1).stream()
                 .map(AlbumPicks.Pick::mediaId).toList();
         if (ids.isEmpty()) {
-            PageFeedback.error("Nothing chosen: choose at least one photo first.");
+            PageFeedback.error(Text.get("feedback.albumLibrary.chooseSome"));
             publish("albumAdded", false);
             return;
         }
         final CopyResult result = copy(caller(), ids);
         final int added = result.items().size();
-        final String done = added == 1 ? "Photo added to the library." : added + " photos added to the library.";
+        final String done = Text.get("feedback.albumLibrary.added", added);
         if (result.refusal() == null) {
             PageFeedback.info(done);
             publish("albumDone", done);
         } else {
             final String note = added == 0 ? result.refusal()
-                    : added + " of " + ids.size() + " added. " + result.refusal();
+                    : Text.get("feedback.tripPictureCommands.someAdded", added, ids.size(), result.refusal());
             PageFeedback.error(note);
             // The library page reloads after a copy, and a growl does not survive that: the page carries this on.
             publish("albumNote", note);
@@ -241,7 +242,8 @@ public class AlbumLibrary {
     public void pickFromAlbum(final String mediaId) {
         final CopyResult result = copy(caller(), mediaId == null ? List.of() : List.of(mediaId));
         if (result.items().isEmpty()) {
-            PageFeedback.error(result.refusal() == null ? "Nothing chosen: choose a photo first." : result.refusal());
+            PageFeedback.error(result.refusal() == null ? Text.get("feedback.albumLibrary.chooseOne")
+                    : result.refusal());
             publish("albumPicked", false);
             return;
         }

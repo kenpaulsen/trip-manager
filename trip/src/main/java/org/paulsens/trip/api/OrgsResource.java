@@ -25,6 +25,7 @@ import org.paulsens.trip.action.SiteCommands;
 import org.paulsens.trip.api.dto.OrgBrandingDto;
 import org.paulsens.trip.api.dto.OrgDirectoryEntryDto;
 import org.paulsens.trip.api.dto.OrgSummaryDto;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
 
@@ -61,11 +62,11 @@ public class OrgsResource extends BaseResource {
     public Response mine(@QueryParam("all") @DefaultValue("false") final boolean all) {
         final Person me = findPerson(personId());
         if (me == null) {
-            return error(404, ApiErrors.NOT_FOUND, "Signed-in person not found.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.shared.signedInPersonNotFound"));
         }
         final OrgCommands orgs = new OrgCommands(this::caller);
         if (all && !privileges().isSiteAdmin()) {
-            return error(403, ApiErrors.FORBIDDEN, "Only a site administrator can list every organization.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.orgs.listNeedsSiteAdmin"));
         }
         final List<Organization> found = all ? orgs.getManageableOrgs() : orgs.membershipsOf(me);
         return ok(found.stream()
@@ -112,7 +113,7 @@ public class OrgsResource extends BaseResource {
     public Response site(@PathParam("orgId") final String orgId) {
         final Organization org = new OrgCommands(this::caller).findOrganization(orgId);
         if (org == null) {
-            return error(404, ApiErrors.NOT_FOUND, "No such organization.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.shared.noSuchOrganization"));
         }
         return ok(summary(org, findPerson(personId())));
     }
@@ -149,21 +150,21 @@ public class OrgsResource extends BaseResource {
     public Response create(
             @HeaderParam(CSRF_HEADER) final String csrf, final Map<String, Object> body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         if (!privileges().isSiteAdmin()) {
-            return error(403, ApiErrors.FORBIDDEN, "Only a site administrator can create an organization.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.orgs.createNeedsSiteAdmin"));
         }
         final String name = body == null ? null : string(body.get("name"));
         if (name == null || name.isBlank()) {
-            return error(400, ApiErrors.VALIDATION_FAILED, "name is required.");
+            return error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.orgs.nameRequired"));
         }
         final Organization org = new OrgCommands(this::caller).createOrganization(name,
                 body == null ? null : string(body.get("abbreviation")),
                 body == null ? null : string(body.get("contactEmail")));
         if (org == null) {
             return error(409, ApiErrors.CONFLICT,
-                    "An organization with that name already exists (or the save failed).");
+                    Text.get("api.orgs.nameTaken"));
         }
         return ok(Map.of("id", org.getId().getValue(), "name", org.getName()));
     }
@@ -186,26 +187,26 @@ public class OrgsResource extends BaseResource {
             @HeaderParam(CSRF_HEADER) final String csrf,
             final Map<String, Object> body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         final OrgCommands orgs = new OrgCommands(this::caller);
         final Organization org = orgs.findOrganization(orgId);
         if (org == null) {
-            return error(404, ApiErrors.NOT_FOUND, "No such organization.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.shared.noSuchOrganization"));
         }
         if (!orgs.canManageOrg(orgId)) {
-            return error(403, ApiErrors.FORBIDDEN, "Only this organization's admins can edit its profile.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.orgs.profileNeedsOrgAdmin"));
         }
         final Object flag = body == null ? null : body.get("allowsSharedSites");
         if (!(flag instanceof Boolean allow)) {
-            return error(400, ApiErrors.VALIDATION_FAILED, "allowsSharedSites (true/false) is required.");
+            return error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.orgs.allowsSharedSitesRequired"));
         }
         final OrgSharedSites.Outcome outcome = OrgSharedSites.save(orgs, orgId, allow);
         if (outcome == OrgSharedSites.Outcome.NOT_FOUND) {
-            return error(404, ApiErrors.NOT_FOUND, "No such organization.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.shared.noSuchOrganization"));
         }
         if (outcome == OrgSharedSites.Outcome.FAILED) {
-            return error(500, ApiErrors.STORE_FAILED, "The organization could not be saved.");
+            return error(500, ApiErrors.STORE_FAILED, Text.get("api.orgs.notSaved"));
         }
         // The value just written, not a re-read: a read straight after a write can still see the old row.
         return ok(Map.of("allowsSharedSites", allow));
@@ -220,14 +221,14 @@ public class OrgsResource extends BaseResource {
             @PathParam("personId") final String personId,
             @HeaderParam(CSRF_HEADER) final String csrf) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         final OrgCommands orgs = new OrgCommands(this::caller);
         if (!orgs.canManageOrg(orgId)) {
-            return error(403, ApiErrors.FORBIDDEN, "Only this organization's admins can add members.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.orgs.addMembersNeedsOrgAdmin"));
         }
         if (!orgs.addMember(orgId, Person.Id.from(personId))) {
-            return error(400, ApiErrors.VALIDATION_FAILED, "Unknown organization or person.");
+            return error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.orgs.unknownOrgOrPerson"));
         }
         return ok(Map.of("added", true));
     }
@@ -246,15 +247,14 @@ public class OrgsResource extends BaseResource {
             @PathParam("personId") final String personId,
             @HeaderParam(CSRF_HEADER) final String csrf) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         final OrgCommands orgs = new OrgCommands(this::caller);
         if (!orgs.canManageOrg(orgId)) {
-            return error(403, ApiErrors.FORBIDDEN, "Only this organization's admins can remove members.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.orgs.removeMembersNeedsOrgAdmin"));
         }
         if (!orgs.removeMember(orgId, Person.Id.from(personId))) {
-            return error(400, ApiErrors.VALIDATION_FAILED, "Not removed: unknown organization or person, an "
-                    + "organization admin, someone on one of its trips, or the person's last organization.");
+            return error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.orgs.memberNotRemoved"));
         }
         return ok(Map.of("removed", true));
     }
@@ -273,19 +273,19 @@ public class OrgsResource extends BaseResource {
             @HeaderParam(CSRF_HEADER) final String csrf,
             final Map<String, Object> body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         final Object flag = body == null ? null : body.get("admin");
         if (!(flag instanceof Boolean admin)) {
-            return error(400, ApiErrors.VALIDATION_FAILED, "admin (true/false) is required.");
+            return error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.orgs.adminFlagRequired"));
         }
         final OrgCommands orgs = new OrgCommands(this::caller);
         if (!orgs.canManageOrg(orgId)) {
-            return error(403, ApiErrors.FORBIDDEN, "Only this organization's admins can change its admins.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.orgs.adminsNeedOrgAdmin"));
         }
         if (!orgs.setOrgAdmin(orgId, Person.Id.from(personId), admin)) {
             return error(400, ApiErrors.VALIDATION_FAILED,
-                    "Refused (unknown person, or this is the organization's last admin).");
+                    Text.get("api.orgs.adminChangeRefused"));
         }
         return ok(Map.of("admin", admin));
     }

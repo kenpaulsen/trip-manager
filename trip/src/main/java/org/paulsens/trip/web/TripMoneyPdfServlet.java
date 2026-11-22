@@ -11,6 +11,7 @@ import org.paulsens.trip.action.BudgetPdf;
 import org.paulsens.trip.action.Caller;
 import org.paulsens.trip.action.ExpenseCommands;
 import org.paulsens.trip.action.ExpenseReportPdf;
+import org.paulsens.trip.audit.RequestContext;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Trip;
@@ -48,7 +49,8 @@ public class TripMoneyPdfServlet extends HttpServlet {
             pdf = new BudgetCommands(() -> caller).budgetPdf(tripId);
             fileName = BudgetPdf.fileName(titleOf(tripId));
         } else if (EXPENSES_PATH.equals(path)) {
-            pdf = new ExpenseCommands(() -> caller).reportPdf(tripId, "true".equals(req.getParameter("receipts")));
+            pdf = new ExpenseCommands(() -> caller).reportPdf(tripId, "true".equals(req.getParameter("receipts")),
+                    RequestContext.currentLocale());
             fileName = ExpenseReportPdf.fileName(titleOf(tripId));
         } else {
             pdf = null;

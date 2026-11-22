@@ -18,6 +18,26 @@ sentence fit to show whoever typed it ("description: the <script> tag and everyt
 saved here."). At most ten values per field, then one more saying how many were left out. No header means
 nothing was removed. A client that does not edit HTML can ignore it.
 
+**Languages (2026-11-21; backend `docs/i18n.md`).** The server speaks English (`en`), Spanish (`es`) and Croatian
+(`hr`), and answers each request in ONE of them: everything it authors (an error's `message`, a label, a
+`priceText`) is in that language, and the response says which in `Content-Language`. `error` codes, enum names and
+every stored value never change with the language, so a client branches on codes and only ever DISPLAYS text.
+
+- **Send `Accept-Language`** with the language the app's own screens are in (`es`, `es-MX`, `hr-HR`; only the
+  language part counts). A language the site does not offer answers in the site's default.
+- A site offers only the languages its `site.languages` setting lists (English alone until one is switched on), so
+  every response may still be English: never assume the header was honored, read `Content-Language`.
+- A native app is answered in its language only from the version named by the `api.languages.minAppVersion`
+  setting, read from `User-Agent: UniteTrip/<version> ...`. Older builds send the PHONE's language while their own
+  screens are English, and are answered in the site's default so one screen never mixes two languages.
+- `GET /api/auth/me` carries `language` (top level, nullable): the person's saved choice, which decides the language
+  of the mail and push notifications SENT to them. `PUT /api/people/{id}/language` `{language}` (self only; `""`
+  clears it) → `{id, language}`; 400 `VALIDATION_FAILED` for a language the server does not speak. An app sets it
+  when the person picks a language, so their mail follows their phone.
+- Discover (`/api/discover/trips`) is publicly cacheable and varies on `Accept-Language` and on nothing personal.
+- What a person TYPED (a trip's title and description, a registration question, a chat message, a note) is never
+  translated: it is in the language it was written in. A trip names its own language in `language`.
+
 ## Auth (`/api/auth`)
 
 | Route | Body | Response |

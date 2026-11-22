@@ -8,7 +8,6 @@ import java.time.LocalDateTime;
 import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Data;
-import lombok.Getter;
 import lombok.NonNull;
 import lombok.Setter;
 
@@ -54,31 +53,25 @@ public class Status implements Serializable {
     }
 
     public enum StatusValue {
-        TODO("To do"),
-        IN_PROGRESS("In Progress"),
-        //BLOCKED("Blocked"), FIXME: May want to add this as a "tag" along w/ other tags, probably doesn't belong here
-        DONE("Done");
+        TODO,
+        IN_PROGRESS,
+        //BLOCKED, FIXME: May want to add this as a "tag" along w/ other tags, probably doesn't belong here
+        DONE;
 
-        @Getter
-        final String displayValue;
-
-        StatusValue(final String text) {
-            this.displayValue = text;
+        public String getDisplayValue() {
+            return EnumLabels.of(this);
         }
     }
 
     public enum Priority {
-        OPTIONAL("Optional"),
-        LOW("Low"),
-        NORMAL("Normal"),
-        HIGH("High"),
-        CRITICAL("Critical");
+        OPTIONAL,
+        LOW,
+        NORMAL,
+        HIGH,
+        CRITICAL;
 
-        @Getter
-        final String displayValue;
-
-        Priority(final String text) {
-            this.displayValue = text;
+        public String getDisplayValue() {
+            return EnumLabels.of(this);
         }
     }
 

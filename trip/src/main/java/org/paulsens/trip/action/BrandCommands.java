@@ -15,12 +15,15 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.audit.RequestContext;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.config.OrgSettingsTabs;
 import org.paulsens.trip.content.ContentRenderer;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.CustomPalette;
+import org.paulsens.trip.model.Language;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.SettingDef;
 import org.paulsens.trip.site.SiteContext;
@@ -556,7 +559,7 @@ public class BrandCommands {
     /** The Donate card's heading: the org's own words, else "Donate" (the card shows only with a URL). */
     public String getDonateTitle() {
         final String own = setting(KnownSettings.SITE_DONATE_TITLE);
-        return own == null ? "Donate" : own;
+        return own == null ? Text.get("common.donate") : own;
     }
 
     /** The Donate card's line of plain text above the button, or null (the page escapes it). */
@@ -591,7 +594,7 @@ public class BrandCommands {
     /** The heading over the sidebar's trip list on an org site: the org's own words, else "Trips". */
     public String getSidebarTitle() {
         final String own = setting(KnownSettings.SITE_SIDEBAR_TITLE);
-        return own == null ? "Trips" : own;
+        return own == null ? Text.get("common.trips") : own;
     }
 
     /** The org site's own browser title, or null (null off an org host, and when unset: the org name rules). */
@@ -650,6 +653,7 @@ public class BrandCommands {
         for (final SettingDef def : KnownSettings.branding()) {
             stored.put(def.getName(), cleaned(def, edited.get(def.getName())));
         }
+        copyTranslations(edited, stored, KnownSettings.branding());
         stored.put(BG_MODE_KEY, backgroundMode(edited));
         session.setAttribute(Sessions.APPEARANCE_PREVIEW_ORG, orgId);
         session.setAttribute(Sessions.APPEARANCE_PREVIEW, stored);
@@ -712,6 +716,14 @@ public class BrandCommands {
         for (final SettingDef def : KnownSettings.branding()) {
             edit.put(def.getName(), storedOverride(org, def));
         }
+        // The Site details' text in each other language the site offers, "" while the plain text applies.
+        final List<Language> others = config.otherSiteLanguages(org.orElse(null));
+        for (final SettingDef def : KnownSettings.branding()) {
+            for (final Language language : def.isTranslatable() ? others : List.<Language>of()) {
+                edit.put(def.keyIn(language), org.map(row -> row.settingOverride(def.keyIn(language)))
+                        .orElse(""));
+            }
+        }
         edit.put(BG_MODE_KEY, backgroundMode(edit));
         return edit;
     }
@@ -731,6 +743,7 @@ public class BrandCommands {
         for (final SettingDef def : OrgSettingsTabs.appearanceDefs()) {
             out.put(def.getName(), cleaned(def, edited.get(def.getName())));
         }
+        copyTranslations(edited, out, OrgSettingsTabs.appearanceDefs());
         final String mode = backgroundMode(edited);
         out.put(KnownSettings.SITE_BACKGROUND_COLOR.getName(), BG_MODE_COLOR.equals(mode)
                 ? trimmed(edited.get(KnownSettings.SITE_BACKGROUND_COLOR.getName())) : "");
@@ -948,6 +961,23 @@ public class BrandCommands {
         return color == null ? value : color;
     }
 
+    /**
+     * Copies into {@code to} every language key of a translatable setting among {@code defs}
+     * ({@code site.footer.text@es}), trimmed: the edit map carries them beside the plain names, and the preview
+     * and the save must keep them too, or a preview redirect would drop what was typed in another language.
+     */
+    private static void copyTranslations(final Map<String, String> from, final Map<String, String> to,
+            final List<SettingDef> defs) {
+        for (final Map.Entry<String, String> entry : from.entrySet()) {
+            final String base = SettingDef.baseNameOf(entry.getKey());
+            final boolean ours = SettingDef.languageOfKey(entry.getKey()).isPresent()
+                    && defs.stream().anyMatch(def -> def.isTranslatable() && def.getName().equals(base));
+            if (ours) {
+                to.put(entry.getKey(), trimmed(entry.getValue()));
+            }
+        }
+    }
+
     private static String storedOverride(final Optional<Organization> org, final SettingDef def) {
         return org.map(row -> row.settingOverride(def.getName())).map(String::trim).orElse("");
     }
@@ -1008,7 +1038,10 @@ public class BrandCommands {
     private String setting(final SettingDef def) {
         final Map<String, String> preview = preview();
         if (preview != null && preview.containsKey(def.getName())) {
-            return blankToDefault(previewValue(preview, def), def);
+            final String translated = def.isTranslatable()
+                    ? preview.get(def.keyIn(RequestContext.currentLanguage())) : null;
+            return blankToDefault(translated == null || translated.isBlank() ? previewValue(preview, def)
+                    : translated, def);
         }
         final Optional<Organization> org = org();
         if (org.isEmpty()) {

@@ -120,6 +120,52 @@ public class ContentCommandsTest {
         Assert.assertTrue(content.applyFromDrawer(clean, null, null), "nothing to remove, nothing to ask");
     }
 
+    /** A language version starts as a deep copy: new rows, new ids, children under the NEW container. */
+    @Test
+    public void aPageCopiesIntoAnEmptyVersionOfItselfAndNowhereElse() {
+        final ContentCommands content = as(ADMIN, false);
+        final String page = "page:shared:cc-copy";
+        final String spanish = page + "@es";
+        final ContentInstance top = content.createContent(page, "cc-test-tpl");
+        top.setTitle("Welcome");
+        top.getValues().put("msg", "hello");
+        Assert.assertTrue(content.saveContent(top));
+        final ContentInstance child = content.createContent(top.getId(), "cc-test-tpl");
+        child.setTitle("Inside");
+        child.getValues().put("msg", "nested");
+        Assert.assertTrue(DAO.getInstance().saveContent(child, 5));
+
+        Assert.assertFalse(as(NOBODY, false).copyPage(page, spanish), "no edit rights on the target");
+        Assert.assertFalse(content.copyPage(page, page), "onto itself");
+        Assert.assertFalse(content.copyPage(page, "page:shared:cc-other@es"), "another page's version");
+        Assert.assertFalse(content.copyPage(null, spanish));
+        Assert.assertTrue(content.getAllForSection(spanish).isEmpty(), "every refusal copied nothing");
+
+        Assert.assertTrue(content.copyPage(page, spanish));
+        final List<ContentInstance> copied = content.getAllForSection(spanish);
+        Assert.assertEquals(copied.size(), 1);
+        final ContentInstance copy = copied.get(0);
+        Assert.assertNotEquals(copy.getId(), top.getId(), "a new row, not a second reference to the old one");
+        Assert.assertEquals(copy.getTitle(), "Welcome");
+        Assert.assertEquals(copy.getValues().get("msg"), "hello");
+        Assert.assertEquals(copy.getVersion(), 1, "its own history, from the start");
+        final List<ContentInstance> copiedChildren = content.getAllForSection(copy.getId());
+        Assert.assertEquals(copiedChildren.size(), 1, "the container's child came along, under the new container");
+        Assert.assertEquals(copiedChildren.get(0).getValues().get("msg"), "nested");
+        Assert.assertEquals(content.getAllForSection(top.getId()).size(), 1, "the original keeps its own child");
+
+        Assert.assertFalse(content.copyPage(page, spanish), "a version that has content is never copied over");
+        Assert.assertEquals(content.getAllForSection(spanish).size(), 1);
+
+        Assert.assertFalse(content.deleteVersion(page), "a page's own key is not a version");
+        Assert.assertFalse(as(NOBODY, false).deleteVersion(spanish));
+        Assert.assertEquals(content.getAllForSection(spanish).size(), 1);
+        Assert.assertTrue(content.deleteVersion(spanish));
+        Assert.assertTrue(content.getAllForSection(spanish).isEmpty());
+        Assert.assertTrue(content.getAllForSection(copy.getId()).isEmpty(), "its children went with it");
+        Assert.assertEquals(content.getAllForSection(page).size(), 1, "the page itself is untouched");
+    }
+
     @Test
     public void createSeedsValuesAndPinsTheTemplateVersion() {
         final ContentCommands content = as(ADMIN, false);

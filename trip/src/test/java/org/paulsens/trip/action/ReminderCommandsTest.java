@@ -973,23 +973,26 @@ public class ReminderCommandsTest {
         assertEquals(admin().rows(trip.getId()).stream().filter(ReminderViews.Row::isApproved).count(), 3);
 
         // Scheduled sending ships off, so nothing is promised to a run.
-        assertEquals(admin().whenItGoes(TODAY.plusDays(5)),
-                "will be sent on Mon, Mar 8, 2027 once scheduled sending is on");
-        assertEquals(admin().whenItGoes(TODAY), "is due today, and scheduled sending is off: use Send now to send it");
-        assertEquals(admin().whenItGoes(TODAY.minusDays(1)),
-                "was dated Tue, Mar 2, 2027, which has passed: use Send now to send it");
+        assertEquals(admin().approvedNote("Later", TODAY.plusDays(5)),
+                "Approved. 'Later' will be sent on Mon, Mar 8, 2027 once scheduled sending is on.");
+        assertEquals(admin().approvedNote("Due", TODAY),
+                "Approved. 'Due' is due today, and scheduled sending is off: use Send now to send it.");
+        assertEquals(admin().approvedNote("Past", TODAY.minusDays(1)),
+                "Approved. 'Past' was dated Tue, Mar 2, 2027, which has passed: use Send now to send it.");
     }
 
     @Test
     public void withSendingOnTheApprovalNamesTheRunThatSendsIt() {
         // The default run hour is 9 AM Pacific; NOW is exactly 9 AM, so today's run has started.
         final ConfigCommands on = new SendingOn();
-        assertEquals(beanAt(NOW.minusSeconds(3600), on).whenItGoes(TODAY),
-                "is due today and goes out with today's run");
-        final String after = "is due today, after today's run: use Send now, or it goes out with tomorrow's run";
-        assertEquals(beanAt(NOW, on).whenItGoes(TODAY), after, "At the run hour the run has started");
-        assertEquals(beanAt(NOW.plusSeconds(3600), on).whenItGoes(TODAY), after);
-        assertEquals(beanAt(NOW, on).whenItGoes(TODAY.plusDays(5)), "will be sent on Mon, Mar 8, 2027");
+        assertEquals(beanAt(NOW.minusSeconds(3600), on).approvedNote("Due", TODAY),
+                "Approved. 'Due' is due today and goes out with today's run.");
+        final String after =
+                "Approved. 'Due' is due today, after today's run: use Send now, or it goes out with tomorrow's run.";
+        assertEquals(beanAt(NOW, on).approvedNote("Due", TODAY), after, "At the run hour the run has started");
+        assertEquals(beanAt(NOW.plusSeconds(3600), on).approvedNote("Due", TODAY), after);
+        assertEquals(beanAt(NOW, on).approvedNote("Later", TODAY.plusDays(5)),
+                "Approved. 'Later' will be sent on Mon, Mar 8, 2027.");
         assertEquals(ReminderClock.runHour(on), 9);
     }
 

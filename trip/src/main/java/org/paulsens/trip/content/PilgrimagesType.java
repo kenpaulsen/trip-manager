@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Stream;
 import org.paulsens.trip.action.TripCommands;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.Language;
 import org.paulsens.trip.model.Placeholder;
@@ -32,7 +33,7 @@ final class PilgrimagesType implements ProgrammaticContentTemplate {
 
     @Override
     public String getDisplayName() {
-        return "Trip Listings";
+        return Text.get("server.types.pilgrimages.name");
     }
 
     @Override
@@ -42,19 +43,21 @@ final class PilgrimagesType implements ProgrammaticContentTemplate {
 
     @Override
     public String getDescription() {
-        return "The public trips of one language, or of every language, as picture cards, straight from the trip "
-                + "data.";
+        return Text.get("server.types.pilgrimages.description");
     }
 
     @Override
     public List<Placeholder> getProperties() {
         return List.of(
-                new Placeholder(PROP_LANGUAGE, Placeholder.Type.CHOICE, "Language",
-                        "Which language's trips to list, or any language", true),
-                new Placeholder(PROP_CFPW_ONLY, Placeholder.Type.CHOICE, "Providers",
-                        "All public trips, or only CFPW-hosted ones", false),
-                new Placeholder(PROP_MAX_COUNT, Placeholder.Type.TEXT, "Max to display",
-                        "Blank shows every listed trip", false),
+                new Placeholder(PROP_LANGUAGE, Placeholder.Type.CHOICE,
+                        Text.get("common.language"),
+                        Text.get("server.types.pilgrimages.languageHint"), true),
+                new Placeholder(PROP_CFPW_ONLY, Placeholder.Type.CHOICE,
+                        Text.get("server.types.pilgrimages.providersLabel"),
+                        Text.get("server.types.pilgrimages.providersHint"), false),
+                new Placeholder(PROP_MAX_COUNT, Placeholder.Type.TEXT,
+                        Text.get("server.types.pilgrimages.maxCountLabel"),
+                        Text.get("server.types.pilgrimages.maxCountHint"), false),
                 SharedSiteOrgChoices.property());
     }
 
@@ -149,10 +152,12 @@ final class PilgrimagesType implements ProgrammaticContentTemplate {
             // "Any language" LAST: an existing section's stored value is untouched, and a new section's menu
             // still opens on the first language, as it always has.
             return Stream.concat(Arrays.stream(Language.values()).map(PilgrimagesType::languageChoice),
-                    Stream.of(new Choice(TripCommands.ANY_LANGUAGE, "Any language"))).toList();
+                    Stream.of(new Choice(TripCommands.ANY_LANGUAGE,
+                            Text.get("server.types.pilgrimages.anyLanguage")))).toList();
         }
         if (PROP_CFPW_ONLY.equals(propertyName)) {
-            return List.of(new Choice("false", "All providers"), new Choice("true", "CFPW only"));
+            return List.of(new Choice("false", Text.get("server.types.pilgrimages.allProviders")),
+                    new Choice("true", Text.get("server.types.pilgrimages.cfpwOnly")));
         }
         if (SharedSiteOrgChoices.PROP_INCLUDE_ORGS.equals(propertyName)) {
             return SharedSiteOrgChoices.choices();

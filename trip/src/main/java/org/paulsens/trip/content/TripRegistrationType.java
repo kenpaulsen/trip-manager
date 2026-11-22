@@ -2,6 +2,7 @@ package org.paulsens.trip.content;
 
 import java.util.List;
 import java.util.Map;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.Placeholder;
 
 /**
@@ -21,7 +22,7 @@ final class TripRegistrationType implements ProgrammaticContentTemplate {
 
     @Override
     public String getDisplayName() {
-        return "Registration";
+        return Text.get("common.registration");
     }
 
     @Override
@@ -31,7 +32,7 @@ final class TripRegistrationType implements ProgrammaticContentTemplate {
 
     @Override
     public String getDescription() {
-        return "Registration status, places left, prices, a countdown and the Register button, from the event itself.";
+        return Text.get("server.types.registration.description");
     }
 
     @Override

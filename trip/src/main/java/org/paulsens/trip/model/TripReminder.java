@@ -7,11 +7,12 @@ import java.io.Serial;
 import java.io.Serializable;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.format.DateTimeFormatter;
-import java.util.Locale;
 import lombok.Builder;
 import lombok.Value;
 import lombok.With;
+import org.paulsens.trip.audit.RequestContext;
+import org.paulsens.trip.i18n.Formats;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.security.Digests;
 
 /**
@@ -30,22 +31,20 @@ public class TripReminder implements Serializable {
 
     /** What the reminder is about; every kind but {@link #CUSTOM} fixes its own audience. */
     public enum Kind {
-        BALANCE_DUE("Balance due", Audience.WITH_BALANCE),
-        WAIVER_UNSIGNED("Documents to sign", Audience.UNSIGNED_DOCUMENTS),
-        PASSPORT("Passport", Audience.PASSPORT_ISSUE),
-        COUNTDOWN("Before departure", Audience.ALL_CONFIRMED),
-        CUSTOM("Custom message", null);
+        BALANCE_DUE(Audience.WITH_BALANCE),
+        WAIVER_UNSIGNED(Audience.UNSIGNED_DOCUMENTS),
+        PASSPORT(Audience.PASSPORT_ISSUE),
+        COUNTDOWN(Audience.ALL_CONFIRMED),
+        CUSTOM(null);
 
-        private final String label;
         private final Audience audience;
 
-        Kind(final String label, final Audience audience) {
-            this.label = label;
+        Kind(final Audience audience) {
             this.audience = audience;
         }
 
         public String getLabel() {
-            return label;
+            return EnumLabels.of(this);
         }
 
         /** The audience this kind always has; null for {@link #CUSTOM}, whose audience is chosen. */
@@ -56,38 +55,27 @@ public class TripReminder implements Serializable {
 
     /** The date the offset counts from. */
     public enum Anchor {
-        BALANCE_DUE_DATE("the balance due date"),
-        TRIP_START("the trip start"),
-        TRIP_END("the trip end"),
-        FIXED_DATE("a date I choose");
+        BALANCE_DUE_DATE,
+        TRIP_START,
+        TRIP_END,
+        FIXED_DATE;
 
-        private final String label;
-
-        Anchor(final String label) {
-            this.label = label;
-        }
-
+        /** Lower case, as the menu's own wording: "the trip start", "a date I choose". */
         public String getLabel() {
-            return label;
+            return EnumLabels.of(this);
         }
     }
 
     /** Who receives it: always evaluated on the day it is sent, never frozen at approval. */
     public enum Audience {
-        ALL_CONFIRMED("Everyone confirmed on the trip"),
-        WITH_BALANCE("Confirmed travelers who still owe a balance"),
-        UNSIGNED_DOCUMENTS("Confirmed travelers with a document left to sign"),
-        PASSPORT_ISSUE("Confirmed travelers with a missing or expiring passport"),
-        PENDING("People whose registration is awaiting approval");
-
-        private final String label;
-
-        Audience(final String label) {
-            this.label = label;
-        }
+        ALL_CONFIRMED,
+        WITH_BALANCE,
+        UNSIGNED_DOCUMENTS,
+        PASSPORT_ISSUE,
+        PENDING;
 
         public String getLabel() {
-            return label;
+            return EnumLabels.of(this);
         }
     }
 
@@ -100,7 +88,6 @@ public class TripReminder implements Serializable {
      * ended within this window ({@code ReminderScheduler}), so a later date would be approved and never sent.
      */
     public static final int MAX_DAYS_AFTER_END = 365;
-    private static final DateTimeFormatter SCHEDULE_DAY = DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.US);
 
     String id;
     Kind kind;
@@ -231,17 +218,24 @@ public class TripReminder implements Serializable {
         return !pushText.isBlank();
     }
 
-    /** "14 days before the balance due date", "On the trip start", "On Mar 3, 2027". */
+    /**
+     * "14 days before the balance due date", "On the trip start", "On Mar 3, 2027". One whole sentence per
+     * anchor and direction, because a language other than English cannot glue "before" to an anchor's name.
+     */
     @JsonIgnore
     public String getScheduleText() {
         if (anchor == Anchor.FIXED_DATE) {
-            return (fixedDate == null) ? "No date chosen" : "On " + SCHEDULE_DAY.format(fixedDate);
+            return (fixedDate == null) ? Text.get("labels.reminder.schedule.noDate")
+                    : Text.get("labels.reminder.schedule.onDate",
+                            Formats.format(fixedDate, "yMMMd", RequestContext.currentLocale()));
         }
         if (offsetDays == 0) {
-            return "On " + anchor.getLabel();
+            return EnumLabels.of("labels.reminder.schedule.on", anchor);
         }
         final int days = Math.abs(offsetDays);
-        return days + ((days == 1) ? " day " : " days ") + ((offsetDays < 0) ? "before " : "after ")
-                + anchor.getLabel();
+        // The count is passed twice: once to pick the plural form, once as plain digits, so 1000 never prints
+        // with a thousands separator the old text did not have.
+        return EnumLabels.of((offsetDays < 0) ? "labels.reminder.schedule.before" : "labels.reminder.schedule.after",
+                anchor, days, Integer.toString(days));
     }
 }

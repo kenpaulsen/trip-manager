@@ -27,6 +27,8 @@ import org.paulsens.trip.action.ReportCommands.InvoicePersonLine;
 import org.paulsens.trip.action.ReportCommands.InvoiceSection;
 import org.paulsens.trip.action.ReportCommands.LineKind;
 import org.paulsens.trip.action.ReportCommands.RoomInvoice;
+import org.paulsens.trip.audit.RequestContext;
+import org.paulsens.trip.i18n.Formats;
 import org.paulsens.trip.model.Accommodation;
 import org.paulsens.trip.model.Concession;
 import org.paulsens.trip.model.CostExtra;
@@ -249,8 +251,15 @@ final class RoomInvoiceBuilder {
         return line;
     }
 
-    /** {@code "Sep 21 - Sep 26, 2026"}: arrival to departure, the year once unless the stay crosses one. */
+    /**
+     * {@code "Sep 21 - Sep 26, 2026"}: arrival to departure, the year once unless the stay crosses one. Another
+     * language gets its own range shape ("21–26 sept 2026").
+     */
     static String stayWindowOf(final LocalDate arrive, final LocalDate depart) {
+        final Locale reader = RequestContext.currentLocale();
+        if (!Formats.isEnglish(reader)) {
+            return Formats.dateRange(arrive, depart, "yMMMd", reader);
+        }
         return (arrive.getYear() == depart.getYear() ? SHORT_DAY.format(arrive) : DAY.format(arrive))
                 + " - " + DAY.format(depart);
     }

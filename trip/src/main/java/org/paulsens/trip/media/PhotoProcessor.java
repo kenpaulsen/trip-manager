@@ -24,6 +24,7 @@ import javax.imageio.ImageWriter;
 import javax.imageio.stream.ImageInputStream;
 import javax.imageio.stream.ImageOutputStream;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.i18n.Text;
 
 /**
  * Turns one uploaded chat photo into its two stored renditions: the full-size original and a display copy no
@@ -371,7 +372,7 @@ public final class PhotoProcessor {
 
     private static BufferedImage turned(final byte[] original, final ImageFormat format, final QuarterTurn turn) {
         if (format == ImageFormat.GIF && isAnimatedGif(original)) {
-            throw new PhotoRejectedException("Animated GIFs can't be rotated.");
+            throw new PhotoRejectedException(Text.get("server.photos.animatedGifRotate"));
         }
         return applyOrientation(decodeOriented(original, format), turn.exifOrientation());
     }
@@ -548,8 +549,8 @@ public final class PhotoProcessor {
             }
             current = resizeToWidth(current, Math.max(MIN_CAP_WIDTH, current.getWidth() / 2));
         }
-        throw new PhotoRejectedException("That image is too big to store: even reduced to " + MIN_CAP_WIDTH
-                + " px wide it does not fit in " + (maxBytes / 1024) + " KB. Try a smaller or simpler image.");
+        throw new PhotoRejectedException(Text.get("server.photos.tooBigToStore", String.valueOf(MIN_CAP_WIDTH),
+                String.valueOf(maxBytes / 1024)));
     }
 
     static BufferedImage crop(final BufferedImage src, final CropRect rect) {
@@ -646,7 +647,7 @@ public final class PhotoProcessor {
                 reader.setInput(in, true, true);
                 final Header header = header(reader);
                 if (header.pixels() > MAX_PIXELS || header.decodedBytes() > DecodeBudget.MAX_DECODED_BYTES) {
-                    throw new PhotoRejectedException("That image's dimensions are too large to process.");
+                    throw new PhotoRejectedException(Text.get("server.photos.dimensionsTooLarge"));
                 }
                 return reader.read(0);
             } finally {
@@ -658,8 +659,7 @@ public final class PhotoProcessor {
             // RuntimeException too: a corrupt file can surface from deep inside a decoder as almost
             // anything, and every one of them means the same thing to the person uploading.
             log.info("Rejecting undecodable {} upload", format, ex);
-            throw new PhotoRejectedException("That file could not be read as an image. It may be corrupted.",
-                    ex);
+            throw new PhotoRejectedException(Text.get("server.photos.unreadable"), ex);
         }
     }
 
@@ -735,8 +735,7 @@ public final class PhotoProcessor {
         } catch (final PhotoRejectedException ex) {
             throw ex;
         } catch (final IOException | RuntimeException ex) {
-            throw new PhotoRejectedException("That file could not be read as an image. It may be corrupted.",
-                    ex);
+            throw new PhotoRejectedException(Text.get("server.photos.unreadable"), ex);
         }
     }
 
@@ -862,10 +861,10 @@ public final class PhotoProcessor {
         try {
             cutout = ImageIO.read(new ByteArrayInputStream(rgbaPng));
         } catch (final IOException ex) {
-            throw new PhotoRejectedException("The cutout could not be read.", ex);
+            throw new PhotoRejectedException(Text.get("server.photos.cutoutUnreadable"), ex);
         }
         if (cutout == null) {
-            throw new PhotoRejectedException("The cutout could not be read.");
+            throw new PhotoRejectedException(Text.get("server.photos.cutoutUnreadable"));
         }
         final BufferedImage out = new BufferedImage(PROFILE_SIZE, PROFILE_SIZE, BufferedImage.TYPE_INT_RGB);
         final Graphics2D g = out.createGraphics();
@@ -941,11 +940,10 @@ public final class PhotoProcessor {
     }
 
     private static PhotoRejectedException notAnImage() {
-        return new PhotoRejectedException("That file is not a supported image. Use JPG, PNG, GIF, or HEIC.");
+        return new PhotoRejectedException(Text.get("server.photos.notAnImage"));
     }
 
     private static PhotoRejectedException heicUnavailable() {
-        return new PhotoRejectedException(
-                "HEIC photos can't be processed here right now. Please convert it to JPEG and try again.");
+        return new PhotoRejectedException(Text.get("server.photos.heicUnavailable"));
     }
 }

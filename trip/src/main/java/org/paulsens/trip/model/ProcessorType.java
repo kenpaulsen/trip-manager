@@ -57,6 +57,14 @@ public enum ProcessorType {
         return label;
     }
 
+    /**
+     * The name for a page, in the language of the request in progress. {@link #getLabel()} stays the English
+     * literal because it is written into ledger descriptions, mail and the audit trail, which are stored.
+     */
+    public String getDisplayLabel() {
+        return EnumLabels.of(this);
+    }
+
     /** Whether an organization can set this type up as a processor config (everything but OFFLINE). */
     public boolean isConfigurable() {
         return configurable;

@@ -7,7 +7,6 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.Period;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -51,10 +50,13 @@ import org.paulsens.trip.action.LodgingViews.RoomingRow;
 import org.paulsens.trip.action.LodgingViews.SplitForm;
 import org.paulsens.trip.action.LodgingViews.StayWindowForm;
 import org.paulsens.trip.audit.AuditEventBuilder;
+import org.paulsens.trip.audit.RequestContext;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.content.RichTextRules;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.i18n.Formats;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.Accommodation;
 import org.paulsens.trip.model.Address;
 import org.paulsens.trip.model.MediaItem;
@@ -100,8 +102,6 @@ import static org.paulsens.trip.action.PageFeedback.warn;
 @ApplicationScoped
 public class LodgingCommands {
     static final int MAX_ROOMS = 500;
-    private static final DateTimeFormatter STAY = DateTimeFormatter.ofPattern("MMM d, h:mm a");
-    private static final DateTimeFormatter DAY = DateTimeFormatter.ofPattern("MMM d, yyyy");
 
     private final Supplier<Caller> callerSource;
     private final Supplier<TripCommands> tripSource;
@@ -309,17 +309,17 @@ public class LodgingCommands {
      */
     public String saveAccommodation(final AccommodationForm form, final String orgIdContext) {
         if (form == null || form.getName() == null || form.getName().isBlank()) {
-            return refuseAction("A name is required.");
+            return refuseAction(Text.get("feedback.lodgingCommands.nameRequired"));
         }
         final boolean creating = (form.getId() == null || form.getId().isBlank());
         if (creating && !canCreateAccommodation()) {
-            return refuseAction("Not allowed: only lodging admins can add an accommodation.");
+            return refuseAction(Text.get("feedback.lodgingCommands.onlyAdminsAdd"));
         }
         if (!creating && !canEditAccommodation(form.getId())) {
-            return refuseAction("Not allowed: you do not manage this accommodation.");
+            return refuseAction(Text.get("feedback.lodgingCommands.notYourAccommodation"));
         }
         if (creating && !form.isForce() && !findDuplicates(form).isEmpty()) {
-            return refuseAction("This accommodation may already exist. Choose it from the matches, or create anyway.");
+            return refuseAction(Text.get("feedback.lodgingCommands.mayAlreadyExist"));
         }
         final String shapeProblem = shapeProblem(form);
         if (shapeProblem != null) {
@@ -328,7 +328,7 @@ public class LodgingCommands {
         final Accommodation acc = creating ? Accommodation.builder().build()
                 : DAO.getInstance().getAccommodation(Accommodation.Id.from(form.getId()), Cached.NO).orElse(null);
         if (acc == null) {
-            return refuseAction("This accommodation no longer exists.");
+            return refuseAction(Text.get("feedback.lodgingCommands.accommodationGone"));
         }
         applyForm(acc, form);
         if (contactChanged(acc, form)) {
@@ -371,14 +371,14 @@ public class LodgingCommands {
     /** The email / phone / website shape checks the dialog cannot trust the browser for. */
     private static String shapeProblem(final AccommodationForm form) {
         if (form.getEmail() != null && !form.getEmail().isBlank() && !EmailAddresses.isValid(form.getEmail())) {
-            return "'" + form.getEmail() + "' is not an email address.";
+            return Text.get("feedback.lodgingCommands.notAnEmail", form.getEmail());
         }
         if (form.getContactEmail() != null && !form.getContactEmail().isBlank()
                 && !EmailAddresses.isValid(form.getContactEmail())) {
-            return "'" + form.getContactEmail() + "' is not an email address.";
+            return Text.get("feedback.lodgingCommands.notAnEmail", form.getContactEmail());
         }
         if (form.getWebsite() != null && form.getWebsite().contains(" ")) {
-            return "'" + form.getWebsite() + "' is not a web address.";
+            return Text.get("feedback.lodgingCommands.notAWebAddress", form.getWebsite());
         }
         return null;
     }
@@ -407,11 +407,11 @@ public class LodgingCommands {
     /** Retires (or un-retires) an accommodation; there is deliberately no delete. */
     public boolean retireAccommodation(final String accId, final boolean retired) {
         if (!canEditAccommodation(accId)) {
-            return refuse("Not allowed: you do not manage this accommodation.");
+            return refuse(Text.get("feedback.lodgingCommands.notYourAccommodation"));
         }
         final Accommodation acc = freshAccommodation(accId);
         if (acc == null) {
-            return refuse("This accommodation no longer exists.");
+            return refuse(Text.get("feedback.lodgingCommands.accommodationGone"));
         }
         acc.setRetired(retired ? Boolean.TRUE : null);
         if (!store(acc)) {
@@ -443,11 +443,11 @@ public class LodgingCommands {
      */
     public Person.Id findOrCreateContact(final String email, final String name, final String orgId) {
         if (!canCreateAccommodation() && !isGlobalLodgingAdmin() && managedAccommodations().isEmpty()) {
-            error("Not allowed: only lodging admins can set an accommodation's contact.");
+            error(Text.get("feedback.lodgingCommands.onlyAdminsSetContact"));
             return null;
         }
         if (!EmailAddresses.isValid(email)) {
-            error("A valid contact email is required.");
+            error(Text.get("feedback.lodgingCommands.contactEmailRequired"));
             return null;
         }
         final String addr = email.trim().toLowerCase(Locale.ROOT);
@@ -458,15 +458,14 @@ public class LodgingCommands {
             return existing.getId();
         }
         if (!mayJoin) {
-            error(home == null ? "Choose which organization the contact joins (open this page from an "
-                    + "organization's dashboard)." : "Not allowed: only the organization's admins or lodging admins "
-                    + "can add a new contact.");
+            error(home == null ? Text.get("feedback.lodgingCommands.chooseContactOrg")
+                    : Text.get("feedback.lodgingCommands.onlyAdminsAddContact"));
             return null;
         }
         Person person = existing;
         if (person == null) {
             if (name == null || name.isBlank()) {
-                error("The contact's name is required to create them.");
+                error(Text.get("feedback.lodgingCommands.contactNameRequired"));
                 return null;
             }
             person = Person.builder().first(firstOf(name)).last(lastOf(name)).email(addr).build();
@@ -523,11 +522,11 @@ public class LodgingCommands {
 
     public boolean addManager(final String accId, final Person.Id personId) {
         if (!canEditAccommodation(accId)) {
-            return refuse("Not allowed: you do not manage this accommodation.");
+            return refuse(Text.get("feedback.lodgingCommands.notYourAccommodation"));
         }
         final Accommodation acc = findAccommodation(accId);
         if (acc == null || personId == null) {
-            return refuse("Unknown accommodation or person.");
+            return refuse(Text.get("feedback.lodgingCommands.unknownAccommodationOrPerson"));
         }
         grantAccommodationAdmin(acc, personId);
         return true;
@@ -544,7 +543,7 @@ public class LodgingCommands {
 
     public boolean removeManager(final String accId, final Person.Id personId) {
         if (!canEditAccommodation(accId)) {
-            return refuse("Not allowed: you do not manage this accommodation.");
+            return refuse(Text.get("feedback.lodgingCommands.notYourAccommodation"));
         }
         return privSource.get().remove(PrivilegeCommands.ACCOMMODATION_ADMIN, accId, personId);
     }
@@ -591,17 +590,17 @@ public class LodgingCommands {
 
     public boolean saveRoomType(final String accId, final RoomTypeForm form) {
         if (!canEditAccommodation(accId)) {
-            return refuse("Not allowed: you do not manage this accommodation.");
+            return refuse(Text.get("feedback.lodgingCommands.notYourAccommodation"));
         }
         if (form == null || form.getName() == null || form.getName().isBlank()) {
-            return refuse("A room type needs a name.");
+            return refuse(Text.get("feedback.lodgingCommands.roomTypeNeedsName"));
         }
         if (form.getMaxPeople() < form.getMinPeople()) {
-            return refuse("The maximum must be at least the minimum.");
+            return refuse(Text.get("feedback.lodgingCommands.maxAtLeastMin"));
         }
         final Accommodation acc = freshAccommodation(accId);
         if (acc == null) {
-            return refuse("This accommodation no longer exists.");
+            return refuse(Text.get("feedback.lodgingCommands.accommodationGone"));
         }
         RoomType type = acc.roomType(form.getId());
         if (type == null) {
@@ -617,15 +616,15 @@ public class LodgingCommands {
 
     public boolean deleteRoomType(final String accId, final String roomTypeId) {
         if (!canEditAccommodation(accId)) {
-            return refuse("Not allowed: you do not manage this accommodation.");
+            return refuse(Text.get("feedback.lodgingCommands.notYourAccommodation"));
         }
         final Accommodation acc = freshAccommodation(accId);
         final RoomType type = (acc == null) ? null : acc.roomType(roomTypeId);
         if (type == null) {
-            return refuse("Unknown room type.");
+            return refuse(Text.get("feedback.lodgingCommands.unknownRoomType"));
         }
         if (acc.getRooms().stream().anyMatch(room -> roomTypeId.equals(room.getRoomTypeId()))) {
-            return refuse("Rooms still use '" + type.getName() + "'. Change their type first.");
+            return refuse(Text.get("feedback.lodgingCommands.roomTypeInUse", type.getName()));
         }
         acc.getRoomTypes().remove(type);
         return store(acc) && audited(acc, "Deleted room type '" + type.getName() + "'");
@@ -721,28 +720,28 @@ public class LodgingCommands {
 
     public boolean saveRoom(final String accId, final RoomForm form) {
         if (!canEditAccommodation(accId)) {
-            return refuse("Not allowed: you do not manage this accommodation.");
+            return refuse(Text.get("feedback.lodgingCommands.notYourAccommodation"));
         }
         if (form == null || form.getRoomNumber() == null || form.getRoomNumber().isBlank()) {
-            return refuse("A room needs a number.");
+            return refuse(Text.get("feedback.lodgingCommands.roomNeedsNumber"));
         }
         final Accommodation acc = freshAccommodation(accId);
         if (acc == null) {
-            return refuse("This accommodation no longer exists.");
+            return refuse(Text.get("feedback.lodgingCommands.accommodationGone"));
         }
         if (acc.roomType(form.getRoomTypeId()) == null) {
-            return refuse("Choose a room type.");
+            return refuse(Text.get("feedback.lodgingCommands.chooseRoomType"));
         }
         final String number = form.getRoomNumber().trim();
         for (final Room other : acc.getRooms()) {
             if (number.equalsIgnoreCase(other.getRoomNumber()) && !other.getId().equals(form.getId())) {
-                return refuse("Room " + number + " already exists.");
+                return refuse(Text.get("feedback.lodgingCommands.roomExists", number));
             }
         }
         Room room = acc.room(form.getId());
         if (room == null) {
             if (acc.getRooms().size() >= MAX_ROOMS) {
-                return refuse("An accommodation holds at most " + MAX_ROOMS + " rooms.");
+                return refuse(Text.get("feedback.lodgingCommands.tooManyRooms", MAX_ROOMS));
             }
             room = Room.builder().build();
             acc.getRooms().add(room);
@@ -757,15 +756,15 @@ public class LodgingCommands {
 
     public boolean deleteRoom(final String accId, final String roomId) {
         if (!canEditAccommodation(accId)) {
-            return refuse("Not allowed: you do not manage this accommodation.");
+            return refuse(Text.get("feedback.lodgingCommands.notYourAccommodation"));
         }
         final Accommodation acc = freshAccommodation(accId);
         final Room room = (acc == null) ? null : acc.room(roomId);
         if (room == null) {
-            return refuse("Unknown room.");
+            return refuse(Text.get("feedback.lodgingCommands.unknownRoom"));
         }
         if (roomInUse(acc, roomId)) {
-            return refuse("Room " + room.getRoomNumber() + " has an active reservation. Move them first.");
+            return refuse(Text.get("feedback.lodgingCommands.roomHasReservation", room.getRoomNumber()));
         }
         acc.getRooms().remove(room);
         return store(acc) && audited(acc, "Deleted room " + room.getRoomNumber());
@@ -785,16 +784,16 @@ public class LodgingCommands {
     public int bulkAddRooms(final String accId, final String prefix, final int from, final int to, final String floor,
             final String roomTypeId) {
         if (!canEditAccommodation(accId)) {
-            refuse("Not allowed: you do not manage this accommodation.");
+            refuse(Text.get("feedback.lodgingCommands.notYourAccommodation"));
             return 0;
         }
         final Accommodation acc = freshAccommodation(accId);
         if (acc == null || acc.roomType(roomTypeId) == null) {
-            refuse("Choose a room type.");
+            refuse(Text.get("feedback.lodgingCommands.chooseRoomType"));
             return 0;
         }
         if (to < from || to - from >= MAX_ROOMS) {
-            refuse("Give a range of at most " + MAX_ROOMS + " rooms.");
+            refuse(Text.get("feedback.lodgingCommands.rangeTooLarge", MAX_ROOMS));
             return 0;
         }
         final Set<String> existing = new HashSet<>();
@@ -811,14 +810,14 @@ public class LodgingCommands {
             }
         }
         if (added == 0) {
-            info("Every room in that range already exists.");
+            info(Text.get("feedback.lodgingCommands.allRoomsExist"));
             return 0;
         }
         if (!store(acc)) {
             return 0;
         }
         audited(acc, "Added " + added + " rooms (" + nullSafe(prefix) + from + " to " + nullSafe(prefix) + to + ")");
-        info(added + " rooms added.");
+        info(Text.get("feedback.lodgingCommands.roomsAdded", added));
         return added;
     }
 
@@ -903,15 +902,15 @@ public class LodgingCommands {
     /** Records an uploaded media row as a property photo (or a room type's, when {@code roomTypeId} is given). */
     public boolean addPhoto(final String accId, final String roomTypeId, final String mediaId) {
         if (!canEditAccommodation(accId)) {
-            return refuse("Not allowed: you do not manage this accommodation.");
+            return refuse(Text.get("feedback.lodgingCommands.notYourAccommodation"));
         }
         final Accommodation acc = freshAccommodation(accId);
         if (acc == null || mediaId == null || mediaId.isBlank()) {
-            return refuse("Nothing to add.");
+            return refuse(Text.get("feedback.lodgingCommands.nothingToAdd"));
         }
         final List<String> target = photoListOf(acc, roomTypeId);
         if (target == null) {
-            return refuse("Unknown room type.");
+            return refuse(Text.get("feedback.lodgingCommands.unknownRoomType"));
         }
         if (!target.contains(mediaId)) {
             target.add(mediaId);
@@ -922,7 +921,7 @@ public class LodgingCommands {
     /** Moves a photo one step up or down in its gallery; returns false with no change at the ends. */
     public boolean movePhoto(final String accId, final String roomTypeId, final String mediaId, final int delta) {
         if (!canEditAccommodation(accId)) {
-            return refuse("Not allowed: you do not manage this accommodation.");
+            return refuse(Text.get("feedback.lodgingCommands.notYourAccommodation"));
         }
         final Accommodation acc = freshAccommodation(accId);
         final List<String> target = (acc == null) ? null : photoListOf(acc, roomTypeId);
@@ -939,7 +938,7 @@ public class LodgingCommands {
     /** Removes the reference from the gallery; the media-library row stays (the library owns deletion). */
     public boolean removePhoto(final String accId, final String roomTypeId, final String mediaId) {
         if (!canEditAccommodation(accId)) {
-            return refuse("Not allowed: you do not manage this accommodation.");
+            return refuse(Text.get("feedback.lodgingCommands.notYourAccommodation"));
         }
         final Accommodation acc = freshAccommodation(accId);
         final List<String> target = (acc == null) ? null : photoListOf(acc, roomTypeId);
@@ -1008,8 +1007,9 @@ public class LodgingCommands {
             final OfferSchedules.PlanLink link = OfferSchedules.linkOf(offer, RatePlanCommands.planOf(offer));
             rows.add(new OfferRow(offer.getId().getValue(), offer.getName(), acc == null ? "?" : acc.getName(),
                     roomTypeNames(acc, offer), event == null ? "" : event.getTitle(),
-                    OfferSchedules.pricingLabel(offer), range(offer.getValidFrom(), offer.getValidUntil()),
-                    range(offer.getDefaultStart(), offer.getDefaultEnd()), count, referencing, offer.isEnabled(),
+                    OfferSchedules.pricingLabel(offer), LodgingViews.range(offer.getValidFrom(), offer.getValidUntil()),
+                    LodgingViews.range(offer.getDefaultStart(), offer.getDefaultEnd()), count, referencing,
+                    offer.isEnabled(),
                     OfferSchedules.costRateLabel(offer), !offer.isPriced(), link.planName(), link.drift(),
                     offer.isLinked(), OfferSchedules.extraLines(offer.getCostExtras())));
         }
@@ -1024,13 +1024,6 @@ public class LodgingCommands {
             names.add(type == null ? "?" : type.getName());
         }
         return names.isEmpty() ? "?" : String.join(" / ", names);
-    }
-
-    private static String range(final LocalDateTime from, final LocalDateTime to) {
-        if (from == null && to == null) {
-            return "";
-        }
-        return (from == null ? "…" : from.format(STAY)) + " – " + (to == null ? "…" : to.format(STAY));
     }
 
     public OfferForm offerFormFor(final String tripId, final String offerId) {
@@ -1128,33 +1121,33 @@ public class LodgingCommands {
      */
     public boolean saveOffer(final String tripId, final OfferForm form) {
         if (!canManageTripLodging(tripId)) {
-            return refuse("Not allowed: only the trip's managers and lodging admins can edit lodging options.");
+            return refuse(Text.get("feedback.lodgingCommands.onlyManagersEditOptions"));
         }
         if (form == null) {
-            return refuse("Nothing to save.");
+            return refuse(Text.get("feedback.shared.nothingToSave"));
         }
         final Trip trip = tripSource.get().getTripForEdit(tripId);
         if (!tripId.equals(trip.getId())) {
-            return refuseInto(form::setProblem, "Unknown trip.");
+            return refuseInto(form::setProblem, Text.get("feedback.shared.unknownTrip"));
         }
         final Accommodation acc = findAccommodation(form.getAccommodationId());
         if (acc == null || acc.isRetired()) {
-            return refuseInto(form::setProblem, "Choose an accommodation.");
+            return refuseInto(form::setProblem, Text.get("feedback.lodgingCommands.chooseAccommodation"));
         }
         final List<String> typeIds = new ArrayList<>(new LinkedHashSet<>(form.getRoomTypeIds()));
         typeIds.removeIf(id -> id == null || id.isBlank());
         if (typeIds.isEmpty()) {
-            return refuseInto(form::setProblem, "Choose at least one room type.");
+            return refuseInto(form::setProblem, Text.get("feedback.lodgingCommands.chooseARoomType"));
         }
         for (final String typeId : typeIds) {
             if (acc.roomType(typeId) == null) {
-                return refuseInto(form::setProblem, "That room type is not at " + acc.getName() + ".");
+                return refuseInto(form::setProblem, Text.get("feedback.lodgingCommands.roomTypeNotAt", acc.getName()));
             }
         }
         form.setRoomTypeIds(typeIds);
         suggestOfferName(form);
         if (form.getName() == null || form.getName().isBlank()) {
-            return refuseInto(form::setProblem, "A lodging option needs a name.");
+            return refuseInto(form::setProblem, Text.get("feedback.lodgingCommands.optionNeedsName"));
         }
         form.resolveDates();
         final ReservationOffer offer = (form.getId() == null || form.getId().isBlank())
@@ -1162,7 +1155,7 @@ public class LodgingCommands {
                 : DAO.getInstance().getReservationOffer(tripId, ReservationOffer.Id.from(form.getId()), Cached.NO)
                         .orElse(null);
         if (offer == null) {
-            return refuseInto(form::setProblem, "This lodging option no longer exists.");
+            return refuseInto(form::setProblem, Text.get("feedback.lodgingCommands.optionGone"));
         }
         final String problem = OfferRules.problem(tripId, offer, form);
         if (problem != null) {
@@ -1170,7 +1163,7 @@ public class LodgingCommands {
         }
         final RatePlan plan = RatePlanCommands.planBehind(form);
         if (plan == null && form.getRatePlanId() != null && !form.getRatePlanId().isBlank()) {
-            return refuseInto(form::setProblem, "The rate plan this option follows is not at that hotel; detach it.");
+            return refuseInto(form::setProblem, Text.get("feedback.lodgingCommands.planNotAtHotel"));
         }
         final String eventId = resolveEvent(trip, form, acc);
         if (eventId == null) {
@@ -1201,12 +1194,13 @@ public class LodgingCommands {
     /** The conditional put of an offer row; a growl says why it did not happen. */
     private boolean saveOfferRow(final ReservationOffer offer) {
         try {
-            return DAO.getInstance().saveReservationOffer(offer) || refuse("The lodging option could not be saved.");
+            return DAO.getInstance().saveReservationOffer(offer)
+                    || refuse(Text.get("feedback.lodgingCommands.optionNotSaved"));
         } catch (final ConditionalCheckFailedException ex) {
-            return refuse("Saved by someone else: reload the page and try again.");
+            return refuse(Text.get("feedback.shared.savedBySomeoneElse"));
         } catch (final IOException ex) {
             log.error("Unable to save offer {}", offer.getId(), ex);
-            return refuse("The lodging option could not be saved: " + ex.getMessage());
+            return refuse(Text.get("feedback.lodgingCommands.optionNotSavedBecause", ex.getMessage()));
         }
     }
 
@@ -1219,7 +1213,7 @@ public class LodgingCommands {
     /** An edited PRICE changes what the option's ACTIVE reservations cost: recompute them, by room where placed. */
     void recomputeAfterOfferEdit(final Trip trip, final ReservationOffer offer) {
         if (!autoRecompute(trip.getOrgId())) {
-            warn("Lodging bills were not recomputed (automatic recompute is off): press Recompute.");
+            warn(Text.get("feedback.lodgingCommands.billsNotRecomputed"));
             return;
         }
         final Set<String> rooms = new LinkedHashSet<>();
@@ -1258,18 +1252,18 @@ public class LodgingCommands {
             final String id = trip.addTripEvent(TripEvent.Type.LODGING, title, lodgingEventNotes(acc),
                     form.getDefaultStart(), form.getDefaultEnd());
             if (!tripSource.get().saveTrip(trip)) {
-                refuse("The lodging event could not be added to the trip.");
+                refuse(Text.get("feedback.lodgingCommands.eventNotAdded"));
                 return null;
             }
             return id;
         }
         final TripEvent event = trip.getTripEvent(form.getTripEventId());
         if (event == null) {
-            refuse("That event is not on this trip.");
+            refuse(Text.get("feedback.lodgingCommands.eventNotOnTrip"));
             return null;
         }
         if (event.getType() != TripEvent.Type.LODGING) {
-            warn("'" + event.getTitle() + "' is not a lodging event; reservations will still join it.");
+            warn(Text.get("feedback.lodgingCommands.notALodgingEvent", event.getTitle()));
         }
         return event.getId();
     }
@@ -1303,15 +1297,15 @@ public class LodgingCommands {
 
     public boolean deleteOffer(final String tripId, final String offerId) {
         if (!canManageTripLodging(tripId)) {
-            return refuse("Not allowed: only the trip's managers and lodging admins can delete offers.");
+            return refuse(Text.get("feedback.lodgingCommands.onlyManagersDeleteOffers"));
         }
         final ReservationOffer offer = findOffer(tripId, offerId);
         if (offer == null) {
-            return refuse("Unknown offer.");
+            return refuse(Text.get("feedback.lodgingCommands.unknownOffer"));
         }
         for (final Reservation res : DAO.getInstance().getReservations(tripId, Cached.NO)) {
             if (offer.getId().equals(res.getOfferId())) {
-                return refuse("'" + offer.getName() + "' has reservations (cancelled ones included) and stays.");
+                return refuse(Text.get("feedback.lodgingCommands.offerHasReservations", offer.getName()));
             }
         }
         final boolean deleted = DAO.getInstance().deleteReservationOffer(tripId, offer.getId());
@@ -1351,17 +1345,16 @@ public class LodgingCommands {
      */
     public boolean setOfferCost(final OfferCostForm form) {
         if (form == null) {
-            return refuse("Nothing to save.");
+            return refuse(Text.get("feedback.shared.nothingToSave"));
         }
         final ReservationOffer offer = (form.getTripId() == null || form.getOfferId() == null) ? null
                 : DAO.getInstance().getReservationOffer(form.getTripId(), ReservationOffer.Id.from(form.getOfferId()),
                         Cached.NO).orElse(null);
         if (offer == null) {
-            return refuseInto(form::setProblem, "This lodging option no longer exists.");
+            return refuseInto(form::setProblem, Text.get("feedback.lodgingCommands.optionGone"));
         }
         if (!canManageTripLodging(form.getTripId())) {
-            return refuseInto(form::setProblem, "Not allowed: only the trip's lodging admins set an option's cost;"
-                    + " a hotel states its cost in its rate plans.");
+            return refuseInto(form::setProblem, Text.get("feedback.lodgingCommands.onlyAdminsSetCost"));
         }
         final String problem = OfferSchedules.costProblem(form);
         if (problem != null) {
@@ -1459,8 +1452,8 @@ public class LodgingCommands {
         if (acc != null) {
             for (final Room room : sortedRooms(acc)) {
                 final RoomType type = acc.roomType(room.getRoomTypeId());
-                choices.put(room.getId(), room.getRoomNumber() + " (" + (type == null ? "?" : type.getName())
-                        + (room.getFloor() == null ? "" : ", floor " + room.getFloor()) + ")");
+                choices.put(room.getId(), LodgingViews.roomChoice(room.getRoomNumber(),
+                        type == null ? "?" : type.getName(), room.getFloor()));
             }
         }
         return choices;
@@ -1603,13 +1596,12 @@ public class LodgingCommands {
      */
     public int createReservations(final String tripId, final ReservationForm form) {
         if (!canManageTripLodging(tripId)) {
-            return refuseReservation(form,
-                    "Not allowed: only the trip's managers and lodging admins can reserve.");
+            return refuseReservation(form, Text.get("feedback.lodgingCommands.onlyManagersReserve"));
         }
         final Trip trip = tripSource.get().getTripForEdit(tripId);
         final ReservationOffer offer = (form == null) ? null : findOffer(tripId, form.getOfferId());
         if (!tripId.equals(trip.getId()) || offer == null) {
-            return refuseReservation(form, "Choose a lodging option.");
+            return refuseReservation(form, Text.get("feedback.lodgingCommands.chooseOption"));
         }
         form.resolveDates();
         final List<Person.Id> people = new ArrayList<>();
@@ -1617,7 +1609,7 @@ public class LodgingCommands {
             people.add(Person.Id.from(id));
         }
         if (people.isEmpty()) {
-            return refuseReservation(form, "Choose at least one person.");
+            return refuseReservation(form, Text.get("feedback.lodgingCommands.chooseAPerson"));
         }
         final String problem = stayProblem(trip, offer, people, form.getStart(), form.getEnd(), null);
         if (problem != null) {
@@ -1626,8 +1618,8 @@ public class LodgingCommands {
         final Accommodation acc = findAccommodation(idValue(offer.getAccommodationId()));
         if (form.getRoomId() != null && !form.getRoomId().isBlank() && (acc == null
                 || acc.room(form.getRoomId()) == null)) {
-            return refuseReservation(form,
-                    "That room is not at " + (acc == null ? "the accommodation" : acc.getName()) + ".");
+            return refuseReservation(form, acc == null ? Text.get("feedback.lodgingCommands.roomNotHere")
+                    : Text.get("feedback.lodgingCommands.roomNotAt", acc.getName()));
         }
         final String taken = roomProblem(tripId, acc, blankToNull(form.getRoomId()), offer, form.getStart(),
                 form.getEnd(), null);
@@ -1655,7 +1647,7 @@ public class LodgingCommands {
             }
         }
         if (created > 0) {
-            info(created + (created == 1 ? " reservation" : " reservations") + " created.");
+            info(Text.get("feedback.lodgingCommands.reservationsCreated", created));
         }
         return created;
     }
@@ -1668,26 +1660,25 @@ public class LodgingCommands {
     private String stayProblem(final Trip trip, final ReservationOffer offer, final List<Person.Id> people,
             final LocalDateTime start, final LocalDateTime end, final Reservation.Id except) {
         if (!offer.isPriced()) {
-            return "'" + offer.getName() + "' has no participant price yet; set it before reserving.";
+            return Text.get("feedback.lodgingCommands.noPriceYet", offer.getName());
         }
         if (!offer.isEnabled()) {
-            return "'" + offer.getName() + "' is not being offered.";
+            return Text.get("feedback.lodgingCommands.notOffered", offer.getName());
         }
         for (final Person.Id person : people) {
             if (!trip.getPeople().contains(person)) {
-                return displayName(person) + " is not on this trip's roster.";
+                return Text.get("feedback.lodgingCommands.notOnRoster", displayName(person));
             }
         }
         if (start == null || end == null || !end.isAfter(start)) {
-            return "Departure must be after arrival.";
+            return Text.get("feedback.lodgingCommands.departureAfterArrival");
         }
         if (Reservation.nightsBetween(start, end) < offer.getMinNights()) {
-            return "'" + offer.getName() + "' requires at least " + offer.getMinNights()
-                    + (offer.getMinNights() == 1 ? " night." : " nights.");
+            return Text.get("feedback.lodgingCommands.minNights", offer.getName(), offer.getMinNights());
         }
         if (!offer.coversStay(start, end)) {
-            return "The stay must fall within the dates of '" + offer.getName() + "' ("
-                    + range(offer.getValidFrom(), offer.getValidUntil()) + "); widen the option's dates first.";
+            return Text.get("feedback.lodgingCommands.stayOutsideOption", offer.getName(),
+                    LodgingViews.range(offer.getValidFrom(), offer.getValidUntil()));
         }
         return overlappingStay(trip.getId(), people, start, end, except);
     }
@@ -1706,22 +1697,28 @@ public class LodgingCommands {
             }
             for (final Person.Id person : people) {
                 if (other.occupies(person)) {
-                    return displayName(person) + " already has a stay " + range(other.getStart(), other.getEnd())
-                            + describeRoom(other) + "; two stays cannot share a night.";
+                    final String range = LodgingViews.range(other.getStart(), other.getEnd());
+                    final String placed = withPlace("feedback.lodgingCommands.overlappingStayAt", other,
+                            displayName(person), range);
+                    return placed != null ? placed
+                            : Text.get("feedback.lodgingCommands.overlappingStay", displayName(person), range);
                 }
             }
         }
         return null;
     }
 
-    /** " (Pansion, room 105)" for a refusal that has to be actionable; "" when the stay has no room yet. */
-    private String describeRoom(final Reservation res) {
+    /** {@code key} (+ "Room") as a whole sentence naming the stay's hotel (and room); null for no hotel. */
+    private String withPlace(final String key, final Reservation res, final Object... lead) {
         final Accommodation acc = findAccommodation(idValue(res.getAccommodationId()));
         if (acc == null) {
-            return "";
+            return null;
         }
         final String label = acc.roomLabel(res.getRoomId());
-        return " (" + acc.getName() + (label == null ? "" : ", room " + label) + ")";
+        final List<Object> args = new ArrayList<>(List.of(lead));
+        args.add(acc.getName());
+        args.add(label);
+        return Text.get(label == null ? key : key + "Room", args.toArray());
     }
 
     /** The hotel's own unavailability, read fresh: a manager may have blocked a room a moment ago. */
@@ -1749,7 +1746,7 @@ public class LodgingCommands {
     private static void warnRoomType(final Accommodation acc, final Room room, final ReservationOffer offer) {
         final RoomType type = acc.roomType(room.getRoomTypeId());
         if (type != null && type.getName() != null && offer != null && !offer.covers(room.getRoomTypeId())) {
-            warn("Room " + room.getRoomNumber() + " is a " + type.getName() + ", not one of the option's room types.");
+            warn(Text.get("feedback.lodgingCommands.roomTypeMismatch", room.getRoomNumber(), type.getName()));
         }
     }
 
@@ -1759,27 +1756,26 @@ public class LodgingCommands {
      */
     public boolean updateReservation(final String tripId, final ReservationForm form) {
         if (!canManageTripLodging(tripId)) {
-            return refuseEdit(form,
-                    "Not allowed: only the trip's managers and lodging admins can edit reservations.");
+            return refuseEdit(form, Text.get("feedback.lodgingCommands.onlyManagersEditReservations"));
         }
         final Reservation res = (form == null) ? null : findReservation(tripId, form.getId());
         if (res == null || !res.isActive()) {
-            return refuseEdit(form, "This reservation no longer exists or is cancelled.");
+            return refuseEdit(form, Text.get("feedback.reservation.gone"));
         }
         final Trip trip = tripSource.get().getTripForEdit(tripId);
         final ReservationOffer was = findOffer(tripId, idValue(res.getOfferId()));
         final ReservationOffer offer = (blankToNull(form.getOfferId()) == null) ? was
                 : findOffer(tripId, form.getOfferId());
         if (offer == null) {
-            return refuseEdit(form, was == null ? "The reservation's offer no longer exists."
-                    : "Choose a lodging option.");
+            return refuseEdit(form, was == null ? Text.get("feedback.lodgingCommands.offerOfReservationGone")
+                    : Text.get("feedback.lodgingCommands.chooseOption"));
         }
         final List<Person.Id> people = new ArrayList<>();
         for (final String id : new LinkedHashSet<>(form.getPersonIds())) {
             people.add(Person.Id.from(id));
         }
         if (people.isEmpty()) {
-            return refuseEdit(form, "A reservation needs at least one person.");
+            return refuseEdit(form, Text.get("feedback.lodgingCommands.reservationNeedsPerson"));
         }
         form.resolveDates();
         final String problem = stayProblem(trip, offer, people, form.getStart(), form.getEnd(), res.getId());
@@ -1815,7 +1811,7 @@ public class LodgingCommands {
         res.setNotes(form.getNotes());
         res.setWaiveSingleSupplement(form.isWaiveSingleSupplement() ? Boolean.TRUE : null);
         if (!persistReservation(trip, offer, acc, res, previousRoom)) {
-            form.setProblem("The reservation could not be saved.");
+            form.setProblem(Text.get("feedback.lodgingCommands.reservationNotSaved"));
             return false;
         }
         // Everybody leaves the OLD option's event when the new option has another; otherwise just the dropped.
@@ -1843,27 +1839,29 @@ public class LodgingCommands {
     public AssignOutcome assignRoom(final String tripId, final String reservationId, final String roomId,
             final boolean force, final LocalDateTime winStart, final LocalDateTime winEnd) {
         if (!canAssignRooms(tripId)) {
-            return outcome(false, false, "Not allowed: you do not room this trip's people.",
+            return outcome(false, false, Text.get("feedback.lodgingCommands.notYourPeople"),
                     null, reservationId, roomId);
         }
         final Trip trip = tripSource.get().getTripForEdit(tripId);
         final Reservation res = findReservation(tripId, reservationId);
         if (res == null || !tripId.equals(trip.getId())) {
             // Creating one is the placement dialog's job: it asks which lodging option pays for the stay.
-            return outcome(false, false, "That reservation no longer exists.", null, reservationId, roomId);
+            return outcome(false, false, Text.get("feedback.lodgingCommands.reservationGone"),
+                    null, reservationId, roomId);
         }
         if (!canAssignAt(tripId, idValue(res.getAccommodationId()))) {
-            return outcome(false, false, "Not allowed: that stay is at a hotel you do not operate.", null,
-                    reservationId, roomId);
+            return outcome(false, false, Text.get("feedback.lodgingCommands.notYourHotel"),
+                    null, reservationId, roomId);
         }
         if (!res.isActive()) {
-            return outcome(false, false, "That reservation is cancelled.", null, reservationId, roomId);
+            return outcome(false, false, Text.get("feedback.lodgingCommands.reservationCancelled"),
+                    null, reservationId, roomId);
         }
         final ReservationOffer offer = findOffer(tripId, idValue(res.getOfferId()));
         final Accommodation acc = findAccommodation(idValue(res.getAccommodationId()));
         final Room room = (acc == null || roomId == null) ? null : acc.room(roomId);
         if (room == null) {
-            return outcome(false, false, "That room is not at the accommodation.", null, reservationId, roomId);
+            return outcome(false, false, Text.get("feedback.lodgingCommands.roomNotHere"), null, reservationId, roomId);
         }
         final String personId = res.getOccupants().isEmpty() ? null : res.getOccupants().get(0).getValue();
         // The hotel's own block comes first and is a refusal, not a warning: capacity is ours to overrule,
@@ -1882,17 +1880,18 @@ public class LodgingCommands {
         warnRoomType(acc, room, offer);
         final String previousRoom = res.getRoomId();
         if (roomId.equals(previousRoom)) {
-            info(names(res.getOccupants()) + " already in room " + room.getRoomNumber() + ".");
-            return outcome(true, false, "already there", personId, res.getId().getValue(), roomId);
+            info(Text.get("feedback.lodgingCommands.alreadyInRoom", names(res.getOccupants()), room.getRoomNumber()));
+            return outcome(true, false, Text.get("feedback.lodgingCommands.alreadyThere"),
+                    personId, res.getId().getValue(), roomId);
         }
         res.setRoomId(roomId);
         if (!persistReservation(trip, offer, acc, res, previousRoom)) {
-            return outcome(false, false, "The assignment could not be saved.", personId, reservationId, roomId);
+            return outcome(false, false, Text.get("feedback.lodgingCommands.assignmentNotSaved"),
+                    personId, reservationId, roomId);
         }
         // A card from the board's Assigned list is a MOVE: say where from, so a mis-click reads as one.
-        final String msg = names(res.getOccupants()) + (previousRoom == null ? " assigned to room "
-                : " moved from room " + nullSafe(acc.roomLabel(previousRoom)) + " to room ") + room.getRoomNumber()
-                + (tooFull == null ? "" : " (over capacity)") + ".";
+        final String msg = LodgingViews.assigned(names(res.getOccupants()), room.getRoomNumber(), tooFull != null,
+                previousRoom == null ? null : nullSafe(acc.roomLabel(previousRoom)));
         info(msg);
         return outcome(true, tooFull != null, msg, personId, res.getId().getValue(), roomId);
     }
@@ -1903,9 +1902,8 @@ public class LodgingCommands {
         final RoomType type = acc.roomType(room.getRoomTypeId());
         final int max = (type == null) ? Integer.MAX_VALUE : type.getMaxPeople();
         final int would = occupancyOver(tripId, room.getId(), res, from, to);
-        return (would <= max) ? null
-                : "Room " + room.getRoomNumber() + (type == null ? "" : " (" + type.getName() + ")")
-                        + " sleeps " + max + ". Assigning " + names(res.getOccupants()) + " makes it " + would + ".";
+        return (would <= max) ? null : Text.get("feedback.lodgingCommands.overCapacity", room.getRoomNumber(),
+                type == null ? "" : type.getName(), max, names(res.getOccupants()), would);
     }
 
     // ---------------------------------------------------------------- placing someone who has no reservation
@@ -1948,7 +1946,9 @@ public class LodgingCommands {
         mine.sort((a, b) -> compareNullable(a.getStart(), b.getStart()));
         final List<String> parts = new ArrayList<>();
         for (final Reservation res : mine) {
-            parts.add(range(res.getStart(), res.getEnd()) + describeRoom(res));
+            final String range = LodgingViews.range(res.getStart(), res.getEnd());
+            final String placed = withPlace("feedback.lodgingCommands.stayAt", res, range);
+            parts.add(placed != null ? placed : range);
         }
         form.setAnotherStay(true);
         form.setExistingStays(String.join("; ", parts));
@@ -1986,23 +1986,23 @@ public class LodgingCommands {
      */
     public AssignOutcome place(final String tripId, final PlacementForm form) {
         if (!canManageTripLodging(tripId)) {
-            return outcome(false, false, "Not allowed: you do not room this trip's people.",
-                    null, null, null);
+            return outcome(false, false, Text.get("feedback.lodgingCommands.notYourPeople"), null, null, null);
         }
         if (form == null || form.getPersonId() == null || form.getPersonId().isBlank()) {
-            return outcome(false, false, "Who is being placed?", null, null, null);
+            return outcome(false, false, Text.get("feedback.lodgingCommands.whoIsPlaced"), null, null, null);
         }
         final String personId = form.getPersonId();
         final String roomId = form.getRoomId();
         final Trip trip = tripSource.get().getTripForEdit(tripId);
         final ReservationOffer offer = findOffer(tripId, form.getOfferId());
         if (offer == null || !tripId.equals(trip.getId())) {
-            return dialogProblem(form::setProblem, "Choose a lodging option.", personId, null, roomId);
+            return dialogProblem(form::setProblem, Text.get("feedback.lodgingCommands.chooseOption"), personId, null,
+                    roomId);
         }
         final Accommodation acc = findAccommodation(idValue(offer.getAccommodationId()));
         final Room room = (acc == null || roomId == null) ? null : acc.room(roomId);
         if (room == null) {
-            return dialogProblem(form::setProblem, "That room is not at the accommodation.", personId, null,
+            return dialogProblem(form::setProblem, Text.get("feedback.lodgingCommands.roomNotHere"), personId, null,
                     roomId);
         }
         final Person.Id person = Person.Id.from(personId);
@@ -2028,17 +2028,16 @@ public class LodgingCommands {
         warnRoomType(acc, room, offer);
         res.setRoomId(roomId);
         if (!persistReservation(trip, offer, acc, res, null)) {
-            return dialogProblem(form::setProblem, "The reservation could not be saved.", personId, null,
-                    roomId);
+            return dialogProblem(form::setProblem, Text.get("feedback.lodgingCommands.reservationNotSaved"), personId,
+                    null, roomId);
         }
         if (res.isSupplementWaived()) {
             auditSource.get().lodging(AuditEventBuilder.TARGET_RESERVATION, res.getId().getValue(), trip.getOrgId(),
                     "Waived the single supplement for " + names(res.getOccupants()), caller().auditActor());
         }
         form.setProblem(null);
-        final String msg = names(res.getOccupants()) + " placed in room " + room.getRoomNumber()
-                + " on '" + offer.getName() + "'" + (res.isSupplementWaived() ? ", single supplement waived" : "")
-                + (tooFull == null ? "" : " (over capacity)") + ".";
+        final String msg = LodgingViews.placed(names(res.getOccupants()), room.getRoomNumber(), offer.getName(),
+                res.isSupplementWaived(), tooFull != null);
         info(msg);
         return outcome(true, tooFull != null, msg, personId, res.getId().getValue(), roomId);
     }
@@ -2077,14 +2076,14 @@ public class LodgingCommands {
      */
     public AssignOutcome splitStay(final String tripId, final SplitForm form) {
         if (!canAssignRooms(tripId)) {
-            return outcome(false, false, "Not allowed: you do not room this trip's people.", null, null, null);
+            return outcome(false, false, Text.get("feedback.lodgingCommands.notYourPeople"), null, null, null);
         }
         final Reservation res = (form == null) ? null : findReservation(tripId, form.getReservationId());
         if (res == null || !res.isActive()) {
-            return outcome(false, false, "This reservation no longer exists or is cancelled.", null, null, null);
+            return outcome(false, false, Text.get("feedback.reservation.gone"), null, null, null);
         }
         if (!canAssignAt(tripId, idValue(res.getAccommodationId()))) {
-            return outcome(false, false, "Not allowed: that stay is at a hotel you do not operate.", null, null, null);
+            return outcome(false, false, Text.get("feedback.lodgingCommands.notYourHotel"), null, null, null);
         }
         final Trip trip = tripSource.get().getTripForEdit(tripId);
         final ReservationOffer offer = findOffer(tripId, idValue(res.getOfferId()));
@@ -2110,20 +2109,24 @@ public class LodgingCommands {
         final String firstRoom = res.getRoomId();
         res.setEnd(form.getDate().atTime(wholeEnd.toLocalTime()));
         if (!persistReservation(trip, offer, acc, res, firstRoom)) {
-            return outcome(false, false, "The stay could not be shortened.", null, res.getId().getValue(), newRoom);
+            return outcome(false, false, Text.get("feedback.lodgingCommands.stayNotShortened"), null,
+                    res.getId().getValue(), newRoom);
         }
         if (!persistReservation(trip, offer, acc, second, null)) {
             // Put the stay back the way it was: half a split is a night nobody is booked for.
             res.setEnd(wholeEnd);
             persistReservation(trip, offer, acc, res, firstRoom);
-            return outcome(false, false, "The second stay could not be saved; nothing was changed.", null,
+            return outcome(false, false, Text.get("feedback.lodgingCommands.secondStayNotSaved"), null,
                     res.getId().getValue(), newRoom);
         }
-        final String msg = names(res.getOccupants()) + " stay in room " + nullSafe(acc.roomLabel(firstRoom))
-                + " until " + form.getDate().format(DAY) + ", then "
-                + (newRoom == null ? "have no room yet" : "room " + nullSafe(acc.roomLabel(newRoom))) + ".";
+        final Function<Boolean, String> said = english -> LodgingViews.split(english, names(res.getOccupants()),
+                nullSafe(acc.roomLabel(firstRoom)), Formats.format(form.getDate(), "yMMMd", english ? Locale.ENGLISH
+                        : RequestContext.currentLocale()),
+                newRoom == null ? null : nullSafe(acc.roomLabel(newRoom)));
+        final String msg = said.apply(false);
         auditSource.get().lodging(AuditEventBuilder.TARGET_RESERVATION, res.getId().getValue(), trip.getOrgId(),
-                "Split stay at " + form.getDate().format(DAY) + ": " + msg, caller().auditActor());
+                "Split stay at " + Formats.format(form.getDate(), "yMMMd", Locale.ENGLISH) + ": " + said.apply(true),
+                caller().auditActor());
         info(msg);
         form.setProblem(null);
         return outcome(true, false, msg, null, second.getId().getValue(), newRoom);
@@ -2133,19 +2136,19 @@ public class LodgingCommands {
     private String splitProblem(final String tripId, final Accommodation acc, final ReservationOffer offer,
             final Reservation res, final SplitForm form) {
         if (res.getStart() == null || res.getEnd() == null) {
-            return "This stay has no dates to split.";
+            return Text.get("feedback.lodgingCommands.noDatesToSplit");
         }
         final LocalDate date = form.getDate();
         if (date == null || !date.isAfter(res.getStart().toLocalDate()) || !date.isBefore(res.getEnd().toLocalDate())) {
-            return "Choose a night inside the stay (" + range(res.getStart(), res.getEnd())
-                    + "): both halves need at least one night.";
+            return Text.get("feedback.lodgingCommands.chooseNightInside",
+                    LodgingViews.range(res.getStart(), res.getEnd()));
         }
         final String newRoom = blankToNull(form.getRoomId());
         if (newRoom != null && (acc == null || acc.room(newRoom) == null)) {
-            return "That room is not at the accommodation.";
+            return Text.get("feedback.lodgingCommands.roomNotHere");
         }
         if (newRoom != null && newRoom.equals(res.getRoomId())) {
-            return "That is the room they are already in.";
+            return Text.get("feedback.lodgingCommands.alreadyTheirRoom");
         }
         return roomProblem(tripId, acc, newRoom, offer, date.atTime(res.getStart().toLocalTime()), res.getEnd(),
                 res.getId());
@@ -2190,14 +2193,14 @@ public class LodgingCommands {
 
     public boolean unassignRoom(final String tripId, final String reservationId) {
         if (!canAssignRooms(tripId)) {
-            return refuse("Not allowed: you do not room this trip's people.");
+            return refuse(Text.get("feedback.lodgingCommands.notYourPeople"));
         }
         final Reservation res = findReservation(tripId, reservationId);
         if (res == null || !res.isActive()) {
-            return refuse("This reservation no longer exists or is cancelled.");
+            return refuse(Text.get("feedback.reservation.gone"));
         }
         if (!canAssignAt(tripId, idValue(res.getAccommodationId()))) {
-            return refuse("Not allowed: that stay is at a hotel you do not operate.");
+            return refuse(Text.get("feedback.lodgingCommands.notYourHotel"));
         }
         final Trip trip = tripSource.get().getTripForEdit(tripId);
         final ReservationOffer offer = findOffer(tripId, idValue(res.getOfferId()));
@@ -2213,13 +2216,13 @@ public class LodgingCommands {
         final boolean creating = res.getVersion() == 0L;
         try {
             if (!DAO.getInstance().saveReservation(res)) {
-                return refuse("The reservation could not be saved.");
+                return refuse(Text.get("feedback.lodgingCommands.reservationNotSaved"));
             }
         } catch (final ConditionalCheckFailedException ex) {
-            return refuse("Saved by someone else: reload the page and try again.");
+            return refuse(Text.get("feedback.shared.savedBySomeoneElse"));
         } catch (final IOException ex) {
             log.error("Unable to save reservation {}", res.getId(), ex);
-            return refuse("The reservation could not be saved: " + ex.getMessage());
+            return refuse(Text.get("feedback.lodgingCommands.reservationNotSavedBecause", ex.getMessage()));
         }
         if (offer != null && offer.getTripEventId() != null) {
             tripSource.get().updateEventParticipants(trip, offer.getTripEventId(), res.getOccupants(), List.of());
@@ -2240,7 +2243,8 @@ public class LodgingCommands {
         }
         sb.append(", ").append(res.nights()).append(res.nights() == 1 ? " night " : " nights ");
         if (res.getStart() != null && res.getEnd() != null) {
-            sb.append(res.getStart().format(STAY)).append(" – ").append(res.getEnd().format(STAY));
+            sb.append(LodgingViews.stay(res.getStart(), Locale.ENGLISH)).append(" – ")
+                    .append(LodgingViews.stay(res.getEnd(), Locale.ENGLISH));
         }
         return sb.toString();
     }
@@ -2290,17 +2294,7 @@ public class LodgingCommands {
     }
 
     static String feeRule(final ReservationOffer offer) {
-        if (offer == null || !offer.hasCancellationFee()) {
-            return "no cancellation fee";
-        }
-        final List<String> parts = new ArrayList<>();
-        if (offer.getCancelFeeFixedCents() != null && offer.getCancelFeeFixedCents() > 0) {
-            parts.add(MoneyMath.formatCents(offer.getCancelFeeFixedCents()));
-        }
-        if (offer.getCancelFeeBps() != null && offer.getCancelFeeBps() > 0) {
-            parts.add((offer.getCancelFeeBps() / 100.0) + "% of the bill");
-        }
-        return String.join(" + ", parts);
+        return LodgingViews.feeRule(offer);
     }
 
     /**
@@ -2310,11 +2304,11 @@ public class LodgingCommands {
     public boolean cancelReservation(final String tripId, final String reservationId, final boolean credit,
             final Long feeOverrideCents, final String reason) {
         if (!canManageTripLodging(tripId)) {
-            return refuse("Not allowed: only the trip's managers and lodging admins can cancel.");
+            return refuse(Text.get("feedback.lodgingCommands.onlyManagersCancel"));
         }
         final Reservation res = findReservation(tripId, reservationId);
         if (res == null || !res.isActive()) {
-            return refuse("This reservation no longer exists or is already cancelled.");
+            return refuse(Text.get("feedback.lodgingCommands.alreadyCancelled"));
         }
         final Trip trip = tripSource.get().getTripForEdit(tripId);
         final ReservationOffer offer = findOffer(tripId, idValue(res.getOfferId()));
@@ -2331,22 +2325,25 @@ public class LodgingCommands {
         res.setCancelReason(blankToNull(reason));
         try {
             if (!DAO.getInstance().saveReservation(res)) {
-                return refuse("The cancellation could not be saved.");
+                return refuse(Text.get("feedback.lodgingCommands.cancellationNotSaved"));
             }
         } catch (final ConditionalCheckFailedException ex) {
-            return refuse("Saved by someone else: reload the page and try again.");
+            return refuse(Text.get("feedback.shared.savedBySomeoneElse"));
         } catch (final IOException ex) {
             log.error("Unable to cancel reservation {}", res.getId(), ex);
-            return refuse("The cancellation could not be saved: " + ex.getMessage());
+            return refuse(Text.get("feedback.lodgingCommands.cancellationNotSavedBecause", ex.getMessage()));
         }
         leaveEventIfLast(trip, offer, res.getOccupants(), res.getId());
         String creditNote = "no credit";
+        String said = Text.get("feedback.lodgingCommands.cancelledNoCredit");
         if (credit && total > 0) {
             final LodgingBiller.Result result = biller.applyCancelCredits(res, offer, billed, fee,
                     "Lodging cancellation credit: " + (offer == null ? "" : offer.getName() + ", ")
                             + res.nights() + (res.nights() == 1 ? " night" : " nights")
                             + (fee > 0 ? " (minus " + MoneyMath.formatCents(fee) + " cancellation fee)" : ""));
             creditNote = MoneyMath.formatCents(Math.max(0L, total - fee)) + " credited (" + result.summary() + ")";
+            said = Text.get("feedback.lodgingCommands.cancelledCredited",
+                    MoneyMath.formatCents(Math.max(0L, total - fee)), result.summary());
         }
         auditSource.get().lodging(AuditEventBuilder.TARGET_RESERVATION, res.getId().getValue(), trip.getOrgId(),
                 "Cancelled reservation for " + names(res.getOccupants()) + ": billed " + MoneyMath.formatCents(total)
@@ -2354,7 +2351,7 @@ public class LodgingCommands {
                         + (res.getCancelReason() == null ? "" : " (" + res.getCancelReason() + ")"),
                 caller().auditActor());
         afterWrite(trip, res, res.getRoomId());
-        info("Reservation cancelled: " + creditNote + ".");
+        info(said);
         return true;
     }
 
@@ -2369,7 +2366,7 @@ public class LodgingCommands {
     /** Automatic recompute after a write (the setting), else a reminder to press Recompute. */
     private void afterWrite(final Trip trip, final Reservation res, final String previousRoom) {
         if (!autoRecompute(trip.getOrgId())) {
-            warn("Lodging bills were not recomputed (automatic recompute is off): press Recompute.");
+            warn(Text.get("feedback.lodgingCommands.billsNotRecomputed"));
             return;
         }
         final Set<String> rooms = new LinkedHashSet<>();
@@ -2399,7 +2396,7 @@ public class LodgingCommands {
     /** The admin's explicit recompute for one room, or for the whole trip when {@code roomId} is blank. */
     public boolean recomputeBills(final String tripId, final String roomId) {
         if (!canManageTripLodging(tripId)) {
-            return refuse("Not allowed: only the trip's managers and lodging admins recompute bills.");
+            return refuse(Text.get("feedback.lodgingCommands.onlyManagersRecompute"));
         }
         final Trip trip = tripSource.get().getTrip(tripId);
         final LodgingBiller.Result result = (roomId == null || roomId.isBlank()) ? recomputeTrip(tripId)
@@ -2407,7 +2404,7 @@ public class LodgingCommands {
         auditSource.get().lodging(AuditEventBuilder.TARGET_RESERVATION, tripId, trip.getOrgId(),
                 "Lodging bills recomputed" + (roomId == null || roomId.isBlank() ? " for the trip: "
                         : " for room " + roomId + ": ") + result.summary(), caller().auditActor());
-        info("Lodging bills recomputed: " + result.summary() + ".");
+        info(Text.get("feedback.lodgingCommands.billsRecomputed", result.summary()));
         return true;
     }
 
@@ -2607,10 +2604,10 @@ public class LodgingCommands {
     private String otherTripLabel(final Reservation res) {
         final Trip other = DAO.getInstance().getTrip(res.getTripId(), Cached.YES).orElse(null);
         if (other == null) {
-            return "another trip";
+            return Text.get("feedback.lodgingCommands.anotherTrip");
         }
         return access.mayNameTrip(other.getId(), idValue(res.getAccommodationId())) ? other.getTitle()
-                : "another organization's trip";
+                : Text.get("feedback.hotelCommands.otherOrgTrip");
     }
 
     /** One block as the tables and dialogs render it. */
@@ -2717,7 +2714,7 @@ public class LodgingCommands {
             for (final Person.Id person : res.getOccupants()) {
                 if (seen.add(res.getId().getValue() + "/" + person.getValue())) {
                     chips.add(new OccupantChip(res.getId().getValue(), person.getValue(), displayName(person),
-                            range(res.getStart(), res.getEnd())));
+                            LodgingViews.range(res.getStart(), res.getEnd())));
                 }
             }
         }
@@ -2850,22 +2847,22 @@ public class LodgingCommands {
     /** The "Show room numbers on itineraries" switch: a trip presentation setting, so internal callers only. */
     public boolean setRoomNumbersShown(final String tripId, final boolean shown) {
         if (!canManageTripLodging(tripId)) {
-            return refuse("Not allowed: you do not manage this trip's lodging.");
+            return refuse(Text.get("feedback.lodgingCommands.notYourTripLodging"));
         }
         final Trip trip = tripSource.get().getTripForEdit(tripId);
         // getTripForEdit answers a blank trip with a fresh id for an unknown one; the same-id probe is the test.
         if (trip == null || !tripId.equals(trip.getId())) {
-            return refuse("This trip no longer exists.");
+            return refuse(Text.get("feedback.tripDeleteCommands.tripGone"));
         }
         trip.setRoomNumbersShown(shown);
         if (!tripSource.get().saveTrip(trip)) {
-            return refuse("The setting could not be saved.");
+            return refuse(Text.get("feedback.lodgingCommands.settingNotSaved"));
         }
         auditSource.get().lodging(AuditEventBuilder.TARGET_TRIP, tripId, trip.getOrgId(),
                 (shown ? "Room numbers shown" : "Room numbers hidden") + " on itineraries for '" + trip.getTitle()
                         + "'", caller().auditActor());
-        info(shown ? "Room numbers are shown on itineraries again."
-                : "Room numbers are hidden from itineraries until you turn this back on.");
+        info(shown ? Text.get("feedback.lodgingCommands.roomNumbersShown")
+                : Text.get("feedback.lodgingCommands.roomNumbersHidden"));
         return true;
     }
 
@@ -2901,14 +2898,15 @@ public class LodgingCommands {
     boolean store(final Accommodation acc) {
         pruneDanglingMedia(acc);
         try {
-            return DAO.getInstance().saveAccommodation(acc) || refuse("The accommodation could not be saved.");
+            return DAO.getInstance().saveAccommodation(acc)
+                    || refuse(Text.get("feedback.lodgingCommands.accommodationNotSaved"));
         } catch (final ConditionalCheckFailedException ex) {
-            return refuse("Saved by someone else: reload the page and try again.");
+            return refuse(Text.get("feedback.shared.savedBySomeoneElse"));
         } catch (final IllegalArgumentException ex) {
             return refuse(ex.getMessage());
         } catch (final IOException ex) {
             log.error("Unable to save accommodation {}", acc.getId(), ex);
-            return refuse("The accommodation could not be saved: " + ex.getMessage());
+            return refuse(Text.get("feedback.lodgingCommands.accommodationNotSavedBecause", ex.getMessage()));
         }
     }
 

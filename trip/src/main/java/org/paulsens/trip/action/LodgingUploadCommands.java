@@ -13,6 +13,7 @@ import org.paulsens.trip.audit.Audit;
 import org.paulsens.trip.audit.AuditEventBuilder;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.media.LocalObjectStore;
 import org.paulsens.trip.media.PendingUploads;
 import org.paulsens.trip.media.PhotoRejectedException;
@@ -103,11 +104,11 @@ public class LodgingUploadCommands extends PhotoUploadBean {
         sessionPut(ACC_KEY, null);
         sessionPut(TARGET_KEY, null);
         if (!KIND_PHOTO.equals(kind) && !KIND_ROOM_TYPE.equals(kind) && !KIND_FLOOR.equals(kind)) {
-            error("Unknown upload kind.");
+            error(Text.get("feedback.lodgingUploadCommands.unknownKind"));
             return;
         }
         if (!lodging.canEditAccommodation(accId)) {
-            error("Not allowed: you do not manage this accommodation.");
+            error(Text.get("feedback.lodgingCommands.notYourAccommodation"));
             return;
         }
         sessionPut(KIND_KEY, kind);
@@ -130,7 +131,7 @@ public class LodgingUploadCommands extends PhotoUploadBean {
     @Override
     protected UploadGate authorization() {
         return (kind() != null && lodging.canEditAccommodation(accId())) ? UploadGate.allow()
-                : UploadGate.deny("Not allowed: you do not manage this accommodation.");
+                : UploadGate.deny(Text.get("feedback.lodgingCommands.notYourAccommodation"));
     }
 
     /**
@@ -153,9 +154,11 @@ public class LodgingUploadCommands extends PhotoUploadBean {
     public String getDialogHeader() {
         final String kind = kind();
         if (KIND_FLOOR.equals(kind)) {
-            return "Floor plan" + (target() == null ? "" : " for floor " + target());
+            return target() == null ? Text.get("feedback.lodgingUploadCommands.headerFloorPlan")
+                    : Text.get("feedback.lodgingUploadCommands.headerFloorPlanFor", target());
         }
-        return KIND_ROOM_TYPE.equals(kind) ? "Room type photo" : "Accommodation photo";
+        return KIND_ROOM_TYPE.equals(kind) ? Text.get("feedback.lodgingUploadCommands.headerRoomType")
+                : Text.get("feedback.lodgingUploadCommands.headerAccommodation");
     }
 
     /** Plans and property photos crop free; the dialog's "Use full photo" is the normal path for a plan. */
@@ -173,7 +176,7 @@ public class LodgingUploadCommands extends PhotoUploadBean {
         final String kind = kind();
         final String accId = accId();
         if (kind == null || !lodging.canEditAccommodation(accId)) {
-            error("Not allowed: you do not manage this accommodation.");
+            error(Text.get("feedback.lodgingCommands.notYourAccommodation"));
             return false;
         }
         final Optional<PendingUploads.Pending> claimed = claim();
@@ -186,19 +189,19 @@ public class LodgingUploadCommands extends PhotoUploadBean {
             stored = processor.cropToBoundedJpeg(pending.original(), scaledRect(crop, pending), 0,
                     KIND_FLOOR.equals(kind) ? FLOOR_MAX_WIDTH : PHOTO_MAX_WIDTH, storedMaxBytes);
         } catch (final PhotoRejectedException ex) {
-            error("Image rejected: " + ex.getMessage());
+            error(Text.get("feedback.photoUploadBean.rejected.image", ex.getMessage()));
             return false;
         }
         final String key = KEY_PREFIX + accId + "/" + UUID.randomUUID() + ".jpg";
         if (!storeBytes(key, stored)) {
-            error("Not stored: the image could not be stored. Try again.");
+            error(Text.get("feedback.lodgingUploadCommands.notStored"));
             return false;
         }
         final MediaItem item = new MediaItem(UUID.randomUUID().toString(), key, title(kind), null, "image/jpeg",
                 stored.length, slotFor(accId), (int) (System.currentTimeMillis() / 1000L), LocalDateTime.now(),
                 callerId(), null, null, null);
         if (!saveRow(item)) {
-            error("Not stored: the media row could not be saved.");
+            error(Text.get("feedback.lodgingUploadCommands.rowNotSaved"));
             return false;
         }
         final boolean linked = KIND_FLOOR.equals(kind) ? lodging.setFloorMap(accId, target(), item.getId())
@@ -227,45 +230,44 @@ public class LodgingUploadCommands extends PhotoUploadBean {
      */
     public boolean rotatePhoto(final String accId, final String mediaId, final String direction) {
         if (!lodging.canEditAccommodation(accId)) {
-            error("Not allowed: you do not manage this accommodation.");
+            error(Text.get("feedback.lodgingCommands.notYourAccommodation"));
             return false;
         }
         final Optional<QuarterTurn> turn = QuarterTurn.parse(direction);
         if (turn.isEmpty()) {
-            error("Not rotated: say left or right.");
+            error(Text.get("feedback.photo.badRotation"));
             return false;
         }
         final MediaItem item = (mediaId == null) ? null : DAO.getInstance().getMedia(mediaId, Cached.NO).orElse(null);
         if (item == null || !slotFor(accId).equals(item.getSlot())) {
-            error("Not found: that photo is not one of this accommodation's.");
+            error(Text.get("feedback.lodgingUploadCommands.photoNotHere"));
             return false;
         }
         if (isFloorPlan(accId, mediaId)) {
-            error("Not rotated: this image is a floor plan, and its room boxes would no longer line up. "
-                    + "Replace the plan instead.");
+            error(Text.get("feedback.lodgingUploadCommands.floorPlanNotRotated"));
             return false;
         }
         final Optional<byte[]> current = media.isUploadEnabled() ? media.getObject(item.getS3Key())
                 : localStore.get(item.getS3Key());
         if (current.isEmpty()) {
-            error("Not found: that photo's file is missing.");
+            error(Text.get("feedback.lodgingUploadCommands.fileMissing"));
             return false;
         }
         final byte[] stored;
         try {
             stored = processor.rotateJpegWithin(current.get(), turn.get(), storedMaxBytes);
         } catch (final PhotoRejectedException ex) {
-            error("Image rejected: " + ex.getMessage());
+            error(Text.get("feedback.photoUploadBean.rejected.image", ex.getMessage()));
             return false;
         }
         final String key = KEY_PREFIX + accId + "/" + UUID.randomUUID() + ".jpg";
         if (!storeBytes(key, stored)) {
-            error("Not stored: the image could not be stored. Try again.");
+            error(Text.get("feedback.lodgingUploadCommands.notStored"));
             return false;
         }
         if (!saveRow(item.withKeys(key, null, stored.length))) {
             removeStored(key);
-            error("Not stored: the media row could not be saved.");
+            error(Text.get("feedback.lodgingUploadCommands.rowNotSaved"));
             return false;
         }
         removeStored(item.getS3Key());
@@ -275,7 +277,7 @@ public class LodgingUploadCommands extends PhotoUploadBean {
                 .message("Lodging photo rotated " + turn.get().name().toLowerCase(Locale.ROOT)
                         + " for accommodation " + accId + " (" + item.getS3Key() + " -> " + key + ")")
                 .log();
-        info("Photo rotated.");
+        info(Text.get("feedback.lodgingUploadCommands.rotated"));
         return true;
     }
 

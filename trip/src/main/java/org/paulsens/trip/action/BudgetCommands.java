@@ -29,8 +29,10 @@ import org.paulsens.trip.action.BudgetViews.LodgingRow;
 import org.paulsens.trip.action.BudgetViews.OfferChoice;
 import org.paulsens.trip.action.BudgetViews.OtherRow;
 import org.paulsens.trip.action.BudgetViews.PayeeRow;
+import org.paulsens.trip.audit.RequestContext;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.Accommodation;
 import org.paulsens.trip.model.BudgetCategory;
 import org.paulsens.trip.model.BudgetLine;
@@ -79,6 +81,8 @@ public class BudgetCommands {
     static final int MAX_NAME = 120;
     static final int MAX_NOTE = 500;
     static final int MAX_PAYEE = 80;
+    // These two are the English the unit tests pin; the page reads the bundle's keys
+    // (feedback.budgetCommands.deletedOption and .noBudget), whose English is the same.
     static final String DELETED_OPTION = "(deleted option)";
     static final String NO_BUDGET = "No budget yet";
     private static final String SEP = " · ";
@@ -255,21 +259,19 @@ public class BudgetCommands {
             final LodgingRow row = lodgingRow(budget, line, offer, figures);
             page.getLodgingRows().add(row);
             if (row.isDeletedOption()) {
-                page.getWarnings().add("'" + row.getLabel() + "' is no longer one of the trip's lodging options; "
-                        + "its line counts $0.00.");
+                page.getWarnings().add(Text.get("feedback.budgetCommands.warnOptionGone", row.getLabel()));
             } else {
                 if (row.isPriceMissing()) {
-                    page.getWarnings().add("'" + row.getLabel() + "' has no participant price yet; its revenue "
-                            + "counts $0.00.");
+                    page.getWarnings().add(Text.get("feedback.budgetCommands.warnNoPrice", row.getLabel()));
                 }
                 if (row.isCostMissing()) {
-                    page.getWarnings().add("'" + row.getLabel() + "' has no hotel cost yet; its cost counts $0.00.");
+                    page.getWarnings().add(Text.get("feedback.budgetCommands.warnNoCost", row.getLabel()));
                 }
             }
         }
         page.setHasLodging(budget.hasLodging());
         if (!budget.hasLodging()) {
-            page.getWarnings().add(0, "No lodging line yet: the per-person figures do not include lodging.");
+            page.getWarnings().add(0, Text.get("feedback.budgetCommands.warnNoLodging"));
         }
         page.setLodgingRevenue(money(revenue));
         page.setLodgingCost(money(cost));
@@ -279,7 +281,8 @@ public class BudgetCommands {
         final long overall = BudgetMath.overall(budget, revenue - cost);
         page.setOverall(money(overall));
         page.setOverallNegative(overall < 0);
-        page.setOverallLabel((overall < 0) ? "Overall deficit" : "Overall surplus");
+        page.setOverallLabel((overall < 0) ? Text.get("feedback.budgetCommands.overallDeficit")
+                : Text.get("feedback.budgetCommands.overallSurplus"));
         page.setOverallAmount(money(Math.abs(overall)));
     }
 
@@ -302,7 +305,8 @@ public class BudgetCommands {
         row.setMarginNegative(figures.margin() < 0);
         row.setPerPersonPrice(money(figures.perPersonPrice()));
         row.setPerPersonCost(money(figures.perPersonCost()));
-        row.setSingleAddOn(figures.singleAddOnApplies() ? money(figures.singleAddOn()) : "none");
+        row.setSingleAddOn(figures.singleAddOnApplies() ? money(figures.singleAddOn())
+                : Text.get("feedback.budgetCommands.singleAddOnNone"));
         row.setTotalPerPersonGround(money(BudgetMath.totalPerPersonGround(budget, figures)));
         final long reference = BudgetMath.toBillReference(budget, figures);
         row.setToBillReference(money(reference));
@@ -315,11 +319,17 @@ public class BudgetCommands {
 
     /** What a lodging line is called in a list: the live option's name, else its captured label, flagged. */
     static String lodgingLabel(final BudgetLodgingLine line, final ReservationOffer offer) {
-        return (offer == null) ? deletedLabel(line) : offerName(offer);
+        return lodgingLabel(line, offer, RequestContext.currentLocale());
     }
 
-    private static String deletedLabel(final BudgetLodgingLine line) {
-        return (line.getLabel() == null) ? DELETED_OPTION : line.getLabel() + " " + DELETED_OPTION;
+    /** {@link #lodgingLabel(BudgetLodgingLine, ReservationOffer)} in an explicit language (a mailed report). */
+    static String lodgingLabel(final BudgetLodgingLine line, final ReservationOffer offer, final Locale locale) {
+        return (offer == null) ? deletedLabel(line, locale) : offerName(offer);
+    }
+
+    private static String deletedLabel(final BudgetLodgingLine line, final Locale locale) {
+        return (line.getLabel() == null) ? Text.forLocale(locale, "feedback.budgetCommands.deletedOption")
+                : Text.forLocale(locale, "feedback.budgetCommands.labelDeletedOption", line.getLabel());
     }
 
     /** "10 nights × 46 people, 28 rooms, 10 single": rooms and singles only when they count. */
@@ -368,7 +378,9 @@ public class BudgetCommands {
             return null;
         }
         final BudgetLine base = budget.line(line.getPercentOf());
-        return percentText(line.getPercentBps()) + " of " + ((base == null) ? "(deleted line)" : base.getName());
+        final String percent = percentText(line.getPercentBps());
+        return (base == null) ? Text.get("feedback.budgetCommands.percentOfDeletedLine", percent)
+                : Text.get("feedback.budgetCommands.percentOf", percent, base.getName());
     }
 
     /** Basis points as a percentage with no trailing zeros: 1000 is "10%", 1250 is "12.5%". */
@@ -527,23 +539,25 @@ public class BudgetCommands {
             return false;
         }
         if (!canClone(tripId)) {
-            return refuse("This budget already has lines: a budget can only be cloned into an empty one.");
+            return refuse(Text.get("feedback.budgetCommands.cloneNeedsEmpty"));
         }
         final Trip source = knownTrip(fromTripId);
         if (source == null || trip.getOrgId() == null || !cloneable(trip, source)) {
-            return refuse("Choose another of this organization's budgets to clone from.");
+            return refuse(Text.get("feedback.budgetCommands.cloneChooseAnother"));
         }
         final TripBudget from = DAO.getInstance().getTripBudget(fromTripId, Cached.NO).orElse(null);
         if (from == null || from.getLines().isEmpty()) {
-            return refuse("That trip has no budget lines to clone.");
+            return refuse(Text.get("feedback.budgetCommands.cloneNothing"));
         }
         final TripBudget budget = budgetOrDefault(trip, Cached.NO);
         budget.setPerPersonBudgetCents(from.getPerPersonBudgetCents());
         budget.setToBillCents(from.getToBillCents());
         budget.getLines().addAll(copies(from.getLines()));
-        final String lodging = from.hasLodging() ? " Lodging lines were not copied: add this trip's own." : "";
+        final String done = from.hasLodging()
+                ? Text.get("feedback.budgetCommands.clonedWithoutLodging", source.getTitle())
+                : Text.get("feedback.budgetCommands.cloned", source.getTitle());
         return persist(trip, budget, PageFeedback::refuse, "cloned " + from.getLines().size() + " lines from '"
-                + source.getTitle() + "'", "Budget cloned from " + source.getTitle() + "." + lodging);
+                + source.getTitle() + "'", done);
     }
 
     /** Copies of the lines with fresh ids, each percent link re-pointed at the copy of the line it followed. */
@@ -589,14 +603,13 @@ public class BudgetCommands {
     private OfferChoice choiceOf(final ReservationOffer offer) {
         final OfferChoice choice = new OfferChoice();
         choice.setOfferId(offer.getId().getValue());
-        final StringBuilder label = new StringBuilder(hotelName(offer)).append(": ").append(offer.getName());
         final String plan = ratePlanName(offer);
-        if (plan != null) {
-            label.append(SEP).append(plan);
-        }
-        label.append(SEP).append(OfferSchedules.pricingLabel(offer))
-                .append(SEP).append("hotel ").append(OfferSchedules.costLabel(offer));
-        choice.setLabel(label.toString());
+        final String price = OfferSchedules.pricingLabel(offer);
+        final String cost = OfferSchedules.costLabel(offer);
+        choice.setLabel((plan == null)
+                ? Text.get("feedback.budgetCommands.choiceLabel", hotelName(offer), offer.getName(), price, cost)
+                : Text.get("feedback.budgetCommands.choiceLabelWithPlan", hotelName(offer), offer.getName(), plan,
+                        price, cost));
         choice.setNeedsRooms(BudgetMath.needsRooms(offer));
         choice.setNeedsSingles(BudgetMath.needsSingles(offer));
         choice.setPriceMissing(!offer.isPriced());
@@ -688,7 +701,7 @@ public class BudgetCommands {
         }
         final TripBudget budget = DAO.getInstance().getTripBudget(tripId, Cached.YES).orElse(null);
         if (budget == null) {
-            return NO_BUDGET;
+            return Text.get("feedback.budgetCommands.noBudget");
         }
         final Map<String, ReservationOffer> offers = offersById(tripId);
         long margin = 0L;
@@ -725,18 +738,19 @@ public class BudgetCommands {
         budget.setTripNights(form.getTripNights());
         budget.setPerPersonBudgetCents(cents(form.getPerPersonBudget()));
         budget.setToBillCents(cents(form.getToBill()));
-        return persist(trip, budget, PageFeedback::refuse, "saved the inputs", "Budget inputs saved.");
+        return persist(trip, budget, PageFeedback::refuse, "saved the inputs",
+                Text.get("feedback.budgetCommands.inputsSaved"));
     }
 
     private static String inputsProblem(final InputsForm form) {
         if (form.getPeople() < 0 || form.getPeople() > MAX_PEOPLE) {
-            return "People must be between 0 and " + MAX_PEOPLE + ".";
+            return Text.get("feedback.budgetCommands.peopleFromZero", String.valueOf(MAX_PEOPLE));
         }
         if (form.getTripNights() < 0 || form.getTripNights() > MAX_NIGHTS) {
-            return "Trip nights must be between 0 and " + MAX_NIGHTS + ".";
+            return Text.get("feedback.budgetCommands.tripNightsRange", MAX_NIGHTS);
         }
-        final String budget = dollarsProblem("The per-person budget", form.getPerPersonBudget());
-        return (budget != null) ? budget : dollarsProblem("The amount to bill per person", form.getToBill());
+        final String budget = dollarsProblem("feedback.moneyForms.perPersonBudgetRange", form.getPerPersonBudget());
+        return (budget != null) ? budget : dollarsProblem("feedback.moneyForms.toBillRange", form.getToBill());
     }
 
     /** Creates or edits a typed line; refusals land on {@code form.problem}, a new line's id on {@code form.id}. */
@@ -756,10 +770,10 @@ public class BudgetCommands {
         final boolean adding = form.getId() == null || form.getId().isBlank();
         final BudgetLine existing = adding ? null : budget.line(form.getId());
         if (!adding && existing == null) {
-            return refused(refusal, "This line no longer exists: reload the page.");
+            return refused(refusal, Text.get("feedback.budgetCommands.lineGone"));
         }
         if (adding && budget.getLines().size() >= MAX_LINES) {
-            return refused(refusal, "A budget holds at most " + MAX_LINES + " lines.");
+            return refused(refusal, Text.get("feedback.budgetCommands.tooManyLines", MAX_LINES));
         }
         final BudgetLine line = BudgetLine.builder().id(adding ? null : existing.getId()).kind(kind)
                 .category(category).name(form.getName())
@@ -779,11 +793,10 @@ public class BudgetCommands {
             return refused(refusal, percent);
         }
         if (!adding && line.getKind() != existing.getKind() && !budget.linesFollowing(line.getId()).isEmpty()) {
-            return refused(refusal, "Other lines are a percentage of this one, so it cannot change between shared "
-                    + "and per person.");
+            return refused(refusal, Text.get("feedback.budgetCommands.kindLocked"));
         }
         if (!persist(trip, budget, refusal, (adding ? "added" : "edited") + " line '" + line.getName() + "'",
-                "Line saved.")) {
+                Text.get("feedback.budgetCommands.lineSaved"))) {
             return false;
         }
         form.setId(line.getId());
@@ -793,31 +806,30 @@ public class BudgetCommands {
 
     private static String lineProblem(final LineForm form, final BudgetLineKind kind, final BudgetCategory category) {
         if (kind == null) {
-            return "Choose shared or per person.";
+            return Text.get("feedback.budgetCommands.chooseKind");
         }
         if (kind == BudgetLineKind.SHARED && category == null) {
-            return "Choose a category.";
+            return Text.get("feedback.expenseCommands.chooseCategory");
         }
         if (form.getName() == null || form.getName().isBlank()) {
-            return "A line needs a name.";
+            return Text.get("feedback.budgetCommands.nameMissing");
         }
         if (form.getName().trim().length() > MAX_NAME) {
-            return "A line's name is at most " + MAX_NAME + " characters.";
+            return Text.get("feedback.budgetCommands.nameTooLong", MAX_NAME);
         }
-        final String amount = form.isPercentMode() ? percentProblem(form) : dollarsProblem("The amount",
-                form.getAmount());
+        final String amount = form.isPercentMode() ? percentProblem(form) : dollarsProblem(
+                "feedback.moneyForms.amountRange", form.getAmount());
         return (amount != null) ? amount : textProblem(form.getNote(), form.getPayee());
     }
 
     private static String percentProblem(final LineForm form) {
         if (form.getPercentOf() == null || form.getPercentOf().isBlank()) {
-            return "Choose the line the percentage is of.";
+            return Text.get("feedback.budgetCommands.choosePercentOf");
         }
         final Double percent = form.getPercent();
         if (percent == null || percent.isNaN() || percent.isInfinite() || percent <= 0
                 || bps(percent) > BudgetLine.MAX_PERCENT_BPS) {
-            return "The percentage must be more than 0% and at most "
-                    + percentText(BudgetLine.MAX_PERCENT_BPS) + ".";
+            return Text.get("feedback.budgetCommands.percentRange", percentText(BudgetLine.MAX_PERCENT_BPS));
         }
         return null;
     }
@@ -841,11 +853,11 @@ public class BudgetCommands {
         }
         final List<BudgetLine> following = budget.linesFollowing(lineId);
         if (!following.isEmpty()) {
-            return refuse("'" + following.get(0).getName() + "' is a percentage of '" + line.getName()
-                    + "': change or delete it first.");
+            return refuse(Text.get("feedback.budgetCommands.lineFollowed", following.get(0).getName(), line.getName()));
         }
         budget.getLines().remove(line);
-        return persist(trip, budget, PageFeedback::refuse, "deleted line '" + line.getName() + "'", "Line deleted.");
+        return persist(trip, budget, PageFeedback::refuse, "deleted line '" + line.getName() + "'",
+                Text.get("feedback.budgetCommands.lineDeleted"));
     }
 
     /**
@@ -860,7 +872,7 @@ public class BudgetCommands {
         final TripBudget budget = budgetOrDefault(trip, Cached.NO);
         final BudgetLine line = budget.line(lineId);
         if (line == null) {
-            return refuse("This line no longer exists: reload the page.");
+            return refuse(Text.get("feedback.budgetCommands.lineGone"));
         }
         final List<BudgetLine> lines = budget.getLines();
         final int from = lines.indexOf(line);
@@ -885,7 +897,7 @@ public class BudgetCommands {
         final ReservationOffer offer = (form.getOfferId() == null) ? null
                 : offersById(tripId).get(form.getOfferId());
         if (offer == null) {
-            return refused(refusal, "Choose one of the trip's lodging options.");
+            return refused(refusal, Text.get("feedback.budgetCommands.chooseLodgingOption"));
         }
         refreshFlags(form, offer);
         final String problem = lodgingProblem(form);
@@ -896,10 +908,10 @@ public class BudgetCommands {
         final boolean adding = form.getId() == null || form.getId().isBlank();
         final BudgetLodgingLine existing = adding ? null : budget.lodgingLine(form.getId());
         if (!adding && existing == null) {
-            return refused(refusal, "This lodging line no longer exists: reload the page.");
+            return refused(refusal, Text.get("feedback.budgetCommands.lodgingLineGone"));
         }
         if (adding && budget.getLodging().size() >= MAX_LODGING_LINES) {
-            return refused(refusal, "A budget holds at most " + MAX_LODGING_LINES + " lodging lines.");
+            return refused(refusal, Text.get("feedback.budgetCommands.tooManyLodgingLines", MAX_LODGING_LINES));
         }
         final BudgetLodgingLine line = BudgetLodgingLine.builder().id(adding ? null : existing.getId())
                 .offerId(offer.getId().getValue()).label(offerName(offer)).nights(form.getNights())
@@ -913,7 +925,7 @@ public class BudgetCommands {
             budget.getLodging().set(budget.getLodging().indexOf(existing), line);
         }
         if (!persist(trip, budget, refusal, (adding ? "added" : "edited") + " lodging line '" + line.getLabel()
-                + "'", "Lodging line saved.")) {
+                + "'", Text.get("feedback.budgetCommands.lodgingLineSaved"))) {
             return false;
         }
         form.setId(line.getId());
@@ -923,16 +935,16 @@ public class BudgetCommands {
 
     private static String lodgingProblem(final LodgingLineForm form) {
         if (form.getNights() < 1 || form.getNights() > MAX_NIGHTS) {
-            return "Nights must be between 1 and " + MAX_NIGHTS + ".";
+            return Text.get("feedback.budgetCommands.nightsRange", MAX_NIGHTS);
         }
         if (form.getPeople() < 1 || form.getPeople() > MAX_PEOPLE) {
-            return "People must be between 1 and " + MAX_PEOPLE + ".";
+            return Text.get("feedback.budgetCommands.peopleFromOne", String.valueOf(MAX_PEOPLE));
         }
         if (form.isNeedsRooms() && (form.getRooms() < 1 || form.getRooms() > MAX_PEOPLE)) {
-            return "This option is priced per room: enter how many rooms.";
+            return Text.get("feedback.budgetCommands.roomsNeeded");
         }
         if (form.isNeedsSingles() && (form.getSingles() < 0 || form.getSingles() > form.getPeople())) {
-            return "Single rooms must be between 0 and the number of people.";
+            return Text.get("feedback.budgetCommands.singlesRange");
         }
         return textProblem(form.getNote(), form.getPayee());
     }
@@ -950,7 +962,7 @@ public class BudgetCommands {
         }
         budget.getLodging().remove(line);
         return persist(trip, budget, PageFeedback::refuse, "deleted lodging line '" + line.getLabel() + "'",
-                "Lodging line deleted.");
+                Text.get("feedback.budgetCommands.lodgingLineDeleted"));
     }
 
     // ================================================================== write plumbing
@@ -958,7 +970,7 @@ public class BudgetCommands {
     /** The gate, the form, and the trip read for edit; null (after refusing) when any of them fails. */
     private Trip editableTrip(final String tripId, final Object form, final Consumer<String> refusal) {
         return gate.editableTrip(tripId, form, refusal,
-                "Not allowed: only the trip's managers and finance admins can edit its budget.");
+                Text.get("feedback.budgetCommands.notAllowed"));
     }
 
     /** Stamps a new budget, saves it with one versioned put, audits, and growls {@code done} when non-null. */
@@ -974,15 +986,15 @@ public class BudgetCommands {
         }
         try {
             if (!DAO.getInstance().saveTripBudget(budget)) {
-                return refused(refusal, "The budget could not be saved.");
+                return refused(refusal, Text.get("feedback.budgetCommands.notSaved"));
             }
         } catch (final ConditionalCheckFailedException ex) {
-            return refused(refusal, "Saved by someone else: reload the page and try again.");
+            return refused(refusal, Text.get("feedback.shared.savedBySomeoneElse"));
         } catch (final IllegalArgumentException ex) {
-            return refused(refusal, "The budget is too large to save: remove some lines or shorten their notes.");
+            return refused(refusal, Text.get("feedback.budgetCommands.tooLarge"));
         } catch (final IOException ex) {
             log.error("Unable to save the budget of trip {}", trip.getId(), ex);
-            return refused(refusal, "The budget could not be saved: " + ex.getMessage());
+            return refused(refusal, Text.get("feedback.budgetCommands.notSavedBecause", ex.getMessage()));
         }
         auditSource.get().budget(trip.getId(), trip.getOrgId(), "Budget of '" + trip.getTitle() + "': " + what,
                 caller().auditActor());
@@ -993,8 +1005,8 @@ public class BudgetCommands {
     }
 
     private static String textProblem(final String note, final String payee) {
-        final String tooLongNote = tooLong("A note", note, MAX_NOTE);
-        return (tooLongNote != null) ? tooLongNote : tooLong("A payee", payee, MAX_PAYEE);
+        final String tooLongNote = tooLong("feedback.moneyForms.noteTooLong", note, MAX_NOTE);
+        return (tooLongNote != null) ? tooLongNote : tooLong("feedback.moneyForms.payeeTooLong", payee, MAX_PAYEE);
     }
 
     // ================================================================== offers and names
@@ -1028,7 +1040,8 @@ public class BudgetCommands {
             return null;
         }
         return DAO.getInstance().getRatePlan(offer.getAccommodationId().getValue(),
-                RatePlan.Id.from(offer.getRatePlanId()), Cached.YES).map(RatePlan::getName).orElse("(deleted plan)");
+                RatePlan.Id.from(offer.getRatePlanId()), Cached.YES).map(RatePlan::getName)
+                .orElse(Text.get("feedback.budgetCommands.deletedPlan"));
     }
 
     Caller caller() {

@@ -7,7 +7,9 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.util.regex.Matcher;
 import javax.imageio.ImageIO;
+import org.paulsens.trip.i18n.Text;
 import uk.org.okapibarcode.backend.QrCode;
 import uk.org.okapibarcode.graphics.Color;
 import uk.org.okapibarcode.output.Java2DRenderer;
@@ -101,7 +103,8 @@ public final class TicketQr {
      */
     static String scalable(final String svg, final double width, final double height) {
         return svg.replaceFirst("<svg ", "<svg viewBox=\"0 0 " + Math.round(width) + " " + Math.round(height)
-                        + "\" class=\"ticketQr\" role=\"img\" aria-label=\"Ticket QR code\" ")
+                        + "\" class=\"ticketQr\" role=\"img\" aria-label=\""
+                        + Matcher.quoteReplacement(Text.get("server.ticketQr.label")) + "\" ")
                 .replaceFirst("\\s*<desc>[^<]*</desc>", "")
                 .replace(" id=\"barcode\"", "");
     }

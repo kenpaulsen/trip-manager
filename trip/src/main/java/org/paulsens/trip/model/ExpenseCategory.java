@@ -1,5 +1,7 @@
 package org.paulsens.trip.model;
 
+import java.util.Locale;
+
 /**
  * What kind of spending an {@link ExpenseLine} is, offered in this order by the expense dialog. It is the
  * budget's {@link BudgetCategory} list plus the kinds a trip spends on that the budget plans elsewhere or not
@@ -7,25 +9,34 @@ package org.paulsens.trip.model;
  * matched line maps across by name.
  */
 public enum ExpenseCategory {
-    TRANSPORTATION("Transportation"),
-    GUIDE("Guide"),
-    SUPPLIES("Supplies"),
-    TIPS("Tips"),
-    SCHOLARSHIP("Scholarships"),
-    LEADER("Leader expenses"),
-    LODGING("Lodging"),
-    POSTAGE("Postage"),
-    MEALS("Meals"),
-    GENERAL("Other");
+    TRANSPORTATION(BudgetCategory.TRANSPORTATION),
+    GUIDE(BudgetCategory.GUIDE),
+    SUPPLIES(BudgetCategory.SUPPLIES),
+    TIPS(BudgetCategory.TIPS),
+    SCHOLARSHIP(BudgetCategory.SCHOLARSHIP),
+    LEADER(BudgetCategory.LEADER),
+    LODGING(null),
+    POSTAGE(null),
+    MEALS(null),
+    GENERAL(BudgetCategory.GENERAL);
 
-    private final String label;
+    private final BudgetCategory budget;
 
-    ExpenseCategory(final String label) {
-        this.label = label;
+    ExpenseCategory(final BudgetCategory budget) {
+        this.budget = budget;
     }
 
+    /**
+     * A category the budget also has reads the budget's label: the two are one word with one meaning, so they
+     * share one translation and cannot drift apart on a report that shows both.
+     */
     public String getLabel() {
-        return label;
+        return (budget == null) ? EnumLabels.of(this) : budget.getLabel();
+    }
+
+    /** {@link #getLabel()} in an explicit language: a mail or PDF whose reader is not the one making the request. */
+    public String getLabel(final Locale locale) {
+        return (budget == null) ? EnumLabels.of(this, locale) : budget.getLabel(locale);
     }
 
     /** The expense category of a budget category: the same name, which every budget category has. */

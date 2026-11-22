@@ -27,6 +27,7 @@ import org.paulsens.trip.content.OrgPageBootstrap;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.model.ContentInstance;
+import org.paulsens.trip.model.Language;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.SitePage;
@@ -252,6 +253,69 @@ public class SitePageCommandsTest {
         assertEquals(pages.pagesOf(orgId), List.of());
         assertNull(reread(org).getSitePages(), "an emptied list is stored as none");
         assertFalse(pages.deletePage(orgId, link), "already gone");
+    }
+
+    @Test
+    public void aTitleIsWrittenPerLanguageTheSiteOffersAndReadInTheReadersLanguage() throws Exception {
+        final Person orgAdmin = savedPerson();
+        final Organization org = hostedOrgWithAdmin(orgAdmin);
+        final String orgId = org.getId().getValue();
+        final SitePageCommands pages = commandsFor(orgAdmin);
+        assertEquals(pages.otherLanguages(orgId), List.of(), "a one-language site has no other titles");
+        assertEquals(pages.titlesEdit(orgId, null), Map.of());
+        assertTrue(new OrgCommands(SitePageCommandsTest::siteAdminCaller).saveOrgSettings(orgId,
+                Map.of(KnownSettings.SITE_LANGUAGES.getName(), "en,es,hr")));
+        assertEquals(pages.otherLanguages(orgId), List.of(Language.Spanish, Language.Croatian));
+        assertEquals(pages.titlesEdit(orgId, null), Map.of("es", "", "hr", ""), "a new entry's empty fields");
+
+        final Map<String, String> typed = new HashMap<>(Map.of("es", " Nuestra misión ", "hr", " ", "fr", "Mission"));
+        assertTrue(pages.saveDialog(orgId, "page", "mission", "Our Mission", typed, null, "ABOUT"));
+        final SitePage mission = pages.pageOf(orgId, "mission");
+        assertEquals(mission.titles(), Map.of("es", "Nuestra misión"),
+                "trimmed, a blank one dropped, and only a language the site offers kept");
+        assertEquals(pages.titlesEdit(orgId, mission), Map.of("es", "Nuestra misión", "hr", ""));
+
+        final SiteContext site = SiteContext.org(org.getId(), org.getSlug(), org.getSlug() + ".unitetrip.com");
+        assertEquals(in(site, Language.Spanish, () -> pages.titleOf(pages.currentPage("mission"))), "Nuestra misión");
+        assertEquals(in(site, Language.Croatian, () -> pages.titleOf(pages.currentPage("mission"))), "Our Mission",
+                "nothing written in Croatian: the page's own title");
+        assertEquals(in(site, Language.Spanish, () -> pages.titleOf(pages.getAboutEntries().get(0))),
+                "Nuestra misión", "the menu reads the same");
+        assertNull(pages.titleOf(null));
+
+        assertTrue(pages.saveDialog(orgId, "edit", "mission", "Mission", null, null, "HELP"));
+        assertEquals(pages.pageOf(orgId, "mission").titles(), Map.of("es", "Nuestra misión"),
+                "a save without titles keeps them");
+        assertTrue(pages.saveDialog(orgId, "edit", "mission", "Mission", Map.of("hr", "Naša misija"), null, "HELP"));
+        assertEquals(pages.pageOf(orgId, "mission").titles(), Map.of("hr", "Naša misija"), "a save with them replaces");
+        assertFalse(pages.saveDialog(orgId, "edit", "mission", "Mission", Map.of("es", "x".repeat(61)), null, "HELP"),
+                "a title in another language keeps the length rule");
+        assertEquals(pages.pageOf(orgId, "mission").titles(), Map.of("hr", "Naša misija"), "nothing saved");
+        assertTrue(pages.saveDialog(orgId, "link", null, "Give", Map.of("es", "Donar"), "https://example.org/",
+                "HELP"));
+        assertEquals(pages.pagesIn(orgId, "HELP").get(1).titleIn("es"), "Donar");
+    }
+
+    @Test
+    public void anOlderRowWithoutTitlesReadsAsBefore() throws Exception {
+        final com.fasterxml.jackson.databind.ObjectMapper mapper = DAO.getInstance().getMapper();
+        final SitePage old = mapper.readValue("{\"name\":\"about\",\"title\":\"About\",\"placement\":\"ABOUT\"}",
+                SitePage.class);
+        assertEquals(old, new SitePage("about", "About", null, "ABOUT"));
+        assertEquals(old.titles(), Map.of());
+        assertEquals(old.titleIn("es"), "About");
+        assertEquals(old.titleIn(null), "About");
+        assertFalse(mapper.writeValueAsString(old).contains("titles"), "no titles, no field: rows stay as they were");
+        final SitePage written = old.withTitles(Map.of("es", "Acerca de"));
+        assertEquals(mapper.readValue(mapper.writeValueAsString(written), SitePage.class), written);
+        assertEquals(written.withDetails("About us", null, Placement.HELP).titles(), Map.of("es", "Acerca de"),
+                "retitling keeps the other languages' titles");
+    }
+
+    private static <T> T in(final SiteContext site, final Language language,
+            final ScopedValue.CallableOp<T, Exception> body) throws Exception {
+        return ScopedValue.where(RequestContext.SCOPE, RequestContext.of(null, null, site)
+                .withLocale(language.getLocale())).call(body);
     }
 
     @Test

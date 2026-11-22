@@ -197,22 +197,16 @@ public final class RegistrationOption implements Serializable {
     /** How a registration question is answered. Serialized by name. */
     public enum QuestionType {
         /** Free text: every question stored before types existed. */
-        TEXT("Text"),
+        TEXT,
         /** Exactly one of the choices. */
-        CHOICE("Pick one"),
+        CHOICE,
         /** Any number of the choices (add-ons). */
-        MULTI_CHOICE("Pick any"),
+        MULTI_CHOICE,
         /** Yes or No. */
-        YES_NO("Yes / No");
-
-        private final String displayValue;
-
-        QuestionType(final String displayValue) {
-            this.displayValue = displayValue;
-        }
+        YES_NO;
 
         public String getDisplayValue() {
-            return displayValue;
+            return EnumLabels.of(this);
         }
     }
 }

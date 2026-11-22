@@ -3,6 +3,7 @@ package org.paulsens.trip.content;
 import java.util.List;
 import java.util.Map;
 import org.paulsens.trip.action.TripPageCommands;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.Placeholder;
 import org.paulsens.trip.model.Trip;
 
@@ -22,7 +23,7 @@ final class TripScheduleType implements ProgrammaticContentTemplate {
 
     @Override
     public String getDisplayName() {
-        return "Event schedule";
+        return Text.get("server.types.schedule.name");
     }
 
     @Override
@@ -32,7 +33,7 @@ final class TripScheduleType implements ProgrammaticContentTemplate {
 
     @Override
     public String getDescription() {
-        return "The event's public agenda by day, straight from its itinerary events (presenter, room, track).";
+        return Text.get("server.types.schedule.description");
     }
 
     @Override

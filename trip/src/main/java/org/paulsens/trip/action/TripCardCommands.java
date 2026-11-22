@@ -12,6 +12,7 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 import lombok.Value;
 import org.paulsens.trip.api.Beans;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
@@ -55,29 +56,31 @@ public class TripCardCommands {
     /** The one registration state a card shows. */
     public enum State {
         /** Open, and the viewer is not on it. */
-        REGISTER("Register"),
+        REGISTER,
         /** The viewer's own registration here is confirmed. */
-        REGISTERED("Registered"),
+        REGISTERED,
         /** The viewer's own registration here waits for approval. */
-        PENDING("Pending"),
+        PENDING,
         /** Every place is taken. */
-        FULL("Full"),
+        FULL,
         /** Under way or over, or priced checkout's registration window has closed (as {@code Phase.CLOSED}). */
-        CLOSED("Closed"),
+        CLOSED,
         /**
          * Priced checkout's registration window has not opened yet: the chip reads "Opens Dec 1"
-         * ({@link Card#getStateLabel}), this label being only its first word.
+         * ({@link Card#getStateLabel}), a sentence of its own; this state's label is "Opens" alone.
          */
-        NOT_OPEN("Opens");
+        NOT_OPEN;
 
-        private final String label;
-
-        State(final String label) {
-            this.label = label;
-        }
-
+        /** The chip's word in the reader's language. */
         public String getLabel() {
-            return label;
+            return switch (this) {
+                case REGISTER -> Text.get("feedback.tripCardCommands.state.register");
+                case REGISTERED -> Text.get("common.registered");
+                case PENDING -> Text.get("labels.enum.Registration.Status.PENDING");
+                case FULL -> Text.get("feedback.tripCardCommands.state.full");
+                case CLOSED -> Text.get("feedback.tripCardCommands.state.closed");
+                case NOT_OPEN -> Text.get("feedback.tripCardCommands.state.notOpen");
+            };
         }
 
         /** The lower-case name without its underscore, for the chip's style class ({@code tripChip-notopen}). */
@@ -239,7 +242,7 @@ public class TripCardCommands {
     /** The chip's words: the state's label, or for a window not open yet its day, "Opens Dec 1". */
     private String labelOf(final State state, final Trip trip) {
         return state == State.NOT_OPEN
-                ? state.getLabel() + " " + pages.get().registrationInfo(trip).opensDate()
+                ? Text.get("feedback.tripCardCommands.opensOn", pages.get().registrationInfo(trip).opensDate())
                 : state.getLabel();
     }
 

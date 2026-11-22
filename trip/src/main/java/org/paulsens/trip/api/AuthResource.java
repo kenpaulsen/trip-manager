@@ -11,6 +11,7 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
@@ -26,10 +27,13 @@ import org.paulsens.trip.api.dto.PersonDto;
 import org.paulsens.trip.api.dto.RegisterAccountRequest;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.api.mapper.PersonMapper;
+import org.paulsens.trip.i18n.ReaderLanguage;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.AuthToken;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Creds;
+import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.security.PasswordPolicy;
 import org.paulsens.trip.security.RememberMeService;
@@ -95,13 +99,13 @@ public class AuthResource extends BaseResource {
         final String email = string(body == null ? null : body.get("email"));
         final String password = string(body == null ? null : body.get("password"));
         if (email == null || email.isBlank() || password == null || password.isBlank()) {
-            return error(400, ApiErrors.BAD_REQUEST, "Email and password are required.");
+            return error(400, ApiErrors.BAD_REQUEST, Text.get("api.auth.emailAndPasswordRequired"));
         }
         final Creds creds = Beans.get(PassCommands.class).login(email.trim(), password);
         if (creds == null) {
             // One message for "no such account" and for "wrong password", on purpose: distinguishing them turns
             // this endpoint into an account-enumeration oracle, which is worse over an API than over a form.
-            return error(401, ApiErrors.NOT_AUTHENTICATED, "Email or password is incorrect.");
+            return error(401, ApiErrors.NOT_AUTHENTICATED, Text.get("api.auth.badCredentials"));
         }
         Sessions.establish(request, email.trim(), creds);
         RememberMeService.getInstance().issue(request, response, creds);
@@ -120,7 +124,7 @@ public class AuthResource extends BaseResource {
     public Response requestCode(final Map<String, Object> body) {
         final String email = string(body == null ? null : body.get("email"));
         if (email == null || email.isBlank()) {
-            return error(400, ApiErrors.BAD_REQUEST, "Email is required.");
+            return error(400, ApiErrors.BAD_REQUEST, Text.get("api.auth.emailRequired"));
         }
         Beans.get(LoginCodeCommands.class).requestCode(email);
         return ok(Map.of("sent", true));
@@ -135,12 +139,12 @@ public class AuthResource extends BaseResource {
         final String email = string(body == null ? null : body.get("email"));
         final String code = string(body == null ? null : body.get("code"));
         if (email == null || email.isBlank() || code == null || code.isBlank()) {
-            return error(400, ApiErrors.BAD_REQUEST, "Email and code are required.");
+            return error(400, ApiErrors.BAD_REQUEST, Text.get("api.auth.emailAndCodeRequired"));
         }
         final Creds creds = Beans.get(LoginCodeCommands.class).verifyAndLogin(email, code, request, response);
         if (creds == null) {
             // One message for every failure mode; see login's enumeration note.
-            return error(401, ApiErrors.NOT_AUTHENTICATED, "Code is invalid or expired.");
+            return error(401, ApiErrors.NOT_AUTHENTICATED, Text.get("api.auth.badCode"));
         }
         return ok(identity(creds));
     }
@@ -157,7 +161,7 @@ public class AuthResource extends BaseResource {
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response token(final Map<String, Object> body) {
         if (!tokens.enabled()) {
-            return error(404, ApiErrors.NOT_FOUND, "API tokens are not enabled.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.auth.tokensDisabled"));
         }
         final String email = string(body == null ? null : body.get("email"));
         final String password = string(body == null ? null : body.get("password"));
@@ -165,11 +169,11 @@ public class AuthResource extends BaseResource {
         final boolean hasPassword = password != null && !password.isBlank();
         final boolean hasCode = code != null && !code.isBlank();
         if (email == null || email.isBlank() || hasPassword == hasCode) {
-            return error(400, ApiErrors.BAD_REQUEST, "Email and exactly one of password or code are required.");
+            return error(400, ApiErrors.BAD_REQUEST, Text.get("api.auth.passwordOrCodeRequired"));
         }
         final AuthToken.Scope scope = requestedScope(body);
         if (scope == null) {
-            return error(400, ApiErrors.BAD_REQUEST, "Unknown scope; use \"member\" or \"admin\".");
+            return error(400, ApiErrors.BAD_REQUEST, Text.get("api.auth.unknownScope"));
         }
         final Creds creds = hasPassword
                 ? Beans.get(PassCommands.class).login(email.trim(), password)
@@ -177,11 +181,11 @@ public class AuthResource extends BaseResource {
         if (creds == null) {
             // One message per credential shape, matching login/verifyCode -- see login's enumeration note.
             return error(401, ApiErrors.NOT_AUTHENTICATED,
-                    hasPassword ? "Email or password is incorrect." : "Code is invalid or expired.");
+                    hasPassword ? Text.get("api.auth.badCredentials") : Text.get("api.auth.badCode"));
         }
         final TokenService.Grant grant = tokens.issue(creds, grantable(creds, scope), string(body.get("label")));
         if (grant == null) {
-            return error(500, ApiErrors.STORE_FAILED, "Could not issue tokens; try again.");
+            return error(500, ApiErrors.STORE_FAILED, Text.get("api.auth.tokensNotIssued"));
         }
         return ok(grantBody(grant));
     }
@@ -198,11 +202,11 @@ public class AuthResource extends BaseResource {
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response lookup(final Map<String, Object> body) {
         if (!tokens.enabled()) {
-            return error(404, ApiErrors.NOT_FOUND, "API tokens are not enabled.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.auth.tokensDisabled"));
         }
         final String email = string(body == null ? null : body.get("email"));
         if (email == null || email.isBlank()) {
-            return error(400, ApiErrors.BAD_REQUEST, "Email is required.");
+            return error(400, ApiErrors.BAD_REQUEST, Text.get("api.auth.emailRequired"));
         }
         final boolean known = Beans.get(PassCommands.class).userExistsWithEmail(email.trim());
         return ok(Map.of("email", email.trim(), "known", known));
@@ -220,7 +224,7 @@ public class AuthResource extends BaseResource {
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response register(final RegisterAccountRequest body) {
         if (!tokens.enabled()) {
-            return error(404, ApiErrors.NOT_FOUND, "API tokens are not enabled.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.auth.tokensDisabled"));
         }
         final String problem = registrationProblem(body);
         if (problem != null) {
@@ -229,7 +233,7 @@ public class AuthResource extends BaseResource {
         final AuthToken.Scope scope = body.scope() == null ? AuthToken.Scope.MEMBER
                 : requestedScope(Map.of("scope", body.scope()));
         if (scope == null) {
-            return error(400, ApiErrors.BAD_REQUEST, "Unknown scope; use \"member\" or \"admin\".");
+            return error(400, ApiErrors.BAD_REQUEST, Text.get("api.auth.unknownScope"));
         }
         final String email = body.email().trim();
         final PassCommands passes = Beans.get(PassCommands.class);
@@ -238,13 +242,13 @@ public class AuthResource extends BaseResource {
         // (2026-09-16).
         if (passes.userExistsWithEmail(email)
                 || DAO.getInstance().getCredsForCodeLogin(email, Cached.NO) != null) {
-            return error(409, ApiErrors.CONFLICT, "An account with that email already exists.");
+            return error(409, ApiErrors.CONFLICT, Text.get("api.auth.accountExists"));
         }
         final PersonCommands people = Beans.get(PersonCommands.class);
         final Person person = people.createPerson();
         fill(person, body, email);
         if (people.emailTakenByAnother(person) || !people.savePerson(person)) {
-            return error(500, ApiErrors.STORE_FAILED, "Could not create the account.");
+            return error(500, ApiErrors.STORE_FAILED, Text.get("api.auth.accountNotCreated"));
         }
         final AuditActor actor = new AuditActor(email, person.getId().getValue());
         Beans.get(AuditCommands.class).person(person, "CREATED", actor);
@@ -255,13 +259,13 @@ public class AuthResource extends BaseResource {
             person.setEmail(null);
             person.delete();
             people.savePerson(person);
-            return error(500, ApiErrors.STORE_FAILED, "The account could not be created; please try again.");
+            return error(500, ApiErrors.STORE_FAILED, Text.get("api.auth.accountNotCreatedRetry"));
         }
         new OrgCommands(this::caller).joinSiteOrgOnSignup(person.getId());
         notifyOffice(person, actor);
         final TokenService.Grant grant = tokens.issue(creds, grantable(creds, scope), body.label());
         if (grant == null) {
-            return error(500, ApiErrors.STORE_FAILED, "The account was created; sign in to continue.");
+            return error(500, ApiErrors.STORE_FAILED, Text.get("api.auth.accountCreatedSignIn"));
         }
         return ok(grantBody(grant));
     }
@@ -282,18 +286,18 @@ public class AuthResource extends BaseResource {
     /** The create-account page's required fields, checked before anything is written. */
     private static String registrationProblem(final RegisterAccountRequest body) {
         if (body == null) {
-            return "A request body is required.";
+            return Text.get("api.auth.requestBodyRequired");
         }
         final String email = body.email() == null ? "" : body.email().trim();
         final int at = email.indexOf('@');
         if (at < 1 || at == email.length() - 1) {
-            return "A valid email address is required.";
+            return Text.get("api.auth.validEmailRequired");
         }
         if (blank(body.first()) || blank(body.last())) {
-            return "First and last name are required.";
+            return Text.get("api.auth.nameRequired");
         }
         if (body.sex() == null || parseSex(body.sex()) == null) {
-            return "sex must be Male or Female.";
+            return Text.get("api.shared.sexInvalid");
         }
         return PasswordPolicy.problem(body.password());
     }
@@ -337,9 +341,12 @@ public class AuthResource extends BaseResource {
             if (to == null || to.isBlank()) {
                 return;
             }
+            // The office reads it: its own language when the address is one person's, else English.
+            final Locale locale = ReaderLanguage.ofStaffAddress(to, (Organization) null);
             Beans.get(MailCommands.class).send(addresses.fromFor("account.notify.from"), to, null, null,
-                    "New Account Created", person.getFirst() + " " + person.getLast() + " (" + person.getEmail()
-                            + ") created a new account in the UniteTrip app.", actor);
+                    Text.forLocale(locale, "mail.account.createdSubject"), Text.forLocale(locale,
+                            "mail.account.createdInApp", person.getFirst() + " " + person.getLast(),
+                            person.getEmail()), actor);
         } catch (final RuntimeException ex) {
             log.warn("New-account notice not sent for {}", person.getEmail(), ex);
         }
@@ -352,16 +359,16 @@ public class AuthResource extends BaseResource {
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response refreshToken(final Map<String, Object> body) {
         if (!tokens.enabled()) {
-            return error(404, ApiErrors.NOT_FOUND, "API tokens are not enabled.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.auth.tokensDisabled"));
         }
         final String presented = string(body == null ? null : body.get("refreshToken"));
         if (presented == null || presented.isBlank()) {
-            return error(400, ApiErrors.BAD_REQUEST, "A refreshToken is required.");
+            return error(400, ApiErrors.BAD_REQUEST, Text.get("api.auth.refreshTokenRequired"));
         }
         final TokenService.Grant grant = tokens.refresh(presented);
         if (grant == null) {
             // One message for every refusal -- expired, revoked, stolen, unknown -- on purpose.
-            return error(401, ApiErrors.NOT_AUTHENTICATED, "Refresh token is invalid or expired.");
+            return error(401, ApiErrors.NOT_AUTHENTICATED, Text.get("api.auth.badRefreshToken"));
         }
         return ok(grantBody(grant));
     }
@@ -377,7 +384,7 @@ public class AuthResource extends BaseResource {
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response revokeToken(final Map<String, Object> body) {
         if (!tokens.enabled()) {
-            return error(404, ApiErrors.NOT_FOUND, "API tokens are not enabled.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.auth.tokensDisabled"));
         }
         tokens.revoke(string(body == null ? null : body.get("refreshToken")));
         return ok(Map.of("revoked", true));
@@ -420,7 +427,7 @@ public class AuthResource extends BaseResource {
     public Response sessions() {
         if (viewingAs()) {
             // The session's person is the one being viewed: these would be THEIR devices, not the admin's.
-            return error(403, ApiErrors.FORBIDDEN, VIEW_AS_REFUSED);
+            return error(403, ApiErrors.FORBIDDEN, viewAsRefusedMessage());
         }
         final Map<String, Object> result = new LinkedHashMap<>();
         result.put("sessions", tokens.sessionsFor(personId()).stream().map(AuthResource::describe).toList());
@@ -439,13 +446,13 @@ public class AuthResource extends BaseResource {
     public Response revokeSession(@PathParam("selector") final String selector,
             @HeaderParam(CSRF_HEADER) final String csrf) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         if (viewingAs()) {
-            return error(403, ApiErrors.FORBIDDEN, VIEW_AS_REFUSED);
+            return error(403, ApiErrors.FORBIDDEN, viewAsRefusedMessage());
         }
         if (!tokens.revokeSession(personId(), selector)) {
-            return error(404, ApiErrors.NOT_FOUND, "No such signed-in device.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.auth.noSuchDevice"));
         }
         return ok(Map.of("revoked", true));
     }
@@ -468,7 +475,7 @@ public class AuthResource extends BaseResource {
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response logout(@HeaderParam(CSRF_HEADER) final String csrf) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         RememberMeService.getInstance().revoke(request, response);
         // The page logout's funnel: invalidates AND expires the (domain-wide, on an org site) cookie.
@@ -500,6 +507,8 @@ public class AuthResource extends BaseResource {
         result.put("privileges", privilegeFlags(privileges));
         // Self only, so it rides beside the redacted person rather than inside the shared PersonDto.
         result.put("defaultOrgId", person.getDefaultOrgId() == null ? null : person.getDefaultOrgId().getValue());
+        // The saved choice (docs/i18n.md): what the person's mail and push are written in. Null = never chose.
+        result.put("language", person.getLanguage());
         return ok(result);
     }
 
@@ -534,11 +543,11 @@ public class AuthResource extends BaseResource {
             return unavailable();
         }
         tokens.revokeAllFor(id);
-        return error(401, ApiErrors.NOT_AUTHENTICATED, "Signed-in person not found.");
+        return error(401, ApiErrors.NOT_AUTHENTICATED, Text.get("api.shared.signedInPersonNotFound"));
     }
 
     private Response unavailable() {
-        return error(503, ApiErrors.STORE_FAILED, "Your account could not be loaded right now. Please try again.");
+        return error(503, ApiErrors.STORE_FAILED, Text.get("api.auth.accountNotLoaded"));
     }
 
     /**

@@ -147,7 +147,7 @@ public final class LedgerStatements {
         }
         final long cents = cents(total);
         final boolean unassigned = LedgerCommands.UNASSIGNED_ORG_ID.equals(orgKey);
-        return new OrgBalance(orgKey, unassigned ? LedgerCommands.UNASSIGNED_ORG_NAME : source.orgName(orgKey),
+        return new OrgBalance(orgKey, unassigned ? LedgerCommands.unassignedOrgName() : source.orgName(orgKey),
                 unassigned, total, cents, rows.count(), State.of(cents, rows.count()));
     }
 
@@ -235,6 +235,16 @@ public final class LedgerStatements {
     }
 
     /**
+     * THE rule for whether a row of organization {@code orgId} is shown under its bound {@code trip}: when the
+     * trip is that organization's, and always for a row with no organization. The statement here and the app's
+     * transaction rows ({@code TransactionsResource}) both ask it, so a charge is never grouped under one trip on
+     * the website and titled with another in the app.
+     */
+    public static boolean showsUnder(final Trip trip, final String orgId) {
+        return orgId == null || orgId.equals(trip.getOrgId());
+    }
+
+    /**
      * Where a row belongs in its organization's statement: on the trip its binding names, when that trip exists
      * and is this organization's ({@code orgId} null: the unassigned statement, which takes any trip). A row
      * bound to another organization's trip breaks "a row's organization is its trip's": it is shown unassigned,
@@ -247,7 +257,7 @@ public final class LedgerStatements {
         if (trip == null) {
             return new Placed(tx, shareOf(tx), null, null);
         }
-        if (orgId != null && !orgId.equals(trip.getOrgId())) {
+        if (!showsUnder(trip, orgId)) {
             log.error("Ledger row {} of {} is with organization {} but bound to trip {} of organization {}",
                     tx.getTxId(), tx.getUserId().getValue(), orgId, trip.getId(), trip.getOrgId());
             return new Placed(tx, shareOf(tx), null, null);
@@ -314,7 +324,7 @@ public final class LedgerStatements {
         }
         final long cents = cents(running);
         return new TripGroup(trip == null ? null : trip.getId(),
-                trip == null ? LedgerCommands.UNASSIGNED_TRIP_TITLE : trip.getTitle(),
+                trip == null ? LedgerCommands.unassignedTripTitle() : trip.getTitle(),
                 trip == null ? null : trip.getStartDate(), trip == null ? null : trip.getEndDate(), trip != null,
                 List.copyOf(shown), charges, payments, running, cents,
                 trip != null && cents < 0 && source.payableInApp(trip), cents < 0 && orgNotOwed);

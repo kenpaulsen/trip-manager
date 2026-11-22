@@ -20,31 +20,35 @@ public class MoneyFormsTest {
         assertEquals(MoneyForms.money(-979_595L), "-$9,795.95");
     }
 
+    private static final String AMOUNT = "feedback.moneyForms.amountRange";
+    private static final String SIGNED = "feedback.moneyForms.signedAmountRange";
+    private static final String NOTE = "feedback.moneyForms.noteTooLong";
+
     @Test
     public void amountsAndTextAreChecked() {
-        assertNull(MoneyForms.dollarsProblem("The amount", null));
-        assertNull(MoneyForms.dollarsProblem("The amount", 12.5));
-        assertEquals(MoneyForms.dollarsProblem("The amount", -1.0),
+        assertNull(MoneyForms.dollarsProblem(AMOUNT, null));
+        assertNull(MoneyForms.dollarsProblem(AMOUNT, 12.5));
+        assertEquals(MoneyForms.dollarsProblem(AMOUNT, -1.0),
                 "The amount must be between $0 and $10,000,000.00.");
-        assertEquals(MoneyForms.dollarsProblem("The amount", Double.NaN),
-                MoneyForms.dollarsProblem("The amount", -1.0));
-        assertEquals(MoneyForms.dollarsProblem("The amount", 20_000_000.0),
-                MoneyForms.dollarsProblem("The amount", -1.0));
-        assertNull(MoneyForms.tooLong("A note", null, 3));
-        assertNull(MoneyForms.tooLong("A note", " abc ", 3), "Trimmed first");
-        assertEquals(MoneyForms.tooLong("A note", "abcd", 3), "A note is at most 3 characters.");
+        assertEquals(MoneyForms.dollarsProblem(AMOUNT, Double.NaN),
+                MoneyForms.dollarsProblem(AMOUNT, -1.0));
+        assertEquals(MoneyForms.dollarsProblem(AMOUNT, 20_000_000.0),
+                MoneyForms.dollarsProblem(AMOUNT, -1.0));
+        assertNull(MoneyForms.tooLong(NOTE, null, 3));
+        assertNull(MoneyForms.tooLong(NOTE, " abc ", 3), "Trimmed first");
+        assertEquals(MoneyForms.tooLong(NOTE, "abcd", 3), "A note is at most 3 characters.");
     }
 
     @Test
     public void signedAmountsRunEitherWayButMustBeThere() {
-        assertNull(MoneyForms.signedDollarsProblem("The amount", -500.0));
-        assertNull(MoneyForms.signedDollarsProblem("The amount", 0.0));
-        assertNull(MoneyForms.signedDollarsProblem("The amount", 10_000_000.0));
+        assertNull(MoneyForms.signedDollarsProblem(SIGNED, -500.0));
+        assertNull(MoneyForms.signedDollarsProblem(SIGNED, 0.0));
+        assertNull(MoneyForms.signedDollarsProblem(SIGNED, 10_000_000.0));
         final String message = "The amount must be between -$10,000,000.00 and $10,000,000.00.";
-        assertEquals(MoneyForms.signedDollarsProblem("The amount", null), message);
-        assertEquals(MoneyForms.signedDollarsProblem("The amount", Double.NaN), message);
-        assertEquals(MoneyForms.signedDollarsProblem("The amount", Double.NEGATIVE_INFINITY), message);
-        assertEquals(MoneyForms.signedDollarsProblem("The amount", -10_000_000.01), message);
+        assertEquals(MoneyForms.signedDollarsProblem(SIGNED, null), message);
+        assertEquals(MoneyForms.signedDollarsProblem(SIGNED, Double.NaN), message);
+        assertEquals(MoneyForms.signedDollarsProblem(SIGNED, Double.NEGATIVE_INFINITY), message);
+        assertEquals(MoneyForms.signedDollarsProblem(SIGNED, -10_000_000.01), message);
     }
 
     @Test

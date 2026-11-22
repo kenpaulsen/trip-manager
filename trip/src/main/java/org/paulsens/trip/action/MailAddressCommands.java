@@ -14,6 +14,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.SettingDef;
@@ -45,13 +46,21 @@ public class MailAddressCommands {
     /** Conservative local-part shape; covers every address this site actually uses. */
     private static final Pattern LOCAL_PART = Pattern.compile("[A-Za-z0-9._%+-]+");
 
+    /** Where a slot's group and role names live in the feedback bundle; the slot holds the last segment. */
+    private static final String GROUP_KEYS = "feedback.mailAddressCommands.group.";
+    private static final String ROLE_KEYS = "feedback.mailAddressCommands.role.";
+
     /** One configurable address slot: which setting, how it is used, and whether org mode applies. */
     @Value
     public static class Slot {
         SettingDef def;
-        /** Display grouping on the Settings page; consecutive slots with the same group share a heading. */
+        /**
+         * Display grouping on the Settings page, as the last segment of its message key
+         * ({@code feedback.mailAddressCommands.group.loginCodes}); consecutive slots with the same group share a
+         * heading.
+         */
         String group;
-        /** "From", "To", or "Reply-To" -- the role this address plays in its emails. */
+        /** "from", "to", or "replyTo" -- the role this address plays in its emails, as a key segment too. */
         String label;
         /** From slots compose display-name + local-part + verified domain; others take any address. */
         boolean from;
@@ -60,32 +69,42 @@ public class MailAddressCommands {
         public String getKey() {
             return def.getName();
         }
+
+        /** The group's name in the reader's language: "Login codes". */
+        public String getGroup() {
+            return Text.get(GROUP_KEYS + group);
+        }
+
+        /** The role's name in the reader's language: "From", "To" or "Reply-To". */
+        public String getLabel() {
+            return Text.get(ROLE_KEYS + label);
+        }
     }
 
     private static final List<Slot> SLOTS = List.of(
-            new Slot(KnownSettings.REG_MAIL_FROM, "Registration email (to the registrant)", "From",
+            new Slot(KnownSettings.REG_MAIL_FROM, "registrationMail", "from",
                     true, false),
-            new Slot(KnownSettings.REG_MAIL_REPLY_TO, "Registration email (to the registrant)", "Reply-To",
+            new Slot(KnownSettings.REG_MAIL_REPLY_TO, "registrationMail", "replyTo",
                     false, true),
-            new Slot(KnownSettings.REG_NOTIFY_EMAIL, "Registration notices (internal)", "To", false, true),
-            new Slot(KnownSettings.REG_NOTIFY_FROM, "Registration notices (internal)", "From", true, false),
-            new Slot(KnownSettings.ACCOUNT_NOTIFY_EMAIL, "New-account notices (internal)", "To",
+            new Slot(KnownSettings.REG_NOTIFY_EMAIL, "registrationNotices", "to", false, true),
+            new Slot(KnownSettings.REG_NOTIFY_FROM, "registrationNotices", "from", true, false),
+            new Slot(KnownSettings.ACCOUNT_NOTIFY_EMAIL, "accountNotices", "to",
                     false, false),
-            new Slot(KnownSettings.ACCOUNT_NOTIFY_FROM, "New-account notices (internal)", "From",
+            new Slot(KnownSettings.ACCOUNT_NOTIFY_FROM, "accountNotices", "from",
                     true, false),
-            new Slot(KnownSettings.TX_NOTIFY_EMAIL, "Transaction notices (internal)", "To", false, true),
-            new Slot(KnownSettings.TX_NOTIFY_FROM, "Transaction notices (internal)", "From", true, false),
-            new Slot(KnownSettings.LOGIN_MAIL_FROM, "Login codes", "From", true, false),
-            new Slot(KnownSettings.LOGIN_MAIL_REPLY_TO, "Login codes", "Reply-To", false, false),
-            new Slot(KnownSettings.CHAT_MAIL_FROM, "Chat email", "From", true, false),
-            new Slot(KnownSettings.CHAT_MAIL_REPLY_TO, "Chat email", "Reply-To", false, true),
-            new Slot(KnownSettings.SUPPORT_MAIL_FROM, "Support requests", "From", true, false),
-            new Slot(KnownSettings.SUPPORT_MAIL_REPLY_TO, "Support requests", "Reply-To", false, false),
-            new Slot(KnownSettings.MODERATION_REPORT_EMAIL, "Content reports (from the app)", "To", false, true),
-            new Slot(KnownSettings.MODERATION_REPORT_FROM, "Content reports (from the app)", "From", true, false),
-            new Slot(KnownSettings.ACCOUNT_DELETE_NOTIFY_EMAIL, "Account-deletion notices (internal)", "To",
+            new Slot(KnownSettings.TX_NOTIFY_EMAIL, "transactionNotices", "to", false, true),
+            new Slot(KnownSettings.TX_NOTIFY_FROM, "transactionNotices", "from", true, false),
+            new Slot(KnownSettings.LOGIN_MAIL_FROM, "loginCodes", "from", true, false),
+            new Slot(KnownSettings.LOGIN_MAIL_REPLY_TO, "loginCodes", "replyTo", false, false),
+            new Slot(KnownSettings.CHAT_MAIL_FROM, "chatMail", "from", true, false),
+            new Slot(KnownSettings.CHAT_MAIL_REPLY_TO, "chatMail", "replyTo", false, true),
+            new Slot(KnownSettings.SUPPORT_MAIL_FROM, "supportRequests", "from", true, false),
+            new Slot(KnownSettings.SUPPORT_MAIL_REPLY_TO, "supportRequests", "replyTo", false, false),
+            new Slot(KnownSettings.MODERATION_REPORT_EMAIL, "contentReports", "to", false, true),
+            new Slot(KnownSettings.MODERATION_REPORT_FROM, "contentReports", "from", true, false),
+            new Slot(KnownSettings.ACCOUNT_DELETE_NOTIFY_EMAIL, "accountDeletionNotices", "to",
                     false, true),
-            new Slot(KnownSettings.ACCOUNT_DELETE_NOTIFY_FROM, "Account-deletion notices (internal)", "From",
+            new Slot(KnownSettings.ACCOUNT_DELETE_NOTIFY_FROM, "accountDeletionNotices", "from",
                     true, false));
 
     private final Supplier<ConfigCommands> configSource;
@@ -296,27 +315,28 @@ public class MailAddressCommands {
      */
     public List<Map<String, String>> modeOptions(final Slot slot) {
         final List<Map<String, String>> options = new java.util.ArrayList<>();
-        options.add(Map.of("label", "Default (" + defaultLabel(slot) + ")", "value", ""));
+        options.add(Map.of("label", Text.get("feedback.mailAddressCommands.modeDefault", defaultLabel(slot)), "value",
+                ""));
         if (slot.isOrgAllowed()) {
             options.add(Map.of("label",
-                    "Trip facilitators (falls back to Organization email, then Site email)",
+                    Text.get("feedback.mailAddressCommands.modeFacilitators"),
                     "value", FACILITATORS));
-            options.add(Map.of("label", "Organization email (falls back to Site email)", "value", ORG));
+            options.add(Map.of("label", Text.get("feedback.mailAddressCommands.modeOrganization"), "value", ORG));
         }
-        options.add(Map.of("label", "Site email", "value", SITE));
-        options.add(Map.of("label", "Custom", "value", "custom"));
+        options.add(Map.of("label", Text.get("labels.setting.site.mail.email.label"), "value", SITE));
+        options.add(Map.of("label", Text.get("common.custom"), "value", "custom"));
         return options;
     }
 
     private static String defaultLabel(final Slot slot) {
         final String value = slot.getDef().getDefaultValue();
         if (FACILITATORS.equalsIgnoreCase(value)) {
-            return "Trip facilitators";
+            return Text.get("feedback.mailAddressCommands.tripFacilitators");
         }
         if (ORG.equalsIgnoreCase(value)) {
-            return "Organization email";
+            return Text.get("feedback.mailAddressCommands.organizationEmail");
         }
-        return SITE.equalsIgnoreCase(value) ? "Site email" : value;
+        return SITE.equalsIgnoreCase(value) ? Text.get("labels.setting.site.mail.email.label") : value;
     }
 
     /**
@@ -363,7 +383,7 @@ public class MailAddressCommands {
         }
         final List<String> domains = getSendingDomains();
         final Map<String, String> staged = new HashMap<>();
-        final String site = composeFrom(edit, "site", "Site email", domains);
+        final String site = composeFrom(edit, "site", Text.get("labels.setting.site.mail.email.label"), domains);
         if (site == null) {
             return false;
         }
@@ -384,16 +404,18 @@ public class MailAddressCommands {
     private String composedSlotValue(final Slot slot, final Map<String, String> edit,
             final List<String> domains) {
         final String mode = get(edit, slot.getKey() + ".mode");
-        final String where = slot.getGroup() + " " + slot.getLabel();
+        final String where = Text.get("feedback.mailAddressCommands.slotName", slot.getGroup(), slot.getLabel());
         if (mode.isEmpty()) {
             return "";
         }
         if (FACILITATORS.equals(mode)) {
             // Facilitators need a trip in hand, which is exactly the org-allowed slots.
-            return slot.isOrgAllowed() ? FACILITATORS : fail(where, "has no facilitators option.");
+            return slot.isOrgAllowed() ? FACILITATORS
+                    : fail(Text.get("feedback.mailAddressCommands.noFacilitatorsOption", where));
         }
         if (ORG.equals(mode)) {
-            return slot.isOrgAllowed() ? ORG : fail(where, "has no organization option.");
+            return slot.isOrgAllowed() ? ORG
+                    : fail(Text.get("feedback.mailAddressCommands.noOrganizationOption", where));
         }
         if (SITE.equals(mode)) {
             return SITE;
@@ -403,7 +425,7 @@ public class MailAddressCommands {
         }
         final String addr = get(edit, slot.getKey() + ".addr");
         if (!EmailAddresses.isValid(addr)) {
-            return fail(where, "needs a valid email address (got '" + addr + "').");
+            return fail(Text.get("feedback.mailAddressCommands.needsValidAddress", where, addr));
         }
         return addr;
     }
@@ -427,6 +449,8 @@ public class MailAddressCommands {
      * {@code where}) when the local part is malformed, the domain is not in {@code allowed}, or the
      * display name carries angle brackets. {@code allowed} is the caller's domain list -- the site's
      * verified domains for site-wide slots, an organization's narrower allow-list for its own pages.
+     * {@code where} is a LABEL already in the reader's language (a slot's name); the refusals put it first,
+     * standing alone ("{0}: ..." in translations), so it is never glued into a sentence.
      */
     public String composeAddress(final String name, final String local, final String domain,
             final List<String> allowed, final String where) {
@@ -434,21 +458,26 @@ public class MailAddressCommands {
         final String cleanLocal = (local == null) ? "" : local.trim();
         final String cleanDomain = (domain == null) ? "" : domain.trim().toLowerCase(Locale.ROOT);
         if (!LOCAL_PART.matcher(cleanLocal).matches()) {
-            return fail(where, "needs the part before the @ (letters, digits, . _ % + -).");
+            return fail(Text.get("feedback.mailAddressCommands.needsLocalPart", where));
         }
         if (allowed == null || !allowed.contains(cleanDomain)) {
-            return fail(where, (allowed == null || allowed.isEmpty())
-                    ? "cannot be saved: no verified sending domain is available (check the SES verified "
-                            + "domains, and the organization's allowed domains when this is an org page)."
-                    : "needs one of the verified sending domains (" + String.join(", ", allowed) + ").");
+            return fail((allowed == null || allowed.isEmpty())
+                    ? Text.get("feedback.mailAddressCommands.noSendingDomain", where)
+                    : Text.get("feedback.mailAddressCommands.needsVerifiedDomain", where, String.join(", ", allowed)));
         }
         if (cleanName.indexOf('<') >= 0 || cleanName.indexOf('>') >= 0) {
-            return fail(where, "display name cannot contain '<' or '>'.");
+            return fail(Text.get("feedback.mailAddressCommands.nameHasBrackets", where));
         }
         final String address = cleanLocal + "@" + cleanDomain;
         // "Parish Office, St. Joseph" bare is two mailboxes to a strict parser; displayNameOf reads it back.
         final String phrase = EmailAddresses.phrase(cleanName);
         return phrase.isEmpty() ? address : phrase + " <" + address + ">";
+    }
+
+    /** {@link #composeAddress} for a page's single From box, whose refusals name it "The From address". */
+    public String composeFromAddress(final String name, final String local, final String domain,
+            final List<String> allowed) {
+        return composeAddress(name, local, domain, allowed, Text.get("feedback.mailAddressCommands.fromAddress"));
     }
 
     /** True when {@code value} is a usable From for {@code allowed} -- the seeders' "keep it" test. */
@@ -488,8 +517,9 @@ public class MailAddressCommands {
         return allowed.contains(want) ? want : allowed.get(0);
     }
 
-    private static String fail(final String where, final String problem) {
-        PageFeedback.error(where + " " + problem + " Nothing was saved.");
+    /** Growls a refusal (a whole sentence naming the slot, ending "Nothing was saved.") and answers null. */
+    private static String fail(final String message) {
+        PageFeedback.error(message);
         return null;
     }
 

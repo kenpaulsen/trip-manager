@@ -10,6 +10,7 @@ import jakarta.ws.rs.core.Response;
 import java.util.Map;
 import org.paulsens.trip.action.ChatCommands;
 import org.paulsens.trip.chat.InviteLinks;
+import org.paulsens.trip.i18n.Text;
 
 /**
  * Redeeming a chat invite link from the app. A phone that opens an invite link (a universal / app link to
@@ -46,12 +47,12 @@ public class ChatInviteResource extends BaseResource {
             @HeaderParam(ChatCommands.CSRF_HEADER) final String csrf,
             final Map<String, Object> body) {
         if (csrfMissing(csrf)) {
-            return error(403, ChatErrors.CSRF, "Missing " + ChatCommands.CSRF_HEADER + " header.");
+            return error(403, ChatErrors.CSRF, Text.get("api.shared.csrfMissing", ChatCommands.CSRF_HEADER));
         }
         final String trip = body == null ? null : stringOf(body.get("trip"));
         final String token = body == null ? null : stringOf(body.get("token"));
         if (trip == null || trip.isBlank() || token == null || token.isBlank()) {
-            return error(400, ApiErrors.BAD_REQUEST, "The invite's trip and token are both required.");
+            return error(400, ApiErrors.BAD_REQUEST, Text.get("api.chatInvite.tripAndTokenRequired"));
         }
         final String tripId = InviteLinks.expandTripId(trip.trim());
         final String result = ChatCommands.getChatCommands().redeemInvite(tripId, token.trim(), personId(), actor());

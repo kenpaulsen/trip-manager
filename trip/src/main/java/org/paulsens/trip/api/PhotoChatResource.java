@@ -21,6 +21,7 @@ import org.paulsens.trip.action.Caller;
 import org.paulsens.trip.action.ChatCommands;
 import org.paulsens.trip.action.ModerationCommands;
 import org.paulsens.trip.action.PhotoChatCommands;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.chat.ChatMessage;
 import org.paulsens.trip.model.chat.ChatPage;
@@ -68,7 +69,7 @@ public class PhotoChatResource extends BaseResource {
         final List<String> keys = stringList(body == null ? null : body.get("keys"));
         if (keys.size() > PhotoChatCommands.MAX_META_KEYS) {
             return error(400, ApiErrors.BAD_REQUEST,
-                    "At most " + PhotoChatCommands.MAX_META_KEYS + " keys per call.");
+                    Text.get("api.photoChat.tooManyKeys", PhotoChatCommands.MAX_META_KEYS));
         }
         final Caller caller = caller();
         final PhotoChatCommands photoChat = PhotoChatCommands.getPhotoChatCommands();
@@ -95,7 +96,7 @@ public class PhotoChatResource extends BaseResource {
         final PhotoChatCommands photoChat = PhotoChatCommands.getPhotoChatCommands();
         final String denial = photoChat.readDenialFor(key, caller);
         if (denial != null) {
-            return error(404, ApiErrors.NOT_FOUND, "No such photo.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.photoChat.noSuchPhoto"));
         }
         final ChatPage page = photoChat.thread(key,
                 before == null || before.isBlank() ? null : ChatMessage.Id.from(before), limit);
@@ -141,13 +142,13 @@ public class PhotoChatResource extends BaseResource {
             @HeaderParam(CSRF_HEADER) final String csrf,
             final Map<String, Object> body) {
         if (csrfMissing(csrf)) {
-            return error(403, ChatErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ChatErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         final Person.Id me;
         try {
             me = personId();
         } catch (final NotAuthorizedException ex) {
-            return error(401, ChatErrors.NOT_AUTHENTICATED, "Sign in required.");
+            return error(401, ChatErrors.NOT_AUTHENTICATED, Text.get("api.shared.signInRequired"));
         }
         final String key = string(body == null ? null : body.get("key"));
         final String text = string(body == null ? null : body.get("body"));
@@ -169,17 +170,17 @@ public class PhotoChatResource extends BaseResource {
             @QueryParam("key") final String key,
             @HeaderParam(CSRF_HEADER) final String csrf) {
         if (csrfMissing(csrf)) {
-            return error(403, ChatErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ChatErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         try {
             personId();
         } catch (final NotAuthorizedException ex) {
-            return error(401, ChatErrors.NOT_AUTHENTICATED, "Sign in required.");
+            return error(401, ChatErrors.NOT_AUTHENTICATED, Text.get("api.shared.signInRequired"));
         }
         final boolean deleted = PhotoChatCommands.getPhotoChatCommands()
                 .deleteComment(key, msgId == null ? null : ChatMessage.Id.from(msgId), caller());
         if (!deleted) {
-            return error(403, ChatErrors.FORBIDDEN, "You cannot delete that comment.");
+            return error(403, ChatErrors.FORBIDDEN, Text.get("api.photoChat.cannotDeleteComment"));
         }
         return ok(Map.of("deleted", true, "msgId", msgId));
     }
@@ -211,12 +212,12 @@ public class PhotoChatResource extends BaseResource {
     private Response report(final ModerationCommands.ReportTarget target, final String csrf,
             final Map<String, Object> body, final String id) {
         if (csrfMissing(csrf)) {
-            return error(403, ChatErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ChatErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         try {
             personId();
         } catch (final NotAuthorizedException ex) {
-            return error(401, ChatErrors.NOT_AUTHENTICATED, "Sign in required.");
+            return error(401, ChatErrors.NOT_AUTHENTICATED, Text.get("api.shared.signInRequired"));
         }
         final ModerationCommands.ReportOutcome outcome = Beans.get(ModerationCommands.class)
                 .report(target, string(body == null ? null : body.get("reason")), caller());
@@ -265,13 +266,13 @@ public class PhotoChatResource extends BaseResource {
     private Response toggleReaction(
             final String emoji, final String key, final String csrf, final boolean add) {
         if (csrfMissing(csrf)) {
-            return error(403, ChatErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ChatErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         final Person.Id me;
         try {
             me = personId();
         } catch (final NotAuthorizedException ex) {
-            return error(401, ChatErrors.NOT_AUTHENTICATED, "Sign in required.");
+            return error(401, ChatErrors.NOT_AUTHENTICATED, Text.get("api.shared.signInRequired"));
         }
         final PhotoChatCommands photoChat = PhotoChatCommands.getPhotoChatCommands();
         final ChatCommands.ReactResult result = photoChat.react(key, me, emoji, add, caller());
@@ -298,12 +299,12 @@ public class PhotoChatResource extends BaseResource {
             @HeaderParam(CSRF_HEADER) final String csrf,
             final Map<String, Object> body) {
         if (csrfMissing(csrf)) {
-            return error(403, ChatErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ChatErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         final String target = LocalRedirect.sanitizeLocalTarget(
                 string(body == null ? null : body.get("target")));
         if (target == null) {
-            return error(400, ApiErrors.BAD_REQUEST, "target must be a same-site path.");
+            return error(400, ApiErrors.BAD_REQUEST, Text.get("api.photoChat.targetNotSameSite"));
         }
         request.getSession(true).setAttribute(Sessions.AFTER_LOGIN_URL, target);
         return ok(Map.of("ok", true));
@@ -322,14 +323,14 @@ public class PhotoChatResource extends BaseResource {
         try {
             me = personId();
         } catch (final NotAuthorizedException ex) {
-            return error(401, ChatErrors.NOT_AUTHENTICATED, "Sign in required.");
+            return error(401, ChatErrors.NOT_AUTHENTICATED, Text.get("api.shared.signInRequired"));
         }
         if (q == null || q.strip().length() < 2) {
-            return error(400, ApiErrors.BAD_REQUEST, "Type at least 2 characters.");
+            return error(400, ApiErrors.BAD_REQUEST, Text.get("api.photoChat.queryTooShort"));
         }
         final PhotoChatCommands photoChat = PhotoChatCommands.getPhotoChatCommands();
         if (!photoChat.mentionSearchAllowed(me)) {
-            return error(429, ChatErrors.RATE_LIMITED, "Too many lookups. Slow down.");
+            return error(429, ChatErrors.RATE_LIMITED, Text.get("api.photoChat.tooManyLookups"));
         }
         return ok(Map.of("people", photoChat.mentionSearch(me, q, MAX_MENTION_RESULTS)));
     }
@@ -373,7 +374,8 @@ public class PhotoChatResource extends BaseResource {
 
     private Response sendFailure(final ChatCommands.SendResult result) {
         final String code = result.getCode();
-        final String message = result.getMessage() == null ? "Comment failed." : result.getMessage();
+        final String message = result.getMessage() == null
+                ? Text.get("api.photoChat.commentFailed") : result.getMessage();
         if (result.getDecision() != null) {
             return Response.status(429)
                     .type(MediaType.APPLICATION_JSON)
@@ -394,7 +396,7 @@ public class PhotoChatResource extends BaseResource {
     }
 
     private Response reactFailure(final ChatCommands.ReactResult result) {
-        final String message = result.message() == null ? "Reaction failed." : result.message();
+        final String message = result.message() == null ? Text.get("api.shared.reactionFailed") : result.message();
         return switch (result.code() == null ? "" : result.code()) {
             case "disabled" -> error(403, ChatErrors.PHOTO_COMMENTS_DISABLED, message);
             case "bad_emoji" -> error(400, ChatErrors.BAD_EMOJI, message);

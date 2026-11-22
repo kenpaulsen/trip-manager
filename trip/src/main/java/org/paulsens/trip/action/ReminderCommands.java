@@ -7,7 +7,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -20,6 +19,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.audit.RequestContext;
 import org.paulsens.trip.cache.CacheClient;
 import org.paulsens.trip.cache.CacheKeys;
 import org.paulsens.trip.cache.Cached;
@@ -27,7 +27,10 @@ import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.content.ReminderDefaults;
 import org.paulsens.trip.content.StarterTemplates;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.i18n.Formats;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.ContentTemplate;
+import org.paulsens.trip.model.Language;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.ReminderSend;
 import org.paulsens.trip.model.TemplateKind;
@@ -63,12 +66,11 @@ public class ReminderCommands {
     static final int MAX_BODY = 50_000;
     static final int MAX_PUSH = 180;
     static final int MAX_DAYS = 365;
-    private static final String NOT_ALLOWED = "Not allowed: only the trip's facilitators, its managers and the "
-            + "organization's admins can manage its messages.";
-    private static final String TOO_LATE = "A message can be scheduled at most "
-            + TripReminder.MAX_DAYS_AFTER_END + " days after the trip ends.";
-    private static final String CHANGED_SINCE_SHOWN = "This message changed since you opened it: review it again.";
-    /** The refusal of a body holding a tag too long to read, in practice a pasted image (see hasUnreadableTag). */
+    /**
+     * The refusal of a body holding a tag too long to read, in practice a pasted image (see hasUnreadableTag).
+     * This constant and the next are the English the unit tests pin; the page reads the bundle's keys
+     * ({@code feedback.reminderCommands.tagTooLong} and {@code .formattingRemoved}), whose English is the same.
+     */
     static final String TAG_TOO_LONG = "Something pasted into this message (usually an image) is too large to "
             + "send. Remove it, then save.";
     static final String FORMATTING_REMOVED = "Some formatting this message cannot carry (colors, images, or a link "
@@ -77,8 +79,11 @@ public class ReminderCommands {
     static final int MAX_TESTS_PER_HOUR = 20;
     /** The raw body is refused above this before it is cleaned: the cleaner's cost grows with its input. */
     static final int MAX_RAW_BODY = 4 * MAX_BODY;
-    private static final DateTimeFormatter DAY = DateTimeFormatter.ofPattern("EEE, MMM d, yyyy", Locale.US);
-    private static final DateTimeFormatter MOMENT = DateTimeFormatter.ofPattern("MMM d, yyyy h:mm a", Locale.US);
+    /** A send date: "Thu, Sep 3, 2026" in English, the reader's own shape elsewhere. */
+    private static final String DAY = "yMMMEd";
+    /** A send's moment; English keeps its comma-free "Sep 3, 2026 3:05 PM". */
+    private static final String MOMENT = "yMMMdjm";
+    private static final String MOMENT_ENGLISH = "MMM d, yyyy h:mm a";
 
     /**
      * The test-send counts kept here when the cache cannot count ({@link #underTestLimit}): one clock hour's
@@ -174,17 +179,18 @@ public class ReminderCommands {
         }
         final List<TripReminder> reminders = planOf(trip).getReminders();
         if (reminders.isEmpty()) {
-            return new ReminderViews.Card("No messages yet", "Nothing is scheduled to go to this trip's travelers.");
+            return new ReminderViews.Card(Text.get("feedback.reminderCommands.cardNoMessages"),
+                    Text.get("feedback.reminderCommands.cardNothingScheduled"));
         }
         final long approved = reminders.stream().filter(r -> r.isApprovedFor(trip)).count();
         final long waiting = reminders.size() - approved;
-        final String subline = approved + " of " + reminders.size() + " scheduled messages approved. Only approved "
-                + "messages are sent.";
+        final String subline = Text.get("feedback.reminderCommands.cardApprovedCount", approved, reminders.size());
         if (waiting > 0) {
-            return new ReminderViews.Card(waiting + ((waiting == 1) ? " needs approval" : " need approval"), subline);
+            return new ReminderViews.Card(Text.get("feedback.reminderCommands.cardNeedApproval", waiting), subline);
         }
         final LocalDate next = nextSend(trip, reminders);
-        return new ReminderViews.Card((next == null) ? "All sent" : "Next: " + DAY.format(next), subline);
+        return new ReminderViews.Card((next == null) ? Text.get("feedback.reminderCommands.cardAllSent")
+                : Text.get("feedback.reminderCommands.cardNext", day(next)), subline);
     }
 
     /** The earliest date an approved message is still to go out on; null when every one has been sent. */
@@ -231,15 +237,17 @@ public class ReminderCommands {
         final Status status = statusOf(trip, reminder, date, approved, ran, today);
         return ReminderViews.Row.builder().id(reminder.getId()).name(reminder.getName())
                 .kindLabel(reminder.getKind().getLabel()).scheduleText(reminder.getScheduleText())
-                .sendDateText((date == null) ? "No date" : DAY.format(date))
+                .sendDateText((date == null) ? Text.get("feedback.reminderCommands.noDate") : day(date))
                 .audienceLabel(reminder.getAudience().getLabel())
-                .channel(reminder.isPush() ? "Email and app notification" : "Email")
+                .channel(reminder.isPush() ? Text.get("feedback.reminderCommands.channelEmailAndPush")
+                        : Text.get("common.email"))
                 .statusLabel(status.label()).statusClass(status.styleClass()).statusNote(status.note())
                 .approved(approved).approvable(date != null && !approved)
                 // Offered again after a run: the ledger keeps everyone already sent to one message, so a second
                 // click reaches only a traveler whose failed send was cleared, or who joined the audience since.
                 .sendable(approved && !date.isAfter(today))
-                .sendLabel(ran.isEmpty() ? "Send now" : "Send to anyone missed").build();
+                .sendLabel(ran.isEmpty() ? Text.get("common.sendNow")
+                        : Text.get("feedback.reminderCommands.sendToMissed")).build();
     }
 
     /** What a row says about where its message stands. */
@@ -249,27 +257,28 @@ public class ReminderCommands {
     private Status statusOf(final Trip trip, final TripReminder reminder, final LocalDate date,
             final boolean approved, final List<ReminderSend> ran, final LocalDate today) {
         if (date == null) {
-            return new Status("No date", "nodate", missingDateNote(reminder));
+            return new Status(Text.get("feedback.reminderCommands.noDate"), "nodate", missingDateNote(reminder));
         }
         if (reminder.isApprovalStale(trip)) {
-            return new Status("Changed, approve again", "changed",
-                    "The wording or the date is not what was approved, so it will not be sent.");
+            return new Status(Text.get("feedback.reminderCommands.statusChanged"), "changed",
+                    Text.get("feedback.reminderCommands.noteChanged"));
         }
         if (!approved) {
-            return new Status("Draft", "draft", date.isBefore(today)
-                    ? "Not approved, and its date has passed: approving it now only allows Send now."
-                    : "Not approved, so it will not be sent.");
+            return new Status(Text.get("feedback.reminderCommands.statusDraft"), "draft", date.isBefore(today)
+                    ? Text.get("feedback.reminderCommands.noteDraftPast")
+                    : Text.get("feedback.reminderCommands.noteDraft"));
         }
         if (!ran.isEmpty()) {
             return ranStatus(ran);
         }
-        final String by = "Approved by " + nameOf(reminder.getApprovedBy()) + ".";
+        final String by = nameOf(reminder.getApprovedBy());
         if (date.isBefore(today.minusDays(1))) {
-            return new Status("Missed", "missed", by + " Its date passed before it could be sent; use Send now "
-                    + "if it should still go out.");
+            return new Status(Text.get("feedback.reminderCommands.statusMissed"), "missed",
+                    Text.get("feedback.reminderCommands.noteMissed", by));
         }
-        return new Status("Approved", "approved",
-                by + (isSendingOn() ? "" : " Scheduled sending is switched off for this site."));
+        return new Status(Text.get("feedback.reminderCommands.statusApproved"), "approved", isSendingOn()
+                ? Text.get("feedback.reminderCommands.noteApproved", by)
+                : Text.get("feedback.reminderCommands.noteApprovedSendingOff", by));
     }
 
     /** The status of a message whose run happened: how many it reached, and how many sends did not go through. */
@@ -277,17 +286,19 @@ public class ReminderCommands {
         final long sent = ran.stream().filter(s -> s.getOutcome() == ReminderSend.Outcome.SENT).count();
         final long failed = ran.stream().filter(s -> s.getOutcome() == ReminderSend.Outcome.FAILED
                 || s.getOutcome() == ReminderSend.Outcome.CLAIMED).count();
-        final String note = "Sent to " + sent + ((sent == 1) ? " person." : " people.")
-                + ((failed == 0) ? "" : " " + failed + " failed: see the sent history.");
-        return (sent == 0 && failed > 0) ? new Status("Failed", "failed", note) : new Status("Sent", "sent", note);
+        final String note = (failed == 0) ? Text.get("feedback.reminderCommands.noteSent", sent)
+                : Text.get("feedback.reminderCommands.noteSentSomeFailed", sent, String.valueOf(failed));
+        return (sent == 0 && failed > 0)
+                ? new Status(Text.get("labels.enum.ReminderSend.Outcome.FAILED"), "failed", note)
+                : new Status(Text.get("labels.enum.ReminderSend.Outcome.SENT"), "sent", note);
     }
 
     private static String missingDateNote(final TripReminder reminder) {
         return switch (reminder.getAnchor()) {
-            case BALANCE_DUE_DATE -> "The trip has no balance due date (Registration Pricing), so this has no date.";
-            case FIXED_DATE -> "Choose a date.";
-            default -> "The trip has no " + ((reminder.getAnchor() == TripReminder.Anchor.TRIP_END) ? "end" : "start")
-                    + " date, so this has no date.";
+            case BALANCE_DUE_DATE -> Text.get("feedback.reminderCommands.noBalanceDueDate");
+            case FIXED_DATE -> Text.get("feedback.reminderCommands.chooseADate");
+            case TRIP_END -> Text.get("feedback.reminderCommands.noEndDate");
+            default -> Text.get("feedback.reminderCommands.noStartDate");
         };
     }
 
@@ -369,7 +380,7 @@ public class ReminderCommands {
             return false;
         }
         if (form == null) {
-            return refuse("Nothing to save.");
+            return refuse(Text.get("feedback.shared.nothingToSave"));
         }
         final String problem = formProblem(form);
         if (problem != null) {
@@ -379,10 +390,10 @@ public class ReminderCommands {
         final boolean adding = form.getId() == null || form.getId().isBlank();
         final TripReminder existing = adding ? null : plan.reminder(form.getId());
         if (!adding && existing == null) {
-            return refused(refusal, "This message no longer exists: reload the page.");
+            return refused(refusal, Text.get("feedback.reminderCommands.noLongerExists"));
         }
         if (adding && plan.getReminders().size() >= MAX_REMINDERS) {
-            return refused(refusal, "A trip holds at most " + MAX_REMINDERS + " scheduled messages.");
+            return refused(refusal, Text.get("feedback.reminderCommands.tooManyMessages", MAX_REMINDERS));
         }
         final TripReminder.Anchor anchor = parse(TripReminder.Anchor.class, form.getAnchor());
         final boolean dated = anchor == TripReminder.Anchor.FIXED_DATE;
@@ -401,7 +412,7 @@ public class ReminderCommands {
                 .pushText((form.getPushText() == null) ? "" : form.getPushText().trim())
                 .status(TripReminder.Status.DRAFT).build();
         if (!reminder.isReachable(trip)) {
-            return refused(refusal, TOO_LATE);
+            return refused(refusal, tooLate());
         }
         plan.put(reminder);
         if (!persist(trip, plan, refusal, (adding ? "added" : "edited") + " '" + reminder.getName() + "' (draft)")) {
@@ -409,11 +420,11 @@ public class ReminderCommands {
         }
         form.setId(reminder.getId());
         form.setProblem(null);
-        info("Saved as a draft. It will not be sent until it is approved.");
+        info(Text.get("feedback.reminderCommands.savedAsDraft"));
         if (cleaned.dropped()) {
             // Still saved: the stored body is safe and is what the review shows. But a pasted color or logo, or a
             // link with no scheme, vanished without a word, and a dead link is easy to approve unnoticed.
-            warn(FORMATTING_REMOVED);
+            warn(Text.get("feedback.reminderCommands.formattingRemoved"));
         }
         return true;
     }
@@ -439,60 +450,60 @@ public class ReminderCommands {
 
     private static String formProblem(final ReminderViews.Form form) {
         if (form.getName() == null || form.getName().isBlank()) {
-            return "Give the message a name.";
+            return Text.get("feedback.reminderCommands.nameMissing");
         }
         if (form.getName().trim().length() > MAX_NAME) {
-            return "The name is longer than " + MAX_NAME + " characters.";
+            return Text.get("feedback.reminderCommands.nameTooLong", MAX_NAME);
         }
         final TripReminder.Anchor anchor = parse(TripReminder.Anchor.class, form.getAnchor());
         if (anchor == null) {
-            return "Choose when it is sent.";
+            return Text.get("feedback.reminderCommands.chooseWhen");
         }
         if (anchor == TripReminder.Anchor.FIXED_DATE && form.getFixedDate() == null) {
-            return "Choose the date it is sent.";
+            return Text.get("feedback.reminderCommands.chooseSendDate");
         }
         if (anchor != TripReminder.Anchor.FIXED_DATE && !List.of("BEFORE", "ON", "AFTER").contains(form.getTiming())) {
-            return "Choose before, on or after.";
+            return Text.get("feedback.reminderCommands.chooseTiming");
         }
         if (form.getDays() < 0 || form.getDays() > MAX_DAYS) {
-            return "The number of days must be between 0 and " + MAX_DAYS + ".";
+            return Text.get("feedback.reminderCommands.daysOutOfRange", MAX_DAYS);
         }
         if (form.isCustom() && parse(TripReminder.Audience.class, form.getAudience()) == null) {
-            return "Choose who receives it.";
+            return Text.get("feedback.reminderCommands.chooseAudience");
         }
         return wordingProblem(form);
     }
 
     private static String wordingProblem(final ReminderViews.Form form) {
         if (form.getSubject() == null || form.getSubject().isBlank()) {
-            return "Write a subject line.";
+            return Text.get("feedback.reminderCommands.subjectMissing");
         }
         if (form.getSubject().trim().length() > MAX_SUBJECT) {
-            return "The subject is longer than " + MAX_SUBJECT + " characters.";
+            return Text.get("feedback.reminderCommands.subjectTooLong", MAX_SUBJECT);
         }
         if (form.getBody() != null && form.getBody().length() > MAX_RAW_BODY) {
-            return "The message is too long.";
+            return Text.get("feedback.reminderCommands.messageTooLong");
         }
         if (RichTextHtml.hasUnreadableLink(form.getBody())) {
-            return "A link in this message has an address too long to send (or is not closed). Shorten it.";
+            return Text.get("feedback.reminderCommands.linkTooLong");
         }
         if (RichTextHtml.hasUnreadableTag(form.getBody())) {
-            return TAG_TOO_LONG;
+            return Text.get("feedback.reminderCommands.tagTooLong");
         }
         final String body = cleanBody(form.getBody());
         if (WaiverHtml.isBlank(body)) {
-            return "Write the message.";
+            return Text.get("feedback.reminderCommands.bodyMissing");
         }
         if (body.length() > MAX_BODY) {
-            return "The message is too long.";
+            return Text.get("feedback.reminderCommands.messageTooLong");
         }
         if (form.getPushText() != null && form.getPushText().trim().length() > MAX_PUSH) {
-            return "The app notification text is longer than " + MAX_PUSH + " characters.";
+            return Text.get("feedback.reminderCommands.pushTooLong", MAX_PUSH);
         }
         final List<String> unknown = new ArrayList<>(ReminderText.unknownTokens(form.getSubject()));
         unknown.addAll(ReminderText.unknownTokens(body));
         unknown.addAll(ReminderText.unknownTokens(form.getPushText()));
-        return unknown.isEmpty() ? null : "Unknown field {{" + unknown.get(0) + "}}: use one from the list.";
+        return unknown.isEmpty() ? null : Text.get("feedback.reminderCommands.unknownField", unknown.get(0));
     }
 
     /** Deletes one message. Its sent history stays. */
@@ -504,12 +515,12 @@ public class ReminderCommands {
         final TripReminderPlan plan = planOf(trip);
         final TripReminder reminder = plan.reminder(reminderId);
         if (reminder == null || !plan.remove(reminderId)) {
-            return refuse("This message no longer exists: reload the page.");
+            return refuse(Text.get("feedback.reminderCommands.noLongerExists"));
         }
         if (!persist(trip, plan, PageFeedback::refuse, "deleted '" + reminder.getName() + "'")) {
             return false;
         }
-        info("Message deleted.");
+        info(Text.get("feedback.reminderCommands.deleted"));
         return true;
     }
 
@@ -526,7 +537,8 @@ public class ReminderCommands {
         int added = 0;
         for (final ReminderDefaults.Suggestion suggestion : ReminderDefaults.SUGGESTIONS) {
             if (!hasSuggestion(plan, suggestion) && plan.getReminders().size() < MAX_REMINDERS) {
-                final ReminderDefaults.Text text = startingText(suggestion.templateId(), trip.getOrgId());
+                final ReminderDefaults.Text text =
+                        startingText(suggestion.templateId(), trip.getOrgId(), trip.getLanguage());
                 plan.put(TripReminder.builder().id(UUID.randomUUID().toString()).kind(suggestion.kind())
                         .name(suggestion.name()).anchor(suggestion.anchor()).offsetDays(suggestion.offsetDays())
                         .subject(text.subject()).body(cleanBody(text.body())).status(TripReminder.Status.DRAFT)
@@ -535,14 +547,13 @@ public class ReminderCommands {
             }
         }
         if (added == 0) {
-            info("The suggested messages are already on this trip.");
+            info(Text.get("feedback.reminderCommands.suggestedAlreadyThere"));
             return true;
         }
         if (!persist(trip, plan, PageFeedback::refuse, "added " + added + " suggested message(s) as drafts")) {
             return false;
         }
-        info(added + " suggested " + ((added == 1) ? "message" : "messages") + " added as drafts. Review and approve "
-                + "each one you want sent.");
+        info(Text.get("feedback.reminderCommands.suggestedAdded", added));
         return true;
     }
 
@@ -551,10 +562,19 @@ public class ReminderCommands {
                 && r.getAnchor() == suggestion.anchor() && r.getOffsetDays() == suggestion.offsetDays());
     }
 
-    /** The org's own copy of a starter text when it has one, else the installed one, else the built-in text. */
+    /** {@link #startingText(String, String, Language)} for an English trip. */
     static ReminderDefaults.Text startingText(final String templateId, final String orgId) {
-        final ReminderDefaults.Text builtIn = ReminderDefaults.text(templateId);
-        final ContentTemplate stored = new TemplateCommands().resolveForOrg(templateId, orgId);
+        return startingText(templateId, orgId, Language.English);
+    }
+
+    /**
+     * The org's own copy of a starter text when it has one, else the installed one, else the built-in text, each in
+     * the TRIP's language when a version in it is written: a trip's messages are authored in the language the trip
+     * is hosted in ({@code docs/i18n.md}), so that is the language its starting drafts are in.
+     */
+    static ReminderDefaults.Text startingText(final String templateId, final String orgId, final Language language) {
+        final ReminderDefaults.Text builtIn = ReminderDefaults.text(templateId, language);
+        final ContentTemplate stored = new TemplateCommands().resolveForOrg(templateId, orgId, localeOf(language));
         if (stored == null || stored.getKind() != TemplateKind.MAIL
                 || !ReminderText.unknownTokens(stored.getName() + stored.getBody()).isEmpty()
                 || RichTextHtml.hasUnreadableTag(stored.getBody())) {
@@ -582,27 +602,27 @@ public class ReminderCommands {
         final TripReminderPlan plan = planOf(trip);
         final TripReminder reminder = plan.reminder(reminderId);
         if (reminder == null) {
-            return refuse("This message no longer exists: reload the page.");
+            return refuse(Text.get("feedback.reminderCommands.noLongerExists"));
         }
         final LocalDate date = reminder.sendDate(trip);
         if (date == null) {
-            return refuse("This message has no send date yet, so it cannot be approved.");
+            return refuse(Text.get("feedback.reminderCommands.noSendDateYet"));
         }
         if (!Digests.matches(reminder.approvalHash(date), shownHash)) {
-            return refuse(CHANGED_SINCE_SHOWN);
+            return refuse(Text.get("feedback.reminderCommands.changedSinceShown"));
         }
         if (!reminder.isReachable(trip)) {
-            return refuse(TOO_LATE);
+            return refuse(tooLate());
         }
         if (senderFrom(trip, plan) == null) {
-            return refuse("Set the From address for this trip's messages first.");
+            return refuse(Text.get("feedback.reminderCommands.setFromFirst"));
         }
         plan.put(reminder.approved(trip, caller().personId(), clock.get()));
         if (!persist(trip, plan, PageFeedback::refuse,
                 "APPROVED '" + reminder.getName() + "' to send on " + date)) {
             return false;
         }
-        info("Approved. '" + reminder.getName() + "' " + whenItGoes(date) + ".");
+        info(approvedNote(reminder.getName(), date));
         return true;
     }
 
@@ -612,21 +632,45 @@ public class ReminderCommands {
      * run's one-day catch-up may or may not still reach it, so the facilitator is pointed at Send now), and not
      * for today once today's run hour has gone by (tomorrow's catch-up sends it, a day late).
      */
-    String whenItGoes(final LocalDate date) {
+    private Going goingOf(final LocalDate date) {
         final LocalDate today = today();
         final boolean on = isSendingOn();
         if (date.isAfter(today)) {
-            return "will be sent on " + DAY.format(date) + (on ? "" : " once scheduled sending is on");
+            return on ? Going.LATER : Going.LATER_ONCE_ON;
         }
         if (date.isBefore(today)) {
-            return "was dated " + DAY.format(date) + ", which has passed: use Send now to send it";
+            return Going.PAST;
         }
         if (!on) {
-            return "is due today, and scheduled sending is off: use Send now to send it";
+            return Going.TODAY_SENDING_OFF;
         }
         return ReminderClock.isBeforeTodaysRun(configSource.get(), clock.get())
-                ? "is due today and goes out with today's run"
-                : "is due today, after today's run: use Send now, or it goes out with tomorrow's run";
+                ? Going.TODAY_THIS_RUN : Going.TODAY_NEXT_RUN;
+    }
+
+    /** What {@link #goingOf} can answer; each is one whole confirmation sentence in the bundle. */
+    private enum Going { LATER, LATER_ONCE_ON, PAST, TODAY_SENDING_OFF, TODAY_THIS_RUN, TODAY_NEXT_RUN }
+
+    /** The confirmation of an approval: one complete sentence per case, so a translator can reorder it. */
+    String approvedNote(final String name, final LocalDate date) {
+        final String day = day(date);
+        return switch (goingOf(date)) {
+            case LATER -> Text.get("feedback.reminderCommands.approvedLater", name, day);
+            case LATER_ONCE_ON -> Text.get("feedback.reminderCommands.approvedLaterOnceOn", name, day);
+            case PAST -> Text.get("feedback.reminderCommands.approvedPast", name, day);
+            case TODAY_SENDING_OFF -> Text.get("feedback.reminderCommands.approvedTodaySendingOff", name);
+            case TODAY_THIS_RUN -> Text.get("feedback.reminderCommands.approvedTodayThisRun", name);
+            case TODAY_NEXT_RUN -> Text.get("feedback.reminderCommands.approvedTodayNextRun", name);
+        };
+    }
+
+    /** A send date for the person reading the page. */
+    private static String day(final LocalDate date) {
+        return Formats.format(date, DAY, RequestContext.currentLocale());
+    }
+
+    private static String tooLate() {
+        return Text.get("feedback.reminderCommands.tooLate", TripReminder.MAX_DAYS_AFTER_END);
     }
 
     /** Withdraws an approval: the message stays, as a draft, and will not be sent. */
@@ -638,13 +682,13 @@ public class ReminderCommands {
         final TripReminderPlan plan = planOf(trip);
         final TripReminder reminder = plan.reminder(reminderId);
         if (reminder == null) {
-            return refuse("This message no longer exists: reload the page.");
+            return refuse(Text.get("feedback.reminderCommands.noLongerExists"));
         }
         plan.put(reminder.asDraft());
         if (!persist(trip, plan, PageFeedback::refuse, "withdrew the approval of '" + reminder.getName() + "'")) {
             return false;
         }
-        info("Approval withdrawn. '" + reminder.getName() + "' will not be sent.");
+        info(Text.get("feedback.reminderCommands.approvalWithdrawn", reminder.getName()));
         return true;
     }
 
@@ -661,10 +705,10 @@ public class ReminderCommands {
         final TripReminder reminder = plan.reminder(reminderId);
         final LocalDate date = (reminder == null) ? null : reminder.sendDate(trip);
         if (date == null || !reminder.isApprovedFor(trip)) {
-            return refuse("Only an approved message can be sent.");
+            return refuse(Text.get("feedback.reminderCommands.onlyApprovedSent"));
         }
         if (date.isAfter(today())) {
-            return refuse("This message is scheduled for " + DAY.format(date) + " and will be sent then.");
+            return refuse(Text.get("feedback.reminderCommands.scheduledForLater", day(date)));
         }
         final ReminderSender.Summary summary =
                 senderSource.get().sendAll(trip, plan, reminder, date, today(), true, caller().auditActor());
@@ -716,19 +760,21 @@ public class ReminderCommands {
                 .push(ReminderText.renderPlain(reminder.getPushText(), values))
                 .note(previewNote(shown, sight))
                 .from((from == null) ? "" : from)
-                .replyTo((replyTo == null || replyTo.isBlank()) ? "the From address" : replyTo)
+                .replyTo((replyTo == null || replyTo.isBlank()) ? Text.get("feedback.reminderCommands.replyToIsFrom")
+                        : replyTo)
                 .recipients(rows).hash(reminder.approvalHash(reminder.sendDate(trip))).build();
     }
 
     private static String previewNote(final List<ReminderRecipients.Target> shown,
             final ReminderRecipients.Sight sight) {
         if (shown.isEmpty()) {
-            return "Nobody would receive this today, so the preview shows sample values.";
+            return Text.get("feedback.reminderCommands.previewNobody");
         }
         final boolean all = sight.money() && sight.travelDocuments();
-        return "Shown as " + shown.get(0).getName() + " would receive it today (1 of " + shown.size() + ")."
-                + (all ? "" : " Details you do not have access to, such as an amount owed or a passport date, are "
-                        + "not shown here; the traveler's own message has them.");
+        final String name = shown.get(0).getName();
+        final String count = String.valueOf(shown.size());
+        return all ? Text.get("feedback.reminderCommands.previewShownAs", name, count)
+                : Text.get("feedback.reminderCommands.previewShownAsPartial", name, count);
     }
 
     /** The values of the first shown target that has a mailbox; sample values when nobody is in the audience. */
@@ -763,25 +809,27 @@ public class ReminderCommands {
         final TripReminderPlan plan = planOf(trip);
         final ReminderViews.Review review = review(tripId, reminderId);
         if (review == null) {
-            return refuse("This message no longer exists: reload the page.");
+            return refuse(Text.get("feedback.reminderCommands.noLongerExists"));
         }
         final String address = EmailAddresses.normalize(to);
         if (address == null) {
-            return refuse("Enter the email address to send the test to.");
+            return refuse(Text.get("feedback.orgCommands.enterTestAddress"));
         }
         if (review.getFrom().isEmpty()) {
-            return refuse("Set the From address for this trip's messages first.");
+            return refuse(Text.get("feedback.reminderCommands.setFromFirst"));
         }
         if (!underTestLimit()) {
-            return refuse("That is " + MAX_TESTS_PER_HOUR + " test emails in an hour. Try again later.");
+            return refuse(Text.get("feedback.reminderCommands.testLimit", MAX_TESTS_PER_HOUR));
         }
         final boolean sent = senderSource.get().sendTest(review.getFrom(), address,
-                ReminderSender.effectiveReplyTo(trip, plan), "[Test] " + review.getSubject(), review.getBody(),
+                // The test's reader is the facilitator who asked for it, so the marker is in their language.
+                ReminderSender.effectiveReplyTo(trip, plan), Text.get("mail.reminder.testSubject", review.getSubject()),
+                review.getBody(),
                 caller().auditActor());
         if (!sent) {
-            return refuse("The test email could not be sent.");
+            return refuse(Text.get("feedback.reminderCommands.testNotSent"));
         }
-        info("Test email sent to " + address + ".");
+        info(Text.get("feedback.reminderCommands.testSent", address));
         return true;
     }
 
@@ -852,14 +900,14 @@ public class ReminderCommands {
             return false;
         }
         final OrgCommands orgs = new OrgCommands(callerSource);
-        final String from = new MailAddressCommands().composeAddress(name, local, domain,
-                orgs.mailDomainsForTrip(trip), "The From address");
+        final String from = new MailAddressCommands().composeFromAddress(name, local, domain,
+                orgs.mailDomainsForTrip(trip));
         if (from == null) {
             return false;
         }
         final String reply = (replyTo == null) ? "" : replyTo.trim();
         if (!reply.isEmpty() && EmailAddresses.normalize(reply) == null) {
-            return refuse("The Reply-To is not an email address.");
+            return refuse(Text.get("feedback.reminderCommands.replyToNotAnAddress"));
         }
         final TripReminderPlan plan = planOf(trip);
         plan.setMailFrom(from);
@@ -869,7 +917,7 @@ public class ReminderCommands {
                 + (reply.isEmpty() ? "(the trip's facilitators)" : reply) + "'")) {
             return false;
         }
-        info("Sender saved.");
+        info(Text.get("feedback.reminderCommands.senderSaved"));
         return true;
     }
 
@@ -887,11 +935,13 @@ public class ReminderCommands {
             final ReminderSend.Outcome outcome = send.getOutcome();
             final String to = (send.getToEmail() == null) ? "" : send.getToEmail();
             rows.add(new ReminderViews.HistoryRow(send.getSortKey(),
-                    (send.getAt() == null) ? "" : MOMENT.format(send.getAt().atZone(zone)),
+                    Formats.format(send.getAt() == null ? null : send.getAt().atZone(zone), MOMENT, MOMENT_ENGLISH,
+                            RequestContext.currentLocale()),
                     send.getReminderName(), send.getPersonName(),
                     (addresses || to.isBlank()) ? to : ReminderRecipients.ADDRESS_HIDDEN, outcome.getLabel(),
                     outcome.name().toLowerCase(Locale.ROOT).replace("_", ""),
-                    send.isManual() ? "Sent by hand" : "Scheduled", send.isPushed(),
+                    send.isManual() ? Text.get("feedback.reminderCommands.historyByHand")
+                            : Text.get("feedback.reminderCommands.historyScheduled"), send.isPushed(),
                     outcome == ReminderSend.Outcome.FAILED || outcome == ReminderSend.Outcome.CLAIMED));
         }
         return rows;
@@ -910,18 +960,17 @@ public class ReminderCommands {
             if (send.getSortKey().equals(key)) {
                 if (send.getOutcome() != ReminderSend.Outcome.FAILED
                         && send.getOutcome() != ReminderSend.Outcome.CLAIMED) {
-                    return refuse("Only a failed send can be cleared.");
+                    return refuse(Text.get("feedback.reminderCommands.onlyFailedCleared"));
                 }
                 DAO.getInstance().deleteReminderSend(send);
                 auditSource.get().reminder(trip.getId(), trip.getOrgId(), "Messages of '" + trip.getTitle()
                         + "': cleared the failed send of '" + send.getReminderName() + "' to "
                         + send.getPersonName(), caller().auditActor());
-                info("Cleared. \"Send to anyone missed\" on the message will include " + send.getPersonName()
-                        + " again.");
+                info(Text.get("feedback.reminderCommands.sendCleared", send.getPersonName()));
                 return true;
             }
         }
-        return refuse("That send is no longer listed: reload the page.");
+        return refuse(Text.get("feedback.reminderCommands.sendNoLongerListed"));
     }
 
     // ================================================================== the mail the trip sends by itself
@@ -937,42 +986,54 @@ public class ReminderCommands {
             return List.of();
         }
         final List<ReminderViews.AutoMail> out = new ArrayList<>();
-        addAuto(out, trip, StarterTemplates.REGISTRATION_RECEIVED_ID, "Registration received",
-                "Right after someone submits a registration for this trip.");
-        addAuto(out, trip, StarterTemplates.REGISTRATION_APPROVED_ID, "Registration approved",
-                "When a registration is approved with \"send approval email\" ticked.");
+        addAuto(out, trip, StarterTemplates.REGISTRATION_RECEIVED_ID,
+                Text.get("feedback.reminderCommands.autoRegistrationReceived"),
+                Text.get("feedback.reminderCommands.autoRegistrationReceivedWhen"));
+        addAuto(out, trip, StarterTemplates.REGISTRATION_APPROVED_ID,
+                Text.get("push.reg.title"),
+                Text.get("feedback.reminderCommands.autoRegistrationApprovedWhen"));
         if (trip.getCheckout().isOn()) {
-            addAuto(out, trip, StarterTemplates.CHECKOUT_CONFIRMATION_ID, "Checkout confirmation",
-                    "Right after someone pays for a registration at checkout.");
+            addAuto(out, trip, StarterTemplates.CHECKOUT_CONFIRMATION_ID,
+                    Text.get("feedback.reminderCommands.autoCheckout"),
+                    Text.get("feedback.reminderCommands.autoCheckoutWhen"));
         }
         final TripPaymentConfig payments = new OrgCommands(callerSource).effectivePaymentConfig(trip);
         if (payments.isPayable()) {
             addAuto(out, trip, (payments.getConfirmationTemplateId() == null)
                     ? StarterTemplates.PAYMENT_CONFIRMATION_ID : payments.getConfirmationTemplateId(),
-                    "Payment confirmation", "Right after an online payment toward this trip is recorded.");
-            addAuto(out, trip, StarterTemplates.PAYMENT_FAILED_ID, "Payment failed",
-                    "When an online payment toward this trip does not go through.");
+                    Text.get("feedback.reminderCommands.autoPaymentConfirmation"),
+                    Text.get("feedback.reminderCommands.autoPaymentConfirmationWhen"));
+            addAuto(out, trip, StarterTemplates.PAYMENT_FAILED_ID,
+                    Text.get("feedback.reminderCommands.autoPaymentFailed"),
+                    Text.get("feedback.reminderCommands.autoPaymentFailedWhen"));
         }
         return out;
     }
 
     private static void addAuto(final List<ReminderViews.AutoMail> out, final Trip trip, final String templateId,
             final String name, final String trigger) {
-        final ContentTemplate template = new TemplateCommands().resolveForOrg(templateId, trip.getOrgId());
+        // Shown in the trip's language: the one its own messages are written in.
+        final ContentTemplate template =
+                new TemplateCommands().resolveForOrg(templateId, trip.getOrgId(), localeOf(trip.getLanguage()));
         if (template == null || template.getKind() != TemplateKind.MAIL) {
             return;
         }
         out.add(new ReminderViews.AutoMail(templateId, name, trigger,
-                (template.getOrgId() == null) ? "Standard wording" : "Your organization's wording",
+                (template.getOrgId() == null) ? Text.get("feedback.reminderCommands.wordingStandard")
+                        : Text.get("feedback.reminderCommands.wordingOrganization"),
                 template.getName(), WaiverHtml.sanitize(template.getBody())));
     }
 
     // ================================================================== plumbing
 
+    private static Locale localeOf(final Language language) {
+        return (language == null) ? null : language.getLocale();
+    }
+
     private Trip manageable(final String tripId) {
         final Trip trip = gate.manageableTrip(tripId);
         if (trip == null) {
-            refuse(NOT_ALLOWED);
+            refuse(Text.get("feedback.reminderCommands.notAllowed"));
         }
         return trip;
     }
@@ -999,15 +1060,15 @@ public class ReminderCommands {
         }
         try {
             if (!DAO.getInstance().saveReminderPlan(plan)) {
-                return refused(refusal, "The messages could not be saved.");
+                return refused(refusal, Text.get("feedback.reminderCommands.notSaved"));
             }
         } catch (final ConditionalCheckFailedException ex) {
-            return refused(refusal, "Saved by someone else: reload the page and try again.");
+            return refused(refusal, Text.get("feedback.shared.savedBySomeoneElse"));
         } catch (final IllegalArgumentException ex) {
-            return refused(refusal, "The messages are too large to save: shorten or remove one.");
+            return refused(refusal, Text.get("feedback.reminderCommands.tooLargeToSave"));
         } catch (final IOException ex) {
             log.error("Unable to save the reminders of trip {}", trip.getId(), ex);
-            return refused(refusal, "The messages could not be saved.");
+            return refused(refusal, Text.get("feedback.reminderCommands.notSaved"));
         }
         auditSource.get().reminder(trip.getId(), trip.getOrgId(), "Messages of '" + trip.getTitle() + "': " + what,
                 caller().auditActor());

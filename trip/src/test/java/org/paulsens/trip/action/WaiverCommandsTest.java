@@ -5,12 +5,14 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.FakeData;
+import org.paulsens.trip.model.Language;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Registration;
@@ -516,20 +518,42 @@ public class WaiverCommandsTest {
         assertNull(new WaiverCommands().pdfLink(null));
     }
 
+    /**
+     * The signed copy is a record, so it is kept in the TRIP's language whoever downloads it: the frame and the
+     * two attestations drawn with it. The sign page and the apps show the attestations in the signer's own.
+     */
+    @Test
+    public void theSignedCopyIsKeptInTheTripsLanguage() throws IOException {
+        final WaiverDocument doc = newDocument("Copia " + RandomData.genAlpha(5));
+        final Trip trip = newTrip(orgId);
+        trip.setLanguage(Language.Spanish);
+        assertTrue(DAO.getInstance().saveTrip(trip));
+        assertNull(siteAdmin().addToTrip(trip, doc.getId()));
+        as(manager).accept(reread(trip), child.getId(), doc.getId(), 1, true, true,
+                new WaiverCommands.ClientInfo(WaiverAcceptance.Client.WEB, "198.51.100.1", "Safari"));
+        final String text = String.join("\n", PdfText.pages(
+                as(manager).signedPdf(trip.getId(), child.getId(), doc.getId(), 1)));
+        assertTrue(text.contains("Firmado por"), text);
+        assertTrue(text.contains(WaiverCommands.agreeText(doc.getTitle(), Language.Spanish.getLocale())), text);
+        assertFalse(text.contains("Signed by"), text);
+        assertEquals(WaiverCommands.agreeText("Normas", Language.Spanish.getLocale()), "He leído y acepto: Normas.");
+    }
+
     @Test
     public void theTwoSentencesAreTheRecordsWords() {
-        assertEquals(WaiverCommands.agreeText("Code of Conduct"), "I have read and agree to Code of Conduct.");
-        assertEquals(WaiverCommands.agreeText(null), "I have read and agree to this document.");
-        assertEquals(WaiverCommands.authorityText("Lucy Parent"),
+        assertEquals(WaiverCommands.agreeText("Code of Conduct", Locale.ENGLISH),
+                "I have read and agree to Code of Conduct.");
+        assertEquals(WaiverCommands.agreeText(null, Locale.ENGLISH), "I have read and agree to this document.");
+        assertEquals(WaiverCommands.authorityText("Lucy Parent", Locale.ENGLISH),
                 "I attest that I am Lucy Parent, or that I am authorized to sign on Lucy Parent's behalf.");
-        assertEquals(WaiverCommands.authorityText(" "),
+        assertEquals(WaiverCommands.authorityText(" ", Locale.ENGLISH),
                 "I attest that I am this traveler, or that I am authorized to sign on this traveler's behalf.");
         final WaiverCommands bean = new WaiverCommands();
-        assertEquals(bean.agree("X"), WaiverCommands.agreeText("X"));
-        assertEquals(bean.authority("Y"), WaiverCommands.authorityText("Y"));
+        assertEquals(bean.agree("X"), WaiverCommands.agreeText("X", Locale.ENGLISH));
+        assertEquals(bean.authority("Y"), WaiverCommands.authorityText("Y", Locale.ENGLISH));
         assertEquals(bean.authorityFor(Person.builder().first("Ann").last("Lee").build()),
-                WaiverCommands.authorityText("Ann Lee"));
-        assertEquals(bean.authorityFor(null), WaiverCommands.authorityText(null));
+                WaiverCommands.authorityText("Ann Lee", Locale.ENGLISH));
+        assertEquals(bean.authorityFor(null), WaiverCommands.authorityText(null, Locale.ENGLISH));
         assertEquals(bean.signedLine(null), "");
         assertEquals(bean.signedLine(WaiverAcceptance.builder().version(2).signerName("Ken Parent")
                 .acceptedAt(java.time.Instant.parse("2026-10-27T23:00:00Z")).build()),

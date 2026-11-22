@@ -14,6 +14,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.function.Supplier;
+import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.Audit;
@@ -21,16 +22,19 @@ import org.paulsens.trip.audit.AuditEventBuilder;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.content.ContentRenderer;
 import org.paulsens.trip.content.HtmlFragmentValidator;
+import org.paulsens.trip.content.PageVersions;
 import org.paulsens.trip.content.ProgrammaticContentTemplate;
 import org.paulsens.trip.content.ProgrammaticTypes;
 import org.paulsens.trip.content.RichTextRules;
 import org.paulsens.trip.content.StarterTemplates;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.ContentRecord;
 import org.paulsens.trip.model.ContentTemplate;
+import org.paulsens.trip.model.Language;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Placeholder;
 import org.paulsens.trip.model.TemplateKind;
@@ -67,8 +71,10 @@ public class TemplateCommands {
     public List<ContentTemplate> getTemplates() {
         try {
             final Caller caller = callerSource.get();
+            // A language version is listed under its template (versionsOf), never as a row of its own.
             return DAO.getInstance().getAllTemplates(Cached.NO).stream()
                     .filter(template -> visible(caller, template))
+                    .filter(template -> PageVersions.languageOf(template.getId()).isEmpty())
                     .toList();
         } catch (final RuntimeException ex) {
             log.error("Unable to list templates", ex);
@@ -148,19 +154,26 @@ public class TemplateCommands {
         normalizeScope(template);
         if (!mayAuthor(caller, template, storedTemplate(template.getId()))) {
             log.warn("Refusing template save of '{}': caller may not author it", template.getId());
-            PageFeedback.error("Not saved",
-                    "You may only author templates scoped to an organization whose site you edit.");
+            PageFeedback.error(Text.get("feedback.shared.notSaved"),
+                    Text.get("feedback.templateCommands.authorOwnOrgOnly"));
             return false;
         }
         if (template.isOrgOwned() && findOrg(template.getOrgId()) == null) {
-            PageFeedback.error("Not saved",
-                    "The template's organization does not exist.");
+            PageFeedback.error(Text.get("feedback.shared.notSaved"),
+                    Text.get("feedback.templateCommands.orgMissing"));
+            return false;
+        }
+        if (!sameScopeAsItsTemplate(template)) {
+            log.warn("Refusing template save of '{}': a language version keeps its template's scope",
+                    template.getId());
+            PageFeedback.error(Text.get("feedback.shared.notSaved"),
+                    Text.get("feedback.templateCommands.versionScopeFixed"));
             return false;
         }
         final String problem = validateForSave(template);
         if (problem != null) {
             log.warn("Refusing template save of '{}': {}", template.getId(), problem);
-            PageFeedback.error("Not saved", problem);
+            PageFeedback.error(Text.get("feedback.shared.notSaved"), problem);
             return false;
         }
         normalizePlaceholders(template);
@@ -298,6 +311,53 @@ public class TemplateCommands {
         return customization == null ? storedTemplate(templateId) : customization;
     }
 
+    /**
+     * {@link #resolveForOrg(String, String)} for a reader of one language: the email's version in that language
+     * when one is written ({@code docs/content-templates.md}, "Language versions of an email"). In order:
+     *
+     * <ol>
+     *   <li>the organization's own version in the language ({@code {id}-{slug}@es});</li>
+     *   <li>the organization's own copy ({@code {id}-{slug}}): an organization's wording beats the site's
+     *       translation of words it chose to replace;</li>
+     *   <li>the shared version in the language ({@code {id}@es});</li>
+     *   <li>the shared row.</li>
+     * </ol>
+     *
+     * <p>A template's own row is written in English, so English, a null locale and a language this build does not
+     * speak all resolve exactly as the two-argument form. Every level checks its OWNER as well as its id: an
+     * organization's version is served only to that organization, and a "shared" version some organization owns
+     * is served to nobody.
+     */
+    public ContentTemplate resolveForOrg(final String templateId, final String orgId, final Locale locale) {
+        final Language language = versionLanguage(locale);
+        if (templateId == null || templateId.isBlank() || language == null) {
+            return resolveForOrg(templateId, orgId);
+        }
+        final String scope = blankToNull(orgId);
+        final Organization org = (scope == null) ? null : findOrg(scope);
+        if (org != null) {
+            final ContentTemplate own = ownedBy(scope,
+                    storedTemplate(PageVersions.keyFor(orgCopyId(templateId, org), language)));
+            final ContentTemplate copy =
+                    (own != null) ? own : ownedBy(scope, storedTemplate(orgCopyId(templateId, org)));
+            if (copy != null) {
+                return copy;
+            }
+        }
+        final ContentTemplate shared = storedTemplate(PageVersions.keyFor(templateId, language));
+        return (shared != null && !shared.isOrgOwned()) ? shared : storedTemplate(templateId);
+    }
+
+    /** The language a reader's locale asks a version in; null for English (the rows' own) and unknown ones. */
+    private static Language versionLanguage(final Locale locale) {
+        final Language language = (locale == null) ? null : Language.forTag(locale.getLanguage()).orElse(null);
+        return (language == Language.English) ? null : language;
+    }
+
+    private static ContentTemplate ownedBy(final String orgId, final ContentTemplate template) {
+        return (template != null && orgId.equals(template.getOrgId())) ? template : null;
+    }
+
     /** The org's own copy of {@code templateId}, or null when it has none (or the row is not really its). */
     private ContentTemplate orgCustomizationOf(final String templateId, final String orgId) {
         final String scope = blankToNull(orgId);
@@ -388,18 +448,18 @@ public class TemplateCommands {
             return "";
         }
         if (scope == null) {
-            return refuseCopy("A template is customized for one organization; this page has no organization.");
+            return refuseCopy(Text.get("feedback.templateCommands.notCopiedNoOrg"));
         }
         final ContentTemplate source = storedTemplate(id);
         if (source == null) {
-            return refuseCopy("No template '" + id + "'.");
+            return refuseCopy(Text.get("feedback.templateCommands.notCopiedNoTemplate", id));
         }
         if (source.isOrgOwned()) {
-            return refuseCopy("Only a shared template can be customized for an organization.");
+            return refuseCopy(Text.get("feedback.templateCommands.notCopiedNotShared"));
         }
         final Organization org = findOrg(scope);
         if (org == null) {
-            return refuseCopy("That organization could not be read.");
+            return refuseCopy(Text.get("feedback.templateCommands.notCopiedOrgUnread"));
         }
         return saveCustomization(source, org, callerSource.get());
     }
@@ -409,17 +469,168 @@ public class TemplateCommands {
         if (!mayAuthor(caller, copy, null)) {
             log.warn("Refusing template copy of '{}' for org {}: caller may not author it",
                     source.getId(), org.getId());
-            return refuseCopy("You may only customize templates for an organization whose site you edit.");
+            return refuseCopy(Text.get("feedback.templateCommands.notCopiedNotYours"));
         }
         if (storedTemplate(copy.getId()) != null) {
-            return refuseCopy("A copy already exists: '" + copy.getId() + "'. Edit that one instead.");
+            return refuseCopy(Text.get("feedback.templateCommands.notCopiedExists", copy.getId()));
         }
         if (!saveTemplate(copy)) {
             return "";
         }
         audit(caller, copy.getId(), "Copied shared template '" + source.getId() + "' as '" + copy.getId()
                 + "' for organization '" + org.getName() + "'");
+        copyVersions(source, copy);
         return copy.getId();
+    }
+
+    /**
+     * Customizing an email takes its shared language versions along. Without them the organization's English copy
+     * would outrank the site's translation ({@link #resolveForOrg(String, String, Locale)}), and customizing the
+     * English wording would quietly switch every Spanish reader to English.
+     */
+    private void copyVersions(final ContentTemplate source, final ContentTemplate copy) {
+        for (final Language language : otherLanguages()) {
+            final ContentTemplate version = storedTemplate(PageVersions.keyFor(source.getId(), language));
+            if (version != null && !version.isOrgOwned()
+                    && storedTemplate(PageVersions.keyFor(copy.getId(), language)) == null) {
+                saveTemplate(versionCopy(version, PageVersions.keyFor(copy.getId(), language), copy.getOrgId()));
+            }
+        }
+    }
+
+    /** A new row holding {@code source}'s wording under {@code id}, in {@code orgId}'s scope. */
+    private static ContentTemplate versionCopy(final ContentTemplate source, final String id, final String orgId) {
+        final ContentTemplate copy = source.copy();
+        copy.setId(id);
+        copy.setVersion(0);
+        copy.setOrgId(orgId);
+        copy.setModified(null);
+        copy.setModifiedBy(null);
+        return copy;
+    }
+
+    private static List<Language> otherLanguages() {
+        return Arrays.stream(Language.values()).filter(language -> language != Language.English).toList();
+    }
+
+    /**
+     * Whether a language version is in the same scope as the template it translates. The scope is the
+     * template's, never chosen per version: a "shared" version saved into one organization would be that
+     * organization's wording under a shared id, and an organization's editor could otherwise claim a shared
+     * template's language by saving its version id into their own scope first.
+     */
+    private static boolean sameScopeAsItsTemplate(final ContentTemplate template) {
+        if (PageVersions.languageOf(template.getId()).isEmpty()) {
+            return true;
+        }
+        final ContentTemplate base = storedTemplate(PageVersions.baseOf(template.getId()));
+        return base == null || Objects.equals(base.getOrgId(), template.getOrgId());
+    }
+
+    // ================================================================ language versions on the manager page
+
+    /**
+     * One language an email template may be read in, as its row on the manager page shows it: written or not,
+     * and what the caller may do about it.
+     */
+    @Getter
+    public static final class LanguageVersion {
+        private final Language language;
+        /** The version's id, {@code {templateId}@{tag}}. */
+        private final String id;
+        /** A version in the template's scope exists under {@link #id}. */
+        private final boolean written;
+        /** The caller may edit and delete the written version. */
+        private final boolean editable;
+        /** Not written yet, and the caller may author the template, so it may start one. */
+        private final boolean addable;
+
+        LanguageVersion(final Language language, final String id, final boolean written, final boolean editable,
+                final boolean addable) {
+            this.language = language;
+            this.id = id;
+            this.written = written;
+            this.editable = editable;
+            this.addable = addable;
+        }
+
+        public String getLanguageName() {
+            return language.getDisplayName();
+        }
+
+        public String getTag() {
+            return language.getTag();
+        }
+    }
+
+    /**
+     * The languages an email template may have versions in, on the manager page working for {@code orgId} (blank
+     * for the site-wide page): every language that site offers except English, the language a template's own row
+     * is written in. A site offering English alone answers nothing, so its page shows nothing new.
+     */
+    public List<Language> versionLanguages(final String orgId) {
+        final String scope = blankToNull(orgId);
+        final Organization org = (scope == null) ? null : findOrg(scope);
+        return config.siteLanguages(org).stream()
+                .filter(language -> language != Language.English)
+                .toList();
+    }
+
+    /**
+     * A manager row's language versions, one per {@link #versionLanguages} language. Only an EMAIL template has
+     * them (page content is translated by page versions, {@code PageVersions}). A version counts as written only
+     * when it is in the row's own scope, so a row someone else owns under the version's id is neither shown nor
+     * overwritten.
+     */
+    public List<LanguageVersion> versionsOf(final ContentTemplate row, final String orgId) {
+        if (row == null || row.getKind() != TemplateKind.MAIL || PageVersions.languageOf(row.getId()).isPresent()) {
+            return List.of();
+        }
+        final Caller caller = callerSource.get();
+        final boolean mayAuthorRow = mayAuthor(caller, row, row);
+        final List<LanguageVersion> versions = new ArrayList<>();
+        for (final Language language : versionLanguages(orgId)) {
+            final String id = PageVersions.keyFor(row.getId(), language);
+            final ContentTemplate stored = cachedTemplate(id);
+            final boolean written = stored != null && Objects.equals(stored.getOrgId(), row.getOrgId());
+            versions.add(new LanguageVersion(language, id, written, written && mayAuthor(caller, stored, stored),
+                    stored == null && mayAuthorRow));
+        }
+        return versions;
+    }
+
+    /**
+     * "Add a version in Español": a new row under {@code {templateId}@{tag}} starting as a copy of the template,
+     * in the template's scope, for the author to translate (the {@link #customize} pattern). Only an email
+     * template, only a language the page's site offers, and only for a caller who may author the template.
+     *
+     * @return the version's id, or "" when nothing was added; every refusal explains itself with a growl.
+     */
+    public String addVersion(final String templateId, final String tag, final String orgId) {
+        final Language language = Language.forTag(tag).filter(versionLanguages(orgId)::contains).orElse(null);
+        if (language == null) {
+            return refuseCopy(Text.get("feedback.templateCommands.versionNotOffered", tag));
+        }
+        final ContentTemplate source = (templateId == null || templateId.isBlank()) ? null : storedTemplate(templateId);
+        if (source == null) {
+            return refuseCopy(Text.get("feedback.templateCommands.notCopiedNoTemplate", templateId));
+        }
+        if (source.getKind() != TemplateKind.MAIL || PageVersions.languageOf(source.getId()).isPresent()) {
+            return refuseCopy(Text.get("feedback.templateCommands.versionNotMail"));
+        }
+        final Caller caller = callerSource.get();
+        if (!mayAuthor(caller, source, source)) {
+            return refuseCopy(Text.get("feedback.templateCommands.versionNotYours"));
+        }
+        final String id = PageVersions.keyFor(source.getId(), language);
+        if (storedTemplate(id) != null) {
+            return refuseCopy(Text.get("feedback.templateCommands.notCopiedExists", id));
+        }
+        if (!saveTemplate(versionCopy(source, id, source.getOrgId()))) {
+            return "";
+        }
+        audit(caller, id, "Added the " + language.getTag() + " version of template '" + source.getId() + "'");
+        return id;
     }
 
     /**
@@ -435,11 +646,21 @@ public class TemplateCommands {
             return false;
         }
         if (siteDefault(stored) == null) {
-            PageFeedback.error("Not reverted: '" + id
-                    + "' is this organization's own template, not a customization of a site default.");
+            PageFeedback.error(Text.get("feedback.templateCommands.notReverted", id));
             return false;
         }
-        return deleteTemplate(id);
+        if (!deleteTemplate(id)) {
+            return false;
+        }
+        // The organization's language versions go too: kept, they would still outrank the site default's
+        // translations for their readers, and revert means the site's wording in every language.
+        for (final Language language : otherLanguages()) {
+            final String versionId = PageVersions.keyFor(id, language);
+            if (ownedBy(scope, storedTemplate(versionId)) != null) {
+                deleteTemplate(versionId);
+            }
+        }
+        return true;
     }
 
     /**
@@ -463,8 +684,8 @@ public class TemplateCommands {
         return copy;
     }
 
-    private static String refuseCopy(final String reason) {
-        return PageFeedback.refuseAction("Not copied: " + reason);
+    private static String refuseCopy(final String message) {
+        return PageFeedback.refuseAction(message);
     }
 
     private static String blankToNull(final String value) {
@@ -475,6 +696,16 @@ public class TemplateCommands {
     private boolean visible(final Caller caller, final ContentTemplate template) {
         return caller.has(PrivilegeCommands.CONTENT_ADMIN) || !template.isOrgOwned()
                 || caller.has(PrivilegeCommands.CONTENT_ADMIN, template.getOrgId());
+    }
+
+    /** A row for DISPLAY (the manager's version links), read through the cache a save invalidates. */
+    private static ContentTemplate cachedTemplate(final String id) {
+        try {
+            return DAO.getInstance().getTemplate(id, Cached.YES).orElse(null);
+        } catch (final RuntimeException ex) {
+            log.error("Unable to read the template: " + id, ex);
+            return null;
+        }
     }
 
     private static ContentTemplate storedTemplate(final String id) {
@@ -526,7 +757,7 @@ public class TemplateCommands {
     /** "Shared" for a site-level template, else the owning organization's name (its id if unreadable). */
     public String scopeLabel(final ContentTemplate template) {
         if (template == null || !template.isOrgOwned()) {
-            return "Shared";
+            return Text.get("feedback.templateCommands.scopeShared");
         }
         final Organization org = findOrg(template.getOrgId());
         return org == null ? template.getOrgId() : org.getName();
@@ -545,9 +776,7 @@ public class TemplateCommands {
         }
         // The SUMMARY carries the whole warning: growl details are shown only for the URL-parameter
         // messages (see template.xhtml's hasDetail), so a detail-only explanation never reaches anyone.
-        PageFeedback.warn("Saved, but check the layout: rich text (" + String.join(", ", nested)
-                        + ") sits inside a <p>. The editor writes paragraphs, which cannot nest, so the "
-                        + "value will break out of it -- use a block container such as <div>.");
+        PageFeedback.warn(Text.get("feedback.templateCommands.richTextInParagraph", String.join(", ", nested)));
     }
 
     /**
@@ -565,8 +794,8 @@ public class TemplateCommands {
             return false;
         }
         if (isReferenced(id)) {
-            PageFeedback.warn("Not deleted",
-                    "Content still uses template '" + id + "'. Delete or re-template it first.");
+            PageFeedback.warn(Text.get("feedback.templateCommands.notDeleted"),
+                    Text.get("feedback.templateCommands.stillUsed", id));
             return false;
         }
         final boolean deleted;
@@ -652,10 +881,10 @@ public class TemplateCommands {
             stored = DAO.getInstance().getTemplate(template.getId(), Cached.NO).orElse(null);
         } catch (final RuntimeException ex) {
             log.error("Unable to check the stored template for: " + template.getId(), ex);
-            return "The existing template could not be checked; try again.";
+            return Text.get("feedback.templateCommands.checkFailed");
         }
         if (stored != null && stored.getKind() != template.getKind()) {
-            return "A template's kind cannot change after creation; create a new template instead.";
+            return Text.get("feedback.templateCommands.kindFixed");
         }
         return switch (template.getKind()) {
             case STANDARD, MAIL -> HtmlFragmentValidator.validate(template.getBody());
@@ -666,12 +895,12 @@ public class TemplateCommands {
 
     private String normalizeContainer(final ContentTemplate template) {
         if (template.getMaxChildren() != null && template.getMaxChildren() < 1) {
-            return "Max children must be blank (unlimited) or at least 1.";
+            return Text.get("feedback.templateCommands.maxChildrenRule");
         }
         for (final String childId : allowedIds(template)) {
             final ContentTemplate child = DAO.getInstance().getTemplate(childId, Cached.NO).orElse(null);
             if (child != null && child.getKind() == TemplateKind.CONTAINER) {
-                return "A container may not allow another container ('" + childId + "') as a child.";
+                return Text.get("feedback.templateCommands.containerInContainer", childId);
             }
         }
         // A container's body is the row it wraps around EACH child (optionally inside a {{children:start}}
@@ -696,11 +925,14 @@ public class TemplateCommands {
         final ProgrammaticContentTemplate type =
                 ProgrammaticTypes.byId(template.getProgrammaticTypeId()).orElse(null);
         if (type == null) {
-            return "Unknown programmatic type: '" + template.getProgrammaticTypeId() + "'.";
+            return Text.get("feedback.templateCommands.unknownType", template.getProgrammaticTypeId());
         }
         // The type's property list IS the placeholder list, on every save and not only on creation: the
         // stored copy is advisory (every reader goes through ProgrammaticTypes.placeholdersOf), so a save
-        // is the moment a row written against an older registry catches up.
+        // is the moment a row written against an older registry catches up. Its labels and hints come out in
+        // the SAVER's language and are stored that way on purpose: nobody reads them back while the type is
+        // registered (placeholdersOf answers the live list, in the reader's language), so translating the
+        // snapshot would buy nothing; it is only a last resort for a row whose type a later build dropped.
         template.setPlaceholders(type.getProperties());
         template.setBody("");
         return null;

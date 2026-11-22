@@ -24,6 +24,8 @@ import org.paulsens.trip.content.OrgPageBootstrap;
 import org.paulsens.trip.content.StarterTemplates;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.PersonMatch;
+import org.paulsens.trip.i18n.ReaderLanguage;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.config.KnownSettings;
@@ -251,16 +253,17 @@ public class OrgCommands {
             final String contactEmail) {
         final Caller current = caller();
         if (!current.isSiteAdmin()) {
-            return failOrg("Not allowed", "Only a site administrator can create an organization.");
+            return failOrg(Text.get("feedback.shared.notAllowed"), Text.get("api.orgs.createNeedsSiteAdmin"));
         }
         if (name == null || name.isBlank()) {
-            return failOrg("Name required", "An organization needs a name.");
+            return failOrg(Text.get("feedback.orgCommands.nameRequired"), Text.get("feedback.orgCommands.needsName"));
         }
         final String wanted = name.trim();
         final boolean taken = getOrganizations().stream()
                 .anyMatch(existing -> wanted.equalsIgnoreCase(existing.getName()));
         if (taken) {
-            return failOrg("Duplicate name", "An organization named \"" + wanted + "\" already exists.");
+            return failOrg(Text.get("feedback.orgCommands.duplicateName"),
+                    Text.get("feedback.orgCommands.nameTaken", wanted));
         }
         final Organization org = Organization.builder()
                 .name(wanted)
@@ -285,17 +288,17 @@ public class OrgCommands {
     public boolean saveOrganization(final Organization org) {
         final Caller current = caller();
         if (org == null || org.getVersion() == 0L) {
-            return fail("Unable to save", "Unknown organization.");
+            return fail(Text.get("feedback.shared.unableToSave"), Text.get("feedback.orgCommands.unknownOrg"));
         }
         if (!canManageOrg(org.getId().getValue())) {
-            return fail("Not allowed", "Only this organization's admins can edit it.");
+            return fail(Text.get("feedback.shared.notAllowed"), Text.get("feedback.orgCommands.editNeedsAdmin"));
         }
         final Organization stored = findOrganization(org.getId().getValue());
         if (stored == null) {
-            return fail("Unable to save", "Unknown organization.");
+            return fail(Text.get("feedback.shared.unableToSave"), Text.get("feedback.orgCommands.unknownOrg"));
         }
         if (org.getName() == null || org.getName().isBlank()) {
-            return fail("Name required", "An organization needs a name.");
+            return fail(Text.get("feedback.orgCommands.nameRequired"), Text.get("feedback.orgCommands.needsName"));
         }
         if (!saveOrgOrWarn(org)) {
             return false;
@@ -312,7 +315,7 @@ public class OrgCommands {
             final String contactEmail) {
         final Organization fresh = freshOrg(orgId);
         if (fresh == null) {
-            return fail("Unable to save", "Unknown organization.");
+            return fail(Text.get("feedback.shared.unableToSave"), Text.get("feedback.orgCommands.unknownOrg"));
         }
         fresh.setName(name);
         fresh.setAbbreviation(abbreviation);
@@ -335,10 +338,10 @@ public class OrgCommands {
      */
     public boolean addMember(final String orgId, final Person.Id personId) {
         if (findOrganization(orgId) == null || personId == null) {
-            return fail("Unable to add", "Unknown organization or person.");
+            return fail(Text.get("feedback.orgCommands.addFailed"), Text.get("api.orgs.unknownOrgOrPerson"));
         }
         if (!canManageOrg(orgId)) {
-            return fail("Not allowed", "Only this organization's admins can add members.");
+            return fail(Text.get("feedback.shared.notAllowed"), Text.get("api.orgs.addMembersNeedsOrgAdmin"));
         }
         return writeMembership(orgId, personId);
     }
@@ -350,11 +353,10 @@ public class OrgCommands {
      */
     public boolean addCreatedPerson(final String orgId, final Person.Id personId) {
         if (findOrganization(orgId) == null || personId == null) {
-            return fail("Unable to add", "Unknown organization or person.");
+            return fail(Text.get("feedback.orgCommands.addFailed"), Text.get("api.orgs.unknownOrgOrPerson"));
         }
         if (!canViewOrgPeople(orgId)) {
-            return fail("Not allowed", "Creating a person here requires people-admin access to this "
-                    + "organization.");
+            return fail(Text.get("feedback.shared.notAllowed"), Text.get("feedback.orgCommands.needsPeopleAdmin"));
         }
         return writeMembership(orgId, personId);
     }
@@ -369,10 +371,10 @@ public class OrgCommands {
      */
     public boolean addCreatedFamilyMember(final String orgId, final Person.Id memberId, final Person anchor) {
         if (findOrganization(orgId) == null || memberId == null || anchor == null) {
-            return fail("Unable to add", "Unknown organization or person.");
+            return fail(Text.get("feedback.orgCommands.addFailed"), Text.get("api.orgs.unknownOrgOrPerson"));
         }
         if (!isMember(orgId, anchor.getId())) {
-            return fail("Not allowed", "A family member joins only the organizations their family belongs to.");
+            return fail(Text.get("feedback.shared.notAllowed"), Text.get("feedback.orgCommands.familyOrgsOnly"));
         }
         return writeMembership(orgId, memberId, "family member of " + describe(anchor));
     }
@@ -387,16 +389,16 @@ public class OrgCommands {
      */
     public String addMemberByEmail(final String orgId, final String email) {
         if (findOrganization(orgId) == null) {
-            fail("Unable to add", "Unknown organization.");
+            fail(Text.get("feedback.orgCommands.addFailed"), Text.get("feedback.orgCommands.unknownOrg"));
             return null;
         }
         if (!canManageOrg(orgId)) {
-            fail("Not allowed", "Only this organization's admins can add members.");
+            fail(Text.get("feedback.shared.notAllowed"), Text.get("api.orgs.addMembersNeedsOrgAdmin"));
             return null;
         }
         final String addr = normalizeEmail(email);
         if (addr == null) {
-            fail("Email required", "Enter the person's email address.");
+            fail(Text.get("feedback.orgCommands.emailRequired"), Text.get("feedback.orgCommands.enterEmail"));
             return null;
         }
         final Person match = DAO.getInstance().getPersonByEmail(addr, Cached.NO);
@@ -405,7 +407,7 @@ public class OrgCommands {
             return addr;
         }
         if (writeMembership(orgId, match.getId())) {
-            PageFeedback.info("Added " + match.getPreferredName() + " " + match.getLast() + ".");
+            PageFeedback.info(Text.get("feedback.orgCommands.added", match.getPreferredName(), match.getLast()));
         }
         return null;
     }
@@ -420,14 +422,14 @@ public class OrgCommands {
         final Caller current = caller();
         final Organization org = findOrganization(orgId);
         if (org == null) {
-            return fail("Unable to invite", "Unknown organization.");
+            return fail(Text.get("feedback.orgCommands.inviteFailed"), Text.get("feedback.orgCommands.unknownOrg"));
         }
         if (!canManageOrg(orgId)) {
-            return fail("Not allowed", "Only this organization's admins can invite members.");
+            return fail(Text.get("feedback.shared.notAllowed"), Text.get("feedback.orgCommands.inviteNeedsAdmin"));
         }
         final String addr = normalizeEmail(email);
         if (addr == null) {
-            return fail("Email required", "Enter the person's email address.");
+            return fail(Text.get("feedback.orgCommands.emailRequired"), Text.get("feedback.orgCommands.enterEmail"));
         }
         final Person match = DAO.getInstance().getPersonByEmail(addr, Cached.NO);
         if (match != null) {
@@ -450,15 +452,14 @@ public class OrgCommands {
                 ? addresses.orgReplyTo(KnownSettings.REG_MAIL_REPLY_TO, org) : org.getContactEmail();
         // Sent on THIS org's behalf, so it renders the org's own copy of the template when it has
         // customized one -- resolved from the org in hand, never from the host the admin happens to be on.
-        final boolean sent = mailSource.get().sendManagedTemplateForOrg(
-                StarterTemplates.ORG_INVITE_ID, orgId, values, addr,
+        final boolean sent = mailSource.get().sendManagedTemplateForOrg(StarterTemplates.ORG_INVITE_ID, orgId,
+                ReaderLanguage.ofInvitee(org), values, addr,
                 addresses.from(KnownSettings.REG_MAIL_FROM), replyTo, null, current.auditActor());
         if (!sent) {
-            return fail("Not sent", "The invitation could not be sent; is the org-invite template "
-                    + "installed?");
+            return fail(Text.get("feedback.shared.notSent"), Text.get("feedback.orgCommands.inviteNotSent"));
         }
         audit(current, org, "Invited " + addr + " to organization '" + org.getName() + "'");
-        PageFeedback.info("Invitation sent to " + addr + ".");
+        PageFeedback.info(Text.get("feedback.orgCommands.invitationSent", addr));
         return true;
     }
 
@@ -490,7 +491,7 @@ public class OrgCommands {
      */
     public boolean importMembership(final String orgId, final Person.Id personId, final String how) {
         if (!caller().isSiteAdmin()) {
-            return fail("Not allowed", "Only a site admin may import memberships.");
+            return fail(Text.get("feedback.shared.notAllowed"), Text.get("feedback.orgCommands.importByAdmin"));
         }
         return writeMembership(orgId, personId, how);
     }
@@ -509,7 +510,7 @@ public class OrgCommands {
         final Organization org = findOrganization(orgId);
         final Person person = DAO.getInstance().getPerson(personId, Cached.NO).orElse(null);
         if (person == null) {
-            return fail("Unable to add", "Unknown person.");
+            return fail(Text.get("feedback.orgCommands.addFailed"), Text.get("feedback.orgCommands.unknownPerson"));
         }
         if (DAO.getInstance().getOrgMember(org.getId(), personId, Cached.NO).isPresent()) {
             return true;
@@ -517,11 +518,12 @@ public class OrgCommands {
         try {
             if (!DAO.getInstance().saveOrgMember(
                     new OrgMember(org.getId(), personId, LocalDateTime.now()))) {
-                return fail("Unable to add", "Unable to save the membership.");
+                return fail(Text.get("feedback.orgCommands.addFailed"), Text.get("feedback.orgCommands.joinNotSaved"));
             }
         } catch (final IOException ex) {
             log.error("Unable to save org membership {} -> {}", personId, org.getId(), ex);
-            return fail("Unable to add", "Unable to save the membership: " + ex.getMessage());
+            return fail(Text.get("feedback.orgCommands.addFailed"),
+                    Text.get("feedback.orgCommands.membershipFailed", ex.getMessage()));
         }
         if (!person.getOrgIds().contains(org.getId())) {
             person.getOrgIds().add(org.getId());
@@ -540,10 +542,10 @@ public class OrgCommands {
      */
     public boolean addLodgingContact(final String orgId, final Person.Id personId) {
         if (findOrganization(orgId) == null || personId == null) {
-            return fail("Unable to add", "Unknown organization or person.");
+            return fail(Text.get("feedback.orgCommands.addFailed"), Text.get("api.orgs.unknownOrgOrPerson"));
         }
         if (!canAddLodgingContact(orgId)) {
-            return fail("Not allowed", "Only this organization's admins or lodging admins can add a lodging contact.");
+            return fail(Text.get("feedback.shared.notAllowed"), Text.get("feedback.orgCommands.contactAdminOnly"));
         }
         return writeMembership(orgId, personId, "lodging contact");
     }
@@ -567,29 +569,26 @@ public class OrgCommands {
         final Caller current = caller();
         final Organization org = findOrganization(orgId);
         if (org == null || personId == null) {
-            return fail("Unable to remove", "Unknown organization or person.");
+            return fail(Text.get("feedback.orgCommands.removeFailed"), Text.get("api.orgs.unknownOrgOrPerson"));
         }
         if (!canManageOrg(orgId)) {
-            return fail("Not allowed", "Only this organization's admins can remove members.");
+            return fail(Text.get("feedback.shared.notAllowed"), Text.get("api.orgs.removeMembersNeedsOrgAdmin"));
         }
         if (org.isAdmin(personId)) {
-            return fail("Admin first", "This person is an admin of the organization. "
-                    + "Revoke their admin role before removing them.");
+            return fail(Text.get("feedback.orgCommands.adminFirst"), Text.get("feedback.orgCommands.revokeFirst"));
         }
         if (isOnAnyOrgTrip(orgId, personId)) {
-            return fail("On a trip", "This person is on a trip belonging to this organization. "
-                    + "Remove them from the trip before removing them from the organization.");
+            return fail(Text.get("feedback.orgCommands.onATrip"), Text.get("feedback.orgCommands.leaveTripFirst"));
         }
         if (DAO.getInstance().getOrgMember(org.getId(), personId, Cached.NO).isEmpty()) {
-            return fail("Not a member", "This person is not a member of the organization.");
+            return fail(Text.get("feedback.orgCommands.notAMember"), Text.get("feedback.orgCommands.notMember"));
         }
         final Person person = DAO.getInstance().getPerson(personId, Cached.NO).orElse(null);
         if (person != null && person.getOrgIds().contains(org.getId()) && person.getOrgIds().size() <= 1) {
-            return fail("Last organization", "Every person must belong to at least one organization. "
-                    + "Add them to their new organization first.");
+            return fail(Text.get("feedback.orgCommands.lastOrganization"), Text.get("feedback.orgCommands.lastOrg"));
         }
         if (!DAO.getInstance().deleteOrgMember(org.getId(), personId)) {
-            return fail("Unable to remove", "Unable to remove the membership.");
+            return fail(Text.get("feedback.orgCommands.removeFailed"), Text.get("feedback.orgCommands.notRemoved"));
         }
         if (person != null && person.getOrgIds().remove(org.getId())) {
             savePersonOrWarn(person);
@@ -653,10 +652,10 @@ public class OrgCommands {
         final Caller current = caller();
         final Organization org = findOrganization(orgId);
         if (org == null || personId == null) {
-            return fail("Unable to save", "Unknown organization or person.");
+            return fail(Text.get("feedback.shared.unableToSave"), Text.get("api.orgs.unknownOrgOrPerson"));
         }
         if (!canManageOrg(orgId)) {
-            return fail("Not allowed", "Only this organization's admins can change its admins.");
+            return fail(Text.get("feedback.shared.notAllowed"), Text.get("api.orgs.adminsNeedOrgAdmin"));
         }
         if (admin == org.isAdmin(personId)) {
             return true;
@@ -668,13 +667,12 @@ public class OrgCommands {
         final Organization fresh = DAO.getInstance()
                 .getOrganization(org.getId(), Cached.NO).orElse(null);
         if (fresh == null) {
-            return fail("Unable to save", "Unknown organization.");
+            return fail(Text.get("feedback.shared.unableToSave"), Text.get("feedback.orgCommands.unknownOrg"));
         }
         // Checked on the fresh row (the one being saved): revoking the ONLY admin would lock every
         // non-site-admin out of managing the org (user decision 2026-08-25).
         if (!admin && fresh.isAdmin(personId) && fresh.getAdminIds().size() <= 1) {
-            return fail("Last admin", "This is the organization's only admin. "
-                    + "Appoint another admin before revoking this one.");
+            return fail(Text.get("feedback.orgCommands.lastAdmin"), Text.get("feedback.orgCommands.onlyAdmin"));
         }
         if (admin) {
             fresh.getAdminIds().add(personId);
@@ -926,10 +924,6 @@ public class OrgCommands {
                 .anyMatch(orgId -> current.has(PrivilegeCommands.PEOPLE_ADMIN, orgId.getValue()));
     }
 
-    /** What a refused sign-in change says, on every edge: plain, and the same words each time. */
-    public static final String SIGN_IN_CHANGE_REFUSED =
-            "Changing how this person signs in takes a site administrator.";
-
     /**
      * Whether the signed-in user may change how this person SIGNS IN: the address their login and their sign-in
      * codes are tied to, their login row, the account itself. THE one rule for it; every path that changes
@@ -1092,19 +1086,24 @@ public class OrgCommands {
         return PrivilegeCommands.ORG_SCOPED_BASES.stream().filter(org::mayGrant).toList();
     }
 
-    /** Display names for the trip-scoped role bases, as the trip editor has always labelled them. */
+    /** Message keys of the trip-scoped role bases' display names, as the trip editor labels them. */
     private static final Map<String, String> TRIP_ROLE_NAMES = Map.of(
-            PrivilegeCommands.TRIP_MGR, "Editor Admin",
-            PrivilegeCommands.TRIP_FIN_ADMIN, "Finance Admin",
-            PrivilegeCommands.TRIP_FIN_VIEW, "Finance Viewer",
-            PrivilegeCommands.TRIP_VIEW, "Viewer",
-            PrivilegeCommands.CHAT_MGR, "Chat Admin",
-            PrivilegeCommands.REGISTRATION_ADMIN, "Registration Admin",
-            PrivilegeCommands.CHECKIN_STAFF, "Check-in Staff");
+            PrivilegeCommands.TRIP_MGR, "feedback.orgCommands.roleEditorAdmin",
+            PrivilegeCommands.TRIP_FIN_ADMIN, "feedback.orgCommands.roleFinanceAdmin",
+            PrivilegeCommands.TRIP_FIN_VIEW, "feedback.orgCommands.roleFinanceViewer",
+            PrivilegeCommands.TRIP_VIEW, "feedback.orgCommands.roleViewer",
+            PrivilegeCommands.CHAT_MGR, "feedback.orgCommands.roleChatAdmin",
+            PrivilegeCommands.REGISTRATION_ADMIN, "feedback.orgCommands.roleRegistrationAdmin",
+            PrivilegeCommands.CHECKIN_STAFF, "feedback.orgCommands.roleCheckinStaff");
 
     /** The trip editor's display name for a trip-scoped role base, or null when the base is not one. */
     static String tripRoleName(final String base) {
-        return (base == null) ? null : TRIP_ROLE_NAMES.get(base);
+        return (base == null || !TRIP_ROLE_NAMES.containsKey(base)) ? null : roleLabel(base);
+    }
+
+    /** The role's display name in the reader's language, or the base itself when it has none. */
+    private static String roleLabel(final String base) {
+        return TRIP_ROLE_NAMES.containsKey(base) ? Text.get(TRIP_ROLE_NAMES.get(base)) : base;
     }
 
     /**
@@ -1131,7 +1130,7 @@ public class OrgCommands {
     }
 
     private Map<String, String> roleDef(final Trip trip, final String base) {
-        final String name = TRIP_ROLE_NAMES.getOrDefault(base, base);
+        final String name = roleLabel(base);
         return Map.of("name", name, "desc", trip.getTitle() + " - " + name, "base", base);
     }
 
@@ -1160,7 +1159,7 @@ public class OrgCommands {
 
     private Map<String, String> heldRoleDef(final Trip trip, final String base,
             final boolean grantable) {
-        final String name = TRIP_ROLE_NAMES.getOrDefault(base, base);
+        final String name = roleLabel(base);
         return Map.of("name", name, "desc", trip.getTitle() + " - " + name, "base", base,
                 "grantable", Boolean.toString(grantable));
     }
@@ -1207,13 +1206,14 @@ public class OrgCommands {
         }
         final PrivilegeCommands priv = privCommands();
         final List<String> missing = new ArrayList<>();
+        // The names here are STORED (a row's description, the support notice): English for any requester.
         for (final String base : CREATOR_TRIP_BASES) {
             if (current.isSiteAdmin() || owner.mayGrant(base)) {
                 final Privilege row = priv.getOrCreate(base, trip.getId(),
-                        trip.getTitle() + " - " + TRIP_ROLE_NAMES.getOrDefault(base, base));
+                        trip.getTitle() + " - " + Text.forLocale(Locale.ENGLISH, TRIP_ROLE_NAMES.get(base)));
                 priv.savePrivilege(row.withNewPerson(current.personId()), current.auditActor());
             } else {
-                missing.add(TRIP_ROLE_NAMES.getOrDefault(base, base));
+                missing.add(Text.forLocale(Locale.ENGLISH, TRIP_ROLE_NAMES.get(base)));
             }
         }
         if (!missing.isEmpty()) {
@@ -1313,19 +1313,19 @@ public class OrgCommands {
     public boolean grantOrgPrivilege(final String orgId, final Person.Id personId, final String base) {
         final Organization org = findOrganization(orgId);
         if (org == null || personId == null) {
-            return fail("Unable to grant", "Unknown organization or person.");
+            return fail(Text.get("feedback.orgCommands.grantFailed"), Text.get("api.orgs.unknownOrgOrPerson"));
         }
         if (!canManageOrg(orgId)) {
-            return fail("Not allowed", "Only this organization's admins can grant privileges.");
+            return fail(Text.get("feedback.shared.notAllowed"), Text.get("feedback.orgCommands.grantNeedsAdmin"));
         }
         if (!PrivilegeCommands.ORG_SCOPED_BASES.contains(base)) {
-            return fail("Unable to grant", "'" + base + "' is not an organization-scoped privilege.");
+            return fail(Text.get("feedback.orgCommands.grantFailed"), Text.get("feedback.orgCommands.notScoped", base));
         }
         if (!caller().isSiteAdmin() && !org.mayGrant(base)) {
-            return fail("Not available", "This organization does not have access to '" + base + "'.");
+            return fail(Text.get("feedback.orgCommands.unavailable"), Text.get("feedback.orgCommands.noAccess", base));
         }
         if (!isMember(orgId, personId)) {
-            return fail("Not a member", "Privileges can only be granted to members of the organization.");
+            return fail(Text.get("feedback.orgCommands.notAMember"), Text.get("feedback.orgCommands.grantMembersOnly"));
         }
         final PrivilegeCommands priv = privCommands();
         // Canonical description (org bases always have one): what the row MEANS beats "Acme peopleAdmin"
@@ -1340,10 +1340,10 @@ public class OrgCommands {
      */
     public boolean revokeOrgPrivilege(final String orgId, final Person.Id personId, final String base) {
         if (findOrganization(orgId) == null || personId == null) {
-            return fail("Unable to revoke", "Unknown organization or person.");
+            return fail(Text.get("feedback.orgCommands.revokeFailed"), Text.get("api.orgs.unknownOrgOrPerson"));
         }
         if (!canManageOrg(orgId)) {
-            return fail("Not allowed", "Only this organization's admins can revoke privileges.");
+            return fail(Text.get("feedback.shared.notAllowed"), Text.get("feedback.orgCommands.revokeNeedsAdmin"));
         }
         final PrivilegeCommands priv = privCommands();
         final Privilege row = priv.getPrivilege(base, orgId);
@@ -1353,22 +1353,22 @@ public class OrgCommands {
         return priv.savePrivilege(row.withoutPerson(personId), caller().auditActor());
     }
 
-    /** Display names for the org-scoped privilege bases, matching the trip roster's friendly labels. */
+    /** Message keys of the org-scoped privilege bases' display names (the trip roster's labels). */
     private static final Map<String, String> ORG_PRIV_NAMES = Map.of(
-            PrivilegeCommands.PEOPLE_ADMIN, "People Admin",
-            PrivilegeCommands.ADD_TRIP, "Create Trips",
-            PrivilegeCommands.ADD_CONFERENCE, "Create Conferences",
-            PrivilegeCommands.EMAIL_ADMIN, "Email Admin",
-            PrivilegeCommands.PAYMENTS_ADMIN, "Payments Admin",
-            PrivilegeCommands.CONTENT_ADMIN, "Site Content Editor",
-            PrivilegeCommands.MEDIA_ADMIN, "Site Media Editor",
-            PrivilegeCommands.AUDIT_ADMIN, "Audit Viewer",
-            PrivilegeCommands.LODGING_ADMIN, "Lodging Admin",
-            PrivilegeCommands.VIEW_FINANCES, "Finance Viewer");
+            PrivilegeCommands.PEOPLE_ADMIN, "feedback.orgCommands.privPeopleAdmin",
+            PrivilegeCommands.ADD_TRIP, "feedback.orgCommands.privCreateTrips",
+            PrivilegeCommands.ADD_CONFERENCE, "feedback.orgCommands.privCreateConferences",
+            PrivilegeCommands.EMAIL_ADMIN, "feedback.orgCommands.privEmailAdmin",
+            PrivilegeCommands.PAYMENTS_ADMIN, "feedback.orgCommands.privPaymentsAdmin",
+            PrivilegeCommands.CONTENT_ADMIN, "feedback.orgCommands.privContentEditor",
+            PrivilegeCommands.MEDIA_ADMIN, "feedback.orgCommands.privMediaEditor",
+            PrivilegeCommands.AUDIT_ADMIN, "feedback.orgCommands.privAuditViewer",
+            PrivilegeCommands.LODGING_ADMIN, "feedback.orgCommands.privLodgingAdmin",
+            PrivilegeCommands.VIEW_FINANCES, "feedback.orgCommands.roleFinanceViewer");
 
     /** The display name of an org-scoped privilege base ("People Admin"), or the base itself when unnamed. */
     static String orgPrivName(final String base) {
-        return ORG_PRIV_NAMES.getOrDefault(base, base);
+        return ORG_PRIV_NAMES.containsKey(base) ? Text.get(ORG_PRIV_NAMES.get(base)) : base;
     }
 
     /** One org-scoped privilege and who holds it here: a row of the settings page's Privileges tab. */
@@ -1462,24 +1462,23 @@ public class OrgCommands {
         final Trip trip = (tripId == null || tripId.isBlank()) ? null
                 : DAO.getInstance().getTrip(tripId, Cached.YES).orElse(null);
         if (trip == null || personId == null) {
-            return fail("Unable to save", "Unknown trip or person.");
+            return fail(Text.get("feedback.shared.unableToSave"), Text.get("feedback.orgCommands.noTripOrPerson"));
         }
         if (!caller().isSiteAdmin() && !canManageOrg(trip.getOrgId())) {
-            return fail("Not allowed", "Only this trip's organization admins can change trip roles.");
+            return fail(Text.get("feedback.shared.notAllowed"), Text.get("feedback.orgCommands.rolesNeedAdmin"));
         }
         if (!grantableTripBases(trip).contains(base)) {
-            return fail("Not available", "'" + base + "' is not a role this organization can grant.");
+            return fail(Text.get("feedback.orgCommands.unavailable"), Text.get("feedback.orgCommands.notARole", base));
         }
         if (granted && !offeredOn(trip, base)) {
-            return fail("Not available", "Check-in Staff applies to conferences only.");
+            return fail(Text.get("feedback.orgCommands.unavailable"), Text.get("feedback.orgCommands.conferenceOnly"));
         }
         // Tenancy: an org's trip roles go to that org's members, period (the same stance as
         // grantOrgPrivilege, site admins included). Revokes stay unchecked so a departed member's
         // stale role is still removable. Org-less trips have no boundary to enforce.
         if (granted && trip.getOrgId() != null && !trip.getOrgId().isBlank()
                 && !isMember(trip.getOrgId(), personId)) {
-            return fail("Not a member", "Trip roles can only be granted to members of the trip's "
-                    + "organization. Add the person to the organization first.");
+            return fail(Text.get("feedback.orgCommands.notAMember"), Text.get("feedback.orgCommands.rolesMembersOnly"));
         }
         final PrivilegeCommands priv = privCommands();
         final Privilege row;
@@ -1489,7 +1488,7 @@ public class OrgCommands {
             // A trip whose id is not a canonical UUID cannot carry a scoped row (it would read back as
             // GLOBAL): say so instead of 500-ing the page. The demo seeds carry UUIDs now, so this guards
             // imported or hand-made rows -- it fired on the readable seed ids until 2026-09-07.
-            return fail("Not stored", notStorable.getMessage());
+            return fail(Text.get("feedback.orgCommands.notStored"), notStorable.getMessage());
         }
         final Privilege changed = granted ? row.withNewPerson(personId) : row.withoutPerson(personId);
         // Same-object means no membership change; skip the no-op save (and its "unchanged" audit row).
@@ -1497,9 +1496,6 @@ public class OrgCommands {
     }
 
     // ------------------------------------------------------------------ org-bounded mail merge
-
-    /** What a refused From is told, on the page and over the API alike. */
-    public static final String INVALID_MERGE_FROM = "The From address must use one of your verified sending domains.";
 
     /** Whether the signed-in user may use the mail-merge surface at all. */
     public boolean canMail() {
@@ -1644,7 +1640,8 @@ public class OrgCommands {
     /** The allow-list as one display string for the Organizations table -- "any verified" when unset. */
     public String mailDomainsLabel(final Organization org) {
         final List<String> stored = (org == null) ? null : org.getMailDomains();
-        return (stored == null || stored.isEmpty()) ? "any verified" : String.join(", ", stored);
+        return (stored == null || stored.isEmpty()) ? Text.get("feedback.orgCommands.anyVerified")
+                : String.join(", ", stored);
     }
 
     /** The raw allow-list for the site-admin editor: what IS checked, empty meaning "not restricted". */
@@ -1762,7 +1759,7 @@ public class OrgCommands {
     public boolean saveOrgMailDomains(final String orgId, final List<String> domains, final String defaultDomain) {
         final Organization fresh = freshOrg(orgId);
         if (fresh == null) {
-            return fail("Unable to save", "Unknown organization.");
+            return fail(Text.get("feedback.shared.unableToSave"), Text.get("feedback.orgCommands.unknownOrg"));
         }
         if (caller().isSiteAdmin()) {
             fresh.setMailDomains(cleanDomains(domains));
@@ -1801,7 +1798,7 @@ public class OrgCommands {
             final String slug, final Boolean allowShared, final String registerTarget, final String customDomain) {
         final Organization fresh = freshOrg(orgId);
         if (fresh == null) {
-            return fail("Unable to save", "Unknown organization.");
+            return fail(Text.get("feedback.shared.unableToSave"), Text.get("feedback.orgCommands.unknownOrg"));
         }
         fresh.setName(name);
         fresh.setAbbreviation(abbreviation);
@@ -1864,12 +1861,13 @@ public class OrgCommands {
         final String pageKey = OrgPageBootstrap.pageKey(org.getId());
         try {
             if (!seedIfEmpty(pageKey, OrgPageBootstrap.rows(org, OrgCommands::currentTemplateVersion))) {
-                return fail("Home page not created",
-                        "The starter page for '" + org.getName() + "' could not be saved.");
+                return fail(Text.get("feedback.orgCommands.homeNotCreated"),
+                        Text.get("feedback.orgCommands.starterNotSavedFor", org.getName()));
             }
         } catch (final RuntimeException ex) {
             log.error("Unable to seed the home page of organization {}", org.getId(), ex);
-            return fail("Home page not created", "The starter page could not be saved: " + ex.getMessage());
+            return fail(Text.get("feedback.orgCommands.homeNotCreated"),
+                    Text.get("feedback.orgCommands.starterNotSaved", ex.getMessage()));
         }
         org.setHomePageSeededAt(LocalDateTime.now());
         if (!saveOrgOrWarn(org)) {
@@ -1961,16 +1959,16 @@ public class OrgCommands {
         }
         final String wanted = slug.trim().toLowerCase(Locale.ROOT);
         if (!SLUG_SHAPE.matcher(wanted).matches()) {
-            return fail("Invalid subdomain", "A subdomain is lowercase letters, digits and hyphens "
-                    + "(not at the ends), at most 63 characters.");
+            return fail(Text.get("feedback.orgCommands.badSlug"), Text.get("feedback.orgCommands.subdomainRule"));
         }
         if (RESERVED_SLUGS.contains(wanted)) {
-            return fail("Reserved subdomain", "\"" + wanted + "\" is reserved for the platform.");
+            return fail(Text.get("feedback.orgCommands.slugReserved"),
+                    Text.get("feedback.orgCommands.slugIsReserved", wanted));
         }
         final boolean taken = DAO.getInstance().getOrganizations(Cached.NO).stream()
                 .anyMatch(other -> !other.getId().equals(org.getId()) && wanted.equals(other.getSlug()));
         if (taken) {
-            return fail("Subdomain taken", "Another organization already uses \"" + wanted + "\".");
+            return fail(Text.get("feedback.orgCommands.slugTaken"), Text.get("feedback.orgCommands.slugInUse", wanted));
         }
         org.setSlug(wanted);
         return true;
@@ -1989,7 +1987,7 @@ public class OrgCommands {
             // The form re-posts the stored domain beside a cleared slug: that is the clear, not a new claim.
             final boolean asked = wanted != null && !wanted.equals(CustomDomains.normalize(org.getCustomDomain()));
             org.setCustomDomain(null);
-            return hasSite || !asked || fail("Subdomain needed first", CustomDomains.NEEDS_SLUG);
+            return hasSite || !asked || fail(Text.get("feedback.orgCommands.slugFirst"), CustomDomains.needsSlug());
         }
         if (customDomain == null) {
             return true;
@@ -1998,11 +1996,11 @@ public class OrgCommands {
                 Cached.NO), new ConfigCommands().getString(KnownSettings.SITE_ORGSITES_BASE_DOMAIN),
                 sharedSendingDomains());
         if (problem != null) {
-            return fail("Invalid custom domain", problem);
+            return fail(Text.get("feedback.orgCommands.invalidDomain"), problem);
         }
         final String unreachable = DomainProbe.newClaimProblem(wanted, org.getCustomDomain());
         if (unreachable != null) {
-            return fail("Custom domain not saved", unreachable);
+            return fail(Text.get("feedback.orgCommands.domainNotSaved"), unreachable);
         }
         org.setCustomDomain(wanted);
         return true;
@@ -2105,7 +2103,7 @@ public class OrgCommands {
      * mailbox is malformed or the domain is not one this caller may send from.
      */
     public String composeMergeFrom(final String name, final String local, final String domain) {
-        return mailAddr().composeAddress(name, local, domain, mergeMailDomains(), "The From address");
+        return mailAddr().composeFromAddress(name, local, domain, mergeMailDomains());
     }
 
     private List<Trip> orgTrips(final String orgId) {
@@ -2195,12 +2193,12 @@ public class OrgCommands {
     public boolean setGrantablePrivileges(final String orgId, final List<String> bases) {
         final Caller current = caller();
         if (!current.isSiteAdmin()) {
-            return fail("Not allowed", "Only a site administrator can restrict an organization's privileges.");
+            return fail(Text.get("feedback.shared.notAllowed"), Text.get("feedback.orgCommands.restrictByAdmin"));
         }
         final Organization fresh = (orgId == null || orgId.isBlank()) ? null
                 : DAO.getInstance().getOrganization(Organization.Id.from(orgId.trim()), Cached.NO).orElse(null);
         if (fresh == null) {
-            return fail("Unable to save", "Unknown organization.");
+            return fail(Text.get("feedback.shared.unableToSave"), Text.get("feedback.orgCommands.unknownOrg"));
         }
         final List<String> cleaned;
         if (bases == null) {
@@ -2209,7 +2207,8 @@ public class OrgCommands {
             cleaned = bases.stream().distinct().toList();
             final List<String> unknown = cleaned.stream().filter(base -> !isGrantableBase(base)).toList();
             if (!unknown.isEmpty()) {
-                return fail("Unable to save", "Unknown privilege name(s): " + String.join(", ", unknown));
+                return fail(Text.get("feedback.shared.unableToSave"),
+                        Text.get("feedback.orgCommands.unknownPrivs", unknown.size(), String.join(", ", unknown)));
             }
         }
         fresh.setGrantablePrivileges(cleaned);
@@ -2252,9 +2251,9 @@ public class OrgCommands {
             return "";
         }
         final boolean perTrip = PrivilegeCommands.TRIP_SCOPED_BASES.contains(base);
-        final String name = perTrip ? tripRoleName(base) : ORG_PRIV_NAMES.get(base);
-        return (name == null ? base : name) + (perTrip ? " (per trip): " : " (organization-wide): ")
-                + PrivilegeCommands.canonicalDescription(base);
+        final String name = perTrip ? roleLabel(base) : orgPrivName(base);
+        return Text.get(perTrip ? "feedback.orgCommands.grantablePerTrip" : "feedback.orgCommands.grantableOrgWide",
+                name, PrivilegeCommands.canonicalDescription(base));
     }
 
     private static boolean isGrantableBase(final String base) {
@@ -2320,14 +2319,14 @@ public class OrgCommands {
             final String clientId, final String sandboxClientId, final int feeBps, final int feeFixedCents) {
         final Caller current = caller();
         if (!canManageOrg(orgId)) {
-            return failNull("Not allowed", "Only this organization's admins can manage payment processors.");
+            return failNull(Text.get("feedback.shared.notAllowed"), Text.get("feedback.orgCommands.payAdminOnly"));
         }
         if (label == null || label.isBlank()) {
-            return failNull("Label required", "Give this processor configuration a label.");
+            return failNull(Text.get("feedback.orgCommands.labelRequired"), Text.get("feedback.orgCommands.giveLabel"));
         }
         final ProcessorType type = parseType(typeName);
         if (type == null) {
-            return failNull("Type required", "Pick a processor type.");
+            return failNull(Text.get("feedback.orgCommands.typeRequired"), Text.get("feedback.orgCommands.pickType"));
         }
         final PaymentProcessorConfig config;
         if (configId == null || configId.isBlank()) {
@@ -2339,7 +2338,7 @@ public class OrgCommands {
         } else {
             config = findProcessorConfig(orgId, configId);
             if (config == null) {
-                return failNull("Unable to save", "Unknown processor configuration.");
+                return failNull(Text.get("feedback.shared.unableToSave"), Text.get("feedback.orgCommands.noConfig"));
             }
         }
         config.setLabel(label);
@@ -2350,8 +2349,8 @@ public class OrgCommands {
         config.setEnabled(enabled);
         if (type == ProcessorType.STRIPE && (clientId == null || clientId.isBlank())) {
             // The Payment Element and PaymentSheet cannot mount without it; PayPal's redirect never needed one.
-            return failNull("Publishable key required",
-                    "A Stripe configuration needs its publishable key (pk_...).");
+            return failNull(Text.get("feedback.orgCommands.pubKeyRequired"),
+                    Text.get("feedback.orgCommands.stripeNeedsKey"));
         }
         config.getPublicConfig().put("clientId", (clientId == null) ? "" : clientId.trim());
         config.getSandboxPublicConfig().put("clientId",
@@ -2391,7 +2390,7 @@ public class OrgCommands {
         final Caller current = caller();
         final PaymentProcessorConfig config = findProcessorConfig(orgId, configId);
         if (config == null || !canManageOrg(orgId)) {
-            return fail("Not allowed", "Only this organization's admins can manage payment processors.");
+            return fail(Text.get("feedback.shared.notAllowed"), Text.get("feedback.orgCommands.payAdminOnly"));
         }
         final Map<String, String> fields = new java.util.HashMap<>();
         putIfGiven(fields, "clientSecret", liveSecret);
@@ -2402,7 +2401,7 @@ public class OrgCommands {
             return true;
         }
         if (!ProcessorSecrets.getInstance().put(configId.trim(), fields)) {
-            return fail("Unable to save", "The secret store rejected the write; nothing was changed.");
+            return fail(Text.get("feedback.shared.unableToSave"), Text.get("feedback.orgCommands.secretsRejected"));
         }
         audit(current, findOrganization(orgId), "Secrets updated for processor config '"
                 + config.getLabel() + "' (" + String.join(", ", fields.keySet()) + ")");
@@ -2468,24 +2467,25 @@ public class OrgCommands {
         final Caller current = caller();
         final PaymentProcessorConfig config = findProcessorConfig(orgId, configId);
         if (config == null || !canManageOrg(orgId)) {
-            return fail("Not allowed", "Unknown processor configuration.");
+            return fail(Text.get("feedback.shared.notAllowed"), Text.get("feedback.orgCommands.noConfig"));
         }
         if (config.getType() != ProcessorType.STRIPE) {
-            return fail("Not Stripe", "Wallet domain registration applies to Stripe configurations only.");
+            return fail(Text.get("feedback.orgCommands.notStripe"), Text.get("feedback.orgCommands.walletStripeOnly"));
         }
         final String host = currentHost();
         if (host == null) {
-            return fail("No host", "The current request's host could not be determined.");
+            return fail(Text.get("feedback.orgCommands.noHost"), Text.get("feedback.orgCommands.hostUnknown"));
         }
         final String secret = ProcessorSecrets.getInstance().get(configId.trim())
                 .get(sandbox ? "clientSecretSandbox" : "clientSecret");
         if (secret == null || secret.isBlank()) {
-            return fail("No secret key", "Store the " + (sandbox ? "sandbox " : "") + "secret key first.");
+            return fail(Text.get("feedback.orgCommands.noSecretKey"), sandbox
+                    ? Text.get("feedback.orgCommands.storeSandboxKey") : Text.get("feedback.orgCommands.storeKey"));
         }
         final boolean testMode = sandbox || config.getMode() == PaymentProcessorConfig.ProcessorMode.SANDBOX;
         final String outcome = StripeDomains.register(secret, testMode, host);
         if (outcome.startsWith("Stripe refused")) {
-            return fail("Registration failed", outcome);
+            return fail(Text.get("feedback.orgCommands.domainRegFailed"), outcome);
         }
         audit(current, findOrganization(orgId), "Wallet domain " + host + " registered for processor config '"
                 + config.getLabel() + "'" + (sandbox ? " (sandbox)" : "") + ": " + outcome);
@@ -2503,15 +2503,16 @@ public class OrgCommands {
     public boolean testProcessorConnection(final String orgId, final String configId, final boolean sandbox) {
         final PaymentProcessorConfig config = findProcessorConfig(orgId, configId);
         if (config == null || !canManageOrg(orgId)) {
-            return fail("Not allowed", "Unknown processor configuration.");
+            return fail(Text.get("feedback.shared.notAllowed"), Text.get("feedback.orgCommands.noConfig"));
         }
         final String secret = ProcessorSecrets.getInstance().get(configId.trim())
                 .get(sandbox ? "clientSecretSandbox" : "clientSecret");
         final String failure = new ProcessorPing().ping(config, sandbox, secret);
         if (failure != null) {
-            return fail("Connection failed", failure);
+            return fail(Text.get("feedback.orgCommands.connectionFailed"), failure);
         }
-        PageFeedback.info("Connection OK: '" + config.getLabel() + "'" + (sandbox ? " (sandbox)" : ""));
+        PageFeedback.info(sandbox ? Text.get("feedback.orgCommands.connectionOkSandbox", config.getLabel())
+                : Text.get("feedback.orgCommands.connectionOk", config.getLabel()));
         return true;
     }
 
@@ -2520,14 +2521,13 @@ public class OrgCommands {
         final Caller current = caller();
         final PaymentProcessorConfig config = findProcessorConfig(orgId, configId);
         if (config == null) {
-            return fail("Unable to delete", "Unknown processor configuration.");
+            return fail(Text.get("feedback.orgCommands.deleteFailed"), Text.get("feedback.orgCommands.noConfig"));
         }
         if (!current.isSiteAdmin()) {
-            return fail("Not allowed", "Only a site administrator can delete a processor configuration; "
-                    + "disable it instead.");
+            return fail(Text.get("feedback.shared.notAllowed"), Text.get("feedback.orgCommands.deleteByAdmin"));
         }
         if (!DAO.getInstance().deletePaymentProcessorConfig(config.getOrgId(), config.getId())) {
-            return fail("Unable to delete", "The delete did not complete.");
+            return fail(Text.get("feedback.orgCommands.deleteFailed"), Text.get("feedback.orgCommands.notDeleted"));
         }
         ProcessorSecrets.getInstance().put(configId.trim(), Map.of("clientSecret", "",
                 "clientSecretSandbox", "", WEBHOOK_SECRET, "", WEBHOOK_SECRET_SANDBOX, ""));
@@ -2603,7 +2603,7 @@ public class OrgCommands {
             return publishFromOk(true);
         }
         final String composed = mailAddr()
-                .composeAddress(name, local, domain, mailDomainsForTrip(trip), "The From address");
+                .composeFromAddress(name, local, domain, mailDomainsForTrip(trip));
         if (composed == null) {
             return publishFromOk(false);
         }
@@ -2647,30 +2647,29 @@ public class OrgCommands {
         final Person me = (current.isAuthenticated())
                 ? DAO.getInstance().getPerson(current.personId(), Cached.NO).orElse(null) : null;
         if (me == null) {
-            return fail("Not signed in", "Sign in to send a test email.");
+            return fail(Text.get("feedback.shared.notSignedIn"), Text.get("feedback.orgCommands.signInToTest"));
         }
         final String addr = normalizeEmail(to);
         if (addr == null) {
-            return fail("No address", "Enter the email address to send the test to.");
+            return fail(Text.get("feedback.orgCommands.noAddress"), Text.get("feedback.orgCommands.enterTestAddress"));
         }
         final TripPaymentConfig effective = effectivePaymentConfig(trip);
         if (effective.getConfirmationTemplateId() == null) {
-            return fail("No template", "Pick a confirmation template (or set the site default).");
+            return fail(Text.get("feedback.orgCommands.noTemplate"), Text.get("feedback.orgCommands.pickTemplate"));
         }
         final String from = sendablePaymentFrom(trip, effective);
         if (from == null) {
-            return fail("No From address", "Set a From address on the trip, the organization, or the "
-                    + "site settings.");
+            return fail(Text.get("feedback.orgCommands.noFrom"), Text.get("feedback.orgCommands.setFrom"));
         }
         // The test must be the real thing: the trip's org picks the copy, and the From, exactly as the live send does.
         final boolean sent = mailSource.get().sendManagedTemplateForOrg(
                 effective.getConfirmationTemplateId(), trip == null ? null : trip.getOrgId(),
-                samplePaymentValues(trip, me, effective), addr, from,
-                effective.getReplyTo(), null, current.auditActor());
+                ReaderLanguage.of(me, trip), samplePaymentValues(trip, me, effective),
+                addr, from, effective.getReplyTo(), null, current.auditActor());
         if (!sent) {
-            return fail("Not sent", "The test email could not be sent; is the template installed?");
+            return fail(Text.get("feedback.shared.notSent"), Text.get("feedback.orgCommands.testNotSent"));
         }
-        PageFeedback.info("Test email sent to " + addr);
+        PageFeedback.info(Text.get("feedback.orgCommands.testSent", addr));
         return true;
     }
 
@@ -2703,8 +2702,8 @@ public class OrgCommands {
             return null;
         }
         // The preview shows what THIS trip's payers get: the org's customized copy when it has one.
-        return mailSource.get().renderManagedTemplateForOrg(effective.getConfirmationTemplateId(),
-                trip.getOrgId(), samplePaymentValues(trip, me, effective));
+        return mailSource.get().renderManagedTemplateForOrg(effective.getConfirmationTemplateId(), trip.getOrgId(),
+                ReaderLanguage.of(me, trip), samplePaymentValues(trip, me, effective));
     }
 
     /** Sample token values for the test send (the real flow's PaymentMailer fills these from a Payment). */
@@ -2781,16 +2780,11 @@ public class OrgCommands {
     /**
      * The editor's map: setting name &rarr; the org's stored override, "" when it inherits, for every
      * org-overridable setting. Blank means inherit -- the Settings page's own convention, and what makes
-     * "clear the box" the way to give a value back to the site.
+     * "clear the box" the way to give a value back to the site. A translatable setting adds its text in each
+     * other language the org's site offers ({@code ConfigCommands.overridesEdit}).
      */
     public Map<String, String> orgSettingsEdit(final String orgId) {
-        final Organization org = findOrganization(orgId);
-        final Map<String, String> edit = new java.util.LinkedHashMap<>();
-        for (final org.paulsens.trip.model.SettingDef def : orgSettingDefs()) {
-            final String value = (org == null) ? null : org.settingOverride(def.getName());
-            edit.put(def.getName(), value == null ? "" : value);
-        }
-        return edit;
+        return new ConfigCommands().overridesEdit(findOrganization(orgId));
     }
 
     /**
@@ -2823,11 +2817,11 @@ public class OrgCommands {
     public boolean saveOrgSettings(final String orgId, final Map<String, String> values) {
         final Caller current = caller();
         if (!canManageOrg(orgId)) {
-            return fail("Not allowed", "Only this organization's admins can change its settings.");
+            return fail(Text.get("feedback.shared.notAllowed"), Text.get("feedback.orgCommands.settingsAdmins"));
         }
         final Organization fresh = freshOrg(orgId);
         if (fresh == null) {
-            return fail("Unable to save", "Unknown organization.");
+            return fail(Text.get("feedback.shared.unableToSave"), Text.get("feedback.orgCommands.unknownOrg"));
         }
         if (values == null) {
             return true;
@@ -2849,7 +2843,7 @@ public class OrgCommands {
             return false;
         }
         audit(current, fresh, "Settings changed: " + String.join("; ", changed));
-        PageFeedback.info("Settings saved.");
+        PageFeedback.info(Text.get("feedback.orgCommands.settingsSaved"));
         return true;
     }
 
@@ -2858,9 +2852,9 @@ public class OrgCommands {
      * did, or null (growled) when the key or value is refused.
      */
     private String applyOverride(final Organization org, final String key, final String rawValue) {
-        final org.paulsens.trip.model.SettingDef def = KnownSettings.findOrgOverridable(key).orElse(null);
+        final org.paulsens.trip.model.SettingDef def = KnownSettings.findOrgOverrideKey(key).orElse(null);
         if (def == null) {
-            return failText("Not saved", "'" + key + "' is not a setting an organization can override.");
+            return failNull(Text.get("feedback.shared.notSaved"), Text.get("feedback.orgCommands.noOverride", key));
         }
         final String value = (rawValue == null) ? "" : rawValue.trim();
         // The same judge as the site Settings page: type, then the declaration's choices / URL rule. One value
@@ -2870,18 +2864,18 @@ public class OrgCommands {
                 : new ConfigCommands().rejection(new org.paulsens.trip.model.Config(
                         def.getName(), value, def.getType(), null, null, null));
         if (rejection != null) {
-            return failText("Not saved", rejection);
+            return failNull(Text.get("feedback.shared.notSaved"), rejection);
         }
         final Map<String, String> overrides = org.getSettingsOverrides();
-        final String before = overrides.get(def.getName());
+        final String before = overrides.get(key);
         if (value.isEmpty()) {
-            return (overrides.remove(def.getName()) == null) ? "" : def.getName() + " = (inherit)";
+            return (overrides.remove(key) == null) ? "" : key + " = (inherit)";
         }
         if (value.equals(before)) {
             return "";
         }
-        overrides.put(def.getName(), value);
-        return def.getName() + " = " + value;
+        overrides.put(key, value);
+        return key + " = " + value;
     }
 
     /** Whether {@code value} selects one of {@code org}'s own palettes for the palette setting. */
@@ -2891,20 +2885,15 @@ public class OrgCommands {
                 && CustomPalettes.paletteOf(owner, CustomPalette.idOf(value)) != null;
     }
 
-    private String failText(final String summary, final String detail) {
-        fail(summary, detail);
-        return null;
-    }
-
     private boolean saveProcessorOrWarn(final PaymentProcessorConfig config) {
         try {
             return DAO.getInstance().savePaymentProcessorConfig(config);
         } catch (final ConditionalCheckFailedException ex) {
-            return fail("Config changed", "Someone else changed this processor configuration at the same "
-                    + "time. Please reload the page and try again.");
+            return fail(Text.get("feedback.orgCommands.configChanged"), Text.get("feedback.orgCommands.reloadConfig"));
         } catch (final RuntimeException | IOException ex) {
             log.error("Unable to save processor config {}", config.getId(), ex);
-            return fail("Unable to save", "Unable to save the configuration: " + ex.getMessage());
+            return fail(Text.get("feedback.shared.unableToSave"),
+                    Text.get("feedback.orgCommands.processorSaveFailed", ex.getMessage()));
         }
     }
 
@@ -2945,11 +2934,11 @@ public class OrgCommands {
         try {
             return DAO.getInstance().saveOrganization(org);
         } catch (final ConditionalCheckFailedException ex) {
-            return fail("Organization changed", "Someone else changed this organization at the same time. "
-                    + "Please reload the page and try again.");
+            return fail(Text.get("feedback.orgCommands.orgChanged"), Text.get("feedback.orgCommands.orgConflict"));
         } catch (final RuntimeException | IOException ex) {
             log.error("Unable to save organization {}", org.getId(), ex);
-            return fail("Unable to save", "Unable to save the organization: " + ex.getMessage());
+            return fail(Text.get("feedback.shared.unableToSave"),
+                    Text.get("feedback.orgCommands.orgSaveFailed", ex.getMessage()));
         }
     }
 

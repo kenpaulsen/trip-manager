@@ -14,7 +14,6 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import lombok.Data;
-import lombok.Getter;
 
 @Data
 public final class TripEvent implements Serializable {
@@ -165,16 +164,13 @@ public final class TripEvent implements Serializable {
     }
 
     public enum Type {
-        EVENT("Event"),
-        FLIGHT("Flight"),
-        GROUND("Bus, Van, Car"),
-        LODGING("Lodging");
+        EVENT,
+        FLIGHT,
+        GROUND,
+        LODGING;
 
-        @Getter
-        final String displayValue;
-
-        Type(final String text) {
-            this.displayValue = text;
+        public String getDisplayValue() {
+            return EnumLabels.of(this);
         }
     }
 }

@@ -3,6 +3,7 @@ package org.paulsens.trip.action;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Named;
 import java.time.Instant;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
@@ -12,6 +13,8 @@ import org.paulsens.trip.audit.AuditEventBuilder;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.i18n.ReaderLanguage;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.media.UploadRateLimiter;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
@@ -116,22 +119,23 @@ public class ModerationCommands {
      */
     public ReportOutcome report(final ReportTarget target, final String reason, final Caller caller) {
         if (caller == null || !caller.isAuthenticated() || caller.personId() == null) {
-            return ReportOutcome.refused(REFUSED_FORBIDDEN, "Sign in required.");
+            return ReportOutcome.refused(REFUSED_FORBIDDEN, Text.get("api.shared.signInRequired"));
         }
         if (target == null || target.kind() == null) {
-            return ReportOutcome.refused(REFUSED_BAD_REQUEST, "Nothing to report.");
+            return ReportOutcome.refused(REFUSED_BAD_REQUEST, Text.get("feedback.moderationCommands.nothingToReport"));
         }
         final Person.Id me = caller.personId();
         final Optional<ChatMessage> subject = locate(target, caller);
         if (subject == null) {
-            return ReportOutcome.refused(REFUSED_NOT_FOUND, "That content is not available.");
+            return ReportOutcome.refused(REFUSED_NOT_FOUND, Text.get("feedback.moderationCommands.contentUnavailable"));
         }
         if (!limiter.allow(me.getValue())) {
             final int retry = limiter.retryAfterSeconds(me.getValue());
             return new ReportOutcome(false, REFUSED_RATE_LIMITED,
-                    "You have sent several reports recently. Please wait before sending another.", retry);
+                    Text.get("feedback.moderationCommands.tooManyReports"), retry);
         }
-        final String why = reason == null || reason.isBlank() ? "(no reason given)"
+        // Null when none was given: the audit line says so in English, the mail in its reader's language.
+        final String why = reason == null || reason.isBlank() ? null
                 : Util.orDefault(reason.strip(), "").length() > MAX_REASON_CHARS
                         ? reason.strip().substring(0, MAX_REASON_CHARS) : reason.strip();
         final Trip trip = target.tripId() == null ? null
@@ -199,7 +203,8 @@ public class ModerationCommands {
         if (trip != null && trip.getOrgId() != null) {
             event.org(trip.getOrgId());
         }
-        event.message("moderation.report: " + describe(target, subject) + "; reason=" + reason).log();
+        event.message("moderation.report: " + describe(target, subject) + "; reason="
+                + (reason == null ? "(no reason given)" : reason)).log();
     }
 
     /** Best effort: a report that is in the trail but whose mail failed is still a report. */
@@ -214,47 +219,62 @@ public class ModerationCommands {
                 log.warn("Content report not mailed: no recipient configured ({})", describe(target, subject));
                 return;
             }
-            final String tripTitle = trip == null ? "(unknown trip)" : Util.orDefault(trip.getTitle(), "");
+            // The report recipient is staff: their own language when the address is one person's, else English.
+            final Locale locale = ReaderLanguage.ofStaffAddress(to, trip);
+            final String tripTitle = trip == null ? Text.forLocale(locale, "mail.moderation.unknownTrip")
+                    : Util.orDefault(trip.getTitle(), "");
             mailSource.get().send(from, to, bcc == null || bcc.isBlank() ? null : bcc, null,
-                    "Content report: " + tripTitle, body(target, subject, reason, trip, caller),
-                    caller.auditActor());
+                    Text.forLocale(locale, "mail.moderation.subject", tripTitle),
+                    body(new Report(target, subject, reason, trip, caller), locale), caller.auditActor());
         } catch (final RuntimeException ex) {
             log.warn("Content report not mailed ({})", describe(target, subject), ex);
         }
     }
 
-    private String body(final ReportTarget target, final Optional<ChatMessage> subject, final String reason,
-            final Trip trip, final Caller caller) {
-        final Person reporter = DAO.getInstance().getPerson(caller.personId(), Cached.YES).orElse(null);
+    /** What one report mail is about; {@code reason} is null when none was given. */
+    private record Report(ReportTarget target, Optional<ChatMessage> subject, String reason, Trip trip,
+            Caller caller) {
+    }
+
+    /**
+     * The report mail's body. Its two paragraphs were always written as they are (an apostrophe stays one), so
+     * they are markup values; the table's labels are plain text and every value is escaped.
+     */
+    private String body(final Report report, final Locale locale) {
+        final ReportTarget target = report.target();
+        final Person reporter = DAO.getInstance().getPerson(report.caller().personId(), Cached.YES).orElse(null);
         final StringBuilder html = new StringBuilder(1024);
-        html.append("<p>Someone reported content in the trip chat and asked for it to be reviewed. ")
-                .append("Please look at it and act (delete, mute or remove) ").append(RESPONSE_PROMISE)
-                .append(".</p>");
+        html.append("<p>").append(Text.forLocale(locale, "mail.moderation.intro")).append("</p>");
         html.append("<table cellpadding=\"4\">");
-        row(html, "Trip", trip == null ? escape(target.tripId()) : escape(trip.getTitle()));
-        row(html, "Reported by", reporter == null ? escape(caller.auditActor().email())
+        row(html, locale, "common.trip", report.trip() == null ? escape(target.tripId())
+                : escape(report.trip().getTitle()));
+        row(html, locale, "mail.moderation.reportedBy", reporter == null
+                ? escape(report.caller().auditActor().email())
                 : escape(displayName(reporter) + " <" + Util.orDefault(reporter.getEmail(), "") + ">"));
-        row(html, "What", kindLabel(target.kind()));
-        if (subject.isPresent()) {
-            final ChatMessage message = subject.get();
+        row(html, locale, "mail.moderation.what", escape(kindLabel(target.kind(), locale)));
+        if (report.subject().isPresent()) {
+            final ChatMessage message = report.subject().get();
             final Person author = message.getAuthorId() == null ? null
                     : DAO.getInstance().getPerson(message.getAuthorId(), Cached.YES).orElse(null);
-            row(html, "Written by", author == null ? "(unknown)" : escape(displayName(author)));
-            row(html, "Sent", message.getSentAt() == null ? "" : message.getSentAt().toString());
-            row(html, "Text", escape(snippet(message.getBody())));
+            row(html, locale, "mail.moderation.writtenBy", author == null
+                    ? escape(Text.forLocale(locale, "mail.moderation.unknownAuthor")) : escape(displayName(author)));
+            row(html, locale, "mail.moderation.sent", message.getSentAt() == null ? ""
+                    : message.getSentAt().toString());
+            row(html, locale, "mail.moderation.text", escape(snippet(message.getBody())));
             if (!message.getAttachments().isEmpty()) {
-                row(html, "Photos", Integer.toString(message.getAttachments().size()));
+                row(html, locale, "common.photos", Integer.toString(message.getAttachments().size()));
             }
-            row(html, "Message id", escape(message.getId() == null ? "" : message.getId().getValue()));
+            row(html, locale, "mail.moderation.messageId",
+                    escape(message.getId() == null ? "" : message.getId().getValue()));
         }
         if (target.photoKey() != null) {
-            row(html, "Photo", escape(target.photoKey()));
+            row(html, locale, "common.photo", escape(target.photoKey()));
         }
-        row(html, "Reason", escape(reason));
-        row(html, "Reported at", Instant.now().toString());
+        row(html, locale, "common.reason", escape(report.reason() == null
+                ? Text.forLocale(locale, "mail.moderation.noReason") : report.reason()));
+        row(html, locale, "mail.moderation.reportedAt", Instant.now().toString());
         html.append("</table>");
-        html.append("<p>Open the trip's chat page as a chat manager to delete the content, mute the author ")
-                .append("or remove them from the chat. This report is also in the audit trail.</p>");
+        html.append("<p>").append(Text.forLocale(locale, "mail.moderation.howToAct")).append("</p>");
         return html.toString();
     }
 
@@ -267,11 +287,11 @@ public class ModerationCommands {
                 + " author=" + author;
     }
 
-    private static String kindLabel(final TargetKind kind) {
+    private static String kindLabel(final TargetKind kind, final Locale locale) {
         return switch (kind) {
-            case MESSAGE -> "A chat message";
-            case PHOTO -> "A photo";
-            case COMMENT -> "A comment on a photo";
+            case MESSAGE -> Text.forLocale(locale, "mail.moderation.kindMessage");
+            case PHOTO -> Text.forLocale(locale, "mail.moderation.kindPhoto");
+            case COMMENT -> Text.forLocale(locale, "mail.moderation.kindComment");
         };
     }
 
@@ -286,8 +306,10 @@ public class ModerationCommands {
         return body.length() <= SNIPPET_CHARS ? body : body.substring(0, SNIPPET_CHARS) + "…";
     }
 
-    private static void row(final StringBuilder html, final String label, final String value) {
-        html.append("<tr><th align=\"left\" valign=\"top\">").append(label).append("</th><td>")
+    private static void row(final StringBuilder html, final Locale locale, final String labelKey,
+            final String value) {
+        html.append("<tr><th align=\"left\" valign=\"top\">").append(escape(Text.forLocale(locale, labelKey)))
+                .append("</th><td>")
                 .append(value == null ? "" : value).append("</td></tr>");
     }
 

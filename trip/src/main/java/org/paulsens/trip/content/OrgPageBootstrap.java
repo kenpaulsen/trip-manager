@@ -17,9 +17,11 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.function.ToIntFunction;
 import java.util.regex.Pattern;
+import org.paulsens.trip.action.ConfigCommands;
 import org.paulsens.trip.action.TripCommands;
 import org.paulsens.trip.action.TripPageCommands;
 import org.paulsens.trip.model.ContentInstance;
+import org.paulsens.trip.model.Language;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.SitePage;
 import org.paulsens.trip.model.Trip;
@@ -186,7 +188,9 @@ public final class OrgPageBootstrap {
     }
 
     /** The trip a trip-page key names, or null for any other key (org, shared and marketing pages, containers). */
-    public static String tripOf(final String pageKey) {
+    public static String tripOf(final String versionOrPageKey) {
+        // A language version belongs to the same trip as its page (PageVersions); likewise in orgOf below.
+        final String pageKey = PageVersions.baseOf(versionOrPageKey);
         if (pageKey == null || !pageKey.startsWith(TRIP_PAGE_PREFIX)) {
             return null;
         }
@@ -204,7 +208,8 @@ public final class OrgPageBootstrap {
      * ({@code page:unitetrip:{name}}). The product site's own named pages (Pricing, Why UniteTrip) are the platform
      * org's Site Pages, {@code page:org:{uuid}:{name}} keys, and answer false here: use {@link #orgOf} for them.
      */
-    public static boolean isMarketingPageKey(final String pageKey) {
+    public static boolean isMarketingPageKey(final String versionOrPageKey) {
+        final String pageKey = PageVersions.baseOf(versionOrPageKey);
         return MARKETING_PAGE_KEY.equals(pageKey)
                 || pageKey != null && pageKey.startsWith(MARKETING_PAGE_PREFIX)
                         && isPageName(pageKey.substring(MARKETING_PAGE_PREFIX.length()));
@@ -214,7 +219,8 @@ public final class OrgPageBootstrap {
      * The org an org-page key names ({@code page:org:{uuid}:{pageName}}, any page), or null for any other key
      * (shared pages, marketing pages, containers).
      */
-    public static Organization.Id orgOf(final String pageKey) {
+    public static Organization.Id orgOf(final String versionOrPageKey) {
+        final String pageKey = PageVersions.baseOf(versionOrPageKey);
         if (pageKey == null || !pageKey.startsWith(ORG_PAGE_PREFIX)) {
             return null;
         }
@@ -224,7 +230,9 @@ public final class OrgPageBootstrap {
             return null;
         }
         final String id = rest.substring(0, colon);
-        return id.isBlank() || id.indexOf(':') >= 0 ? null : Organization.Id.from(id);
+        // No colon (it would be a second key segment) and no version mark: a mark belongs after the page name
+        // only, so one inside the id is not a key anyone writes and must name no organization.
+        return id.isBlank() || id.indexOf(':') >= 0 || id.indexOf('@') >= 0 ? null : Organization.Id.from(id);
     }
 
     /**
@@ -415,7 +423,7 @@ public final class OrgPageBootstrap {
         hero.put("eyebrow", orgName == null ? "" : orgName);
         hero.put("headline", trip.getShortTitle());
         hero.put("subheadline", dateRange(trip));
-        hero.put("primaryText", trip.getKind().getRegisterLabel());
+        hero.put("primaryText", trip.getKind().registerLabelIn(pageLocaleOf(trip)));
         hero.put("primaryUrl", register);
         hero.put("secondaryText", "About");
         hero.put("secondaryUrl", "#" + tripRowId(trip, "about"));
@@ -439,6 +447,27 @@ public final class OrgPageBootstrap {
         return List.of(tripRow(trip, "legacy-description", tripPageKey(trip.getId()), "",
                 StarterTemplates.TEXT_ONLY_ID, templateVersion, 0,
                 Map.of("body", PageHtml.clean(trip.getDescription())), null));
+    }
+
+    /**
+     * The language a trip's page is written in ({@code docs/i18n.md}, "Language versions of a page"): the trip's
+     * own language when its site offers it, else that site's default. Seeded text is STORED in the page, so it
+     * must never take the language of the request that happened to seed it (an admin browsing in Spanish would
+     * otherwise leave a Spanish button on an English page for every visitor).
+     */
+    static Locale pageLocaleOf(final Trip trip) {
+        return pageLanguageOf(trip).getLocale();
+    }
+
+    /**
+     * THE rule for the language a trip's unmarked page is written in: the trip's language when its site offers
+     * it, else that site's default. The seeded text, the version bar, the page's lang mark, its hreflang links
+     * and the version a reader is served all ask here, so they never disagree about which version is the own.
+     */
+    public static Language pageLanguageOf(final Trip trip) {
+        final List<Language> offered = new ConfigCommands().siteLanguages(trip.getOrganization());
+        final Language own = trip.getLanguage();
+        return own != null && offered.contains(own) ? own : offered.get(0);
     }
 
     private static final String ABOUT_PLACEHOLDER =
@@ -467,7 +496,7 @@ public final class OrgPageBootstrap {
         // Stored as OUR registration page even for an external trip: the render resolves it to where the trip
         // registers now (TripPageCommands.contentLink), so a URL added or changed after seeding still applies.
         final String register = TripPageCommands.JOIN_URL + trip.getId();
-        final String registerLabel = trip.getKind().getRegisterLabel();
+        final String registerLabel = trip.getKind().registerLabelIn(pageLocaleOf(trip));
         final String speakers = tripRowId(trip, "speakers");
         final String schedule = tripRowId(trip, "schedule");
         final String faq = tripRowId(trip, "faq");

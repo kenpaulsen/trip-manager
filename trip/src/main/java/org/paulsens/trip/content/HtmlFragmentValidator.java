@@ -4,6 +4,7 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.Locale;
 import org.paulsens.trip.content.HtmlTags.Tag;
+import org.paulsens.trip.i18n.Text;
 
 /**
  * Structural sanity check for admin-authored HTML fragments (template bodies, rich-text values, container
@@ -40,7 +41,7 @@ public final class HtmlFragmentValidator {
             if (html.startsWith("<!--", lt)) {
                 final int end = html.indexOf("-->", lt + 4);
                 if (end < 0) {
-                    return "An HTML comment is never closed.";
+                    return Text.get("server.htmlFragment.commentNeverClosed");
                 }
                 i = end + 3;
             } else if (lt + 1 < html.length() && html.charAt(lt + 1) == '!') {
@@ -59,7 +60,7 @@ public final class HtmlFragmentValidator {
             } else if (lt + 1 < html.length() && Character.isLetter(html.charAt(lt + 1))) {
                 final Tag tag = HtmlTags.readTag(html, lt + 1);
                 if (tag == null) {
-                    return "The tag starting at “" + excerpt(html, lt) + "” is never closed with '>'.";
+                    return Text.get("server.htmlFragment.tagNeverTerminated", excerpt(html, lt));
                 }
                 i = tag.end();
                 if (tag.selfClosing() || HtmlTags.VOID_ELEMENTS.contains(tag.name())) {
@@ -68,7 +69,7 @@ public final class HtmlFragmentValidator {
                 if (HtmlTags.RAW_TEXT_ELEMENTS.contains(tag.name())) {
                     final int close = html.toLowerCase(Locale.ROOT).indexOf("</" + tag.name(), i);
                     if (close < 0) {
-                        return "<" + tag.name() + "> is never closed.";
+                        return Text.get("server.htmlFragment.elementNeverClosed", tag.name());
                     }
                     i = HtmlTags.skipPast(html, close, '>');
                 } else {
@@ -79,17 +80,17 @@ public final class HtmlFragmentValidator {
             }
         }
         if (!open.isEmpty()) {
-            return "<" + open.peek() + "> is never closed.";
+            return Text.get("server.htmlFragment.elementNeverClosed", open.peek());
         }
         return null;
     }
 
     private static String closeTag(final Deque<String> open, final String name) {
         if (open.isEmpty()) {
-            return "</" + name + "> has no matching opening tag.";
+            return Text.get("server.htmlFragment.noOpeningTag", name);
         }
         if (!open.peek().equals(name)) {
-            return "</" + name + "> found where </" + open.peek() + "> was expected (tags must nest).";
+            return Text.get("server.htmlFragment.misnested", name, open.peek());
         }
         open.pop();
         return null;

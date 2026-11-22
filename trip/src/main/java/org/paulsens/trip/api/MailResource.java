@@ -15,6 +15,7 @@ import org.paulsens.trip.action.MailCommands;
 import org.paulsens.trip.action.MailMerge;
 import org.paulsens.trip.action.OrgCommands;
 import org.paulsens.trip.audit.AuditActor;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.util.TripThreads;
 
@@ -57,26 +58,26 @@ public class MailResource extends BaseResource {
     public Response preview(
             @HeaderParam(CSRF_HEADER) final String csrf, final PreviewRequest body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         // emailAdmin is ORG-scoped now (org migration, 2026-08): entry needs it somewhere, and the preview
         // subject must be someone the caller could actually mail (or themselves).
         final OrgCommands orgs = new OrgCommands(this::caller);
         if (!orgs.canMail()) {
-            return error(403, ApiErrors.FORBIDDEN, "Email administration required.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.mail.adminRequired"));
         }
         if (body == null || body.template() == null || body.template().isBlank()) {
-            return error(400, ApiErrors.BAD_REQUEST, "A template is required.");
+            return error(400, ApiErrors.BAD_REQUEST, Text.get("api.mail.templateRequired"));
         }
         final Person person = (body.personId() == null || body.personId().isBlank())
                 ? findPerson(personId()) : findPerson(Person.Id.from(body.personId()));
         if (person == null) {
-            return error(404, ApiErrors.NOT_FOUND, "No such person to preview against.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.mail.noPreviewPerson"));
         }
         final java.util.Set<String> allowed = orgs.allowedRecipientEmails();
         if (allowed != null && !person.getId().equals(personId())
                 && !OrgCommands.isAllowedEmail(allowed, person.getEmail())) {
-            return error(403, ApiErrors.FORBIDDEN, "That person is outside your organization(s).");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.mail.personOutsideOrgs"));
         }
         // The merge's {{field}} substitution, the page's own rules: the text is never evaluated (it was EL
         // until medjugorje#79, which let an org-scoped emailAdmin run code here), and a field the caller may
@@ -106,11 +107,11 @@ public class MailResource extends BaseResource {
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response send(@HeaderParam(CSRF_HEADER) final String csrf, final SendRequest body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         final OrgCommands orgs = new OrgCommands(this::caller);
         if (!orgs.canMail()) {
-            return error(403, ApiErrors.FORBIDDEN, "Email administration required.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.mail.adminRequired"));
         }
         final Response invalid = validate(body);
         if (invalid != null) {
@@ -119,7 +120,7 @@ public class MailResource extends BaseResource {
         // The page's forged-post guard (MailMerge.send), which this door lacked: every organization's
         // domain is verified in the one SES account, so an unchecked From let one tenant mail as another.
         if (!orgs.isMergeFromSendable(body.from())) {
-            return error(422, ApiErrors.VALIDATION_FAILED, OrgCommands.INVALID_MERGE_FROM);
+            return error(422, ApiErrors.VALIDATION_FAILED, MailMerge.invalidMergeFrom());
         }
         final MailCommands mail = Beans.get(MailCommands.class);
         final AuditActor actor = actor();
@@ -132,7 +133,7 @@ public class MailResource extends BaseResource {
                 .filter(Objects::nonNull)
                 .toList();
         if (accepted.isEmpty()) {
-            return error(422, ApiErrors.VALIDATION_FAILED, "No usable recipient addresses.");
+            return error(422, ApiErrors.VALIDATION_FAILED, Text.get("api.mail.noUsableRecipients"));
         }
         final String bcc = orgs.boundedBcc(body.bcc());
         for (final String recipient : accepted) {
@@ -152,17 +153,18 @@ public class MailResource extends BaseResource {
 
     private Response validate(final SendRequest body) {
         if (body == null || body.to() == null || body.to().isEmpty()) {
-            return error(400, ApiErrors.BAD_REQUEST, "At least one recipient is required.");
+            return error(400, ApiErrors.BAD_REQUEST, Text.get("api.mail.recipientRequired"));
         }
         if (body.to().size() > MAX_RECIPIENTS) {
             return error(400, ApiErrors.BAD_REQUEST,
-                    "At most " + MAX_RECIPIENTS + " recipients per call; got " + body.to().size() + ".");
+                    Text.get("api.mail.tooManyRecipients", String.valueOf(MAX_RECIPIENTS),
+                            String.valueOf(body.to().size())));
         }
         if (body.subject() == null || body.subject().isBlank()) {
-            return error(400, ApiErrors.BAD_REQUEST, "A subject is required.");
+            return error(400, ApiErrors.BAD_REQUEST, Text.get("api.mail.subjectRequired"));
         }
         if (body.body() == null || body.body().isBlank()) {
-            return error(400, ApiErrors.BAD_REQUEST, "A body is required.");
+            return error(400, ApiErrors.BAD_REQUEST, Text.get("api.shared.bodyRequired"));
         }
         return null;
     }

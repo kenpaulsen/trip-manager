@@ -4,6 +4,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.regex.Pattern;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.Organization;
 
 /**
@@ -66,26 +67,30 @@ public final class CustomDomains {
      */
     public static String problem(final String domain, final String baseDomain, final List<String> shared) {
         if (domain == null || domain.length() > MAX_LENGTH || !isHostName(domain)) {
-            return "A custom domain is a host name such as example.org, without https:// or a path.";
+            return Text.get("server.customDomains.notHostName");
         }
         if (domain.equals("localhost") || domain.endsWith(".localhost") || domain.endsWith(".local")) {
-            return "A custom domain must be a public domain name.";
+            return Text.get("server.customDomains.notPublic");
         }
         final String base = normalize(baseDomain);
         if (base != null && (domain.equals(base) || domain.endsWith("." + base))) {
-            return "Names under " + base + " are subdomains: set the organization's subdomain instead.";
+            return Text.get("server.customDomains.underBaseDomain", base);
         }
         for (final String one : shared) {
             if (domain.equals(one) || domain.endsWith("." + one)) {
-                return one + " is a shared domain, so no single organization may claim it.";
+                return Text.get("server.customDomains.sharedDomain", one);
             }
         }
         return null;
     }
 
-    /** Why a custom domain needs a slug first (shown when an org without a subdomain asks for one). */
-    public static final String NEEDS_SLUG = "An organization needs a subdomain before it can have a custom domain: "
-            + "the domain is a second address of that site.";
+    /**
+     * Why a custom domain needs a slug first (shown when an org without a subdomain asks for one), in the language
+     * of the request in progress.
+     */
+    public static String needsSlug() {
+        return Text.get("server.customDomains.needsSlug");
+    }
 
     /**
      * {@link #problem} plus uniqueness: why {@code org} may not claim {@code domain}, or null when it may.
@@ -100,7 +105,7 @@ public final class CustomDomains {
         }
         final boolean taken = orgs.stream().anyMatch(other -> !other.getId().equals(org)
                 && domain.equals(normalize(other.getCustomDomain())));
-        return taken ? "Another organization already uses " + domain + "." : null;
+        return taken ? Text.get("server.customDomains.taken", domain) : null;
     }
 
     /** Two or more labels, each a DNS label, the last alphabetic. */

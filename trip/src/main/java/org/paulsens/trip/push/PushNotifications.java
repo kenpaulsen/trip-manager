@@ -2,11 +2,14 @@ package org.paulsens.trip.push;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.function.Consumer;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.ConfigCommands;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.config.KnownSettings;
+import org.paulsens.trip.i18n.ReaderLanguage;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.Payment;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
@@ -75,20 +78,25 @@ public class PushNotifications {
     }
 
     private void fanOutApproval(final Person person, final Trip trip, final List<Person.Id> recipients) {
-        final String title = trip.getTitle() == null ? "Your trip" : trip.getTitle();
         final String link = PushLinks.paymentsLink(trip.getId());
         final String url = PushLinks.tripUrl(trip, KnownSettings.REG_MAIL_BASE_URL, config);
         final String icon = PushLinks.iconFor(trip, config);
-        final String name = person.getPreferredName() == null ? "A traveler" : person.getPreferredName();
         for (final Person.Id recipient : new ArrayList<>(recipients)) {
             if (recipient == null) {
                 continue;
             }
+            // Each recipient reads their OWN language (docs/i18n.md): the traveler and a manager may differ.
+            final Locale locale = ReaderLanguage.of(recipient, trip);
+            final String title = trip.getTitle() == null ? Text.forLocale(locale, "push.trip.untitled")
+                    : trip.getTitle();
+            final String name = person.getPreferredName() == null ? Text.forLocale(locale, "push.reg.someone")
+                    : person.getPreferredName();
             final String body = recipient.equals(person.getId())
-                    ? "You're confirmed for " + title
-                    : name + " is confirmed for " + title;
+                    ? Text.forLocale(locale, "push.reg.self", title)
+                    : Text.forLocale(locale, "push.reg.other", name, title);
             final PushPayload payload = PushPayload.alert(PushPayload.KIND_REGISTRATION_APPROVED, title,
-                    "Registration approved", body, "trip:" + trip.getId(), link, url).withIcon(icon);
+                    Text.forLocale(locale, "push.reg.title"), body, "trip:" + trip.getId(), link, url)
+                    .withIcon(icon);
             sender.sendAlert(recipient, payload, dedupe("reg:" + trip.getId() + ":" + person.getId().getValue(),
                     recipient));
         }
@@ -103,13 +111,15 @@ public class PushNotifications {
     }
 
     private void fanOutPayment(final Payment payment, final Trip trip, final String orgName) {
-        final String org = orgName == null || orgName.isBlank() ? "the organization" : orgName;
+        final Locale locale = ReaderLanguage.of(payment.getPayerId(), trip);
+        final String org = orgName == null || orgName.isBlank() ? Text.forLocale(locale, "push.pay.org") : orgName;
         final String title = trip != null && trip.getTitle() != null ? trip.getTitle() : org;
         final String tripId = payment.getTripId() != null ? payment.getTripId()
                 : trip == null ? null : trip.getId();
         final PushPayload payload = PushPayload.alert(PushPayload.KIND_PAYMENT_RECORDED, title,
-                "Payment received", "Thank you! " + MoneyMath.formatCents(payment.getTotalChargedCents())
-                        + " received by " + org, "trip:" + tripId, PushLinks.paymentsLink(tripId),
+                Text.forLocale(locale, "push.pay.title"), Text.forLocale(locale, "push.pay.body",
+                        MoneyMath.formatCents(payment.getTotalChargedCents()), org),
+                "trip:" + tripId, PushLinks.paymentsLink(tripId),
                 PushLinks.paymentsUrl(trip, tripId, config)).withIcon(PushLinks.iconFor(trip, config));
         sender.sendAlert(payment.getPayerId(), payload, dedupe("pay:" + payment.getPaymentId(),
                 payment.getPayerId()));
@@ -129,20 +139,27 @@ public class PushNotifications {
 
     private void fanOutSupport(final ChatMessage stored, final Person requester, final List<Person> admins,
             final String subject) {
-        final String who = requester == null || requester.getPreferredName() == null ? "Someone"
-                : requester.getPreferredName();
-        final PushPayload payload = PushPayload.alert(PushPayload.KIND_SUPPORT_REQUEST, "Support request", who,
-                        subject == null ? "New support request" : subject, ChatChannel.Id.forSupport().getValue(),
-                        null, PushLinks.supportUrl(config))
-                .withChat(ChatChannel.Id.forSupport().getValue(), stored.getId().getValue())
-                .withIcon(PushLinks.base(null, config) + PushLinks.SITE_LOGO);
         for (final Person admin : admins) {
             if (admin == null || admin.getId() == null
                     || (requester != null && admin.getId().equals(requester.getId()))) {
                 continue;
             }
-            sender.sendAlert(admin.getId(), payload, dedupe("sup:" + stored.getId().getValue(), admin.getId()));
+            sender.sendAlert(admin.getId(), supportPayload(stored, requester, subject, admin),
+                    dedupe("sup:" + stored.getId().getValue(), admin.getId()));
         }
+    }
+
+    /** One admin's copy, in that admin's language; the subject is the requester's own words and is not ours. */
+    private PushPayload supportPayload(final ChatMessage stored, final Person requester, final String subject,
+            final Person admin) {
+        final Locale locale = ReaderLanguage.of(admin, null);
+        final String who = requester == null || requester.getPreferredName() == null
+                ? Text.forLocale(locale, "common.someone") : requester.getPreferredName();
+        return PushPayload.alert(PushPayload.KIND_SUPPORT_REQUEST, Text.forLocale(locale, "push.support.title"),
+                        who, subject == null ? Text.forLocale(locale, "push.support.body") : subject,
+                        ChatChannel.Id.forSupport().getValue(), null, PushLinks.supportUrl(config))
+                .withChat(ChatChannel.Id.forSupport().getValue(), stored.getId().getValue())
+                .withIcon(PushLinks.base(null, config) + PushLinks.SITE_LOGO);
     }
 
     /**
@@ -164,7 +181,8 @@ public class PushNotifications {
         final String link = balance ? PushLinks.paymentsLink(trip.getId()) : PushLinks.tripLink(trip.getId());
         final String url = balance ? PushLinks.paymentsUrl(trip, trip.getId(), config)
                 : PushLinks.tripUrl(trip, KnownSettings.REG_MAIL_BASE_URL, config);
-        final String tripTitle = trip.getTitle() == null ? "Your trip" : trip.getTitle();
+        final String tripTitle = trip.getTitle() == null
+                ? Text.forLocale(ReaderLanguage.of(recipient, trip), "push.trip.untitled") : trip.getTitle();
         final PushPayload payload = PushPayload.alert(PushPayload.KIND_TRIP_REMINDER, tripTitle, title, text,
                 "trip:" + trip.getId(), link, url).withIcon(PushLinks.iconFor(trip, config));
         sender.sendAlert(recipient, payload,
@@ -173,8 +191,10 @@ public class PushNotifications {
 
     /** The test push to the caller's own devices: no dedupe, so it can be pressed twice. */
     public PushSender.Report sendTest(final Person.Id me) {
-        final PushPayload payload = PushPayload.alert(PushPayload.KIND_TEST, "UniteTrip", "Test notification",
-                "Push notifications are working.", "test", null, null)
+        final Locale locale = ReaderLanguage.of(me, null);
+        final PushPayload payload = PushPayload.alert(PushPayload.KIND_TEST, "UniteTrip",
+                        Text.forLocale(locale, "push.test.title"), Text.forLocale(locale, "push.test.body"),
+                        "test", null, null)
                 .withIcon(PushLinks.base(null, config) + PushLinks.SITE_LOGO);
         return sender.sendAlert(me, payload, null);
     }

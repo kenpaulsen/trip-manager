@@ -19,6 +19,8 @@ import java.util.Map;
 import org.paulsens.trip.action.WaiverCommands;
 import org.paulsens.trip.action.WaiverPdf;
 import org.paulsens.trip.action.WaiverRequirement;
+import org.paulsens.trip.audit.RequestContext;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripWaiver;
@@ -37,7 +39,6 @@ import org.paulsens.trip.model.WaiverAcceptance;
 public class TripWaiversResource extends BaseResource {
 
     private static final String V1 = ApiMediaTypes.WAIVERS_V1;
-    private static final String CSRF_MESSAGE = "Missing " + CSRF_HEADER + " header.";
 
     @Override
     protected String versionedType() {
@@ -60,7 +61,7 @@ public class TripWaiversResource extends BaseResource {
         final Person.Id subject = subjectOf(personId);
         final WaiverCommands waivers = waivers();
         if (!waivers.canReadRecords(trip, subject)) {
-            return error(403, ApiErrors.FORBIDDEN, "Not permitted to read this traveler's documents.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.tripWaivers.readNotPermitted"));
         }
         final Person person = requireSubject(subject);
         final List<WaiverRequirement> reqs = waivers.requirements(trip, subject);
@@ -88,7 +89,7 @@ public class TripWaiversResource extends BaseResource {
     public Response accept(@PathParam("tripId") final String tripId, @PathParam("waiverId") final String waiverId,
             @HeaderParam(CSRF_HEADER) final String csrf, final Map<String, Object> body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, CSRF_MESSAGE);
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         final Trip trip = requireTrip(tripId);
         final Person.Id subject = subjectOf(str(body, "personId"));
@@ -116,7 +117,7 @@ public class TripWaiversResource extends BaseResource {
         final WaiverCommands waivers = waivers();
         final byte[] pdf = (version == null) ? null : waivers.signedPdf(tripId, subject, waiverId, version);
         if (pdf == null) {
-            return error(404, ApiErrors.NOT_FOUND, "No such signed document.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.tripWaivers.noSuchSignedDocument"));
         }
         final WaiverAcceptance row = waivers.acceptancesFor(trip, subject).stream()
                 .filter(a -> waiverId.equals(a.getWaiverId()) && a.getVersion() == version)
@@ -138,12 +139,12 @@ public class TripWaiversResource extends BaseResource {
     public Response replace(@PathParam("tripId") final String tripId, @HeaderParam(CSRF_HEADER) final String csrf,
             final Map<String, Object> body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, CSRF_MESSAGE);
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         final Trip trip = requireTrip(tripId);
         final WaiverCommands waivers = waivers();
         if (!waivers.canConfigure(trip)) {
-            return error(403, ApiErrors.FORBIDDEN, "Registration admin or trip manager required.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.tripWaivers.adminOrManagerRequired"));
         }
         final String problem = waivers.replacePins(trip, pinsOf(body));
         if (problem != null) {
@@ -181,8 +182,9 @@ public class TripWaiversResource extends BaseResource {
         row.put("bodyHtml", req.getBodyHtml());
         row.put("sha256", req.getSha256());
         row.put("standing", req.getStandingKey());
-        row.put("agreeText", WaiverCommands.agreeText(req.getTitle()));
-        row.put("authorityText", WaiverCommands.authorityText(fullName(traveler)));
+        // The signer's app shows these beside the boxes, in the language it asked for.
+        row.put("agreeText", WaiverCommands.agreeText(req.getTitle(), RequestContext.currentLocale()));
+        row.put("authorityText", WaiverCommands.authorityText(fullName(traveler), RequestContext.currentLocale()));
         if (req.getAcceptance() != null) {
             row.put("acceptance", acceptanceJson(req.getAcceptance()));
         }

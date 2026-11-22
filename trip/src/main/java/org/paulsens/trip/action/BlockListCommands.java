@@ -9,6 +9,7 @@ import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.DataId;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.PersonDataValue;
@@ -73,7 +74,7 @@ public class BlockListCommands {
     public BlockOutcome block(final Person.Id me, final Person.Id target) {
         final List<Person.Id> current = new ArrayList<>(blockedBy(me));
         if (target == null || target.equals(me)) {
-            return BlockOutcome.refused(REFUSED_SELF, "You cannot block yourself.", current);
+            return BlockOutcome.refused(REFUSED_SELF, Text.get("feedback.blockListCommands.self"), current);
         }
         if (current.contains(target)) {
             // Before the existence check on purpose: a person who has since deleted their account stays
@@ -81,10 +82,11 @@ public class BlockListCommands {
             return BlockOutcome.ok(current);
         }
         if (dao().getPerson(target, Cached.YES).isEmpty()) {
-            return BlockOutcome.refused(REFUSED_NOT_FOUND, "No such person.", current);
+            return BlockOutcome.refused(REFUSED_NOT_FOUND, Text.get("api.shared.noSuchPerson"),
+                    current);
         }
         if (current.size() >= MAX_BLOCKED) {
-            return BlockOutcome.refused(REFUSED_FULL, "Your block list is full.", current);
+            return BlockOutcome.refused(REFUSED_FULL, Text.get("feedback.blockListCommands.full"), current);
         }
         current.add(target);
         return save(me, current);
@@ -118,7 +120,7 @@ public class BlockListCommands {
         } catch (final IOException | RuntimeException ex) {
             log.warn("Block list not saved for {}", me.getValue(), ex);
         }
-        return BlockOutcome.refused(REFUSED_STORE, "Your block list was not saved. Try again.", blockedBy(me));
+        return BlockOutcome.refused(REFUSED_STORE, Text.get("feedback.blockListCommands.notSaved"), blockedBy(me));
     }
 
     /** The one write; a seam so a test can make the store fail without a mockable DAO (it is final). */

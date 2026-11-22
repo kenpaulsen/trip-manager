@@ -24,6 +24,7 @@ import org.paulsens.trip.api.dto.MediaBasesDto;
 import org.paulsens.trip.api.dto.MediaItemDto;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.media.UploadType;
 import org.paulsens.trip.model.MediaItem;
 import org.paulsens.trip.model.Person;
@@ -78,7 +79,7 @@ public class MediaResource extends BaseResource {
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response list() {
         if (!mediaAdminHere()) {
-            return error(403, ApiErrors.FORBIDDEN, "Media administration required.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.media.adminRequired"));
         }
         final MediaCommands media = Beans.get(MediaCommands.class);
         return ok(media.getAll().stream().map(item -> toDto(media, item)).toList());
@@ -124,7 +125,7 @@ public class MediaResource extends BaseResource {
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response inSlot(@PathParam("slot") final String slot) {
         if (slot == null || slot.isBlank()) {
-            return error(400, ApiErrors.BAD_REQUEST, "A slot name is required.");
+            return error(400, ApiErrors.BAD_REQUEST, Text.get("api.media.slotNameRequired"));
         }
         final MediaCommands media = Beans.get(MediaCommands.class);
         // Membership first: it is the apps' ordinary case and already answers "everything" for an album, so
@@ -135,7 +136,7 @@ public class MediaResource extends BaseResource {
         // expense report's own gated servlet. Same answer as an unknown slot.
         final List<MediaItem> rows = ExpenseReceipts.isReceiptSlot(slot) ? null
                 : (admin || member) ? media.getDiscoverableInSlot(slot) : rowsForNonMember(media, slot);
-        return rows == null ? error(404, ApiErrors.NOT_FOUND, "No such slot.")
+        return rows == null ? error(404, ApiErrors.NOT_FOUND, Text.get("api.media.noSuchSlot"))
                 : ok(rows.stream().map(item -> toDto(media, item)).toList());
     }
 
@@ -258,7 +259,7 @@ public class MediaResource extends BaseResource {
         final MediaItem item = managed != null ? managed : media.getVisible(id);
         // A receipt's DTO would carry its CDN URL: it reads as absent here (see inSlot).
         if (item == null || ExpenseReceipts.isReceiptSlot(item.getSlot())) {
-            return error(404, ApiErrors.NOT_FOUND, "No such media item.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.media.noSuchItem"));
         }
         return ok(toDto(media, item));
     }
@@ -281,23 +282,23 @@ public class MediaResource extends BaseResource {
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response uploadUrl(@HeaderParam(CSRF_HEADER) final String csrf, final UploadUrlRequest body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         if (!mediaAdminHere()) {
-            return error(403, ApiErrors.FORBIDDEN, "Media administration required.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.media.adminRequired"));
         }
         if (body == null || body.key() == null || body.key().isBlank()) {
-            return error(400, ApiErrors.BAD_REQUEST, "An object key is required.");
+            return error(400, ApiErrors.BAD_REQUEST, Text.get("api.media.keyRequired"));
         }
         if (body.contentType() == null || body.contentType().isBlank()) {
-            return error(400, ApiErrors.BAD_REQUEST, "A content type is required.");
+            return error(400, ApiErrors.BAD_REQUEST, Text.get("api.media.contentTypeRequired"));
         }
         if (body.size() == null || body.size() <= 0) {
-            return error(400, ApiErrors.BAD_REQUEST, "The exact size in bytes is required.");
+            return error(400, ApiErrors.BAD_REQUEST, Text.get("api.media.sizeRequired"));
         }
         if (body.size() > MAX_UPLOAD_BYTES) {
             return error(422, ApiErrors.VALIDATION_FAILED,
-                    "That file is too large; the limit is " + MAX_UPLOAD_BYTES + " bytes.");
+                    Text.get("api.media.fileTooLarge", String.valueOf(MAX_UPLOAD_BYTES)));
         }
         final Response keyProblem = keyRefusal(body.key());
         if (keyProblem != null) {
@@ -305,21 +306,20 @@ public class MediaResource extends BaseResource {
         }
         final MediaCommands media = Beans.get(MediaCommands.class);
         if (!media.isUploadEnabled()) {
-            return error(503, ApiErrors.STORE_FAILED, "Uploads are not available in this deployment.");
+            return error(503, ApiErrors.STORE_FAILED, Text.get("api.media.uploadsUnavailable"));
         }
         final String stored = MediaCommands.siteKey(body.key());
         if (media.getByKey(stored) != null) {
-            return error(409, ApiErrors.CONFLICT, "A media item already uses that key.");
+            return error(409, ApiErrors.CONFLICT, Text.get("api.media.keyTaken"));
         }
         if (!UploadType.mayDeclare(body.contentType())) {
             // The bytes go straight to S3 and are served from the media host every organization shares, so
             // only a type that cannot run there is signed (docs/security-headers.md, "nosniff").
-            return error(422, ApiErrors.VALIDATION_FAILED, "That file type cannot be uploaded directly. Upload "
-                    + "an image, a PDF, video or audio, or use application/octet-stream for a download.");
+            return error(422, ApiErrors.VALIDATION_FAILED, Text.get("api.media.typeNotUploadable"));
         }
         final String url = media.presignUpload(stored, body.contentType(), body.size());
         if (url == null) {
-            return error(500, ApiErrors.INTERNAL, "Could not issue an upload URL.");
+            return error(500, ApiErrors.INTERNAL, Text.get("api.media.uploadUrlNotIssued"));
         }
         return ok(Map.of(
                 "url", url,
@@ -346,13 +346,13 @@ public class MediaResource extends BaseResource {
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response confirm(@HeaderParam(CSRF_HEADER) final String csrf, final ConfirmRequest body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         if (!mediaAdminHere()) {
-            return error(403, ApiErrors.FORBIDDEN, "Media administration required.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.media.adminRequired"));
         }
         if (body == null || body.key() == null || body.key().isBlank()) {
-            return error(400, ApiErrors.BAD_REQUEST, "An object key is required.");
+            return error(400, ApiErrors.BAD_REQUEST, Text.get("api.media.keyRequired"));
         }
         final Response keyProblem = keyRefusal(body.key());
         if (keyProblem != null) {
@@ -364,19 +364,19 @@ public class MediaResource extends BaseResource {
         }
         final MediaCommands media = Beans.get(MediaCommands.class);
         if (!media.isUploadEnabled()) {
-            return error(503, ApiErrors.STORE_FAILED, "Uploads are not available in this deployment.");
+            return error(503, ApiErrors.STORE_FAILED, Text.get("api.media.uploadsUnavailable"));
         }
         final String stored = MediaCommands.siteKey(body.key());
         if (media.getByKey(stored) != null) {
-            return error(409, ApiErrors.CONFLICT, "A media item already uses that key.");
+            return error(409, ApiErrors.CONFLICT, Text.get("api.media.keyTaken"));
         }
         if (media.statObject(stored).isEmpty()) {
-            return error(422, ApiErrors.VALIDATION_FAILED, "Nothing is stored at that key; upload it first.");
+            return error(422, ApiErrors.VALIDATION_FAILED, Text.get("api.media.nothingStored"));
         }
         final MediaItem saved = media.confirmUpload(stored, body.title(), body.description(), body.slot(),
                 body.position() == null ? 0 : body.position(), requestedBy(), body.hidden());
         if (saved == null) {
-            return error(500, ApiErrors.STORE_FAILED, "The file is stored but its row could not be recorded.");
+            return error(500, ApiErrors.STORE_FAILED, Text.get("api.media.rowNotRecorded"));
         }
         return ok(toDto(media, saved));
     }
@@ -398,18 +398,18 @@ public class MediaResource extends BaseResource {
     public Response update(@HeaderParam(CSRF_HEADER) final String csrf, @PathParam("id") final String id,
             final UpdateRequest body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         if (!mediaAdminHere()) {
-            return error(403, ApiErrors.FORBIDDEN, "Media administration required.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.media.adminRequired"));
         }
         if (body == null) {
-            return error(400, ApiErrors.BAD_REQUEST, "A body is required.");
+            return error(400, ApiErrors.BAD_REQUEST, Text.get("api.shared.bodyRequired"));
         }
         final MediaCommands media = Beans.get(MediaCommands.class);
         final MediaItem existing = media.getManageable(id);
         if (existing == null) {
-            return error(404, ApiErrors.NOT_FOUND, "No such media item.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.media.noSuchItem"));
         }
         // A library edit cannot MOVE a row into a trip's album (or a hotel's, or a report's): see slotRefusal.
         final String slotProblem = MediaCommands.slotRefusal(body.slot(), existing.getSlot());
@@ -425,13 +425,13 @@ public class MediaResource extends BaseResource {
             }
             final MediaItem holder = media.getByKey(target);
             if (holder != null && !holder.getId().equals(existing.getId())) {
-                return error(409, ApiErrors.CONFLICT, "Another media item already uses that key.");
+                return error(409, ApiErrors.CONFLICT, Text.get("api.media.keyTakenByAnother"));
             }
         }
         final boolean hidden = body.hidden() == null ? existing.getHidden() : body.hidden();
         if (!media.update(id, body.key(), body.title(), body.description(), body.slot(), body.position(),
                 hidden, requestedBy())) {
-            return error(500, ApiErrors.STORE_FAILED, "The save failed; nothing was changed.");
+            return error(500, ApiErrors.STORE_FAILED, Text.get("api.media.saveFailed"));
         }
         return ok(toDto(media, media.get(id)));
     }
@@ -445,18 +445,18 @@ public class MediaResource extends BaseResource {
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response delete(@HeaderParam(CSRF_HEADER) final String csrf, @PathParam("id") final String id) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         if (!mediaAdminHere()) {
-            return error(403, ApiErrors.FORBIDDEN, "Media administration required.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.media.adminRequired"));
         }
         final MediaCommands media = Beans.get(MediaCommands.class);
         final MediaItem existing = media.getManageable(id);
         if (existing == null) {
-            return error(404, ApiErrors.NOT_FOUND, "No such media item.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.media.noSuchItem"));
         }
         if (!media.delete(id, requestedBy())) {
-            return error(500, ApiErrors.STORE_FAILED, "The delete failed.");
+            return error(500, ApiErrors.STORE_FAILED, Text.get("api.media.deleteFailed"));
         }
         return ok(Map.of("deleted", existing.getId(), "key", existing.getS3Key()));
     }
@@ -470,10 +470,10 @@ public class MediaResource extends BaseResource {
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response refresh(@HeaderParam(CSRF_HEADER) final String csrf) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         if (!mediaAdminHere()) {
-            return error(403, ApiErrors.FORBIDDEN, "Media administration required.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.media.adminRequired"));
         }
         return ok(Map.of("items", Beans.get(MediaCommands.class).refreshFromDatabase(actor())));
     }
@@ -485,12 +485,11 @@ public class MediaResource extends BaseResource {
     private Response keyRefusal(final String key) {
         final String trimmed = key.trim();
         if (trimmed.matches(".*\\s.*") || trimmed.contains("\\") || trimmed.contains("..")) {
-            return error(400, ApiErrors.BAD_REQUEST, "Keys cannot contain whitespace, backslashes or '..'.");
+            return error(400, ApiErrors.BAD_REQUEST, Text.get("api.media.keyBadCharacters"));
         }
         if (MediaCommands.isReservedKey(trimmed)) {
             return error(422, ApiErrors.VALIDATION_FAILED,
-                    "That key belongs to another feature's namespace (profile, chat or badge photos) or to "
-                            + "another site's.");
+                    Text.get("api.media.keyForeignNamespace"));
         }
         return null;
     }

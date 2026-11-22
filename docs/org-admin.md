@@ -358,7 +358,7 @@ themselves and for a site admin. For anyone else, ALL of:
   organization (`canManageOrg`), so a people admin cannot take over their own org's admin.
 
 A refusal is an ordinary refused outcome with one sentence, the same on every edge
-(`OrgCommands.SIGN_IN_CHANGE_REFUSED`): "Changing how this person signs in takes a site administrator."
+(`PersonCommands.signInChangeRefused()`): "Changing how this person signs in takes a site administrator."
 
 | Path | Where it is enforced |
 |------|----------------------|
@@ -745,7 +745,36 @@ content key, fixed at creation.
 - The address of a new page follows its title in the dialog (one client-side implementation in the page;
   the server only checks the result). An address typed by hand stops following, and a refused Save keeps it
   (`viewScope.dlgNameTouched`); the dialog's kind (page or link) is pinned when it opens (`viewScope.dlgIsLink`).
-- The shared sites keep their hand-written pages and literal menus.
+- The shared sites keep their hand-written pages and literal menus, with the two rules below.
+- **A title per language** (`SitePage.titles`, `docs/i18n.md`, "Short texts an organization writes per
+  language"): on a site offering more than one language the dialog shows one more title field per other offered
+  language under the title, blank meaning the title above. The menu and the page's browser title read
+  `orgPages.titleOf(page)`. A save without titles (`saveDialog` with null) keeps the ones stored; a title in
+  another language is held to the same length rule, and a language the site does not offer is dropped.
+
+### Hand-written shared pages (2026-11-21)
+
+The deployment's own XHTML content pages (a shared site's microsites, guides and archives) are not Site Pages,
+and nothing used to stop one from rendering on ANY host: `acme.unitetrip.com/dm` showed the shared site's novena
+in Acme's look. `web/LegacyPageFilter` closes that, driven by data the deployment supplies in
+`WEB-INF/legacy-pages.json` (init-param `config` names another resource; without the file the filter is inert, so
+this repo names no path and no organization):
+
+- `handWritten`: path prefixes whose pages are hand-written content. `sitePages`: an old address (in the canonical
+  form `LegacyPages.canonical` gives: no `.jsf`/`.xhtml`/`.faces`, no trailing slash or `/index`) and the Site Page
+  name that stands for it. `linkOut`: `slug` (and `localSlug`, used instead in local mode) names the organization
+  the shared site links out to, and `paths` which addresses do.
+- **On an organization's host** (and the marketing and unknown hosts) every address under a prefix answers like
+  `/board`: a 302 to `/page.jsf?name={mapped name}` when THAT org has a Site Page (not a link) of the name, else
+  404 through `/notFound`. An address with no mapped name is always 404 there.
+- **On a shared host** an address in `linkOut.paths` 302s to the Site Page of its name on the link-out
+  organization's site, addressed like the admin pages address it (`SiteCommands.orgSiteRoot`: custom domain,
+  else `{slug}.{base}`, `{slug}.localhost` from a localhost request), but only while that organization holds such
+  a page: otherwise the hand-written page keeps rendering, so a link out never lands on a 404. The menu's
+  shared entries link there directly through `#{legacyPages.href(path)}` (`LegacyPageCommands`), the same rule.
+- Everything else passes. The decision is the pure `LegacyPages.decide` (`LegacyPagesTest`); the filter maps
+  after `SessionRecoveryFilter` (the site binding) and `SecurityHeadersFilter`, before `RememberMeFilter`, and
+  never touches the session, so its redirects and 404s set no cookie. Malformed data fails the start.
 
 ## The pay page: an organization's "How to pay" (2026-11-19)
 
@@ -792,6 +821,9 @@ Site Page. The Java is `action/PayPageCommands` (`#{payPage}`).
   admin, a global `contentAdmin`, or `contentAdmin` of THAT organization, which the key itself names
   (`OrgPageBootstrap.orgOf`). So an organization's editor edits its pay page on a shared host too, and nobody
   else's.
+- **Language versions** (`docs/i18n.md`): `ensurePage` answers the version of the page this request reads
+  (`PageVersionCommands.forThisRequest`), so on a site offering several languages the version bar works here as on
+  any content page; the starter text only ever goes to the page's own key.
 
 ## Shared-site Register target (2026-10-29)
 
@@ -970,6 +1002,14 @@ map)` refuses non-overridable keys and values that do not parse as the declared 
 writes only the keys it is handed (which is what makes a Save per tab safe), writes only when something changed, and
 audits the change list. Rows bind by setting NAME into a viewScope map (names and scalars only), like the site Settings
 page. The page ends its heading row with a "Done" link back to the org dashboard.
+
+**Text per language.** A setting `KnownSettings` marks `.withTranslatable()` (the site title, the sidebar heading,
+the footer title and text, the donate card's title and text) may also hold one override per other language the
+org's site offers, under the setting's name plus `@` and the language tag (`site.footer.text@es`). Read before
+the plain override for a reader in that language (`ConfigCommands.rawFor`), on the org's own row only, so no
+language falls back across organizations. `saveOrgSettings` takes such a key only for a translatable setting
+and an exact language tag (`KnownSettings.findOrgOverrideKey`); the editor shows one field per other offered
+language under each such row (`ConfigCommands.overridesEdit`, `otherSiteLanguages`).
 
 **Derived base URLs.** `reg.mail.baseUrl` and `chat.mail.baseUrl` are the *shared-site* rung only. Every
 absolute link about an org — registration mail (`RegistrationCommands`), org invites (`sendOrgInvite`),

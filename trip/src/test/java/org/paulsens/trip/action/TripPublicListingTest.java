@@ -163,10 +163,4 @@ public class TripPublicListingTest {
         Assert.assertTrue(reg.saveRegistration(confirmed));
         Assert.assertTrue(reg.isChipRegistered(PUB_EN_1_TRIP_ID, visitor));
     }
-
-    @Test
-    public void languageSectionHeadingsAreDeclared() {
-        Assert.assertEquals(Language.English.getSectionHeading(), "English Medjugorje Pilgrimages");
-        Assert.assertEquals(Language.Spanish.getSectionHeading(), "Peregrinaciones españolas a Medjugorje");
-    }
 }

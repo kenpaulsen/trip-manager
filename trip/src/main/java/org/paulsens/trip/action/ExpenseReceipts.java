@@ -14,6 +14,7 @@ import org.paulsens.trip.audit.Audit;
 import org.paulsens.trip.audit.AuditEventBuilder;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.media.ImageFormat;
 import org.paulsens.trip.media.LocalObjectStore;
 import org.paulsens.trip.media.PhotoProcessor;
@@ -135,7 +136,7 @@ public class ExpenseReceipts {
         final Outcome outcome = store(tripId, lineId, bytes,
                 (event.getFile() == null) ? null : event.getFile().getFileName());
         if (outcome.ok()) {
-            info("Receipt uploaded.");
+            info(Text.get("feedback.expenseReceipts.uploaded"));
         } else {
             refuse(outcome.problem());
         }
@@ -149,13 +150,13 @@ public class ExpenseReceipts {
     public Outcome store(final String tripId, final String lineId, final byte[] bytes, final String fileName) {
         final ExpenseCommands expenses = expenses();
         if (!expenses.canEditExpenses(tripId)) {
-            return new Outcome(null, "Not allowed: only the trip's managers and finance admins can add receipts.");
+            return new Outcome(null, Text.get("feedback.expenseReceipts.addNotAllowed"));
         }
         if (bytes == null || bytes.length == 0) {
-            return new Outcome(null, "No file was received.");
+            return new Outcome(null, Text.get("feedback.expenseReceipts.noFile"));
         }
         if (bytes.length > MAX_BYTES) {
-            return new Outcome(null, "A receipt is at most " + (MAX_BYTES / (1024 * 1024)) + " MB.");
+            return new Outcome(null, Text.get("feedback.expenseReceipts.tooLarge", MAX_BYTES / (1024 * 1024)));
         }
         final Rendered rendered;
         try {
@@ -164,8 +165,7 @@ public class ExpenseReceipts {
             return new Outcome(null, ex.getMessage());
         }
         if (rendered == null) {
-            return new Outcome(null, "That file is not a receipt this site can keep: use a JPG, PNG, GIF, HEIC or "
-                    + "PDF.");
+            return new Outcome(null, Text.get("feedback.expenseReceipts.badType"));
         }
         final String id = UUID.randomUUID().toString();
         final String key = KEY_PREFIX + tripId + "/" + id + "." + rendered.extension();
@@ -174,7 +174,7 @@ public class ExpenseReceipts {
         if (!storeBytes(key, rendered.full(), rendered.contentType())
                 || (smallKey != null && !storeBytes(smallKey, rendered.small(), typeOf(smallKey)))) {
             deleteObjects(key, smallKey);
-            return new Outcome(null, "The receipt could not be stored. Try again.");
+            return new Outcome(null, Text.get("feedback.expenseReceipts.notStored"));
         }
         final Trip trip = DAO.getInstance().getTrip(tripId, Cached.YES).orElse(null);
         final MediaItem item = new MediaItem(id, key, title(fileName), null, rendered.contentType(),
@@ -182,12 +182,13 @@ public class ExpenseReceipts {
                 (trip == null) ? null : trip.getOrgId());
         if (!saveRow(item)) {
             deleteObjects(key, smallKey);
-            return new Outcome(null, "The receipt could not be stored. Try again.");
+            return new Outcome(null, Text.get("feedback.expenseReceipts.notStored"));
         }
         final List<String> problems = new ArrayList<>();
         if (!expenses.attachReceipt(tripId, lineId, id, problems::add)) {
             deleteRow(item);
-            return new Outcome(null, problems.isEmpty() ? "The receipt was not added." : problems.get(0));
+            return new Outcome(null, problems.isEmpty() ? Text.get("feedback.expenseReceipts.notAdded")
+                    : problems.get(0));
         }
         audit(item.getId(), "Expense receipt uploaded for trip " + tripId + " (" + key + ")");
         return new Outcome(id, null);
@@ -234,7 +235,7 @@ public class ExpenseReceipts {
         if (problem != null) {
             return refuse(problem);
         }
-        info("Receipt deleted.");
+        info(Text.get("feedback.expenseReceipts.deleted"));
         return true;
     }
 
@@ -242,15 +243,15 @@ public class ExpenseReceipts {
     public String remove(final String tripId, final String mediaId) {
         final ExpenseCommands expenses = expenses();
         if (!expenses.canEditExpenses(tripId)) {
-            return "Not allowed: only the trip's managers and finance admins can delete receipts.";
+            return Text.get("feedback.expenseReceipts.deleteNotAllowed");
         }
         final MediaItem item = (mediaId == null) ? null : DAO.getInstance().getMedia(mediaId, Cached.NO).orElse(null);
         if (item == null || !slotFor(tripId).equals(item.getSlot())) {
-            return "That receipt is not on this report.";
+            return Text.get("feedback.expenseCommands.receiptNotHere");
         }
         final List<String> problems = new ArrayList<>();
         if (!expenses.detachReceipt(tripId, mediaId, problems::add)) {
-            return problems.isEmpty() ? "The receipt was not deleted." : problems.get(0);
+            return problems.isEmpty() ? Text.get("feedback.expenseReceipts.notDeleted") : problems.get(0);
         }
         deleteRow(item);
         audit(item.getId(), "Expense receipt deleted from trip " + tripId + " (" + item.getS3Key() + ")");
@@ -310,12 +311,12 @@ public class ExpenseReceipts {
         if (!outcome.ok()) {
             return refuse(outcome.problem());
         }
-        info("Receipt rotated.");
+        info(Text.get("feedback.expenseReceipts.rotated"));
         return true;
     }
 
     private static RotateOutcome badDirection() {
-        return RotateOutcome.refused(RotateOutcome.BAD_DIRECTION, "Say which way to rotate: left or right.");
+        return RotateOutcome.refused(RotateOutcome.BAD_DIRECTION, Text.get("feedback.expenseReceipts.badDirection"));
     }
 
     /**
@@ -328,18 +329,19 @@ public class ExpenseReceipts {
     public RotateOutcome rotate(final String tripId, final String mediaId, final QuarterTurn turn) {
         if (!expenses().canEditExpenses(tripId)) {
             return RotateOutcome.refused(RotateOutcome.NOT_ALLOWED,
-                    "Not allowed: only the trip's managers and finance admins can rotate receipts.");
+                    Text.get("feedback.expenseReceipts.rotateNotAllowed"));
         }
         final MediaItem item = (mediaId == null) ? null : DAO.getInstance().getMedia(mediaId, Cached.NO).orElse(null);
         if (item == null || !slotFor(tripId).equals(item.getSlot())) {
-            return RotateOutcome.refused(RotateOutcome.NOT_ON_REPORT, "That receipt is not on this report.");
+            return RotateOutcome.refused(RotateOutcome.NOT_ON_REPORT,
+                    Text.get("feedback.expenseCommands.receiptNotHere"));
         }
         if (PDF.equals(item.getContentType())) {
-            return RotateOutcome.refused(RotateOutcome.PDF, "A PDF receipt cannot be rotated.");
+            return RotateOutcome.refused(RotateOutcome.PDF, Text.get("feedback.expenseReceipts.pdfNotRotated"));
         }
         if (!RotationGuard.begin(item.getId())) {
             return RotateOutcome.refused(RotateOutcome.BUSY,
-                    "That receipt is already being rotated. Try again in a moment.");
+                    Text.get("feedback.expenseReceipts.rotateBusy"));
         }
         try {
             return rotateOwned(tripId, item, turn);
@@ -351,7 +353,7 @@ public class ExpenseReceipts {
     private RotateOutcome rotateOwned(final String tripId, final MediaItem item, final QuarterTurn turn) {
         final Optional<Served> current = served(item, false);
         if (current.isEmpty()) {
-            return RotateOutcome.refused(RotateOutcome.STORE_FAILED, "The receipt could not be read. Try again.");
+            return RotateOutcome.refused(RotateOutcome.STORE_FAILED, Text.get("feedback.expenseReceipts.notRead"));
         }
         final ProcessedPhoto photo;
         try {
@@ -364,11 +366,11 @@ public class ExpenseReceipts {
                         : KEY_PREFIX + tripId + "/" + item.getId() + "-small." + photo.smallExtension());
         if (!storeBytes(item.getS3Key(), photo.fullBytes(), typeOf(item.getS3Key()))
                 || (smallKey != null && !storeBytes(smallKey, photo.smallBytes(), typeOf(smallKey)))) {
-            return RotateOutcome.refused(RotateOutcome.STORE_FAILED, "The receipt could not be stored. Try again.");
+            return RotateOutcome.refused(RotateOutcome.STORE_FAILED, Text.get("feedback.expenseReceipts.notStored"));
         }
         final MediaItem rotated = item.withRotated(photo.fullBytes().length, smallKey);
         if (!saveRow(rotated)) {
-            return RotateOutcome.refused(RotateOutcome.STORE_FAILED, "The receipt could not be stored. Try again.");
+            return RotateOutcome.refused(RotateOutcome.STORE_FAILED, Text.get("feedback.expenseReceipts.notStored"));
         }
         if (item.getSmallKey() != null && smallKey == null) {
             deleteObjects(item.getSmallKey(), null);

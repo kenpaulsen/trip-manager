@@ -19,6 +19,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.PersonDAO;
 import org.paulsens.trip.dynamo.PersonMatch;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.media.PendingUploads;
 import org.paulsens.trip.model.Family;
 import org.paulsens.trip.model.Person;
@@ -31,6 +32,14 @@ import org.paulsens.trip.cache.Cached;
 @Named("people")
 @ApplicationScoped
 public class PersonCommands {
+
+    /**
+     * What a refused sign-in change says, on every edge (the pages, the REST doors, the admin page's locked-box
+     * hint): plain, the same words each time, in the language of the request in progress.
+     */
+    public static String signInChangeRefused() {
+        return Text.get("feedback.personCommands.signInChangeRefused");
+    }
     // Session Scope variable of the active user (Person.Id); NOTE: When an admin user assumes someone else's
     // identity, this variable is set to the non-admin user. The admin user's id can be found in the "aUser" key.
     public static final String ACTIVE_USER_ID = "userId";
@@ -93,29 +102,30 @@ public class PersonCommands {
             return PageFeedback.refuse(refusal);
         }
         if (emailTakenByAnother(person)) {
-            PageFeedback.error("Email already in use",
-                    "'" + person.getEmail() + "' already belongs to another person. Use a different address, "
-                            + "or clear the email field.");
+            PageFeedback.error(Text.get("feedback.personCommands.emailInUse"),
+                    Text.get("feedback.personCommands.emailInUseDetail", person.getEmail()));
             return false;
         }
         boolean result;
         try {
             result = DAO.getInstance().savePerson(person);
         } catch (final RuntimeException ex) {
-            PageFeedback.failure("Error saving: " + person.getFirst()
-                    + " " + person.getLast());
+            PageFeedback.failure(Text.get("feedback.personCommands.errorSaving", person.getFirst(), person.getLast()));
             log.error("Error while saving user: ", ex);
             result = false;
         } catch (final IOException ex) {
-            PageFeedback.failure("Unable to save: " + person.getFirst()
-                    + " " + person.getLast());
+            PageFeedback.failure(Text.get("feedback.personCommands.unableToSave", person.getFirst(), person.getLast()));
             log.error("Error while saving user: ", ex);
             result = false;
         }
         return result;
     }
 
-    /** Said when the stored row could not be read to compare against: the save is refused, not waved through. */
+    /**
+     * Said when the stored row could not be read to compare against: the save is refused, not waved through.
+     * The English the unit test pins; callers are answered from the bundle
+     * ({@code feedback.personCommands.signInCheckFailed}), whose English is the same.
+     */
     static final String SIGN_IN_CHECK_FAILED =
             "Not saved: this person's current record could not be read. Please try again.";
 
@@ -146,7 +156,7 @@ public class PersonCommands {
             stored = DAO.getInstance().getPerson(person.getId(), Cached.NO).orElse(null);
         } catch (final RuntimeException ex) {
             log.error("Could not read person '{}' to check a sign-in change; refusing the save.", person.getId(), ex);
-            return SIGN_IN_CHECK_FAILED;
+            return Text.get("feedback.personCommands.signInCheckFailed");
         }
         if (stored == null) {
             return null;
@@ -161,7 +171,7 @@ public class PersonCommands {
         } else {
             allowed = reach.get().canChangeSignInOf(stored.getId());
         }
-        return allowed ? null : OrgCommands.SIGN_IN_CHANGE_REFUSED;
+        return allowed ? null : signInChangeRefused();
     }
 
     /**
@@ -218,13 +228,11 @@ public class PersonCommands {
     /** {@link #saveProfile(Person)} with the editor named (the session lookup needs a FacesContext). */
     boolean saveProfile(final Person person, final Person editor, final boolean siteAdmin) {
         if (person == null || person.getId() == null || !personExists(person.getId())) {
-            PageFeedback.error("Not saved: this profile does not exist. A person is created by signing up, not from "
-                            + "a profile page.");
+            PageFeedback.error(Text.get("feedback.personCommands.profileMissing"));
             return false;
         }
         if (!mayEditProfile(editor, siteAdmin, person.getId())) {
-            return PageFeedback.refuse("Not saved: you can view this profile, but only the person, their family "
-                    + "manager or an administrator can change it.");
+            return PageFeedback.refuse(Text.get("feedback.personCommands.profileReadOnly"));
         }
         return savePerson(person);
     }
@@ -758,11 +766,11 @@ public class PersonCommands {
     /** Test seam: the servlet session is not reachable without a FacesContext. */
     boolean viewAs(final HttpSession session, final Person.Id targetId) {
         if (!Sessions.pushViewAs(session, targetId)) {
-            PageFeedback.warn("Cannot view as user",
-                    "Only a signed-in admin can do that.");
+            PageFeedback.warn(Text.get("feedback.personCommands.cannotViewAsUser"),
+                    Text.get("feedback.personCommands.adminOnly"));
             return false;
         }
-        PageFeedback.info("Viewing as user " + getPerson(targetId).getPreferredName());
+        PageFeedback.info(Text.get("feedback.personCommands.viewingAs", getPerson(targetId).getPreferredName()));
         return true;
     }
 
@@ -776,7 +784,7 @@ public class PersonCommands {
         if (!Sessions.popViewAs(session)) {
             return false;
         }
-        PageFeedback.info("Back to admin!",
+        PageFeedback.info(Text.get("feedback.personCommands.backToAdmin"),
                 getCurrentPerson().getPreferredName());
         return true;
     }
@@ -814,9 +822,8 @@ public class PersonCommands {
             // Never refuse silently: the pre-fix topbar offered every family member, and a refused
             // click navigated away still "Viewing: self" with no explanation.
             setSessionValue(ACTING_FOR, null);
-            PageFeedback.warn("Cannot view as "
-                    + getPerson(target).getPreferredName(),
-                    "Only a family manager can act for another family member.");
+            PageFeedback.warn(Text.get("feedback.personCommands.cannotViewAs", getPerson(target).getPreferredName()),
+                    Text.get("feedback.personCommands.familyManagerOnly"));
         } else {
             setSessionValue(ACTING_FOR, target);
         }
@@ -894,8 +901,7 @@ public class PersonCommands {
             final boolean siteAdmin) {
         if (viewPerson == null || viewPerson.getId() == null
                 || !mayEditProfile(editor, siteAdmin, viewPerson.getId())) {
-            return PageFeedback.refuse("Not changed: you can view this profile, but only the person, their family "
-                    + "manager or an administrator can change its picture.");
+            return PageFeedback.refuse(Text.get("feedback.personCommands.pictureReadOnly"));
         }
         return selectProfilePhoto(viewPerson, slot);
     }

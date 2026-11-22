@@ -18,10 +18,13 @@ import java.util.OptionalInt;
 import java.util.TreeMap;
 import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.audit.RequestContext;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.PersonMatch;
+import org.paulsens.trip.i18n.Formats;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.BindingType;
 import org.paulsens.trip.model.OptionChoice;
 import org.paulsens.trip.model.Person;
@@ -53,8 +56,14 @@ public class CheckinCommands {
     /** The bucket a registration without a registration type counts under. */
     public static final String NO_TYPE = "(none)";
 
-    private static final DateTimeFormatter DAY_LABEL = DateTimeFormatter.ofPattern("EEE MMM d", Locale.US);
+    /** A day of the counts' "by day" list; English keeps its comma-free "Thu Sep 3". */
+    private static final String DAY_LABEL = "MMMEd";
+    private static final String DAY_LABEL_ENGLISH = "EEE MMM d";
+    /** The badge export's check-in time: a sortable machine value, the same in every language. */
     private static final DateTimeFormatter STAMP = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm", Locale.US);
+    /** When a person was checked in, as the desk reads it; English keeps "Sep 3 3:05 PM". */
+    private static final String STAMP_TIME = "MMMdjm";
+    private static final String STAMP_TIME_ENGLISH = "MMM d h:mm a";
     private static final String MEMO_PREFIX = "checkin:";
 
     private final Supplier<Caller> callerSource;
@@ -299,14 +308,13 @@ public class CheckinCommands {
         final Result result = checkInOutcome(tripId, personId);
         final String name = result.registration() == null ? "" : displayName(person(result.registration().getUserId()));
         switch (result.outcome()) {
-            case CHECKED_IN -> PageFeedback.info("Checked in: " + name);
-            case ALREADY_CHECKED_IN -> PageFeedback.warn(name + " was already checked in "
-                    + stampText(result.registration()) + ".");
-            case NOT_CONFIRMED -> PageFeedback.warn(name + " is not confirmed ("
-                    + result.registration().getStatus().getDescription() + "): see the registration desk.");
-            case NOT_FOUND -> PageFeedback.warn("That person is not registered for this event.");
-            case NOT_ALLOWED -> PageFeedback.error("You may not check people in for this event.");
-            default -> PageFeedback.failure("The check-in could not be saved; try again.");
+            case CHECKED_IN -> PageFeedback.info(Text.get("feedback.checkinCommands.checkedIn", name));
+            case ALREADY_CHECKED_IN -> PageFeedback.warn(alreadyCheckedIn(name, result.registration()));
+            case NOT_CONFIRMED -> PageFeedback.warn(Text.get("feedback.checkinCommands.notConfirmed", name,
+                    result.registration().getStatus().getLabel()));
+            case NOT_FOUND -> PageFeedback.warn(Text.get("feedback.checkinCommands.notRegistered"));
+            case NOT_ALLOWED -> PageFeedback.error(Text.get("feedback.checkinCommands.mayNotCheckIn"));
+            default -> PageFeedback.failure(Text.get("feedback.checkinCommands.notSaved"));
         }
         return result.outcome() == Outcome.CHECKED_IN;
     }
@@ -336,11 +344,11 @@ public class CheckinCommands {
     public boolean clearCheckIn(final String tripId, final String personId) {
         final Outcome outcome = clearCheckInOutcome(tripId, personId).outcome();
         switch (outcome) {
-            case CLEARED -> PageFeedback.info("Check-in cleared.");
-            case NOT_CHECKED_IN -> PageFeedback.warn("That person is not checked in.");
-            case NOT_ALLOWED -> PageFeedback.error("Only the event's managers may clear a check-in.");
-            case NOT_FOUND -> PageFeedback.warn("That person is not registered for this event.");
-            default -> PageFeedback.failure("The check-in could not be cleared; try again.");
+            case CLEARED -> PageFeedback.info(Text.get("feedback.checkinCommands.cleared"));
+            case NOT_CHECKED_IN -> PageFeedback.warn(Text.get("feedback.checkinCommands.notCheckedIn"));
+            case NOT_ALLOWED -> PageFeedback.error(Text.get("api.registrations.clearNeedsManager"));
+            case NOT_FOUND -> PageFeedback.warn(Text.get("feedback.checkinCommands.notRegistered"));
+            default -> PageFeedback.failure(Text.get("feedback.checkinCommands.notCleared"));
         }
         return outcome == Outcome.CLEARED;
     }
@@ -350,9 +358,20 @@ public class CheckinCommands {
         if (reg == null || reg.getCheckedInAt() == null) {
             return "";
         }
-        final String when = "at " + reg.getCheckedInAt().format(DateTimeFormatter.ofPattern("MMM d h:mm a",
-                Locale.US));
-        return reg.getCheckedInBy() == null ? when : when + " by " + displayName(person(reg.getCheckedInBy()));
+        final String when = stampTime(reg);
+        return reg.getCheckedInBy() == null ? Text.get("feedback.checkinCommands.stampAt", when)
+                : Text.get("feedback.checkinCommands.stampAtBy", when, displayName(person(reg.getCheckedInBy())));
+    }
+
+    /** The desk's "already checked in" warning, saying when and by whom when the stamp does. */
+    private String alreadyCheckedIn(final String name, final Registration reg) {
+        if (reg == null || reg.getCheckedInAt() == null) {
+            return Text.get("feedback.checkinCommands.alreadyCheckedIn", name);
+        }
+        final String when = stampTime(reg);
+        return reg.getCheckedInBy() == null ? Text.get("feedback.checkinCommands.alreadyCheckedInAt", name, when)
+                : Text.get("feedback.checkinCommands.alreadyCheckedInAtBy", name, when,
+                        displayName(person(reg.getCheckedInBy())));
     }
 
     // ------------------------------------------------------------------ the focus panel and rows
@@ -504,7 +523,7 @@ public class CheckinCommands {
             List<Bucket> byDay) {
         /** "37 of 120 checked in". */
         public String headline() {
-            return checkedIn + " of " + confirmed + " checked in";
+            return Text.get("feedback.checkinCommands.headline", checkedIn, confirmed);
         }
     }
 
@@ -533,7 +552,8 @@ public class CheckinCommands {
             final int in = reg.isCheckedIn() ? 1 : 0;
             checkedIn += in;
             final String type = registrationType(trip, reg);
-            tally(types.computeIfAbsent(type == null ? NO_TYPE : type, key -> new int[2]), in);
+            tally(types.computeIfAbsent(type == null ? Text.get("feedback.checkinCommands.noType") : type,
+                    key -> new int[2]), in);
             for (final LocalDate day : daysOf(trip, reg)) {
                 tally(days.computeIfAbsent(day, key -> new int[2]), in);
             }
@@ -541,7 +561,8 @@ public class CheckinCommands {
         final List<Bucket> byType = new ArrayList<>();
         types.forEach((label, tally) -> addIfAny(byType, label, tally));
         final List<Bucket> byDay = new ArrayList<>();
-        days.forEach((day, tally) -> addIfAny(byDay, day.format(DAY_LABEL), tally));
+        final Locale reader = RequestContext.currentLocale();
+        days.forEach((day, tally) -> addIfAny(byDay, Formats.format(day, DAY_LABEL, DAY_LABEL_ENGLISH, reader), tally));
         return new Counts(confirmed + pending, confirmed, pending, checkedIn, byType, byDay);
     }
 
@@ -715,7 +736,7 @@ public class CheckinCommands {
         final boolean owner = level != Level.MINIMAL;
         return new TicketView(level, trip.getTitle(), datesOf(trip), displayName(person(reg.getUserId())),
                 registrationType(trip, reg), TicketQr.svg(ticketUrl(trip, reg.getTicketCode())),
-                TicketCodes.grouped(reg.getTicketCode()), owner ? reg.getStatus().getDescription() : null,
+                TicketCodes.grouped(reg.getTicketCode()), owner ? reg.getStatus().getLabel() : null,
                 owner && reg.isCheckedIn(), owner ? answersOf(trip, reg) : List.of(),
                 owner ? balanceOf(trip.getId(), reg.getUserId()) : null);
     }
@@ -737,10 +758,17 @@ public class CheckinCommands {
         if (trip.getStartDate() == null) {
             return "";
         }
-        final DateTimeFormatter format = DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.US);
-        final String start = trip.getStartDate().format(format);
-        final String end = trip.getEndDate() == null ? start : trip.getEndDate().format(format);
-        return start.equals(end) ? start : start + " - " + end;
+        final Locale reader = RequestContext.currentLocale();
+        final String start = Formats.format(trip.getStartDate(), "yMMMd", reader);
+        final String end = trip.getEndDate() == null ? start : Formats.format(trip.getEndDate(), "yMMMd", reader);
+        if (start.equals(end) || Formats.isEnglish(reader)) {
+            return start.equals(end) ? start : start + " - " + end;
+        }
+        return Formats.dateRange(trip.getStartDate().toLocalDate(), trip.getEndDate().toLocalDate(), "yMMMd", reader);
+    }
+
+    private static String stampTime(final Registration reg) {
+        return Formats.format(reg.getCheckedInAt(), STAMP_TIME, STAMP_TIME_ENGLISH, RequestContext.currentLocale());
     }
 
     // ------------------------------------------------------------------ batch badges
@@ -813,7 +841,7 @@ public class CheckinCommands {
     /** {@link #markPrinted} for the badge page's button: growls how many were stamped. */
     public int markPrintedFromUi(final String tripId, final List<String> ids) {
         final int stamped = markPrinted(tripId, ids);
-        PageFeedback.info("Marked " + stamped + (stamped == 1 ? " badge" : " badges") + " as printed.");
+        PageFeedback.info(Text.get("feedback.checkinCommands.markedPrinted", stamped, String.valueOf(stamped)));
         return stamped;
     }
 
@@ -870,6 +898,58 @@ public class CheckinCommands {
                 .toList();
     }
 
+    /** What a typed question's column id is: this prefix and the question's short description. */
+    public static final String EXPORT_QUESTION_PREFIX = "Q: ";
+
+    /**
+     * The export page's column ids and the message each shows as in the column picker. The ids are STORED (the
+     * session keeps the picked ones, and the page tests them by id), so they stay English and never change; only
+     * the label is translated. Keys from the pages' bundles are read the same way, on the webapp's classpath.
+     */
+    private static final Map<String, String> EXPORT_FIELD_KEYS = Map.ofEntries(
+            Map.entry("Last", "common.last"),
+            Map.entry("Middle", "common.middle"),
+            Map.entry("First", "account.person.empty.first"),
+            Map.entry("Sex", "common.sex"),
+            Map.entry("Birthdate", "common.birthdate"),
+            Map.entry("Passport-Country", "labels.exportField.passportCountry"),
+            Map.entry("Passport-Number", "labels.exportField.passportNumber"),
+            Map.entry("Passport-Expiration", "labels.exportField.passportExpiration"),
+            Map.entry("Passport-POB", "labels.exportField.passportPob"),
+            Map.entry("TSA", "trip.contacts.tsa"),
+            Map.entry("Email", "common.email"),
+            Map.entry("Cell", "reports.export.cell"),
+            Map.entry("Age", "reports.shared.age"),
+            Map.entry("Room", "common.room"),
+            Map.entry("Options", "common.options"),
+            Map.entry("Preferred-Name", "labels.exportField.preferredName"),
+            Map.entry("Registration-Type", "labels.exportField.registrationType"),
+            Map.entry("Total", "common.total"),
+            Map.entry("Discount-Code", "labels.exportField.discountCode"),
+            Map.entry("Attestation", "common.attestation"),
+            Map.entry("Ticket", "common.ticket"),
+            Map.entry("Checked-In", "labels.exportField.checkedIn"),
+            Map.entry("Registered", "common.registered"),
+            Map.entry("Status", "common.status"),
+            Map.entry("Payment-Method", "labels.exportField.paymentMethod"),
+            Map.entry("Payment-Reference", "labels.exportField.paymentReference"),
+            Map.entry("Payment-Received", "labels.exportField.paymentReceived"));
+
+    /**
+     * The column picker's label for an export column id, in the language of the request: a typed question's
+     * ("Q: Diet") keeps its typed text; an id this build does not know shows as it is.
+     */
+    public String exportFieldLabel(final String field) {
+        if (field == null) {
+            return "";
+        }
+        if (field.startsWith(EXPORT_QUESTION_PREFIX)) {
+            return Text.get("labels.exportField.question", field.substring(EXPORT_QUESTION_PREFIX.length()));
+        }
+        final String key = EXPORT_FIELD_KEYS.get(field);
+        return key == null ? field : Text.get(key);
+    }
+
     /** The map key of a typed question's column in {@link #exportRow}. */
     public static String questionKey(final RegistrationOption question) {
         return "q" + question.getKey();
@@ -901,7 +981,7 @@ public class CheckinCommands {
         row.put("ticket", answered.getTicketCode() == null ? "" : TicketCodes.grouped(answered.getTicketCode()));
         row.put("checkedIn", answered.getCheckedInAt() == null ? "" : answered.getCheckedInAt().format(STAMP));
         row.put("registered", reg == null ? "" : reg.getCreated().toLocalDate().toString());
-        row.put("status", answered.getStatus().getDescription());
+        row.put("status", answered.getStatus().getLabel());
         for (final RegistrationOption question : typedQuestions(trip)) {
             final String text = question.displayOf(answered.getOptions().get(question.getKey()));
             row.put(questionKey(question), text == null ? "" : text);

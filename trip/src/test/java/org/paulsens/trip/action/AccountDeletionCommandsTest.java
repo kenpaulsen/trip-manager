@@ -245,6 +245,9 @@ public class AccountDeletionCommandsTest {
                 1234L, ChatPhotos.slotFor(trip.getId()), 0, LocalDateTime.now(), witness.getId().getValue(), null)));
         Assert.assertTrue(dao.putChatReaction(new ChatReaction(ChatChannel.Id.forPhoto(theirs),
                 PhotoChatMeta.PHOTO_ROOT, me.getId(), "👍", null, null)));
+        final byte[] jpeg = {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF};
+        ChatPhotos.getChatPhotos().seedLocalObject(expired, jpeg, "image/jpeg");
+        ChatPhotos.getChatPhotos().seedLocalObject(theirs, jpeg, "image/jpeg");
         Assert.assertTrue(dao.saveChatChannel(channel.withSettings(
                 channel.getSettings().toBuilder().retentionDaysAfterTripEnd(1).build())));
         Assert.assertTrue(chat.history(trip.getId(), me.getId(), null, 50).getMessages().isEmpty(),
@@ -259,8 +262,34 @@ public class AccountDeletionCommandsTest {
         final List<String> album = dao.getMediaInSlot(ChatPhotos.slotFor(trip.getId()), Cached.NO).stream()
                 .map(MediaItem::getS3Key).toList();
         Assert.assertEquals(album, List.of(theirs), "both of their photos left the album; the witness's stayed");
+        Assert.assertTrue(ChatPhotos.getChatPhotos().localGet(expired).isEmpty(),
+                "their photo's stored bytes are gone, not only its album row");
+        Assert.assertTrue(ChatPhotos.getChatPhotos().localGet(theirs).isPresent(), "the witness's photo is kept");
         Assert.assertEquals(dao.deleteChatReactionsBy(ChatChannel.Id.forPhoto(theirs), me.getId()), 0,
                 "their reaction on a photo whose message expired went with the account");
+    }
+
+    /**
+     * A chat the person LEFT is one they can no longer read, and still holds their words: deletion walks every
+     * stored chat, not the person's own view of them (the reviews of 12e4343245ab and a779812d6734).
+     */
+    @Test
+    public void aChatThePersonLeftIsErasedToo() throws IOException {
+        final Person me = saved("Departed");
+        final Person witness = saved("Witness");
+        final Organization org = savedOrg("Pilgrims Inc", "office@example.org", null);
+        join(me, org);
+        final Trip trip = savedTrip("Past pilgrimage", -30, -20, org, me, witness);
+        final ChatMessage message = sent(trip, me, "goodbye, all");
+        Assert.assertTrue(chat.leave(trip.getId(), me.getId(), actor(me)));
+        Assert.assertTrue(chat.myChats(me.getId()).isEmpty(), "precondition: their own view no longer lists it");
+
+        final AccountDeletionCommands.Outcome outcome = deletion.deleteOwnAccount(me.getId(),
+                AccountDeletionCommands.CONFIRMATION, actor(me));
+
+        Assert.assertTrue(outcome.ok(), outcome.message());
+        Assert.assertTrue(dao.getChatMessage(ChatChannel.Id.forTrip(trip.getId()), message.getId(), Cached.NO)
+                .orElseThrow().isDeleted(), "the message in the chat they had left is a tombstone");
     }
 
     /** The record of reminder emails holds a name and an address; deletion erases both and keeps the row. */

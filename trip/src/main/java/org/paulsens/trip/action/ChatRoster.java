@@ -9,6 +9,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.chat.ChatChannel;
@@ -107,6 +108,19 @@ public final class ChatRoster {
         final String name = displayName(person, person.getId());
         final String email = person.getEmail() == null ? "" : person.getEmail().trim();
         return email.isBlank() ? name : name + " (" + email + ")";
+    }
+
+    /**
+     * What an administrator confirms before re-adding somebody who was REMOVED: who removed them ({@code by},
+     * null when unrecorded), when, and why when a reason was given. One message per complete variant.
+     */
+    static String removedWarning(final String name, final String by, final String when, final String reason) {
+        if (by == null) {
+            return reason == null ? Text.get("feedback.chatRoster.removedByAdmin", name, when)
+                    : Text.get("feedback.chatRoster.removedByAdminFor", name, when, reason);
+        }
+        return reason == null ? Text.get("feedback.chatRoster.removedBy", name, by, when)
+                : Text.get("feedback.chatRoster.removedByFor", name, by, when, reason);
     }
 
     /** "Last, First" — how somebody scanning a roster looks a member up. Never blank. */

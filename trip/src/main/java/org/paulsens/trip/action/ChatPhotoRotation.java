@@ -5,6 +5,7 @@ import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.audit.AuditEventBuilder;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.media.PhotoProcessor;
 import org.paulsens.trip.media.PhotoRejectedException;
 import org.paulsens.trip.media.ProcessedPhoto;
@@ -71,22 +72,22 @@ public final class ChatPhotoRotation {
         final ChatChannel channel = chat.getChannel(tripId);
         final Optional<ChatMessage> carrier = ChatPhotoEdits.findMessageWithPhoto(chat.dao(), channel, s3Key, hint);
         if (carrier.isEmpty()) {
-            return Outcome.refused(Outcome.NOT_FOUND, "Photo not found.");
+            return Outcome.refused(Outcome.NOT_FOUND, Text.get("api.chat.photoNotFound"));
         }
         // A rotation rewrites the stored bytes in place: a message that only references the photo would turn
         // it for the album and the chat that own it, which would keep showing the old size.
         if (ChatPhotoEdits.isReference(carrier.get(), s3Key)) {
             return Outcome.refused(Outcome.FORBIDDEN,
-                    "This photo was chosen from a trip album. It can only be rotated where it was first shared.");
+                    Text.get("feedback.chatPhotoRotation.isReference"));
         }
         final AuditActor who = ChatCommands.actorOf(caller);
         final ChatMessage.Id msgId = carrier.get().getId();
         if (!chat.isOwnMessage(carrier, who)
                 && chat.denyUnlessAdmin(tripId, "rotate photo in message " + msgId.getValue(), caller)) {
-            return Outcome.refused(Outcome.FORBIDDEN, "You can only rotate photos you posted.");
+            return Outcome.refused(Outcome.FORBIDDEN, Text.get("feedback.chatPhotoRotation.ownOnly"));
         }
         if (!RotationGuard.begin(s3Key)) {
-            return Outcome.refused(Outcome.BUSY, "That photo is already being rotated. Try again in a moment.");
+            return Outcome.refused(Outcome.BUSY, Text.get("feedback.chatPhotoRotation.busy"));
         }
         try {
             return rotateOwned(chat, photos, tripId, channel, carrier.get(), s3Key, turn, who);
@@ -102,7 +103,7 @@ public final class ChatPhotoRotation {
                 .filter(a -> !a.isDeleted() && s3Key.equals(a.getS3Key())).findFirst().orElse(null);
         final Optional<byte[]> current = (attachment == null) ? Optional.empty() : photos.currentBytes(s3Key);
         if (current.isEmpty()) {
-            return Outcome.refused(Outcome.NOT_FOUND, "Photo not found.");
+            return Outcome.refused(Outcome.NOT_FOUND, Text.get("api.chat.photoNotFound"));
         }
         final ProcessedPhoto renditions;
         try {
@@ -115,14 +116,14 @@ public final class ChatPhotoRotation {
             thumbKey = photos.replaceRenditions(attachment, renditions);
         } catch (final IllegalStateException ex) {
             log.error("Chat photo {} could not be stored after rotating", s3Key, ex);
-            return Outcome.refused(Outcome.STORE_FAILED, "The photo could not be stored. Try again.");
+            return Outcome.refused(Outcome.STORE_FAILED, Text.get("api.chat.photoNotStored"));
         }
         final long size = renditions.fullBytes().length;
         final Optional<ChatMessage> updated = chat.dao().rotateChatAttachment(channel.getId(), carrier.getId(),
                 s3Key, renditions.width(), renditions.height(), size, thumbKey);
         if (updated.isEmpty()) {
             log.error("Chat photo {} rotated in the store but its message was not rewritten", s3Key);
-            return Outcome.refused(Outcome.STORE_FAILED, "The photo could not be stored. Try again.");
+            return Outcome.refused(Outcome.STORE_FAILED, Text.get("api.chat.photoNotStored"));
         }
         if (!photos.setAlbumRotated(tripId, s3Key, size, thumbKey)) {
             log.error("Chat photo {} rotated in its message but not in the album", s3Key);

@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.ChatCommands;
+import org.paulsens.trip.i18n.Text;
 
 /**
  * Closes the {@code /index.jsf} default error-page trap: always emit JSON, never hand control to the
@@ -25,7 +26,7 @@ public class JsonExceptionMapper implements ExceptionMapper<Throwable> {
         if (exception instanceof NotAcceptableException) {
             final Map<String, Object> body = new LinkedHashMap<>();
             body.put("error", "NOT_ACCEPTABLE");
-            body.put("message", "Unsupported Accept media type.");
+            body.put("message", Text.get("api.shared.unsupportedAccept"));
             body.put("supported", List.of(ChatCommands.MEDIA_TYPE_V1, "application/json"));
             return Response.status(406)
                     .type(MediaType.APPLICATION_JSON)
@@ -38,7 +39,7 @@ public class JsonExceptionMapper implements ExceptionMapper<Throwable> {
         // will fail identically every time, and puts a stack trace in the log for what is really a 400.
         if (exception instanceof IllegalArgumentException) {
             return json(400, ApiErrors.BAD_REQUEST,
-                    exception.getMessage() == null ? "Invalid request." : exception.getMessage());
+                    exception.getMessage() == null ? Text.get("api.shared.invalidRequest") : exception.getMessage());
         }
         if (exception instanceof WebApplicationException wae) {
             final Response existing = wae.getResponse();
@@ -46,10 +47,11 @@ public class JsonExceptionMapper implements ExceptionMapper<Throwable> {
                 return Response.fromResponse(existing).header("Vary", "Accept").build();
             }
             final int status = existing == null ? 500 : existing.getStatus();
-            return json(status, "HTTP_" + status, wae.getMessage() == null ? "Request failed." : wae.getMessage());
+            return json(status, "HTTP_" + status, wae.getMessage() == null
+                    ? Text.get("api.shared.requestFailed") : wae.getMessage());
         }
         log.error("Unhandled API error", exception);
-        return json(500, "INTERNAL", "Internal server error.");
+        return json(500, "INTERNAL", Text.get("api.shared.internalError"));
     }
 
     private static Response json(final int status, final String code, final String message) {

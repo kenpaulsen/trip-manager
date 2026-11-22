@@ -6,7 +6,6 @@ import java.io.Serial;
 import java.io.Serializable;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -22,8 +21,11 @@ import java.util.stream.Collectors;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.paulsens.trip.action.LodgingViews.RoomingRow;
+import org.paulsens.trip.audit.RequestContext;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.i18n.Formats;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.Accommodation;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Reservation;
@@ -49,10 +51,9 @@ import org.paulsens.trip.util.Util;
 @ApplicationScoped
 public class ReportCommands {
 
-    private static final DateTimeFormatter DAY = DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.ROOT);
-    private static final DateTimeFormatter CLOCK = DateTimeFormatter.ofPattern("h:mm a", Locale.ROOT);
-    private static final DateTimeFormatter STAMP = DateTimeFormatter.ofPattern("MMM d h:mm a", Locale.ROOT);
-    private static final DateTimeFormatter SHORT_DAY = DateTimeFormatter.ofPattern("MMM d", Locale.ROOT);
+    /** A stay's moment on the room report; English keeps its comma-free "Sep 21 11:00 PM". */
+    private static final String STAMP = "MMMdjm";
+    private static final String STAMP_ENGLISH = "MMM d h:mm a";
     /** The report writes a leg as "here to there"; composed in Java so the page never builds it from parts. */
     private static final String ARROW = " \u2192 ";
 
@@ -149,8 +150,9 @@ public class ReportCommands {
         if (start == null) {
             return "";
         }
-        final String first = DAY.format(start);
-        return isOvernight(start, end) ? first + ARROW + DAY.format(end) : first;
+        final Locale reader = RequestContext.currentLocale();
+        final String first = Formats.format(start, "yMMMd", reader);
+        return isOvernight(start, end) ? first + ARROW + Formats.format(end, "yMMMd", reader) : first;
     }
 
     /** {@code "12:30 PM -> 4:40 PM"}, or the departure alone when no arrival was ever recorded. */
@@ -158,7 +160,9 @@ public class ReportCommands {
         if (start == null) {
             return "";
         }
-        return end == null ? CLOCK.format(start) : CLOCK.format(start) + ARROW + CLOCK.format(end);
+        final Locale reader = RequestContext.currentLocale();
+        final String departs = Formats.format(start, "jm", reader);
+        return end == null ? departs : departs + ARROW + Formats.format(end, "jm", reader);
     }
 
     /** {@code "Split -> Dubrovnik"} from the stored parts, or the composed title a legacy leg carries instead. */
@@ -251,7 +255,7 @@ public class ReportCommands {
     private static ReportCommands.RoomingPage pageFor(final String place, final List<RoomingRow> rows) {
         final ReportCommands.RoomingPage page = new ReportCommands.RoomingPage();
         page.setReserved(!place.isEmpty());
-        page.setAccommodation(place.isEmpty() ? "Not yet reserved" : place);
+        page.setAccommodation(place.isEmpty() ? Text.get("feedback.reportCommands.notYetReserved") : place);
         final Set<String> people = new LinkedHashSet<>();
         LocalDateTime first = null;
         LocalDateTime last = null;
@@ -300,9 +304,13 @@ public class ReportCommands {
         if (first == null) {
             return "";
         }
-        final String from = SHORT_DAY.format(first);
-        return (last == null || last.toLocalDate().equals(first.toLocalDate())) ? from
-                : from + " - " + SHORT_DAY.format(last);
+        final Locale reader = RequestContext.currentLocale();
+        final String from = Formats.format(first, "MMMd", reader);
+        if (last == null || last.toLocalDate().equals(first.toLocalDate())) {
+            return from;
+        }
+        return Formats.isEnglish(reader) ? from + " - " + Formats.format(last, "MMMd", reader)
+                : Formats.dateRange(first.toLocalDate(), last.toLocalDate(), "MMMd", reader);
     }
 
     /** {@code "Sep 21 11:00 PM to Oct 1 5:00 AM"}: one person's stay, under their name. */
@@ -310,7 +318,11 @@ public class ReportCommands {
         if (start == null) {
             return "";
         }
-        return end == null ? STAMP.format(start) : STAMP.format(start) + " to " + STAMP.format(end);
+        final Locale reader = RequestContext.currentLocale();
+        final String from = Formats.format(start, STAMP, STAMP_ENGLISH, reader);
+        // "to" is an English word; another language reads the dash every language writes a range with.
+        return end == null ? from : from + (Formats.isEnglish(reader) ? " to " : " – ")
+                + Formats.format(end, STAMP, STAMP_ENGLISH, reader);
     }
 
     private static LocalDateTime earlier(final LocalDateTime held, final LocalDateTime seen) {
@@ -410,11 +422,9 @@ public class ReportCommands {
      * option's cost (2026-10-26), the trip's lodging admins or one of the hotel's rate plans.
      */
     public static String blockedMessage(final List<String> missingCost, final boolean operator) {
-        final String where = operator ? "Ask the trip's lodging admin to set it, or to use one of your hotel's"
-                + " rate plans for that option."
-                : "Set the cost on the trip's Offers tab (Edit the option, tick 'Hotel cost is known'), or use a"
-                        + " hotel rate plan for that option.";
-        return "No hotel cost is set for " + Util.joinNames(missingCost) + ". " + where;
+        final String options = Util.joinNames(missingCost);
+        return operator ? Text.get("feedback.reportCommands.blockedForOperator", options)
+                : Text.get("feedback.reportCommands.blockedForStaff", options);
     }
 
     /** The stays at the given hotels: the stay's own hotel, else its option's; a stay with neither is nobody's. */
@@ -487,30 +497,30 @@ public class ReportCommands {
 
     /** What a line counts and bills; the order is the order lines take within an option. */
     public enum LineKind {
-        GUESTS("Lodging", "guest", "guests"),
-        SUPPLEMENT("Single supplement", "guest", "guests"),
-        ROOMS("Lodging", "room", "rooms"),
+        GUESTS("common.lodging", "feedback.reportCommands.unitGuests"),
+        SUPPLEMENT("feedback.reportCommands.itemSingleSupplement", "feedback.reportCommands.unitGuests"),
+        ROOMS("common.lodging", "feedback.reportCommands.unitRooms"),
         /** A cost extra (tax, fee, coupon): the item is its label; COST side only. */
-        EXTRA("Extra", "", ""),
+        EXTRA("feedback.reportCommands.itemExtra", null),
         /** One stay's discount on this side: a negative amount outside the arithmetic. */
-        CONCESSION("Concession", "", "");
+        CONCESSION("feedback.reportCommands.itemConcession", null);
 
-        private final String item;
-        private final String one;
-        private final String many;
+        /** Message keys, not words: a constant is built once and is read in every reader's language. */
+        private final String itemKey;
+        /** A plural message counted by the line's quantity; null for a kind that has no unit. */
+        private final String unitKey;
 
-        LineKind(final String item, final String one, final String many) {
-            this.item = item;
-            this.one = one;
-            this.many = many;
+        LineKind(final String itemKey, final String unitKey) {
+            this.itemKey = itemKey;
+            this.unitKey = unitKey;
         }
 
         String item() {
-            return item;
+            return Text.get(itemKey);
         }
 
         String unit(final int quantity) {
-            return quantity == 1 ? one : many;
+            return unitKey == null ? "" : Text.get(unitKey, quantity);
         }
     }
 

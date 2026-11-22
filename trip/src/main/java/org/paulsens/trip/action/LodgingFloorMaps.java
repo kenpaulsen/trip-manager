@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.Accommodation;
 import org.paulsens.trip.model.FloorMap;
 import org.paulsens.trip.model.MediaItem;
@@ -62,14 +63,14 @@ final class LodgingFloorMaps {
 
     public boolean setFloorMap(final String accId, final String floor, final String mediaId) {
         if (!lodging.canEditAccommodation(accId)) {
-            return refuse("Not allowed: you do not manage this accommodation.");
+            return refuse(Text.get("feedback.lodgingCommands.notYourAccommodation"));
         }
         if (floor == null || floor.isBlank()) {
-            return refuse("Which floor?");
+            return refuse(Text.get("feedback.lodgingFloorMaps.whichFloor"));
         }
         final Accommodation acc = lodging.freshAccommodation(accId);
         if (acc == null) {
-            return refuse("This accommodation no longer exists.");
+            return refuse(Text.get("feedback.lodgingCommands.accommodationGone"));
         }
         final FloorMap existing = acc.floorMap(floor.trim());
         if (existing == null) {
@@ -80,7 +81,7 @@ final class LodgingFloorMaps {
         if (acc.roomsOnFloor(floor.trim()).isEmpty()) {
             // Silently attaching a plan to a floor no room is on is how a mismatch hides: the plan looks
             // uploaded, nothing can be mapped on it, and the floor list grows an entry with no rooms.
-            warn("No rooms are on floor '" + floor.trim() + "', so this plan has nothing to map yet.");
+            warn(Text.get("feedback.lodgingFloorMaps.noRoomsOnFloor", floor.trim()));
         }
         return lodging.store(acc) && lodging.audited(acc, "Floor plan set for floor " + floor.trim());
     }
@@ -91,18 +92,18 @@ final class LodgingFloorMaps {
      */
     public boolean removeFloorMap(final String accId, final String floor) {
         if (!lodging.canEditAccommodation(accId)) {
-            return refuse("Not allowed: you do not manage this accommodation.");
+            return refuse(Text.get("feedback.lodgingCommands.notYourAccommodation"));
         }
         if (floor == null || floor.isBlank()) {
-            return refuse("Which floor?");
+            return refuse(Text.get("feedback.lodgingFloorMaps.whichFloor"));
         }
         final Accommodation acc = lodging.freshAccommodation(accId);
         if (acc == null) {
-            return refuse("This accommodation no longer exists.");
+            return refuse(Text.get("feedback.lodgingCommands.accommodationGone"));
         }
         final String wanted = floor.trim();
         if (!acc.getFloorMaps().removeIf(map -> wanted.equals(map.getFloor()))) {
-            return refuse("Floor " + wanted + " has no plan to remove.");
+            return refuse(Text.get("feedback.lodgingFloorMaps.noPlanToRemove", wanted));
         }
         return lodging.store(acc) && lodging.audited(acc, "Floor plan removed for floor " + wanted);
     }
@@ -134,26 +135,26 @@ final class LodgingFloorMaps {
      */
     public boolean moveFloorMap(final String accId, final String from, final String to) {
         if (!lodging.canEditAccommodation(accId)) {
-            return refuse("Not allowed: you do not manage this accommodation.");
+            return refuse(Text.get("feedback.lodgingCommands.notYourAccommodation"));
         }
         if (from == null || from.isBlank() || to == null || to.isBlank()) {
-            return refuse("Which floor should this plan move to?");
+            return refuse(Text.get("feedback.lodgingFloorMaps.whichTargetFloor"));
         }
         final String source = from.trim();
         final String target = to.trim();
         if (source.equals(target)) {
-            return refuse("That plan is already on floor " + target + ".");
+            return refuse(Text.get("feedback.lodgingFloorMaps.alreadyOnFloor", target));
         }
         final Accommodation acc = lodging.freshAccommodation(accId);
         if (acc == null) {
-            return refuse("This accommodation no longer exists.");
+            return refuse(Text.get("feedback.lodgingCommands.accommodationGone"));
         }
         final FloorMap moving = acc.floorMap(source);
         if (moving == null) {
-            return refuse("Floor " + source + " has no plan to move.");
+            return refuse(Text.get("feedback.lodgingFloorMaps.noPlanToMove", source));
         }
         if (acc.floorMap(target) != null) {
-            return refuse("Floor " + target + " already has a plan. Remove that one first.");
+            return refuse(Text.get("feedback.lodgingFloorMaps.targetHasPlan", target));
         }
         moving.setFloor(target);
         for (final Room room : acc.getRooms()) {
@@ -172,22 +173,22 @@ final class LodgingFloorMaps {
      */
     public boolean saveFloorRegions(final String accId, final String floor, final String json) {
         if (!lodging.canEditAccommodation(accId)) {
-            return refuse("Not allowed: you do not manage this accommodation.");
+            return refuse(Text.get("feedback.lodgingCommands.notYourAccommodation"));
         }
         final Accommodation acc = lodging.freshAccommodation(accId);
         if (acc == null || floor == null) {
-            return refuse("This accommodation no longer exists.");
+            return refuse(Text.get("feedback.lodgingCommands.accommodationGone"));
         }
         final Map<String, Room.MapRegion> regions;
         try {
             regions = parseRegions(json);
         } catch (final IllegalArgumentException | IOException ex) {
-            return refuse("The floor plan could not be read: " + ex.getMessage());
+            return refuse(Text.get("feedback.lodgingFloorMaps.unreadable", ex.getMessage()));
         }
         for (final String roomId : regions.keySet()) {
             final Room room = acc.room(roomId);
             if (room == null || !Objects.equals(floor, room.getFloor())) {
-                return refuse("A box points at a room that is not on floor " + floor + ".");
+                return refuse(Text.get("feedback.lodgingFloorMaps.roomNotOnFloor", floor));
             }
         }
         for (final Room room : acc.roomsOnFloor(floor)) {
@@ -214,10 +215,10 @@ final class LodgingFloorMaps {
             final Room.MapRegion region = Room.MapRegion.rect(number(entry.get("x")), number(entry.get("y")),
                     number(entry.get("w")), number(entry.get("h")));
             if (!region.isValid()) {
-                throw new IllegalArgumentException("a box is outside the image or has no size");
+                throw new IllegalArgumentException(Text.get("feedback.lodgingFloorMaps.reasonBoxOutside"));
             }
             if (regions.put(roomId.toString(), region) != null) {
-                throw new IllegalArgumentException("room " + roomId + " is mapped twice");
+                throw new IllegalArgumentException(Text.get("feedback.lodgingFloorMaps.reasonMappedTwice", roomId));
             }
         }
         return regions;
@@ -227,6 +228,6 @@ final class LodgingFloorMaps {
         if (value instanceof Number n) {
             return Math.round(n.doubleValue() * 100.0) / 100.0;
         }
-        throw new IllegalArgumentException("a coordinate is missing");
+        throw new IllegalArgumentException(Text.get("feedback.lodgingFloorMaps.reasonNoCoordinate"));
     }
 }

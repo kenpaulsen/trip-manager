@@ -15,6 +15,7 @@ import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.AuditViewCommands;
 import org.paulsens.trip.api.mapper.AuditMapper;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.AuditPage;
@@ -62,13 +63,13 @@ public class AuditResource extends BaseResource {
             @QueryParam("text") final String text,
             @QueryParam("limit") @DefaultValue("50") final int limit) {
         if (!mayRead(org)) {
-            return error(403, ApiErrors.FORBIDDEN, "Audit access required.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.audit.accessRequired"));
         }
         final Instant cursor;
         try {
             cursor = parseCursor(before);
         } catch (final DateTimeParseException ex) {
-            return error(400, ApiErrors.BAD_REQUEST, "before must be an ISO-8601 instant.");
+            return error(400, ApiErrors.BAD_REQUEST, Text.get("api.audit.beforeInvalid"));
         }
         final AuditPage page = Beans.get(AuditViewCommands.class)
                 .getPage(blankToNull(org), cursor, actor, action, outcome, text,
@@ -83,7 +84,7 @@ public class AuditResource extends BaseResource {
     public Response recent(@QueryParam("org") final String org,
             @QueryParam("limit") @DefaultValue("50") final int limit) {
         if (!mayRead(org)) {
-            return error(403, ApiErrors.FORBIDDEN, "Audit access required.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.audit.accessRequired"));
         }
         return ok(toDto(Beans.get(AuditViewCommands.class)
                 .getRecent(blankToNull(org), Math.min(Math.max(limit, 1), MAX_LIMIT))));
@@ -106,13 +107,13 @@ public class AuditResource extends BaseResource {
             @QueryParam("outcome") final String outcome,
             @QueryParam("text") final String text) {
         if (!mayRead(org)) {
-            return error(403, ApiErrors.FORBIDDEN, "Audit access required.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.audit.accessRequired"));
         }
         final Instant cursor;
         try {
             cursor = parseCursor(before);
         } catch (final DateTimeParseException ex) {
-            return error(400, ApiErrors.BAD_REQUEST, "before must be an ISO-8601 instant.");
+            return error(400, ApiErrors.BAD_REQUEST, Text.get("api.audit.beforeInvalid"));
         }
         final String csv = Beans.get(AuditViewCommands.class)
                 .toCsv(blankToNull(org), cursor, actor, action, outcome, text);
@@ -129,7 +130,7 @@ public class AuditResource extends BaseResource {
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response vocabularies() {
         if (!privileges().has(ApiPrivileges.AUDIT_ADMIN)) {
-            return error(403, ApiErrors.FORBIDDEN, "Audit access required.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.audit.accessRequired"));
         }
         final Map<String, Object> result = new LinkedHashMap<>();
         result.put("actions", Arrays.stream(AuditAction.values()).map(Enum::name).toList());

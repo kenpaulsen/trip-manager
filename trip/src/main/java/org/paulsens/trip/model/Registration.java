@@ -9,6 +9,7 @@ import java.io.Serial;
 import java.io.Serializable;
 import java.time.LocalDateTime;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 import lombok.Getter;
 import lombok.Value;
@@ -146,6 +147,9 @@ public class Registration implements Serializable {
         CONFIRMED("Confirmed"),
         PENDING("Pending");
 
+        // The English text is the stored and wire value (@JsonValue, fromDescription) and is what pages and
+        // RegistrationCommands compare and offer as menu values, so it is never translated. What a person
+        // reads is getLabel().
         @Getter @JsonValue
         final String description;
 
@@ -161,6 +165,16 @@ public class Registration implements Serializable {
                 case "Pending" -> PENDING;
                 default -> null;
             };
+        }
+
+        /** The status as people read it, in the language of the request in progress. */
+        public String getLabel() {
+            return EnumLabels.of(this);
+        }
+
+        /** The status as a reader who is not the requester reads it: a mail, a PDF. */
+        public String getLabel(final Locale locale) {
+            return EnumLabels.of(this, locale);
         }
 
         @Override

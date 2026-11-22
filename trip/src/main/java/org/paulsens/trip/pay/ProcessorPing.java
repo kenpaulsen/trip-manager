@@ -9,6 +9,7 @@ import java.time.Duration;
 import java.util.Base64;
 import java.util.concurrent.Executors;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.PaymentProcessorConfig;
 
 /**
@@ -58,21 +59,22 @@ public class ProcessorPing {
      */
     public String ping(final PaymentProcessorConfig config, final boolean sandbox, final String clientSecret) {
         if (config == null || config.getType() == null) {
-            return "Unknown processor configuration.";
+            return Text.get("feedback.orgCommands.noConfig");
         }
         return switch (config.getType()) {
             case FAKE -> null;
             case PAYPAL -> pingPayPal(config, sandbox, clientSecret);
             case STRIPE -> pingStripe(config, sandbox, clientSecret);
-            case ZEFFY -> config.getType().name() + " is not supported yet.";
-            case OFFLINE -> "An offline payment has no processor to test.";
+            case ZEFFY -> Text.get("server.processorPing.unsupportedType", config.getType().name());
+            case OFFLINE -> Text.get("server.processorPing.offline");
         };
     }
 
     private String pingStripe(final PaymentProcessorConfig config, final boolean sandbox,
             final String secretKey) {
         if (secretKey == null || secretKey.isBlank()) {
-            return "No secret key stored" + (sandbox ? " (sandbox)." : ".");
+            return sandbox ? Text.get("server.processorPing.noSecretKeySandbox")
+                    : Text.get("server.processorPing.noSecretKey");
         }
         final boolean testMode = sandbox || config.getMode() == PaymentProcessorConfig.ProcessorMode.SANDBOX;
         return StripeProcessor.pingKey(secretKey, testMode, stripeBaseUrl);
@@ -88,10 +90,12 @@ public class ProcessorPing {
                 ? config.getSandboxPublicConfig().get("clientId")
                 : config.getPublicConfig().get("clientId");
         if (clientId == null || clientId.isBlank()) {
-            return "No client id configured" + (sandbox ? " (sandbox)." : ".");
+            return sandbox ? Text.get("server.processorPing.noClientIdSandbox")
+                    : Text.get("server.processorPing.noClientId");
         }
         if (clientSecret == null || clientSecret.isBlank()) {
-            return "No client secret stored" + (sandbox ? " (sandbox)." : ".");
+            return sandbox ? Text.get("server.processorPing.noClientSecretSandbox")
+                    : Text.get("server.processorPing.noClientSecret");
         }
         final String basic = Base64.getEncoder()
                 .encodeToString((clientId + ":" + clientSecret).getBytes(StandardCharsets.UTF_8));
@@ -109,12 +113,12 @@ public class ProcessorPing {
             }
             log.warn("PayPal ping for config {} answered {}: {}", config.getId(), response.statusCode(),
                     response.body());
-            return "PayPal rejected the credentials (HTTP " + response.statusCode() + ").";
+            return Text.get("server.processorPing.paypalRejected", String.valueOf(response.statusCode()));
         } catch (final java.io.IOException ex) {
-            return "Could not reach PayPal: " + ex.getMessage();
+            return Text.get("server.processorPing.paypalUnreachable", String.valueOf(ex.getMessage()));
         } catch (final InterruptedException ex) {
             Thread.currentThread().interrupt();
-            return "Interrupted while contacting PayPal.";
+            return Text.get("server.processorPing.paypalInterrupted");
         }
     }
 }

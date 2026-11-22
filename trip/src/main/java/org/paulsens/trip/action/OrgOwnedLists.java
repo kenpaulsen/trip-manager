@@ -3,6 +3,7 @@ package org.paulsens.trip.action;
 import java.util.List;
 import java.util.Locale;
 import java.util.function.Function;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.Organization;
 
 /**
@@ -17,16 +18,18 @@ final class OrgOwnedLists {
 
     /**
      * The guard every write starts with: a fresh, uncached copy of the org when the caller may manage it, else null
-     * after growling why. {@code whatChanges} finishes "Only this organization's admins can change its ...".
+     * after growling why. {@code refusal} is the whole sentence a caller who may not manage the org is told, so it
+     * reads right in every language ({@code docs/i18n.md}: never a noun glued into a sentence).
      */
-    static Organization editable(final OrgCommands orgs, final String orgId, final String whatChanges) {
+    static Organization editable(final OrgCommands orgs, final String orgId, final String refusal) {
         if (!orgs.canManageOrg(orgId)) {
-            PageFeedback.refuse("Not allowed", "Only this organization's admins can change its " + whatChanges + ".");
+            PageFeedback.refuse(Text.get("feedback.shared.notAllowed"), refusal);
             return null;
         }
         final Organization fresh = orgs.freshOrg(orgId);
         if (fresh == null) {
-            PageFeedback.refuse("Unable to save", "Unknown organization.");
+            PageFeedback.refuse(Text.get("feedback.shared.unableToSave"),
+                    Text.get("feedback.orgCommands.unknownOrg"));
         }
         return fresh;
     }

@@ -1,9 +1,12 @@
 package org.paulsens.trip.chat;
 
 import com.sun.jsft.util.ELUtil;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.i18n.Text;
 
 /**
  * Renders {@code mailTemplates/*.tpl} for mail that is sent <b>off a request thread</b>.
@@ -24,6 +27,10 @@ import lombok.extern.slf4j.Slf4j;
  *       {@code #{person.first}} would resolve straight through the escape with no way to notice — the value never
  *       passes through this class. Templates for off-thread mail therefore take flat, pre-escaped scalars.</li>
  * </ul>
+ *
+ * <p>The templates hold structure only; the words come from the {@code mail} bundle in the RECIPIENT's language
+ * ({@code docs/i18n.md}). A sentence with markup inside it (a bold name, a link) keeps that markup in its bundle
+ * value and is built with {@link #html}, which escapes every argument first, so the same default holds there.
  */
 @Slf4j
 public final class MailTemplates {
@@ -68,6 +75,22 @@ public final class MailTemplates {
             log.error("Unable to render mail template {}", templateName, ex);
             return null;
         }
+    }
+
+    /**
+     * A sentence from the bundles that carries its own markup, in the reader's language. Every argument is
+     * HTML-escaped BEFORE it is formatted in, so the only markup in the result is what the bundle value itself
+     * holds; that is what makes the {@link Raw} safe to hand to a template. THE one copy of that rule: a page's
+     * {@code #{text.html(...)}} and every mail that builds such a sentence come through here.
+     */
+    public static Raw html(final Locale locale, final String key, final Object... args) {
+        final Object[] escaped = Arrays.stream(args).map(MailTemplates::escapeArgument).toArray();
+        return new Raw(Text.forLocale(locale, key, escaped));
+    }
+
+    /** A number goes in as itself, so a plural or a number format can read it; it cannot carry markup. */
+    private static Object escapeArgument(final Object arg) {
+        return arg instanceof Number ? arg : escape(arg == null ? null : arg.toString());
     }
 
     /** HTML-escapes text for inclusion in a mail body. */

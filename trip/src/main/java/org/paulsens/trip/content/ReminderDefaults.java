@@ -1,6 +1,7 @@
 package org.paulsens.trip.content;
 
 import java.util.List;
+import org.paulsens.trip.model.Language;
 import org.paulsens.trip.model.TripReminder;
 
 /**
@@ -103,5 +104,15 @@ public final class ReminderDefaults {
             }
         }
         return null;
+    }
+
+    /**
+     * The built-in text of a starter id in one language: its shipped version ({@link StarterTranslations}) when
+     * there is one, else the English text. Null for an id that is not a reminder default.
+     */
+    public static Text text(final String id, final Language language) {
+        final Text english = text(id);
+        final StarterTranslations.Version version = (english == null) ? null : StarterTranslations.of(id, language);
+        return (version == null) ? english : new Text(id, version.subject(), english.description(), version.body());
     }
 }

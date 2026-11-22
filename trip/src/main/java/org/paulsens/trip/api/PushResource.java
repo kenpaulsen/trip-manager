@@ -14,6 +14,7 @@ import jakarta.ws.rs.core.Response;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import org.paulsens.trip.action.PushCommands;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.push.PushDevice;
 import org.paulsens.trip.push.PushDevices;
 import org.paulsens.trip.push.PushSender;
@@ -48,7 +49,7 @@ public class PushResource extends BaseResource {
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response registerDevice(@HeaderParam(CSRF_HEADER) final String csrf, final Map<String, Object> body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         final PushDevices.Outcome outcome = PushDevice.Kind.ANDROID.wire().equalsIgnoreCase(string(body, "kind"))
                 ? push().registerAndroid(personId(), string(body, "token"), string(body, "selector"),
@@ -65,7 +66,7 @@ public class PushResource extends BaseResource {
     public Response removeDevice(@PathParam("id") final String idOrToken,
             @HeaderParam(CSRF_HEADER) final String csrf) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         push().removeDevice(personId(), idOrToken, actor());
         return ok(Map.of("removed", true));
@@ -78,7 +79,7 @@ public class PushResource extends BaseResource {
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response subscribeWeb(@HeaderParam(CSRF_HEADER) final String csrf, final Map<String, Object> body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         final Object keys = body == null ? null : body.get("keys");
         final Map<?, ?> keyMap = keys instanceof Map<?, ?> map ? map : Map.of();
@@ -95,7 +96,7 @@ public class PushResource extends BaseResource {
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response unsubscribeWeb(@HeaderParam(CSRF_HEADER) final String csrf, final Map<String, Object> body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         push().unsubscribeWeb(personId(), string(body, "endpoint"), actor());
         return ok(Map.of("removed", true));
@@ -108,7 +109,7 @@ public class PushResource extends BaseResource {
     public Response webPushKey() {
         final String key = push().vapidPublicKey();
         if (key == null) {
-            return error(404, ApiErrors.NOT_FOUND, "Web push is not configured.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.push.webPushNotConfigured"));
         }
         return ok(Map.of("publicKey", key));
     }
@@ -129,7 +130,7 @@ public class PushResource extends BaseResource {
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response savePrefs(@HeaderParam(CSRF_HEADER) final String csrf, final Map<String, Object> body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         final Object enabled = body == null ? null : body.get("enabled");
         final PushCommands push = push();
@@ -145,7 +146,7 @@ public class PushResource extends BaseResource {
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response test(@HeaderParam(CSRF_HEADER) final String csrf) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         final PushSender.Report report = push().sendTest(personId());
         final Map<String, Object> result = new LinkedHashMap<>();

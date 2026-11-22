@@ -3,6 +3,7 @@ package org.paulsens.trip.action;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.function.Consumer;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.pay.MoneyMath;
 
 /**
@@ -32,32 +33,38 @@ final class MoneyForms {
         return BigDecimal.valueOf(cents).movePointLeft(2).doubleValue();
     }
 
-    /** Why a typed amount cannot be saved, or null: not a number, negative, or over {@link #MAX_CENTS}. */
-    static String dollarsProblem(final String what, final Double dollars) {
+    /**
+     * Why a typed amount cannot be saved, or null: not a number, negative, or over {@link #MAX_CENTS}. The
+     * refusal is the WHOLE sentence {@code rangeKey} names, one per field, with the maximum as its argument: a
+     * field's name glued in front of a shared tail cannot be translated (docs/i18n.md, "Whole sentences").
+     */
+    static String dollarsProblem(final String rangeKey, final Double dollars) {
         if (dollars == null) {
             return null;
         }
         if (dollars.isNaN() || dollars.isInfinite() || dollars < 0 || cents(dollars) > MAX_CENTS) {
-            return what + " must be between $0 and " + MoneyMath.formatCents(MAX_CENTS) + ".";
+            return Text.get(rangeKey, MoneyMath.formatCents(MAX_CENTS));
         }
         return null;
     }
 
     /**
      * Why a typed SIGNED amount cannot be saved, or null: missing, not a number, or more than {@link #MAX_CENTS}
-     * either way (a payment can run either direction).
+     * either way (a payment can run either direction). {@code rangeKey} as in {@link #dollarsProblem}.
      */
-    static String signedDollarsProblem(final String what, final Double dollars) {
+    static String signedDollarsProblem(final String rangeKey, final Double dollars) {
         if (dollars == null || dollars.isNaN() || dollars.isInfinite() || Math.abs(dollars) * 100 > MAX_CENTS) {
-            final String max = MoneyMath.formatCents(MAX_CENTS);
-            return what + " must be between -" + max + " and " + max + ".";
+            return Text.get(rangeKey, MoneyMath.formatCents(MAX_CENTS));
         }
         return null;
     }
 
-    /** Why a typed text cannot be saved, or null: longer than {@code max} once trimmed. */
-    static String tooLong(final String what, final String text, final int max) {
-        return (text != null && text.trim().length() > max) ? what + " is at most " + max + " characters." : null;
+    /**
+     * Why a typed text cannot be saved, or null: longer than {@code max} once trimmed. {@code tooLongKey} is the
+     * field's whole sentence, with {@code max} as its (plural) count.
+     */
+    static String tooLong(final String tooLongKey, final String text, final int max) {
+        return (text != null && text.trim().length() > max) ? Text.get(tooLongKey, max) : null;
     }
 
     /** The enum constant named {@code name}; null for blank or unknown. */

@@ -222,7 +222,10 @@ public abstract class ResourceTestSupport {
      * alone would hand a v1 body to a v2 request; the browser cache is the live risk here.
      */
     protected void assertVaryAccept(final Response response) {
-        Assert.assertEquals(response.getHeaderString("Vary"), "Accept", "Missing Vary: Accept");
+        // Among whatever else an answer varies on: Discover also varies on Accept-Language (docs/i18n.md).
+        final String vary = String.valueOf(response.getHeaderString("Vary"));
+        Assert.assertTrue(java.util.Arrays.asList(vary.split(",\\s*")).contains("Accept"),
+                "Missing Vary: Accept, found " + vary);
     }
 
     /** A caller that named the version gets it echoed back. */

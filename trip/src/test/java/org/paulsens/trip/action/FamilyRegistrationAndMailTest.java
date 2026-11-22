@@ -388,7 +388,7 @@ public class FamilyRegistrationAndMailTest {
                 ArgumentMatchers.isNull(), ArgumentMatchers.eq("New Registration - Party Trip"),
                 ArgumentMatchers.contains(kid.getPreferredName()), ArgumentMatchers.any());
         org.mockito.Mockito.verify(mail).sendManagedTemplateForOrg(ArgumentMatchers.eq("registration-received"),
-                ArgumentMatchers.eq(""), ArgumentMatchers.any(),
+                ArgumentMatchers.eq(""), ArgumentMatchers.any(), ArgumentMatchers.any(),
                 ArgumentMatchers.eq(owner.getEmail()), ArgumentMatchers.eq("from@example.com"),
                 ArgumentMatchers.eq("reply@example.com"), ArgumentMatchers.isNull(),
                 ArgumentMatchers.any());

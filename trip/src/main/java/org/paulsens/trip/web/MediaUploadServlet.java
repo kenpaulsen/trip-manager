@@ -15,6 +15,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.Caller;
 import org.paulsens.trip.action.MediaCommands;
 import org.paulsens.trip.action.PrivilegeCommands;
+import org.paulsens.trip.i18n.Text;
 
 /**
  * The curated-media upload endpoint behind the landing page's Documents dialog: {@code POST /media-upload}
@@ -56,18 +57,18 @@ public class MediaUploadServlet extends HttpServlet {
         }
         final Caller caller = callerOf(req);
         if (!caller.isAuthenticated()) {
-            error(resp, 401, "not_authenticated", "Sign in required.");
+            error(resp, 401, "not_authenticated", Text.get("api.shared.signInRequired"));
             return;
         }
         // Global media admins upload anywhere; an org's media editor only on that org's own site (the
         // upload is stamped with the site's org -- see MediaCommands.siteOrgId).
         if (!caller.hasHere(PrivilegeCommands.MEDIA_ADMIN)) {
-            error(resp, 403, "forbidden", "Media administration required.");
+            error(resp, 403, "forbidden", Text.get("api.media.adminRequired"));
             return;
         }
         final String slot = req.getParameter("slot");
         if (slot == null || !ALLOWED_SLOTS.contains(slot)) {
-            error(resp, 400, "bad_slot", "That slot cannot be uploaded to here.");
+            error(resp, 400, "bad_slot", Text.get("server.uploads.badSlot"));
             return;
         }
 
@@ -76,23 +77,23 @@ public class MediaUploadServlet extends HttpServlet {
             part = req.getPart("file");
         } catch (final IllegalStateException ex) {
             // The container's multipart limit tripped (file bigger than max-file-size in web.xml).
-            error(resp, 413, "too_large", "That file is too large.");
+            error(resp, 413, "too_large", Text.get("server.uploads.tooLarge"));
             return;
         } catch (final ServletException | RuntimeException ex) {
-            error(resp, 400, "bad_request", "The upload could not be read.");
+            error(resp, 400, "bad_request", Text.get("api.shared.uploadUnreadable"));
             return;
         }
         if (part == null || part.getSize() == 0) {
-            error(resp, 400, "no_file", "No file was included in the upload.");
+            error(resp, 400, "no_file", Text.get("server.uploads.noFile"));
             return;
         }
         final String fileName = safeFileName(part.getSubmittedFileName());
         if (fileName == null) {
-            error(resp, 400, "bad_name", "The file needs a plain file name.");
+            error(resp, 400, "bad_name", Text.get("server.uploads.badName"));
             return;
         }
         if (!media().isUploadEnabled()) {
-            error(resp, 503, "no_bucket", "Uploads are not available in this deployment.");
+            error(resp, 503, "no_bucket", Text.get("api.media.uploadsUnavailable"));
             return;
         }
 
@@ -105,11 +106,11 @@ public class MediaUploadServlet extends HttpServlet {
                     caller.auditActor().email(), null);
         } catch (final RuntimeException ex) {
             log.error("Media upload failed for {}", fileName, ex);
-            error(resp, 503, "store", "The file could not be stored. Try again.");
+            error(resp, 503, "store", Text.get("server.uploads.notStored"));
             return;
         }
         if (!stored) {
-            error(resp, 503, "store", "The file could not be stored. Try again.");
+            error(resp, 503, "store", Text.get("server.uploads.notStored"));
             return;
         }
         // The dialog shows the URL as a link the moment the upload finishes: the item is in the library, but

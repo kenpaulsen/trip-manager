@@ -3,6 +3,7 @@ package org.paulsens.trip.action;
 import jakarta.faces.context.FacesContext;
 import jakarta.inject.Inject;
 import java.util.Optional;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.media.PendingUploads;
 import org.paulsens.trip.media.PhotoProcessor;
 import org.paulsens.trip.media.PhotoRejectedException;
@@ -111,7 +112,7 @@ public abstract class PhotoUploadBean {
      */
     public void handleUpload(final FileUploadEvent event) {
         if (event.getFile() == null || event.getFile().getSize() == 0) {
-            error("No " + noun() + ": no " + noun() + " was included in the upload.");
+            error(forNoun("noFile"));
             return;
         }
         final UploadGate gate = uploadGate();
@@ -145,13 +146,13 @@ public abstract class PhotoUploadBean {
             sessionPut(TOKEN_KEY, pending.token());
             return true;
         } catch (final PhotoRejectedException ex) {
-            error(capitalized(noun()) + " rejected: " + ex.getMessage());
+            error(forNoun("rejected", ex.getMessage()));
             return false;
         }
     }
 
     private String tooLarge(final UploadGate gate) {
-        return "Too large: " + noun() + "s can be at most " + (gate.maxBytes() / (1024 * 1024)) + " MB.";
+        return forNoun("tooLarge", String.valueOf(gate.maxBytes() / (1024 * 1024)));
     }
 
     /**
@@ -179,12 +180,12 @@ public abstract class PhotoUploadBean {
         final Optional<MediaItem> photo =
                 scope == null ? Optional.empty() : albums().offered(caller(), scope, mediaId);
         if (photo.isEmpty()) {
-            error("Not available: that album photo cannot be used here.");
+            error(Text.get("feedback.photoUploadBean.albumPhotoNotAvailable"));
             return false;
         }
         final Optional<byte[]> bytes = albums().bytesOf(photo.get());
         if (bytes.isEmpty()) {
-            error("Not read: the album photo could not be read. Try again.");
+            error(Text.get("feedback.photoUploadBean.albumPhotoNotRead"));
             return false;
         }
         if (!park(bytes.get(), gate)) {
@@ -265,9 +266,19 @@ public abstract class PhotoUploadBean {
      */
     protected abstract void confirm(CroppedImage crop);
 
-    /** The word the messages use for what is being uploaded: "image", unless a feature says "photo". */
+    /**
+     * The word the messages use for what is being uploaded: "image", unless a feature says "photo" or "picture".
+     * It is the last segment of a message's key, never text: each message is a whole sentence per noun
+     * ({@code feedback.photoUploadBean.expired.photo}), so a new noun needs its five sentences in the bundle.
+     */
     protected String noun() {
         return "image";
+    }
+
+    /** One of this bean's messages, worded for what the feature uploads. */
+    private String forNoun(final String message, final Object... args) {
+        final String key = "feedback.photoUploadBean." + message + "." + noun();
+        return Text.get(key, args);
     }
 
     /** Hook: an upload has just been parked (badge images remember the filename as the label default). */
@@ -323,13 +334,13 @@ public abstract class PhotoUploadBean {
     protected Optional<PendingUploads.Pending> claim(final String expectedTargetId) {
         final Optional<PendingUploads.Pending> found = pending();
         if (found.isEmpty()) {
-            error("Upload expired: the uploaded " + noun() + " is no longer available. Upload it again.");
+            error(forNoun("expired"));
             return Optional.empty();
         }
         final PendingUploads.Pending pending = found.get();
         if (!purpose().equals(pending.purpose()) || expectedTargetId == null
                 || !expectedTargetId.equals(pending.targetId())) {
-            error("Upload mismatch: the uploaded " + noun() + " is no longer available. Upload it again.");
+            error(forNoun("mismatch"));
             return Optional.empty();
         }
         return Optional.of(pending);
@@ -425,9 +436,5 @@ public abstract class PhotoUploadBean {
 
     protected static void error(final String message) {
         PageFeedback.error(message);
-    }
-
-    private static String capitalized(final String word) {
-        return Character.toUpperCase(word.charAt(0)) + word.substring(1);
     }
 }

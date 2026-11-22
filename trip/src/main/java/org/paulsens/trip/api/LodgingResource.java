@@ -26,6 +26,7 @@ import org.paulsens.trip.action.LodgingCommands;
 import org.paulsens.trip.action.LodgingViews;
 import org.paulsens.trip.action.RatePlanCommands;
 import org.paulsens.trip.action.RatePlanViews;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Reservation;
 import org.paulsens.trip.model.ReservationOffer;
@@ -75,11 +76,11 @@ public class LodgingResource extends BaseResource {
     public Response createAccommodation(@HeaderParam(CSRF_HEADER) final String csrf,
             final Map<String, Object> body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         final LodgingCommands lodging = lodging();
         if (!lodging.canCreateAccommodation()) {
-            return error(403, ApiErrors.FORBIDDEN, "Lodging admin required.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.lodging.adminRequired"));
         }
         final LodgingViews.AccommodationForm form = new LodgingViews.AccommodationForm();
         form.setName(str(body, "name"));
@@ -96,7 +97,7 @@ public class LodgingResource extends BaseResource {
         form.setForce(true);
         final String accId = lodging.saveAccommodation(form, str(body, "orgId"));
         if (accId.isEmpty()) {
-            return error(400, ApiErrors.VALIDATION_FAILED, "The accommodation was not created.");
+            return error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.lodging.accommodationNotCreated"));
         }
         final Map<String, String> typeIds = new LinkedHashMap<>();
         for (final Map<String, Object> type : list(body, "roomTypes")) {
@@ -105,7 +106,8 @@ public class LodgingResource extends BaseResource {
             rt.setMinPeople(intOf(type, "minPeople", 1));
             rt.setMaxPeople(intOf(type, "maxPeople", 2));
             if (!lodging.saveRoomType(accId, rt)) {
-                return error(400, ApiErrors.VALIDATION_FAILED, "Room type '" + rt.getName() + "' was not created.");
+                return error(400, ApiErrors.VALIDATION_FAILED,
+                        Text.get("api.lodging.roomTypeNotCreated", String.valueOf(rt.getName())));
             }
         }
         for (final LodgingViews.RoomTypeRow row : lodging.roomTypeRows(accId)) {
@@ -117,7 +119,8 @@ public class LodgingResource extends BaseResource {
             rf.setFloor(str(room, "floor"));
             rf.setRoomTypeId(typeIds.get(str(room, "type")));
             if (!lodging.saveRoom(accId, rf)) {
-                return error(400, ApiErrors.VALIDATION_FAILED, "Room '" + rf.getRoomNumber() + "' was not created.");
+                return error(400, ApiErrors.VALIDATION_FAILED,
+                        Text.get("api.lodging.roomNotCreated", String.valueOf(rf.getRoomNumber())));
             }
         }
         final Map<String, String> roomIds = new LinkedHashMap<>();
@@ -134,7 +137,7 @@ public class LodgingResource extends BaseResource {
     public Response accommodations() {
         final LodgingCommands lodging = lodging();
         if (!lodging.canOpenLodgingAdmin()) {
-            return error(403, ApiErrors.FORBIDDEN, "Lodging admin required.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.lodging.adminRequired"));
         }
         return ok(lodging.accommodationRows());
     }
@@ -151,11 +154,11 @@ public class LodgingResource extends BaseResource {
     public Response createBlock(@PathParam("accId") final String accId,
             @HeaderParam(CSRF_HEADER) final String csrf, final Map<String, Object> body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         final HotelCommands hotel = hotel();
         if (!hotel.canEdit(accId)) {
-            return error(403, ApiErrors.FORBIDDEN, "Accommodation admin required.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.lodging.accommodationAdminRequired"));
         }
         final LodgingViews.BlockForm form = new LodgingViews.BlockForm();
         for (final Object id : listOf(body, "roomIds")) {
@@ -168,7 +171,7 @@ public class LodgingResource extends BaseResource {
         }
         form.setReason(str(body, "reason"));
         if (!hotel.saveBlock(accId, form)) {
-            return error(400, ApiErrors.VALIDATION_FAILED, "The block was not saved.");
+            return error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.lodging.blockNotSaved"));
         }
         // The command mints the id, so read it back: the newest block on exactly these nights.
         String created = null;
@@ -192,21 +195,21 @@ public class LodgingResource extends BaseResource {
     public Response addOperator(@PathParam("accId") final String accId,
             @HeaderParam(CSRF_HEADER) final String csrf, final Map<String, Object> body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         final LodgingCommands lodging = lodging();
         if (!lodging.canEditAccommodation(accId)) {
-            return error(403, ApiErrors.FORBIDDEN, "Accommodation admin required.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.lodging.accommodationAdminRequired"));
         }
         if (lodging.findAccommodation(accId) == null) {
-            return error(404, ApiErrors.NOT_FOUND, "No such accommodation.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.lodging.noSuchAccommodation"));
         }
         final String personId = str(body, "personId");
         if (personId == null || personId.isBlank() || findPerson(Person.Id.from(personId)) == null) {
-            return error(404, ApiErrors.NOT_FOUND, "No such person.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.shared.noSuchPerson"));
         }
         return lodging.addManagerById(accId, personId) ? ok(Map.of("ok", true))
-                : error(400, ApiErrors.VALIDATION_FAILED, "The operator was not added.");
+                : error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.lodging.operatorNotAdded"));
     }
 
     /**
@@ -221,14 +224,14 @@ public class LodgingResource extends BaseResource {
     public Response removeOperator(@PathParam("accId") final String accId,
             @PathParam("personId") final String personId, @HeaderParam(CSRF_HEADER) final String csrf) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         final LodgingCommands lodging = lodging();
         if (!lodging.canEditAccommodation(accId)) {
-            return error(403, ApiErrors.FORBIDDEN, "Accommodation admin required.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.lodging.accommodationAdminRequired"));
         }
         if (lodging.findAccommodation(accId) == null) {
-            return error(404, ApiErrors.NOT_FOUND, "No such accommodation.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.lodging.noSuchAccommodation"));
         }
         lodging.removeManagerById(accId, personId);
         return ok(Map.of("ok", true));
@@ -248,11 +251,11 @@ public class LodgingResource extends BaseResource {
     public Response createRatePlan(@PathParam("accId") final String accId,
             @HeaderParam(CSRF_HEADER) final String csrf, final Map<String, Object> body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         final RatePlanCommands ratePlans = ratePlans();
         if (!ratePlans.canEditCost(accId)) {
-            return error(403, ApiErrors.FORBIDDEN, "Accommodation admin required.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.lodging.accommodationAdminRequired"));
         }
         final RatePlanViews.RatePlanForm form = ratePlans.planFormFor(accId, null);
         form.setName(str(body, "name"));
@@ -273,7 +276,7 @@ public class LodgingResource extends BaseResource {
         form.setNotes(str(body, "notes"));
         if (!ratePlans.savePlan(form)) {
             return error(400, ApiErrors.VALIDATION_FAILED,
-                    problemOr(form.getProblem(), "The rate plan was not saved."));
+                    problemOr(form.getProblem(), Text.get("api.lodging.ratePlanNotSaved")));
         }
         // The command writes the minted id back onto the form.
         return ok(Map.of("id", form.getPlanId() == null ? "" : form.getPlanId()));
@@ -285,7 +288,7 @@ public class LodgingResource extends BaseResource {
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response ratePlans(@PathParam("accId") final String accId) {
         if (!hotel().canRead(accId)) {
-            return error(403, ApiErrors.FORBIDDEN, "Lodging admin required.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.lodging.adminRequired"));
         }
         return ok(ratePlans().rows(accId));
     }
@@ -298,7 +301,7 @@ public class LodgingResource extends BaseResource {
             @QueryParam("month") final String month) {
         final HotelCommands hotel = hotel();
         if (!hotel.canRead(accId)) {
-            return error(403, ApiErrors.FORBIDDEN, "Lodging admin required.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.lodging.adminRequired"));
         }
         return ok(hotel.calendar(accId, month));
     }
@@ -319,11 +322,11 @@ public class LodgingResource extends BaseResource {
     public Response createOffer(@PathParam("tripId") final String tripId,
             @HeaderParam(CSRF_HEADER) final String csrf, final Map<String, Object> body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         final LodgingCommands lodging = lodging();
         if (!lodging.canManageTripLodging(tripId)) {
-            return error(403, ApiErrors.FORBIDDEN, "Trip lodging manager required.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.lodging.tripManagerRequired"));
         }
         final LodgingViews.OfferForm form = lodging.offerFormFor(tripId, null);
         form.setName(str(body, "name"));
@@ -361,10 +364,11 @@ public class LodgingResource extends BaseResource {
         // Which ids existed BEFORE the save is how this call knows which offer is its own; see createdOffer.
         final Set<String> before = offerIds(lodging.getOffers(tripId));
         if (!lodging.saveOffer(tripId, form)) {
-            return error(400, ApiErrors.VALIDATION_FAILED, problemOr(form.getProblem(), "The offer was not created."));
+            return error(400, ApiErrors.VALIDATION_FAILED, problemOr(form.getProblem(),
+                    Text.get("api.lodging.offerNotCreated")));
         }
         final ReservationOffer offer = createdOffer(lodging.getOffers(tripId), before, form.getName());
-        return offer == null ? error(500, ApiErrors.INTERNAL, "Offer saved but not found.")
+        return offer == null ? error(500, ApiErrors.INTERNAL, Text.get("api.lodging.offerSavedNotFound"))
                 : ok(Map.of("id", offer.getId().getValue(), "tripEventId", offer.getTripEventId()));
     }
 
@@ -383,11 +387,11 @@ public class LodgingResource extends BaseResource {
     public Response createOfferFromPlan(@PathParam("tripId") final String tripId,
             @HeaderParam(CSRF_HEADER) final String csrf, final Map<String, Object> body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         final LodgingCommands lodging = lodging();
         if (!lodging.canManageTripLodging(tripId)) {
-            return error(403, ApiErrors.FORBIDDEN, "Trip lodging manager required.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.lodging.tripManagerRequired"));
         }
         final String accId = str(body, "accId");
         final String planId = str(body, "planId");
@@ -395,7 +399,7 @@ public class LodgingResource extends BaseResource {
         final RatePlanViews.AttachForm price = attachPrice(tripId, body);
         if (!ratePlans().attach(tripId, accId, planId, price)) {
             return error(400, ApiErrors.VALIDATION_FAILED,
-                    problemOr(price.getProblem(), "The rate plan was not attached."));
+                    problemOr(price.getProblem(), Text.get("api.lodging.ratePlanNotAttached")));
         }
         ReservationOffer created = null;
         for (final ReservationOffer offer : lodging.getOffers(tripId)) {
@@ -404,7 +408,7 @@ public class LodgingResource extends BaseResource {
                 created = offer;
             }
         }
-        return created == null ? error(500, ApiErrors.INTERNAL, "Offer saved but not found.")
+        return created == null ? error(500, ApiErrors.INTERNAL, Text.get("api.lodging.offerSavedNotFound"))
                 : ok(Map.of("id", created.getId().getValue(), "tripEventId", created.getTripEventId()));
     }
 
@@ -418,17 +422,17 @@ public class LodgingResource extends BaseResource {
     public Response detachOffer(@PathParam("tripId") final String tripId,
             @PathParam("offerId") final String offerId, @HeaderParam(CSRF_HEADER) final String csrf) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         final LodgingCommands lodging = lodging();
         if (!lodging.canManageTripLodging(tripId)) {
-            return error(403, ApiErrors.FORBIDDEN, "Trip lodging manager required.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.lodging.tripManagerRequired"));
         }
         if (lodging.findOffer(tripId, offerId) == null) {
-            return error(404, ApiErrors.NOT_FOUND, "No such offer on this trip.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.lodging.noSuchOffer"));
         }
         return ratePlans().detach(tripId, offerId) ? ok(Map.of("ok", true))
-                : error(400, ApiErrors.VALIDATION_FAILED, "The option was not detached.");
+                : error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.lodging.optionNotDetached"));
     }
 
     /** The optional price side of a from-plan body: priced on {@code priceKnown}, or when any price key is present. */
@@ -504,17 +508,17 @@ public class LodgingResource extends BaseResource {
     public Response createReservations(@PathParam("tripId") final String tripId,
             @HeaderParam(CSRF_HEADER) final String csrf, final Map<String, Object> body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         final LodgingCommands lodging = lodging();
         if (!lodging.canManageTripLodging(tripId)) {
-            return error(403, ApiErrors.FORBIDDEN, "Trip lodging manager required.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.lodging.tripManagerRequired"));
         }
         final LodgingViews.ReservationForm form = new LodgingViews.ReservationForm();
         form.setOfferId(str(body, "offerId"));
         final ReservationOffer offer = lodging.findOffer(tripId, form.getOfferId());
         if (offer == null) {
-            return error(404, ApiErrors.NOT_FOUND, "No such offer on this trip.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.lodging.noSuchOffer"));
         }
         lodging.applyOfferDefaults(form, offer);
         for (final Object id : listOf(body, "personIds")) {
@@ -535,7 +539,7 @@ public class LodgingResource extends BaseResource {
             // created" sent a webtest failure hunting through the server log for the actual refusal.
             final String why = form.getProblem();
             return error(400, ApiErrors.VALIDATION_FAILED,
-                    (why == null || why.isBlank()) ? "No reservation was created." : why);
+                    (why == null || why.isBlank()) ? Text.get("api.lodging.noReservationCreated") : why);
         }
         final List<String> ids = new ArrayList<>();
         for (final String personId : form.getPersonIds()) {
@@ -555,7 +559,7 @@ public class LodgingResource extends BaseResource {
     public Response reservations(@PathParam("tripId") final String tripId) {
         final LodgingCommands lodging = lodging();
         if (!lodging.canManageTripLodging(tripId)) {
-            return error(403, ApiErrors.FORBIDDEN, "Trip lodging manager required.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.lodging.tripManagerRequired"));
         }
         return ok(lodging.reservationRows(tripId, true));
     }
@@ -569,25 +573,25 @@ public class LodgingResource extends BaseResource {
             @PathParam("reservationId") final String reservationId,
             @HeaderParam(CSRF_HEADER) final String csrf, final Map<String, Object> body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         final LodgingCommands lodging = lodging();
         if (!lodging.canAssignRooms(tripId)) {
-            return error(403, ApiErrors.FORBIDDEN, "Trip lodging manager or hotel operator required.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.lodging.tripManagerOrOperatorRequired"));
         }
         final Reservation res = lodging.findReservation(tripId, reservationId);
         if (res == null) {
-            return error(404, ApiErrors.NOT_FOUND, "No such reservation.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.lodging.noSuchReservation"));
         }
         // The bean refuses too, but as a growl-shaped outcome; the API owes the caller a 403, not a 409.
         final String accId = (res.getAccommodationId() == null) ? null : res.getAccommodationId().getValue();
         if (!lodging.canAssignAt(tripId, accId)) {
-            return error(403, ApiErrors.FORBIDDEN, "You do not operate the hotel this stay is at.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.lodging.notYourHotel"));
         }
         final String roomId = str(body, "roomId");
         if (roomId == null || roomId.isBlank()) {
             return lodging.unassignRoom(tripId, reservationId) ? ok(Map.of("assigned", false))
-                    : error(400, ApiErrors.VALIDATION_FAILED, "The room was not cleared.");
+                    : error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.lodging.roomNotCleared"));
         }
         final LodgingViews.AssignOutcome outcome = lodging.assignRoom(tripId, reservationId, roomId,
                 Boolean.TRUE.equals(body.get("force")), null, null);
@@ -609,16 +613,15 @@ public class LodgingResource extends BaseResource {
             @PathParam("offerId") final String offerId, @HeaderParam(CSRF_HEADER) final String csrf,
             final Map<String, Object> body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         final LodgingCommands lodging = lodging();
         final ReservationOffer offer = lodging.findOffer(tripId, offerId);
         if (offer == null) {
-            return error(404, ApiErrors.NOT_FOUND, "No such offer on this trip.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.lodging.noSuchOffer"));
         }
         if (!lodging.canManageTripLodging(tripId)) {
-            return error(403, ApiErrors.FORBIDDEN, "Trip lodging manager required; a hotel sets its cost in its"
-                    + " rate plans.");
+            return error(403, ApiErrors.FORBIDDEN, Text.get("api.lodging.costNeedsTripManager"));
         }
         final LodgingViews.OfferCostForm form = lodging.offerCostFormFor(tripId, offerId);
         form.setCostKnown(!body.containsKey("costKnown") || Boolean.TRUE.equals(body.get("costKnown")));
@@ -635,7 +638,8 @@ public class LodgingResource extends BaseResource {
             form.setCostExtras(extraForms(list(body, "costExtras")));
         }
         if (!lodging.setOfferCost(form)) {
-            return error(400, ApiErrors.VALIDATION_FAILED, problemOr(form.getProblem(), "The cost was not saved."));
+            return error(400, ApiErrors.VALIDATION_FAILED, problemOr(form.getProblem(),
+                    Text.get("api.lodging.costNotSaved")));
         }
         final LodgingViews.OfferCostForm saved = lodging.offerCostFormFor(tripId, offerId);
         return ok(Map.of("ok", true, "costKnown", saved.isCostKnown(), "costExtras", saved.getCostExtras().size()));
@@ -664,21 +668,21 @@ public class LodgingResource extends BaseResource {
             @PathParam("reservationId") final String reservationId, @PathParam("side") final String side,
             @HeaderParam(CSRF_HEADER) final String csrf, final Map<String, Object> body) {
         if (csrfMissing(csrf)) {
-            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+            return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         final boolean price = "price".equalsIgnoreCase(side);
         if (!price && !"cost".equalsIgnoreCase(side)) {
-            return error(400, ApiErrors.VALIDATION_FAILED, "The side must be 'price' or 'cost'.");
+            return error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.lodging.sideInvalid"));
         }
         final LodgingCommands lodging = lodging();
         final Reservation res = lodging.findReservation(tripId, reservationId);
         if (res == null) {
-            return error(404, ApiErrors.NOT_FOUND, "No such reservation.");
+            return error(404, ApiErrors.NOT_FOUND, Text.get("api.lodging.noSuchReservation"));
         }
         final String accId = (res.getAccommodationId() == null) ? null : res.getAccommodationId().getValue();
         if (price ? !lodging.canManageTripLodging(tripId) : !lodging.canSetCost(tripId, accId)) {
-            return error(403, ApiErrors.FORBIDDEN, price ? "Trip lodging manager required."
-                    : "Trip lodging manager or hotel operator required.");
+            return error(403, ApiErrors.FORBIDDEN, price ? Text.get("api.lodging.tripManagerRequired")
+                    : Text.get("api.lodging.tripManagerOrOperatorRequired"));
         }
         final LodgingViews.ConcessionForm form = new LodgingViews.ConcessionForm();
         form.setTripId(tripId);
@@ -689,7 +693,7 @@ public class LodgingResource extends BaseResource {
         form.setReason(str(body, "reason"));
         if (!lodging.setConcession(form)) {
             return error(400, ApiErrors.VALIDATION_FAILED,
-                    problemOr(form.getProblem(), "The concession was not saved."));
+                    problemOr(form.getProblem(), Text.get("api.lodging.concessionNotSaved")));
         }
         return ok(Map.of("ok", true, "label", form.getCurrent() == null ? "" : form.getCurrent()));
     }

@@ -24,22 +24,21 @@ import org.paulsens.trip.model.SettingSection;
  * <p>Deployment identity -- account, VPC, endpoints, DNS -- deliberately does not belong here; that is resolved
  * at CDK synth time from {@code deploy-config.json}, long before this table is readable. This is for values a
  * human changes while the site is running.
+ *
+ * <p>A setting's label and description, and a section's heading and note, are not written here: they are the
+ * {@code labels.setting.{name}.label} / {@code .description} and {@code labels.settingSection.{id}.title} /
+ * {@code .note} lines of {@code i18n/labels.properties} ({@code docs/i18n.md}), read in the reader's language.
+ * Adding a setting means adding those two lines too, in every language ({@code LabelsBundleTest}).
  */
 public final class KnownSettings {
 
     // --- site identity ---
 
     public static final SettingDef SITE_ORG_NAME = new SettingDef(
-            "site.org.name", Config.Type.STRING, "Center for Peace West", "Organization name",
-            "The shared site's organization name, used on its public pages and in notices such as the "
-                    + "photo-upload license text. An organization's own site shows the organization's name "
-                    + "from its profile instead.");
+            "site.org.name", Config.Type.STRING, "Center for Peace West");
 
     public static final SettingDef SITE_ORGSITES_BASE_DOMAIN = new SettingDef(
-            "site.orgsites.baseDomain", Config.Type.STRING, "unitetrip.com", "Org sites base domain",
-            "The domain organization sites live under: an org with slug 'acme' serves at "
-                    + "acme.<this domain>. Its apex and www are the marketing site. Changing this only works "
-                    + "when DNS and the certificate already cover the new domain's wildcard.");
+            "site.orgsites.baseDomain", Config.Type.STRING, "unitetrip.com");
 
     /**
      * The sending domains EVERY organization may use. Any other SES-verified domain belongs to the one
@@ -49,11 +48,7 @@ public final class KnownSettings {
      * may claim as its custom domain. Comma-separated.
      */
     public static final SettingDef MAIL_SHARED_DOMAINS = new SettingDef(
-            "mail.sharedDomains", Config.Type.STRING, "unitetrip.com, visitqueenofpeace.com",
-            "Shared sending domains",
-            "The verified sending domains every organization may send from, comma-separated. Any other verified "
-                    + "domain is the custom domain of exactly one organization and only it may send from that "
-                    + "domain. The site's own From addresses use these domains only.");
+            "mail.sharedDomains", Config.Type.STRING, "unitetrip.com, visitqueenofpeace.com");
 
     /**
      * The tags a trip editor may put on a trip (issue 154): ONE platform-wide list, so a visitor filtering trips
@@ -63,11 +58,7 @@ public final class KnownSettings {
      */
     public static final SettingDef TRIP_TAGS = new SettingDef(
             "trip.tags", Config.Type.STRING,
-            "Pilgrimage, Retreat, Conference, Mission, Youth, Family, Study, Service, Tour",
-            "Trip tags",
-            "The tags trip editors can put on a trip, comma-separated, in the order the editor offers them. Every "
-                    + "organization uses this one list. Renaming a tag in a way that changes more than its "
-                    + "capitalization, or removing one, takes it off every trip that had it.");
+            "Pilgrimage, Retreat, Conference, Mission, Youth, Family, Study, Service, Tour");
 
     /**
      * Org-EXPLICIT (see {@link SettingDef#isOrgOnly()}): the shared site's property must never collect an
@@ -75,11 +66,27 @@ public final class KnownSettings {
      * value is the shared hosts' id ({@code BrandCommands.getPageAnalyticsId}); blank there means no tag on them.
      */
     public static final SettingDef SITE_ANALYTICS_ID = new SettingDef(
-            "site.analytics.id", Config.Type.STRING, "", "Analytics property id",
-            "The web analytics property this site reports visits to: a Google Analytics 4 measurement id, which "
-                    + "starts with G-. Blank means no analytics tag and no cookie banner. An organization's site never "
-                    + "inherits the shared site's id: it reports only to an id the organization set for itself.")
+            "site.analytics.id", Config.Type.STRING, "")
             .withOrgOnly().withAnalyticsId();
+
+    /**
+     * The languages a site offers, as {@code Language} tags ({@code docs/i18n.md}). Ships as English alone so the
+     * code for a new language deploys dark: a language is switched on, per site, only once a native speaker has
+     * reviewed it. Read through {@code i18n/SiteLanguages}, never split by hand: that parser is what guarantees a
+     * typo cannot leave a site with no language at all.
+     */
+    public static final SettingDef SITE_LANGUAGES = new SettingDef(
+            "site.languages", Config.Type.STRING, "en")
+            .withOrgOverride();
+
+    /**
+     * The first native-app version that ships its own translations. An older build sends the PHONE's language in
+     * {@code Accept-Language} by default while its screens are English only, so answering it in Spanish would mix
+     * two languages on one screen; below this version (and while this is blank) the apps are answered in the
+     * site's default language. Browsers are never gated: their pages and their API calls change together.
+     */
+    public static final SettingDef API_LANGUAGES_MIN_APP_VERSION = new SettingDef(
+            "api.languages.minAppVersion", Config.Type.STRING, "");
 
     // --- branding (org sites only; every def is org-ONLY, see the section note) ---
 
@@ -93,9 +100,7 @@ public final class KnownSettings {
             "avocado", "blue", "green", "orange", "purple", "red", "turquoise", "yellow");
 
     public static final SettingDef SITE_THEME_PALETTE = new SettingDef(
-            "site.theme.palette", Config.Type.STRING, "", "Color palette",
-            "The accent color of the organization's site, used for its menus, buttons and links in both light and "
-                    + "dark mode. Blank means the platform's default look.")
+            "site.theme.palette", Config.Type.STRING, "")
             .withOrgOnly().withChoices(THEME_PALETTES.toArray(String[]::new));
 
     /**
@@ -105,10 +110,7 @@ public final class KnownSettings {
      * stays one; this is what everybody else sees.
      */
     public static final SettingDef SITE_THEME_DARK = new SettingDef(
-            "site.theme.dark", Config.Type.BOOLEAN, "false", "Dark mode",
-            "On: the organization's site is drawn in its palette's dark theme, with a dark page background, top bar "
-                    + "and menu. Off: the light theme. A visitor who picked light or dark for themselves keeps "
-                    + "their own choice.").withOrgOnly();
+            "site.theme.dark", Config.Type.BOOLEAN, "false").withOrgOnly();
 
     /** The stored value of {@link #SITE_LAYOUT} that keeps the content card and the sidebar. */
     public static final String LAYOUT_CLASSIC = "classic";
@@ -121,32 +123,21 @@ public final class KnownSettings {
      * every other page keeps the card-and-sidebar layout, which is what its forms and tables are built for.
      */
     public static final SettingDef SITE_LAYOUT = new SettingDef(
-            "site.layout", Config.Type.STRING, "", "Page layout",
-            "How the site's home page is laid out: classic keeps the content card beside the sidebar, and full-width "
-                    + "lets band sections such as a hero span the whole window. Blank means classic. Other pages "
-                    + "keep the classic layout either way.")
+            "site.layout", Config.Type.STRING, "")
             .withOrgOnly().withChoices(LAYOUT_CLASSIC, LAYOUT_FULL_WIDTH);
 
     public static final SettingDef SITE_LOGO_URL = new SettingDef(
-            "site.logo.url", Config.Type.STRING, "", "Logo image URL",
-            "The logo shown in the site's top bar, as an http or https URL. Blank shows the organization's name as "
-                    + "text instead.").withOrgOnly().withHttpUrl();
+            "site.logo.url", Config.Type.STRING, "").withOrgOnly().withHttpUrl();
 
     public static final SettingDef SITE_FAVICON_URL = new SettingDef(
-            "site.favicon.url", Config.Type.STRING, "", "Favicon URL",
-            "The icon browsers show on the site's tabs, as an http or https URL. Blank means no icon, so the browser "
-                    + "shows its generic one.").withOrgOnly().withHttpUrl();
+            "site.favicon.url", Config.Type.STRING, "").withOrgOnly().withHttpUrl();
 
     public static final SettingDef SITE_OG_IMAGE_URL = new SettingDef(
-            "site.ogImage.url", Config.Type.STRING, "", "Link preview image URL",
-            "The picture chat apps and social sites show when someone shares a link to the site, as an http or https "
-                    + "URL. Blank uses the logo; with no logo either, links preview without a picture.")
+            "site.ogImage.url", Config.Type.STRING, "")
             .withOrgOnly().withHttpUrl();
 
     public static final SettingDef SITE_BACKGROUND_URL = new SettingDef(
-            "site.background.url", Config.Type.STRING, "", "Page background image URL",
-            "An image shown behind the site's pages, as an http or https URL. Blank means no background image, so "
-                    + "the page background color shows instead.")
+            "site.background.url", Config.Type.STRING, "")
             .withOrgOnly().withHttpUrl();
 
     /**
@@ -158,21 +149,15 @@ public final class KnownSettings {
      * is set is the value that shows.
      */
     public static final SettingDef SITE_BACKGROUND_COLOR = new SettingDef(
-            "site.background.color", Config.Type.STRING, "", "Page background color",
-            "The color shown behind the site's pages when no background image is set, as a hex value, for example "
-                    + "#333333. Blank means the palette's own background, a tint of its color that follows the dark "
-                    + "mode choice.")
+            "site.background.color", Config.Type.STRING, "")
             .withOrgOnly().withHexColor();
 
     public static final SettingDef SITE_FOOTER_TITLE = new SettingDef(
-            "site.footer.title", Config.Type.STRING, "", "Footer title",
-            "The heading of the page footer on the organization's site. Blank shows the organization's name.")
-            .withOrgOnly();
+            "site.footer.title", Config.Type.STRING, "")
+            .withOrgOnly().withTranslatable();
 
     public static final SettingDef SITE_FOOTER_TEXT = new SettingDef(
-            "site.footer.text", Config.Type.STRING, "", "Footer text",
-            "A line of plain text under the footer title, such as a tagline, a mailing address or a registration "
-                    + "number. Blank shows nothing there.").withOrgOnly();
+            "site.footer.text", Config.Type.STRING, "").withOrgOnly().withTranslatable();
 
     /**
      * The two footer colors. Blank means the theme's own footer color, which is the near-white the classic
@@ -180,52 +165,35 @@ public final class KnownSettings {
      * honored on either layout. Hex only ({@link SettingDef#hexColor}), because it lands in a style attribute.
      */
     public static final SettingDef SITE_FOOTER_TITLE_COLOR = new SettingDef(
-            "site.footer.title.color", Config.Type.STRING, "", "Footer title color",
-            "The color of the footer title, as a hex value, for example #ffffff. Blank uses the theme's own footer "
-                    + "color, which suits both layouts.").withOrgOnly().withHexColor();
+            "site.footer.title.color", Config.Type.STRING, "").withOrgOnly().withHexColor();
 
     public static final SettingDef SITE_FOOTER_TEXT_COLOR = new SettingDef(
-            "site.footer.text.color", Config.Type.STRING, "", "Footer text color",
-            "The color of the line of text under the footer title, as a hex value, for example #ffffff. Blank uses "
-                    + "the theme's own footer color.").withOrgOnly().withHexColor();
+            "site.footer.text.color", Config.Type.STRING, "").withOrgOnly().withHexColor();
 
     /** ONE color for the footer's Privacy, Terms and Support links and the dots between them. */
     public static final SettingDef SITE_FOOTER_LINKS_COLOR = new SettingDef(
-            "site.footer.links.color", Config.Type.STRING, "", "Footer links color",
-            "The color of the footer's Privacy, Terms and Support links and the dots between them, as a hex value, "
-                    + "for example #ffffff. Blank uses the theme's own footer link color.")
+            "site.footer.links.color", Config.Type.STRING, "")
             .withOrgOnly().withHexColor();
 
     public static final SettingDef SITE_CONTACT_NAME = new SettingDef(
-            "site.contact.name", Config.Type.STRING, "", "Contact name",
-            "The name on the contact card in the sidebar of the organization's site, beside the contact email from "
-                    + "its profile. Never inherited from the shared site: blank leaves the name off. The card is "
-                    + "hidden when the name, phone and email are all blank.").withOrgOnly();
+            "site.contact.name", Config.Type.STRING, "").withOrgOnly();
 
     public static final SettingDef SITE_CONTACT_PHONE = new SettingDef(
-            "site.contact.phone", Config.Type.STRING, "", "Contact phone",
-            "The phone number on the contact card in the sidebar of the organization's site, shown exactly as typed. "
-                    + "Never inherited from the shared site: blank leaves the phone off the card.")
+            "site.contact.phone", Config.Type.STRING, "")
             .withOrgOnly();
 
     public static final SettingDef SITE_DONATE_URL = new SettingDef(
-            "site.donate.url", Config.Type.STRING, "", "Donate link URL",
-            "The http or https page the Donate card and the Donate menu entry send people to. Never inherited from "
-                    + "the shared site: blank means neither is shown.").withOrgOnly().withHttpUrl();
+            "site.donate.url", Config.Type.STRING, "").withOrgOnly().withHttpUrl();
 
     /**
      * The donate card's own words. Blank keeps the plain card (heading "Donate", no text), so every org that set
      * only the URL keeps exactly the card it had.
      */
     public static final SettingDef SITE_DONATE_TITLE = new SettingDef(
-            "site.donate.title", Config.Type.STRING, "", "Donate card heading",
-            "The heading of the Donate card in the sidebar, for example Make a Donation. Blank shows Donate. The "
-                    + "card itself appears only when a donate link URL is set.").withOrgOnly();
+            "site.donate.title", Config.Type.STRING, "").withOrgOnly().withTranslatable();
 
     public static final SettingDef SITE_DONATE_TEXT = new SettingDef(
-            "site.donate.text", Config.Type.STRING, "", "Donate card text",
-            "A short line of plain text above the Donate button, saying what a gift supports. Blank shows the "
-                    + "button alone.").withOrgOnly();
+            "site.donate.text", Config.Type.STRING, "").withOrgOnly().withTranslatable();
 
     /**
      * PayPal's own Donate image in place of the themed button (issue #123: an org that collects through a PayPal
@@ -233,166 +201,117 @@ public final class KnownSettings {
      * page ({@code BrandCommands.isDonatePaypalImage}), so PayPal's mark never fronts a link to anywhere else.
      */
     public static final SettingDef SITE_DONATE_PAYPAL_IMAGE = new SettingDef(
-            "site.donate.paypalImage", Config.Type.BOOLEAN, "false", "PayPal Donate image",
-            "On: the Donate card shows PayPal's own yellow Donate button image instead of a button in the site's "
-                    + "colors. It applies only when the donate link URL is a paypal.com page; any other link keeps "
-                    + "the themed button.").withOrgOnly();
+            "site.donate.paypalImage", Config.Type.BOOLEAN, "false").withOrgOnly();
 
     /**
      * The org site's browser title. Pages that name themselves (a trip page, a site page) still use their own
      * title; this replaces the ORG NAME that the home page, the sign-in pages and the installed-app name show.
      */
     public static final SettingDef SITE_TITLE = new SettingDef(
-            "site.title", Config.Type.STRING, "", "Site title",
-            "The title browsers show in the tab and bookmarks for the organization's site, and the name of the "
-                    + "site when installed on a phone's home screen. Blank uses the organization's name.")
-            .withOrgOnly();
+            "site.title", Config.Type.STRING, "")
+            .withOrgOnly().withTranslatable();
 
     public static final SettingDef SITE_SIDEBAR_TITLE = new SettingDef(
-            "site.sidebar.title", Config.Type.STRING, "", "Sidebar trips heading",
-            "The heading over the list of upcoming trips in the sidebar of the organization's site, for example "
-                    + "Retreats or Tours. Blank shows Trips.").withOrgOnly();
+            "site.sidebar.title", Config.Type.STRING, "").withOrgOnly().withTranslatable();
 
     // --- home page ---
 
     public static final SettingDef HOME_PHOTOS_WINDOW_DAYS = new SettingDef(
-            "home.photos.windowDays", Config.Type.INT, "365", "Pictures from the last (days)",
-            "How many days after a trip ends its photos stay on the home page. Older trips' albums drop off the "
-                    + "photo strip on their own.")
+            "home.photos.windowDays", Config.Type.INT, "365")
             .withOrgOverride();
 
     public static final SettingDef HOME_PHOTOS_MIN_COUNT = new SettingDef(
-            "home.photos.minCount", Config.Type.INT, "10", "Minimum pictures per trip",
-            "The fewest publicly shown photos a trip needs before its album appears on the home page. A trip with "
-                    + "fewer stays off the photo strip.").withOrgOverride();
+            "home.photos.minCount", Config.Type.INT, "10").withOrgOverride();
 
     public static final SettingDef HOME_COUNTDOWN_SOON_DAYS = new SettingDef(
-            "home.countdown.soonDays", Config.Type.INT, "60", "Extra countdowns within (days)",
-            "The sidebar always counts down to the next trip in each language; a trip starting within this many days "
-                    + "gets a countdown too, even behind another trip in the same language.")
+            "home.countdown.soonDays", Config.Type.INT, "60")
             .withOrgOverride();
 
     // --- content templates ---
 
     public static final SettingDef CONTENT_VERSIONS_RETAINED = new SettingDef(
-            "content.versions.retained", Config.Type.INT, "5", "Content versions kept",
-            "How many previous versions of each content template and each page-content item are kept for "
-                    + "undo. Lowering it trims history on the next save of each item.");
+            "content.versions.retained", Config.Type.INT, "5");
 
     public static final SettingDef HOME_BANNER_ENABLED = new SettingDef(
-            "home.banner.enabled", Config.Type.BOOLEAN, "false", "Show the banner",
-            "Shows a notice at the top of the public home page. The banner also needs its text, below.");
+            "home.banner.enabled", Config.Type.BOOLEAN, "false");
 
     public static final SettingDef HOME_BANNER_TEXT = new SettingDef(
-            "home.banner.text", Config.Type.STRING, "", "Banner text",
-            "The notice itself. Blank hides the banner even when Show the banner is on.");
+            "home.banner.text", Config.Type.STRING, "");
 
     // --- chat email ---
 
     public static final SettingDef CHAT_MAIL_ENABLED = new SettingDef(
-            "chat.mail.enabled", Config.Type.BOOLEAN, "false", "Send chat email",
-            "The master switch for every chat email, including mentions and the daily digest. Off means chat "
-                    + "sends no mail at all, whatever anyone's own preferences say.");
+            "chat.mail.enabled", Config.Type.BOOLEAN, "false");
 
-    /**
+    /*
      * The mail-address slots below share one value shape, resolved by {@code MailAddressCommands}: the
      * sentinel {@code site} means the Site email setting; {@code org} (recipient/reply-to slots that have a
      * trip in hand only) means the owning organization's contact email, falling back to the Site email; any
      * other value is a literal address. The Email addresses section of the Settings page renders these with
      * a mode widget instead of the generic text box.
+     *
+     * Each such slot's description ends with the same "Value shape: ..." sentence. It was one constant appended
+     * here; in the bundle it is written out in every description, because a translated text is a whole text.
      */
-    private static final String MODE_NOTE = " Value shape: 'site' = the Site email, 'org' = the owning "
-            + "organization's contact email (falling back to the Site email), 'facilitators' = the trip's "
-            + "facilitators' emails (org-context slots only; falls back like 'org'), anything else = that "
-            + "literal address.";
 
     public static final SettingDef CHAT_MAIL_FROM = new SettingDef(
-            "chat.mail.from", Config.Type.STRING, "Trip Chat <no-reply@visitqueenofpeace.com>", "From address",
-            "Chat email's From. Must be an address SES is verified to send from, or every chat email fails."
-                    + MODE_NOTE);
+            "chat.mail.from", Config.Type.STRING, "Trip Chat <no-reply@visitqueenofpeace.com>");
 
     public static final SettingDef CHAT_MAIL_REPLY_TO = new SettingDef(
-            "chat.mail.replyTo", Config.Type.STRING, "no-reply@visitqueenofpeace.com", "Reply-to address",
-            "Where a reply goes. Chat email is not a mailing list, so replies are not delivered to the chat."
-                    + MODE_NOTE);
+            "chat.mail.replyTo", Config.Type.STRING, "no-reply@visitqueenofpeace.com");
 
     public static final SettingDef CHAT_MAIL_BASE_URL = new SettingDef(
-            "chat.mail.baseUrl", Config.Type.STRING, "https://my.centermirmedjugorje.com", "Site address in links",
-            "Prefixes the links in chat email. Getting this wrong sends people to the wrong site, or nowhere.");
+            "chat.mail.baseUrl", Config.Type.STRING, "https://my.centermirmedjugorje.com");
 
     // --- chat digest ---
 
     public static final SettingDef CHAT_DIGEST_ENABLED = new SettingDef(
-            "chat.digest.enabled", Config.Type.BOOLEAN, "false", "Send the daily digest",
-            "Runs the once-a-day summary. Each person still has to opt in for themselves, and nobody with "
-                    + "nothing new is emailed.");
+            "chat.digest.enabled", Config.Type.BOOLEAN, "false");
 
     public static final SettingDef CHAT_DIGEST_HOUR = new SettingDef(
-            "chat.digest.hour", Config.Type.INT, "8", "Hour of day to send",
-            "The hour of the day, 0 to 23, in the time zone below. Values outside that range are clamped rather than "
-                    + "refused.");
+            "chat.digest.hour", Config.Type.INT, "8");
 
     public static final SettingDef CHAT_DIGEST_ZONE = new SettingDef(
-            "chat.digest.zone", Config.Type.STRING, "America/Los_Angeles", "Timezone",
-            "An IANA zone id, such as America/Los_Angeles. An unrecognized zone falls back to the default.");
+            "chat.digest.zone", Config.Type.STRING, "America/Los_Angeles");
 
     // --- trip reminders (docs/reminders.md) ---
 
     public static final SettingDef REMINDERS_ENABLED = new SettingDef(
-            "reminders.enabled", Config.Type.BOOLEAN, "false", "Send scheduled trip messages",
-            "Runs the once-a-day send of trip messages. A message still goes out only after a trip facilitator "
-                    + "approved its wording and date, so turning this on sends nothing by itself.");
+            "reminders.enabled", Config.Type.BOOLEAN, "false");
 
     public static final SettingDef REMINDERS_HOUR = new SettingDef(
-            "reminders.hour", Config.Type.INT, "9", "Hour of day to send",
-            "The hour of the day, 0 to 23, in the time zone below. Values outside that range are clamped rather than "
-                    + "refused.");
+            "reminders.hour", Config.Type.INT, "9");
 
     public static final SettingDef REMINDERS_ZONE = new SettingDef(
-            "reminders.zone", Config.Type.STRING, "America/Los_Angeles", "Timezone",
-            "An IANA zone id, such as America/Los_Angeles. It also decides which day a message's send date is. An "
-                    + "unrecognized zone falls back to the default.");
+            "reminders.zone", Config.Type.STRING, "America/Los_Angeles");
 
     // --- chat limits ---
 
     public static final SettingDef CHAT_GLOBAL_LIMIT = new SettingDef(
-            "chat.global.limit", Config.Type.INT, "200", "Messages per person, all chats",
-            "The ceiling across every chat a person is in, on top of each chat's own burst and sustained "
-                    + "limits. Raising it does not loosen the per-chat limits.");
+            "chat.global.limit", Config.Type.INT, "200");
 
     public static final SettingDef CHAT_GLOBAL_WINDOW_SECONDS = new SettingDef(
-            "chat.global.windowSeconds", Config.Type.INT, "300", "...within this many seconds",
-            "The window the limit above is counted over. Changing it starts a fresh count rather than "
-                    + "reinterpreting the one in progress.");
+            "chat.global.windowSeconds", Config.Type.INT, "300");
 
     public static final SettingDef CHAT_EDIT_WINDOW_MINUTES = new SettingDef(
-            "chat.edit.windowMinutes", Config.Type.INT, "15", "Author edit window (minutes)",
-            "How long someone may correct their own message. Short on purpose: an edit rewrites what others "
-                    + "have already read, so this is for fixing a typo, not revising history.");
+            "chat.edit.windowMinutes", Config.Type.INT, "15");
 
     // --- chat moderation ---
 
     public static final SettingDef CHAT_AUTO_MUTE_TRIGGER_COUNT = new SettingDef(
-            "chat.autoMute.triggerCount", Config.Type.INT, "3", "Rate-limit hits before an automatic mute",
-            "How many times someone may hit a limit before being muted automatically.");
+            "chat.autoMute.triggerCount", Config.Type.INT, "3");
 
     public static final SettingDef CHAT_AUTO_MUTE_TRIGGER_WINDOW_SECONDS = new SettingDef(
-            "chat.autoMute.triggerWindowSeconds", Config.Type.INT, "600", "...within this many seconds",
-            "The window those hits are counted over.");
+            "chat.autoMute.triggerWindowSeconds", Config.Type.INT, "600");
 
     public static final SettingDef CHAT_AUTO_MUTE_LADDER_MINUTES = new SettingDef(
-            "chat.autoMute.ladderMinutes", Config.Type.STRING, "5,30,1440", "Mute lengths, in minutes",
-            "Comma-separated and escalating: the first automatic mute uses the first value, the next the second, and "
-                    + "so on, with the last repeating. A malformed list falls back to the default.");
+            "chat.autoMute.ladderMinutes", Config.Type.STRING, "5,30,1440");
 
     public static final SettingDef CHAT_AUTO_MUTE_TIER_DECAY_HOURS = new SettingDef(
-            "chat.autoMute.tierDecayHours", Config.Type.INT, "24", "Escalation forgotten after (hours)",
-            "How long good behavior takes to drop someone back down the ladder above.");
+            "chat.autoMute.tierDecayHours", Config.Type.INT, "24");
 
     public static final SettingDef CHAT_ALARM_DEDUPE_WINDOW_SECONDS = new SettingDef(
-            "chat.alarm.dedupeWindowSeconds", Config.Type.INT, "300", "Alarm records at most one per (seconds)",
-            "Abuse alarms go to the audit trail, which is append-only and never expires, so they are deduped "
-                    + "per person per chat over this window. Lowering it lets a script fill the trail.");
+            "chat.alarm.dedupeWindowSeconds", Config.Type.INT, "300");
 
     /**
      * The objectionable-content filter (App Store guideline 1.2 asks for "a method for filtering objectionable
@@ -404,198 +323,119 @@ public final class KnownSettings {
     public static final SettingDef CHAT_BLOCKED_TERMS = new SettingDef(
             "chat.blockedTerms", Config.Type.STRING,
             "fuck,fucking,fucker,motherfucker,shit,bullshit,cunt,cock,dick,pussy,asshole,bitch,bastard,"
-                    + "whore,slut,nigger,nigga,faggot,fag,dyke,tranny,retard,spic,chink,kike,wetback,raghead",
-            "Blocked words",
-            "Comma-separated. A chat message or photo comment containing one of these as a whole word is refused "
-                    + "with an explanation. Case-insensitive. Blank turns the filter off; moderation (reports, "
-                    + "mutes, removals) keeps working either way.");
+                    + "whore,slut,nigger,nigga,faggot,fag,dyke,tranny,retard,spic,chink,kike,wetback,raghead");
 
     public static final SettingDef MODERATION_REPORT_EMAIL = new SettingDef(
-            "moderation.report.email", Config.Type.STRING, "facilitators", "Content report recipient",
-            "Who is emailed when someone reports a chat message, photo or comment. Reports are answered "
-                    + "within 24 hours by whoever receives them; the Terms of Use promise that." + MODE_NOTE);
+            "moderation.report.email", Config.Type.STRING, "facilitators");
 
     public static final SettingDef MODERATION_REPORT_FROM = new SettingDef(
-            "moderation.report.from", Config.Type.STRING, "site", "Content report From",
-            "The From on content-report emails. Must be SES-verified." + MODE_NOTE);
+            "moderation.report.from", Config.Type.STRING, "site");
 
     public static final SettingDef MODERATION_PLATFORM_EMAIL = new SettingDef(
-            "moderation.platform.email", Config.Type.STRING, "info@unitetrip.com", "Platform copy",
-            "A blind copy of every content report and account-deletion notice goes here, so the platform "
-                    + "operator sees them whatever an organization has configured. Blank means no copy.");
+            "moderation.platform.email", Config.Type.STRING, "info@unitetrip.com");
 
     // --- chat appearance ---
 
     public static final SettingDef CHAT_BACKGROUND_COLORS = new SettingDef(
             "chat.background.colors", Config.Type.STRING,
-            "#eef2f7,#f5efe6,#eaf3ec,#f3eaf3,#fdf4e3,#e8eef5,#ffffff",
-            "Background colors offered",
-            "The colors people may pick for a chat's background, separated by commas and offered in this order. An "
-                    + "entry that is not a plain #rrggbb value or a CSS color name is dropped, since the value is "
-                    + "written into the page's styles.")
+            "#eef2f7,#f5efe6,#eaf3ec,#f3eaf3,#fdf4e3,#e8eef5,#ffffff")
             .withOrgOverride();
 
     public static final SettingDef CHAT_BACKGROUND_IMAGE = new SettingDef(
             "chat.background.image", Config.Type.STRING,
-            "https://files.visitqueenofpeace.com/images/mary-link.jpg",
-            "Default background image",
-            "The picture shown faded behind the messages when neither the trip nor the person has chosen one, as an "
-                    + "http or https URL. Blank means no image at all.").withOrgOverride();
+            "https://files.visitqueenofpeace.com/images/mary-link.jpg").withOrgOverride();
 
 
     public static final SettingDef CHAT_REACTIONS_PALETTE = new SettingDef(
             "chat.reactions.palette", Config.Type.STRING, "👍,❤️,😂,🙏,"
-                    + "📿,🎉,😮,😢,😊,✅",
-            "Reaction emoji",
-            "The emoji people may react with, separated by commas, in the order they are offered. Each is matched "
-                    + "exactly, and reactions already given with a removed emoji are kept but no longer offered.")
+                    + "📿,🎉,😮,😢,😊,✅")
             .withOrgOverride();
 
     public static final SettingDef CHAT_PHOTO_COMMENTS_ENABLED = new SettingDef(
-            "chat.photoComments.enabled", Config.Type.BOOLEAN, "true", "Photo comments and reactions",
-            "Comment threads and emoji reactions on individual chat photos (album viewer, chat lightbox and "
-                    + "the public landing page). Turning this off hides the panel and refuses new posts; "
-                    + "existing comments are kept.");
+            "chat.photoComments.enabled", Config.Type.BOOLEAN, "true");
 
     public static final SettingDef CHAT_PHOTO_COMMENT_MAX_CHARS = new SettingDef(
-            "chat.photoComments.maxChars", Config.Type.INT, "1000", "Photo comment length",
-            "Longest allowed photo comment, in characters. Shorter than a chat message on purpose: the panel beside "
-                    + "a photo is a caption-sized space, not a second chat.");
+            "chat.photoComments.maxChars", Config.Type.INT, "1000");
 
     // --- chat invites ---
 
     public static final SettingDef CHAT_INVITES_ENABLED = new SettingDef(
-            "chat.invites.enabled", Config.Type.BOOLEAN, "true", "Allow invite links",
-            "Lets chat participants invite people who are not on the trip, such as family and friends, by link or QR "
-                    + "code. Off refuses new links AND stops existing ones from being redeemed; guests already in a "
-                    + "chat stay.");
+            "chat.invites.enabled", Config.Type.BOOLEAN, "true");
 
     public static final SettingDef CHAT_INVITE_EXPIRY_DAYS = new SettingDef(
-            "chat.invites.expiryDays", Config.Type.INT, "30", "Invite link lifetime (days)",
-            "How long a new invite link works. Whatever this says, a link never outlives the chat itself: "
-                    + "expiry is capped at the chat's own archive time.");
+            "chat.invites.expiryDays", Config.Type.INT, "30");
 
     public static final SettingDef CHAT_INVITE_MAX_OUTSTANDING = new SettingDef(
-            "chat.invites.maxPerChannel", Config.Type.INT, "10", "Outstanding links per chat",
-            "How many unexpired invite links one chat may have at once. Expired and revoked links stop "
-                    + "counting on their own.");
+            "chat.invites.maxPerChannel", Config.Type.INT, "10");
 
     // --- login & security ---
 
     public static final SettingDef LOGIN_CODE_ENABLED = new SettingDef(
-            "login.code.enabled", Config.Type.BOOLEAN, "true", "Offer email login codes",
-            "Lets people sign in with a short code emailed to them instead of their password. This is also the "
-                    + "forgot-password path, so turning it off leaves \"ask for help\" as the only recovery.");
+            "login.code.enabled", Config.Type.BOOLEAN, "true");
 
     public static final SettingDef LOGIN_CODE_LENGTH = new SettingDef(
-            "login.code.length", Config.Type.INT, "6", "Code length (digits)",
-            "How many digits a login code has. Longer is harder to guess and harder to type; 6 matches what "
-                    + "people see everywhere else.");
+            "login.code.length", Config.Type.INT, "6");
 
     public static final SettingDef LOGIN_CODE_TTL_SECONDS = new SettingDef(
-            "login.code.ttlSeconds", Config.Type.INT, "300", "Code lifetime (seconds)",
-            "How long a code works after it is sent. Slow email delivery eats into this, so setting it very "
-                    + "low mostly locks out people with slow mail providers.");
+            "login.code.ttlSeconds", Config.Type.INT, "300");
 
     public static final SettingDef LOGIN_CODE_MAX_SENDS = new SettingDef(
-            "login.code.maxSends", Config.Type.INT, "3", "Codes sent per person",
-            "How many codes one email address can be sent within the window below. A cap on mail volume, and "
-                    + "on using the login page to pester somebody's inbox.");
+            "login.code.maxSends", Config.Type.INT, "3");
 
     public static final SettingDef LOGIN_CODE_SEND_WINDOW_SECONDS = new SettingDef(
-            "login.code.sendWindowSeconds", Config.Type.INT, "900", "...within this many seconds",
-            "The window the send cap is counted over. Changing it starts a fresh count.");
+            "login.code.sendWindowSeconds", Config.Type.INT, "900");
 
     public static final SettingDef LOGIN_CODE_MAX_ATTEMPTS = new SettingDef(
-            "login.code.maxAttempts", Config.Type.INT, "5", "Guesses per code",
-            "How many wrong entries invalidate a code. With 6 digits and 5 guesses in 5 minutes, guessing is "
-                    + "not a realistic attack.");
+            "login.code.maxAttempts", Config.Type.INT, "5");
 
     public static final SettingDef LOGIN_MAIL_FROM = new SettingDef(
-            "login.mail.from", Config.Type.STRING, "site",
-            "From address",
-            "Login-code email's From. Must be an address SES is verified to send from, or login-code email "
-                    + "fails." + MODE_NOTE);
+            "login.mail.from", Config.Type.STRING, "site");
 
     public static final SettingDef LOGIN_MAIL_REPLY_TO = new SettingDef(
-            "login.mail.replyTo", Config.Type.STRING, "ken@visitqueenofpeace.com", "Reply-to address",
-            "Where a reply to a login-code email goes. Someone stuck at the login page tends to reply to the mail in "
-                    + "front of them, so this should be an address a human reads.");
+            "login.mail.replyTo", Config.Type.STRING, "ken@visitqueenofpeace.com");
 
     public static final SettingDef LOGIN_PASSKEY_ENABLED = new SettingDef(
-            "login.passkey.enabled", Config.Type.BOOLEAN, "false", "Offer passkeys",
-            "Lets people add a passkey (Face ID, fingerprint, or device lock) after signing in, and sign in "
-                    + "with it afterwards. Nobody is required to set one up, and the login page looks the same "
-                    + "for anyone without one. Leave OFF until a full register-and-sign-in has been verified "
-                    + "against the deployed image; existing passkeys survive the switch being off.");
+            "login.passkey.enabled", Config.Type.BOOLEAN, "false");
 
     public static final SettingDef LOGIN_REMEMBER_ENABLED = new SettingDef(
-            "login.remember.enabled", Config.Type.BOOLEAN, "true", "Keep people signed in",
-            "Gives each sign-in that is not an admin's a long-lived browser cookie that quietly signs them back in "
-                    + "when their session ends. Off also stops honoring every cookie already out there: it is the "
-                    + "kill switch.");
+            "login.remember.enabled", Config.Type.BOOLEAN, "true");
 
     public static final SettingDef LOGIN_REMEMBER_DAYS = new SettingDef(
-            "login.remember.days", Config.Type.INT, "60", "...for this many days",
-            "How long the stay-signed-in cookie lasts, counted from sign-in (using it does not extend it). "
-                    + "Signing out or changing the password ends it early.");
+            "login.remember.days", Config.Type.INT, "60");
 
     public static final SettingDef API_TOKEN_ENABLED = new SettingDef(
-            "api.token.enabled", Config.Type.BOOLEAN, "false", "API bearer tokens",
-            "Lets native and mobile clients sign in over the REST API with bearer tokens (docs/api-tokens.md). Off "
-                    + "means no issuance, no refresh, AND no acceptance of tokens already out there: it is the kill "
-                    + "switch. Leave it OFF until a client ships.");
+            "api.token.enabled", Config.Type.BOOLEAN, "false");
 
     public static final SettingDef API_TOKEN_ACCESS_MINUTES = new SettingDef(
-            "api.token.access.minutes", Config.Type.INT, "30", "...access token minutes",
-            "How long one access token works before the client must silently refresh. Also bounds how stale "
-                    + "the role stamped in a token can be, so shorter is safer.");
+            "api.token.access.minutes", Config.Type.INT, "30");
 
     public static final SettingDef API_TOKEN_REFRESH_DAYS = new SettingDef(
-            "api.token.refresh.days", Config.Type.INT, "60", "...refresh token days",
-            "How long a signed-in device stays signed in without re-entering credentials, counted from "
-                    + "sign-in (refreshing does not extend it). Signing out or a password change ends it "
-                    + "early.");
+            "api.token.refresh.days", Config.Type.INT, "60");
 
     public static final SettingDef API_TOKEN_REFRESH_ADMIN_DAYS = new SettingDef(
-            "api.token.refresh.admin.days", Config.Type.INT, "30", "...admin refresh days",
-            "The refresh lifetime for ADMIN-scoped tokens, shorter than a member's: an admin token is the most "
-                    + "valuable credential this system hands out. A month keeps the native app's administrators "
-                    + "from signing in weekly; the clamp caps it there.");
+            "api.token.refresh.admin.days", Config.Type.INT, "30");
 
     // --- account deletion (self-service, from the native app) ---
 
     public static final SettingDef ACCOUNT_DELETE_REQUIRE_SETTLED = new SettingDef(
-            "account.delete.requireSettled", Config.Type.BOOLEAN, "true", "Refuse deletion while unsettled",
-            "When on, a person cannot delete their own account while they are registered for a trip that has "
-                    + "not ended or owe a balance; the app tells them who to contact. When off, deletion "
-                    + "always proceeds (the notice email still shows what is owed). The switch exists so the "
-                    + "rule can be relaxed without a deploy if a store review requires it.");
+            "account.delete.requireSettled", Config.Type.BOOLEAN, "true");
 
     public static final SettingDef ACCOUNT_DELETE_NOTIFY_EMAIL = new SettingDef(
-            "account.delete.notify.email", Config.Type.STRING, "org", "Account-deletion notice recipient",
-            "Who is told when a person deletes their account: one notice per organization the person "
-                    + "belonged to, each listing only that organization's trips and money." + MODE_NOTE);
+            "account.delete.notify.email", Config.Type.STRING, "org");
 
     public static final SettingDef ACCOUNT_DELETE_NOTIFY_FROM = new SettingDef(
-            "account.delete.notify.from", Config.Type.STRING, "site", "Account-deletion notice From",
-            "The From on account-deletion notices. Must be SES-verified." + MODE_NOTE);
+            "account.delete.notify.from", Config.Type.STRING, "site");
 
     public static final SettingDef LOGIN_PASSWORD_MAX_FAILS = new SettingDef(
-            "login.password.maxFails", Config.Type.INT, "10", "Wrong passwords per person",
-            "After this many wrong passwords for one email address within the window below, sign-in for that address "
-                    + "is refused until the window rolls over. 0 turns the throttle off.");
+            "login.password.maxFails", Config.Type.INT, "10");
 
     public static final SettingDef LOGIN_PASSWORD_FAIL_WINDOW_SECONDS = new SettingDef(
-            "login.password.failWindowSeconds", Config.Type.INT, "900", "...within this many seconds",
-            "The window wrong passwords are counted over. Changing it starts a fresh count.");
+            "login.password.failWindowSeconds", Config.Type.INT, "900");
 
     // --- registration ---
 
     public static final SettingDef REG_ALLOW_EDITS = new SettingDef(
-            "reg.allowEdits", Config.Type.BOOLEAN, "true", "Registrants may edit their responses",
-            "On: a traveler who has already registered, pending or confirmed, can still change their answers on the "
-                    + "registration page. Off: their answers become read-only; registering itself is unaffected.")
+            "reg.allowEdits", Config.Type.BOOLEAN, "true")
             .withOrgOverride();
 
     // --- lodging ---
@@ -606,118 +446,67 @@ public final class KnownSettings {
      * place, audited. Off means an admin presses Recompute on the trip's Lodging page instead.
      */
     public static final SettingDef LODGING_AUTO_RECOMPUTE = new SettingDef(
-            "lodging.bills.autoRecompute", Config.Type.BOOLEAN, "true", "Recompute lodging bills automatically",
-            "On: every reservation change, from dates and rooms to a cancellation, recomputes the affected room's "
-                    + "lodging bills at once. Off: the ledger stays as it is until someone presses Recompute on the "
-                    + "trip's Lodging page.").withOrgOverride();
+            "lodging.bills.autoRecompute", Config.Type.BOOLEAN, "true").withOrgOverride();
 
     // --- registration email ---
 
     public static final SettingDef REG_MAIL_FROM = new SettingDef(
-            "reg.mail.from", Config.Type.STRING, "site",
-            "From address",
-            "Registrant-facing registration emails (received/approved). Must be an address SES is verified "
-                    + "to send from, or every registration email fails." + MODE_NOTE);
+            "reg.mail.from", Config.Type.STRING, "site");
 
     public static final SettingDef REG_MAIL_REPLY_TO = new SettingDef(
-            "reg.mail.replyTo", Config.Type.STRING, "org", "Reply-To address",
-            "Where a registrant's reply lands. The emails invite questions, so this should be a mailbox "
-                    + "somebody reads." + MODE_NOTE);
+            "reg.mail.replyTo", Config.Type.STRING, "org");
 
     public static final SettingDef REG_MAIL_BASE_URL = new SettingDef(
-            "reg.mail.baseUrl", Config.Type.STRING, "https://visitqueenofpeace.com", "Link base URL",
-            "Prefixes the trip/profile links inside registration emails.");
+            "reg.mail.baseUrl", Config.Type.STRING, "https://visitqueenofpeace.com");
 
     // --- email addresses (rendered by the Settings page's Email addresses section with a mode widget) ---
 
     public static final SettingDef SITE_MAIL_EMAIL = new SettingDef(
-            "site.mail.email", Config.Type.STRING, "Visit Queen of Peace <no-reply@visitqueenofpeace.com>",
-            "Site email",
-            "The site's own address: what 'Site email' means for every slot below, and the fallback when an "
-                    + "organization has no contact email. Used as a From, so its domain must be one SES is "
-                    + "verified to send from.");
+            "site.mail.email", Config.Type.STRING, "Visit Queen of Peace <no-reply@visitqueenofpeace.com>");
 
     public static final SettingDef REG_NOTIFY_EMAIL = new SettingDef(
-            "reg.notify.email", Config.Type.STRING, "facilitators",
-            "Registration notice recipient",
-            "Who receives the internal registration notices (new, moved, canceled). Defaults to the trip's "
-                    + "coordinators, the same contacts the registrant is shown.");
+            "reg.notify.email", Config.Type.STRING, "facilitators");
 
     public static final SettingDef REG_NOTIFY_FROM = new SettingDef(
-            "reg.notify.from", Config.Type.STRING, "site",
-            "Registration notice From",
-            "The From on the internal registration notices. Must be SES-verified." + MODE_NOTE);
+            "reg.notify.from", Config.Type.STRING, "site");
 
     public static final SettingDef ACCOUNT_NOTIFY_EMAIL = new SettingDef(
             "account.notify.email", Config.Type.STRING,
-            "registration-notifications@centerforpeacewest.com",
-            "Account notice recipient",
-            "Who receives the internal new-account notices. No organization exists at account creation, so "
-                    + "there is no org option here. The default preserves the address the page used to "
-                    + "hardcode." + MODE_NOTE);
+            "registration-notifications@centerforpeacewest.com");
 
     public static final SettingDef ACCOUNT_NOTIFY_FROM = new SettingDef(
-            "account.notify.from", Config.Type.STRING, "site",
-            "Account notice From",
-            "The From on the internal new-account notices. Must be SES-verified." + MODE_NOTE);
+            "account.notify.from", Config.Type.STRING, "site");
 
     public static final SettingDef TX_NOTIFY_EMAIL = new SettingDef(
-            "tx.notify.email", Config.Type.STRING, "ken@visitqueenofpeace.com",
-            "Transaction notice recipient",
-            "Who receives the internal transaction-saved notices. The default preserves the address the "
-                    + "page used to hardcode." + MODE_NOTE);
+            "tx.notify.email", Config.Type.STRING, "ken@visitqueenofpeace.com");
 
     public static final SettingDef TX_NOTIFY_FROM = new SettingDef(
-            "tx.notify.from", Config.Type.STRING, "site",
-            "Transaction notice From",
-            "The From on the internal transaction-saved notices. Must be SES-verified." + MODE_NOTE);
+            "tx.notify.from", Config.Type.STRING, "site");
 
     public static final SettingDef SUPPORT_MAIL_FROM = new SettingDef(
-            "support.mail.from", Config.Type.STRING, "site",
-            "Support request From",
-            "The From on support-request email to the support channel admins. Must be SES-verified."
-                    + MODE_NOTE);
+            "support.mail.from", Config.Type.STRING, "site");
 
     public static final SettingDef SUPPORT_MAIL_REPLY_TO = new SettingDef(
-            "support.mail.replyTo", Config.Type.STRING, "site",
-            "Support request Reply-To",
-            "Where a reply to a support-request email goes. The recipients are the support channel admins "
-                    + "themselves (configured below), so this is rarely load-bearing." + MODE_NOTE);
+            "support.mail.replyTo", Config.Type.STRING, "site");
 
     // --- support requests ---
 
     public static final SettingDef SUPPORT_MAIL_ENABLED = new SettingDef(
-            "support.mail.enabled", Config.Type.BOOLEAN, "true", "Email support requests to channel admins",
-            "A support request (family removal, size-limit increase) posts into the support channel either "
-                    + "way; this controls whether the channel's admins are also emailed. Deliberately NOT "
-                    + "behind the chat-email master switch: a support request must not be silently swallowed "
-                    + "because chat mail is off.");
+            "support.mail.enabled", Config.Type.BOOLEAN, "true");
 
     // --- family accounts ---
 
     public static final SettingDef FAMILY_MAX_MEMBERS = new SettingDef(
-            "family.maxMembers", Config.Type.INT, "10", "Family size limit",
-            "Maximum people in one family account, counting the owner. At the limit the family page stops "
-                    + "offering Add and lets the user send a support request instead; raise this here when one "
-                    + "arrives. An abuse guard, not a business rule.");
+            "family.maxMembers", Config.Type.INT, "10");
 
     // --- payments ---
 
     public static final SettingDef PAYMENT_RETURN_URL_PREFIXES = new SettingDef(
             "payment.returnUrl.allowedPrefixes", Config.Type.STRING,
-            "https://my.centermirmedjugorje.com,https://www.visitqueenofpeace.com,https://visitqueenofpeace.com",
-            "Allowed payment return addresses",
-            "Comma-separated. A mobile app supplies its own return and cancel address for a PayPal payment, and "
-                    + "anything not starting with one of these is refused. Without the check the payment endpoint "
-                    + "is an open redirect: an attacker borrows our PayPal flow to make their own page look like "
-                    + "part of this site. Add an app's custom scheme, for example trip://, here before shipping it, "
-                    + "not after.");
+            "https://my.centermirmedjugorje.com,https://www.visitqueenofpeace.com,https://visitqueenofpeace.com");
 
     public static final SettingDef PAYMENT_NOTIFY_EMAIL = new SettingDef(
-            "payment.notify.email", Config.Type.STRING, "",
-            "Payment notification recipient",
-            "Site-wide fallback address that receives an internal note for each completed payment. An "
-                    + "organization's contact email wins when set; blank here means no internal note.");
+            "payment.notify.email", Config.Type.STRING, "");
 
     /**
      * Where a trip's submitted expense report is emailed, with its receipts, when the submitter chooses to
@@ -725,85 +514,45 @@ public final class KnownSettings {
      * site value is the fallback for organizations that have not.
      */
     public static final SettingDef FINANCE_TREASURER_EMAIL = new SettingDef(
-            "finance.treasurer.email", Config.Type.STRING, "",
-            "Treasurer email",
-            "The address a submitted trip expense report is emailed to, as a PDF with its receipts, when the person "
-                    + "submitting it chooses to. Blank means no treasurer is known, and the Submit dialog says so.")
+            "finance.treasurer.email", Config.Type.STRING, "")
             .withOrgOverride().withEmail();
 
     public static final SettingDef PAYMENT_MAIL_FROM = new SettingDef(
-            "payment.mail.from", Config.Type.STRING, "",
-            "Payment confirmation From address",
-            "Site-wide fallback From for payment confirmation email, for example Site Name <no-reply@site.org>. The "
-                    + "trip's payment settings, then the organization's defaults, win when set. Must be on a "
-                    + "verified, shared sending domain, because it goes out for every organization.")
+            "payment.mail.from", Config.Type.STRING, "")
             .withSiteFrom();
 
     public static final SettingDef PAYMENT_CONFIRM_TEMPLATE = new SettingDef(
-            "payment.confirm.templateId", Config.Type.STRING, "payment-confirmation",
-            "Payment confirmation template",
-            "The MAIL-kind content template used for payment confirmations when neither the trip nor its "
-                    + "organization picks one. Installed by install-starter-templates.sh.");
+            "payment.confirm.templateId", Config.Type.STRING, "payment-confirmation");
 
     public static final SettingDef PAYMENT_FEES_PAID_BY = new SettingDef(
-            "payment.fees.paidBy", Config.Type.STRING, "ORGANIZATION",
-            "Who pays processor fees",
-            "ORGANIZATION or PAYER; the bottom rung of the trip/org/site ladder. PAYER adds the trip-portion "
-                    + "fee on top of the charge; ORGANIZATION absorbs it. A donation's fee share is always "
-                    + "absorbed by the organization either way.");
+            "payment.fees.paidBy", Config.Type.STRING, "ORGANIZATION");
 
     // --- push notifications ---
 
     public static final SettingDef PUSH_ENABLED = new SettingDef(
-            "push.enabled", Config.Type.BOOLEAN, "false", "Send push notifications",
-            "The master switch for every push notification (APNs to the app, Web Push to browsers): chat "
-                    + "mentions and replies, per-channel every-message opt-ins, registration approvals, "
-                    + "payment confirmations, support requests, badges and silent refreshes. Off means "
-                    + "nothing is pushed, whatever anyone's own preferences say. Needs the push secret "
-                    + "(APNs key + VAPID pair) to be deployed first.");
+            "push.enabled", Config.Type.BOOLEAN, "false");
 
     public static final SettingDef PUSH_APNS_TOPIC = new SettingDef(
-            "push.apns.topic", Config.Type.STRING, "org.paulsens.unitetrip", "APNs topic",
-            "The app's bundle id, sent as apns-topic. A token registered by an app with another bundle id is "
-                    + "refused by Apple (DeviceTokenNotForTopic) and pruned.");
+            "push.apns.topic", Config.Type.STRING, "org.paulsens.unitetrip");
 
     public static final SettingDef PUSH_SILENT_INTERVAL_MINUTES = new SettingDef(
-            "push.silent.intervalMinutes", Config.Type.INT, "15", "Silent refresh interval (minutes)",
-            "After chat activity, phones that were NOT alerted get at most one background refresh push per this many "
-                    + "minutes, so badge and unread counts stay fresh without opening the app. 0 turns silent "
-                    + "refreshes off; the range is 0 to 240.");
+            "push.silent.intervalMinutes", Config.Type.INT, "15");
 
     public static final SettingDef PUSH_WEB_ENABLED = new SettingDef(
-            "push.web.enabled", Config.Type.BOOLEAN, "true", "Push to browsers (Web Push)",
-            "The browser route's own switch under the master switch above: off means subscribed browsers "
-                    + "receive nothing while phones keep working.");
+            "push.web.enabled", Config.Type.BOOLEAN, "true");
 
     // --- profile pictures ---
 
     public static final SettingDef PROFILE_BG_REMOVAL_ENABLED = new SettingDef(
-            "profile.bgRemoval.enabled", Config.Type.BOOLEAN, "false", "Offer background removal",
-            "Adds a \"replace background\" option to profile pictures: an on-server ML model (U^2-Net-small "
-                    + "via ONNX Runtime) cuts out the person and the chosen color fills in behind them. While "
-                    + "in use the model holds a few hundred MB of task memory; it is released again after 10 "
-                    + "idle minutes (the next use re-pays a ~1s model load).");
+            "profile.bgRemoval.enabled", Config.Type.BOOLEAN, "false");
 
     // --- performance ---
 
     public static final SettingDef CACHE_NEAR_TTL_SECONDS = new SettingDef(
-            "cache.near.ttlSeconds", Config.Type.INT, "86400", "Near-cache TTL (seconds)",
-            "Absolute upper bound on how long the in-JVM near-cache may serve an entry. Writes through this "
-                    + "instance and broadcast invalidations (scripts, admin clears) update the cache "
-                    + "immediately, and the health check below converges everything else, so this bound only "
-                    + "matters if both fail. 0 turns the near-cache off. Changes apply on save; a "
-                    + "-Dtrip.cache.near.ttlSeconds sysprop pins this against the settings table entirely.");
+            "cache.near.ttlSeconds", Config.Type.INT, "86400");
 
     public static final SettingDef CACHE_NEAR_CHECK_SECONDS = new SettingDef(
-            "cache.near.checkSeconds", Config.Type.INT, "300", "Near-cache health-check interval (seconds)",
-            "On a near-cache hit whose last check is older than this, ONE background refresh re-reads the "
-                    + "shared cache and updates the entry; the request itself never waits. Since broadcast "
-                    + "invalidation covers deliberate out-of-band writes, this is the convergence bound only "
-                    + "for ordinary writes from OTHER JVMs (CLI tools with the cache configured, a second "
-                    + "instance) and for missed broadcasts.");
+            "cache.near.checkSeconds", Config.Type.INT, "300");
 
     /**
      * The Settings page renders this section with a purpose-built mode widget (org/site/custom + a
@@ -813,43 +562,33 @@ public final class KnownSettings {
     // --- mobile apps ---
 
     public static final SettingDef APPS_APP_STORE_URL = new SettingDef(
-            "apps.appStore.url", Config.Type.STRING, "", "App Store listing URL",
-            "The UniteTrip iOS app's page on the App Store, starting https://apps.apple.com/. The support page shows "
-                    + "a Download on the App Store badge linking here; blank leaves the badge off.").withHttpUrl();
+            "apps.appStore.url", Config.Type.STRING, "").withHttpUrl();
 
     public static final SettingDef APPS_PLAY_STORE_URL = new SettingDef(
-            "apps.playStore.url", Config.Type.STRING, "", "Google Play listing URL",
-            "The UniteTrip Android app's page on Google Play, starting "
-                    + "https://play.google.com/store/apps/details?id=. The support page shows a Get it on Google "
-                    + "Play badge linking here; blank leaves the badge off, which is how it stays until the Play "
-                    + "listing is live.").withHttpUrl();
+            "apps.playStore.url", Config.Type.STRING, "").withHttpUrl();
 
     // --- discover (the apps' signed-out browse, medjugorje#155) ---
 
     public static final SettingDef DISCOVER_RATE_LIMIT = new SettingDef(
-            "discover.rate.limit", Config.Type.INT, "120", "Discover requests per address",
-            "How many Discover requests (the apps' signed-out trip list and search) one network address may "
-                    + "make in the window below before it is asked to slow down. Generous on purpose: a whole "
-                    + "mobile carrier or an office can share one address.");
+            "discover.rate.limit", Config.Type.INT, "120");
 
     public static final SettingDef DISCOVER_RATE_WINDOW_SECONDS = new SettingDef(
-            "discover.rate.windowSeconds", Config.Type.INT, "60", "...within this many seconds",
-            "The window the limit above is counted over. Changing it starts a fresh count rather than "
-                    + "reinterpreting the one in progress.");
+            "discover.rate.windowSeconds", Config.Type.INT, "60");
 
+    /*
+     * A section's title is its stable ID (code and the Settings page compare it), and happens to be its English
+     * heading. What a person reads is SettingSection.getDisplayTitle(), from the bundle.
+     */
     public static final String EMAIL_ADDRESSES_SECTION = "Email addresses";
 
     /** The org-site branding section: every def in it is org-only and read by {@code BrandCommands}. */
     public static final String BRANDING_SECTION = "Branding";
 
     private static final List<SettingSection> SECTIONS = List.of(
-            new SettingSection("Site", null,
-                    List.of(SITE_ORG_NAME, SITE_ORGSITES_BASE_DOMAIN, MAIL_SHARED_DOMAINS, SITE_ANALYTICS_ID)),
+            new SettingSection("Site",
+                    List.of(SITE_ORG_NAME, SITE_ORGSITES_BASE_DOMAIN, MAIL_SHARED_DOMAINS, SITE_ANALYTICS_ID,
+                            SITE_LANGUAGES, API_LANGUAGES_MIN_APP_VERSION)),
             new SettingSection(BRANDING_SECTION,
-                    "The look of an ORGANIZATION's own site, set by the organization on its Appearance page. "
-                            + "An org site never inherits the shared site's look, and the shared site's "
-                            + "own logo, footer and contacts are fixed in its pages -- so a value here on "
-                            + "the site Settings page applies to nothing.",
                     List.of(SITE_THEME_PALETTE, SITE_THEME_DARK, SITE_LAYOUT, SITE_LOGO_URL, SITE_FAVICON_URL,
                             SITE_OG_IMAGE_URL,
                             SITE_BACKGROUND_URL, SITE_BACKGROUND_COLOR, SITE_FOOTER_TITLE, SITE_FOOTER_TITLE_COLOR,
@@ -857,59 +596,40 @@ public final class KnownSettings {
                             SITE_CONTACT_NAME, SITE_CONTACT_PHONE, SITE_DONATE_URL, SITE_DONATE_TITLE,
                             SITE_DONATE_TEXT, SITE_DONATE_PAYPAL_IMAGE, SITE_TITLE, SITE_SIDEBAR_TITLE)),
             new SettingSection(EMAIL_ADDRESSES_SECTION,
-                    "Every address the application sends with or to. From addresses must be on an "
-                            + "SES-verified domain; recipients and Reply-To may be any address.",
                     List.of(SITE_MAIL_EMAIL,
                             REG_MAIL_FROM, REG_MAIL_REPLY_TO, REG_NOTIFY_EMAIL, REG_NOTIFY_FROM,
                             ACCOUNT_NOTIFY_EMAIL, ACCOUNT_NOTIFY_FROM, TX_NOTIFY_EMAIL, TX_NOTIFY_FROM,
                             LOGIN_MAIL_FROM, LOGIN_MAIL_REPLY_TO, CHAT_MAIL_FROM, CHAT_MAIL_REPLY_TO,
                             SUPPORT_MAIL_FROM, SUPPORT_MAIL_REPLY_TO)),
             new SettingSection("Performance",
-                    "The in-JVM near-cache in front of the shared Valkey cache. Only reads whose call site "
-                            + "declared Cached.YES (public/render paths) are served from it; auth, payments "
-                            + "and editors always bypass it.",
                     List.of(CACHE_NEAR_TTL_SECONDS, CACHE_NEAR_CHECK_SECONDS)),
             new SettingSection("Push notifications",
-                    "Ships dark: \"Send push notifications\" is the master switch and every route, badge and "
-                            + "silent refresh sits under it. Each person still has their own switch, quiet "
-                            + "hours and per-chat choice.",
                     List.of(PUSH_ENABLED, PUSH_APNS_TOPIC, PUSH_SILENT_INTERVAL_MINUTES, PUSH_WEB_ENABLED)),
-            new SettingSection("Profile pictures", null,
+            new SettingSection("Profile pictures",
                     List.of(PROFILE_BG_REMOVAL_ENABLED)),
-            new SettingSection("Home page", null,
+            new SettingSection("Home page",
                     List.of(HOME_BANNER_ENABLED, HOME_BANNER_TEXT,
                             HOME_PHOTOS_WINDOW_DAYS, HOME_PHOTOS_MIN_COUNT, HOME_COUNTDOWN_SOON_DAYS)),
-            new SettingSection("Content templates", null,
+            new SettingSection("Content templates",
                     List.of(CONTENT_VERSIONS_RETAINED)),
             new SettingSection("Chat email",
-                    "Nothing here sends mail on its own. \"Send chat email\" is the master switch; with it off "
-                            + "the rest is inert.",
                     List.of(CHAT_MAIL_ENABLED, CHAT_MAIL_BASE_URL)),
-            new SettingSection("Chat daily digest", null,
+            new SettingSection("Chat daily digest",
                     List.of(CHAT_DIGEST_ENABLED, CHAT_DIGEST_HOUR, CHAT_DIGEST_ZONE)),
             new SettingSection("Chat limits",
-                    "Per-chat burst and sustained limits live on each trip's own Chat settings page. These are "
-                            + "the site-wide ones.",
                     List.of(CHAT_GLOBAL_LIMIT, CHAT_GLOBAL_WINDOW_SECONDS, CHAT_EDIT_WINDOW_MINUTES)),
             new SettingSection("Chat moderation",
-                    "Reports from the app go to the report recipient below and are answered within 24 hours.",
                     List.of(CHAT_AUTO_MUTE_TRIGGER_COUNT, CHAT_AUTO_MUTE_TRIGGER_WINDOW_SECONDS,
                             CHAT_AUTO_MUTE_LADDER_MINUTES, CHAT_AUTO_MUTE_TIER_DECAY_HOURS,
                             CHAT_ALARM_DEDUPE_WINDOW_SECONDS, CHAT_BLOCKED_TERMS,
                             MODERATION_REPORT_EMAIL, MODERATION_REPORT_FROM, MODERATION_PLATFORM_EMAIL)),
-            new SettingSection("Chat appearance", null,
+            new SettingSection("Chat appearance",
                     List.of(CHAT_REACTIONS_PALETTE, CHAT_BACKGROUND_COLORS, CHAT_BACKGROUND_IMAGE)),
             new SettingSection("Chat invites",
-                    "Invite links admit people with an account who are not on the trip (family, friends) as "
-                            + "chat guests. Guests can be removed like anyone else.",
                     List.of(CHAT_INVITES_ENABLED, CHAT_INVITE_EXPIRY_DAYS, CHAT_INVITE_MAX_OUTSTANDING)),
             new SettingSection("Photo comments",
-                    "Comment threads and reactions on individual chat photos. Mention email from photo "
-                            + "comments rides the chat-email master switch above.",
                     List.of(CHAT_PHOTO_COMMENTS_ENABLED, CHAT_PHOTO_COMMENT_MAX_CHARS)),
             new SettingSection("Login & security",
-                    "Email login codes double as the forgot-password flow. The mail addresses here are used "
-                            + "for those codes.",
                     List.of(LOGIN_CODE_ENABLED, LOGIN_CODE_LENGTH, LOGIN_CODE_TTL_SECONDS, LOGIN_CODE_MAX_SENDS,
                             LOGIN_CODE_SEND_WINDOW_SECONDS, LOGIN_CODE_MAX_ATTEMPTS,
                             LOGIN_REMEMBER_ENABLED, LOGIN_REMEMBER_DAYS,
@@ -918,49 +638,29 @@ public final class KnownSettings {
                             API_TOKEN_ENABLED, API_TOKEN_ACCESS_MINUTES,
                             API_TOKEN_REFRESH_DAYS, API_TOKEN_REFRESH_ADMIN_DAYS)),
             new SettingSection("Account deletion",
-                    "Self-service deletion from the native app: the login, profile and content go; "
-                            + "registration and money records stay under an anonymized record.",
                     List.of(ACCOUNT_DELETE_REQUIRE_SETTLED, ACCOUNT_DELETE_NOTIFY_EMAIL,
                             ACCOUNT_DELETE_NOTIFY_FROM)),
-            new SettingSection("Family accounts", null,
+            new SettingSection("Family accounts",
                     List.of(FAMILY_MAX_MEMBERS)),
-            new SettingSection("Registration", null,
+            new SettingSection("Registration",
                     List.of(REG_ALLOW_EDITS)),
-            new SettingSection("Trips", null,
+            new SettingSection("Trips",
                     List.of(TRIP_TAGS)),
             new SettingSection("Scheduled trip messages",
-                    "Each trip's messages are written and approved on its Communications page (Reports tab). "
-                            + "Nothing here sends mail on its own.",
                     List.of(REMINDERS_ENABLED, REMINDERS_HOUR, REMINDERS_ZONE)),
             new SettingSection("Registration email",
-                    "The registrant-facing emails themselves are runtime-editable MAIL templates on the "
-                            + "Templates page (registration-received / registration-approved).",
                     List.of(REG_MAIL_BASE_URL)),
             new SettingSection("Support requests",
-                    "Who receives them is managed in the \"Support channel admins\" panel below the settings.",
                     List.of(SUPPORT_MAIL_ENABLED)),
             new SettingSection("Mobile apps",
-                    "Store links for the \"Get the app\" badges on the support page. Set each one when that "
-                            + "listing goes live; nothing else reads them.",
                     List.of(APPS_APP_STORE_URL, APPS_PLAY_STORE_URL)),
             new SettingSection("Discover",
-                    "The apps' signed-out trip list and search, open to anyone. What it lists is decided by "
-                            + "each trip's \"Show on homepage\" and its organization's \"Shared sites\" "
-                            + "checkbox, not here; these only limit how fast one address may ask.",
                     List.of(DISCOVER_RATE_LIMIT, DISCOVER_RATE_WINDOW_SECONDS)),
             new SettingSection("Finance",
-                    "The trip budget and expense report. An organization sets its own treasurer on its "
-                            + "Configuration page; the value here applies to organizations that have not.",
                     List.of(FINANCE_TREASURER_EMAIL)),
             new SettingSection("Lodging",
-                    "Hotels, lodging options and room assignments. An organization that reconciles lodging "
-                            + "bills by hand can turn the automatic recompute off for its own trips.",
                     List.of(LODGING_AUTO_RECOMPUTE)),
             new SettingSection("Payments",
-                    "The mail/fee settings are the SITE rung of the trip → organization → site "
-                            + "defaults ladder. The return-address allowlist only applies to payments "
-                            + "started through the API; the web checkout derives its return address from "
-                            + "the page the payer was on and never consults it.",
                     List.of(PAYMENT_NOTIFY_EMAIL, PAYMENT_MAIL_FROM, PAYMENT_CONFIRM_TEMPLATE,
                             PAYMENT_FEES_PAID_BY, PAYMENT_RETURN_URL_PREFIXES)));
 
@@ -993,7 +693,8 @@ public final class KnownSettings {
 
     /**
      * The settings an organization may override for its own site, in page order -- what the org settings
-     * editor renders and the only keys {@code Organization.settingsOverrides} may hold.
+     * editor renders and the only names {@code Organization.settingsOverrides} may hold, beside the language
+     * keys of the {@link #translatable()} ones ({@link #findOrgOverrideKey}).
      */
     public static List<SettingDef> orgOverridable() {
         return all().stream().filter(SettingDef::isOrgOverridable).toList();
@@ -1002,6 +703,24 @@ public final class KnownSettings {
     /** The declaration for a key IF an organization may override it; empty for unknown or site-only keys. */
     public static Optional<SettingDef> findOrgOverridable(final String name) {
         return find(name).filter(SettingDef::isOrgOverridable);
+    }
+
+    /**
+     * The declaration an override KEY belongs to, for the keys an organization row may hold: a plain
+     * org-overridable name ({@link #findOrgOverridable}), or a {@link SettingDef#isTranslatable() translatable}
+     * one's text in one language ({@code site.footer.text@es}). Empty for anything else, a language mark on a
+     * setting that is not display text included.
+     */
+    public static Optional<SettingDef> findOrgOverrideKey(final String key) {
+        if (SettingDef.languageOfKey(key).isEmpty()) {
+            return findOrgOverridable(key);
+        }
+        return findOrgOverridable(SettingDef.baseNameOf(key)).filter(SettingDef::isTranslatable);
+    }
+
+    /** The settings an organization may write once per language: display text only, declared once above. */
+    public static List<SettingDef> translatable() {
+        return orgOverridable().stream().filter(SettingDef::isTranslatable).toList();
     }
 
     /**

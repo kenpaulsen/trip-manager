@@ -17,12 +17,15 @@ import java.util.UUID;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.audit.RequestContext;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.checkout.CheckoutCapacity;
 import org.paulsens.trip.checkout.CheckoutPricing;
 import org.paulsens.trip.checkout.CheckoutProblem;
 import org.paulsens.trip.checkout.CheckoutValidator;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.i18n.Formats;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.AgeBand;
 import org.paulsens.trip.model.CheckoutConfig;
 import org.paulsens.trip.model.Concession;
@@ -64,9 +67,8 @@ public class CheckoutCommands {
     /** The offline methods an admin may record (docs/checkout.md, "Offline payments"): every one but FREE. */
     public static final List<String> OFFLINE_METHODS = Payment.OfflineReceipt.METHODS.stream()
             .filter(method -> !Payment.OfflineReceipt.FREE.equals(method)).toList();
-    /** How the page and the mail print the balance due date: "March 1, 2027". */
-    public static final java.time.format.DateTimeFormatter LONG_DATE =
-            java.time.format.DateTimeFormatter.ofPattern("MMMM d, yyyy", java.util.Locale.US);
+    /** The skeleton of the balance due date as the pages print it: "March 1, 2027" / "1 de marzo de 2027". */
+    private static final String LONG_DATE = "yMMMMd";
 
     private final Supplier<Caller> callerSource;
     private final Supplier<PaymentCommands> paymentSource;
@@ -178,7 +180,7 @@ public class CheckoutCommands {
 
         /** "March 1, 2027", or "" without a date. */
         public String getBalanceDue() {
-            return balanceDueOn == null ? "" : LONG_DATE.format(balanceDueOn);
+            return Formats.format(balanceDueOn, LONG_DATE, RequestContext.currentLocale());
         }
 
         public boolean isReady() {
@@ -278,7 +280,7 @@ public class CheckoutCommands {
             final Person.Id payerId, final boolean sandbox, final String pageUrl) {
         final Person payer = payerOf(trip, payerId);
         if (payer == null) {
-            return refuse("You cannot register this party.");
+            return refuse(Text.get("feedback.checkoutCommands.cannotRegisterParty"));
         }
         applyWaiverAgreements(trip, draft);
         final Prepared prepared = prepare(trip, draft, party, true);
@@ -287,7 +289,7 @@ public class CheckoutCommands {
             return null;
         }
         if (prepared.rows().isEmpty()) {
-            return refuse("Nothing to register: select at least one person.");
+            return refuse(Text.get("feedback.checkoutCommands.nothingToRegister"));
         }
         if (prepared.totalCents() == 0) {
             final LocalDateTime now = LocalDateTime.now();
@@ -298,10 +300,10 @@ public class CheckoutCommands {
         final PaymentCommands payments = paymentSource.get();
         final PaymentProcessorConfig config = payments.processorConfigFor(trip);
         if (config == null) {
-            return refuse("This event is not set up to take payments.");
+            return refuse(Text.get("feedback.checkoutCommands.noProcessor"));
         }
         if (sandbox && !payments.isSandboxAllowed(trip)) {
-            return refuse("Sandbox mode requires the paymentsAdmin privilege for this event's organization.");
+            return refuse(Text.get("feedback.checkoutCommands.sandboxGate"));
         }
         final TripPaymentConfig effective = new OrgCommands(callerSource).effectivePaymentConfig(trip);
         final Payment payment = payments.newPayment(trip, payer, config, effective, prepared.dueAllocations(), 0L,
@@ -323,11 +325,11 @@ public class CheckoutCommands {
             final List<Person> party, final Person.Id payerId, final String method, final String reference,
             final Double amountDollars, final LocalDate receivedOn, final boolean partial) {
         if (!canAdminister(trip)) {
-            return refuse("Only a registration admin may record an offline payment.");
+            return refuse(Text.get("feedback.checkoutCommands.offlineGate"));
         }
         final String kind = method == null ? "" : method.trim().toUpperCase(java.util.Locale.ROOT);
         if (!OFFLINE_METHODS.contains(kind)) {
-            return refuse("Choose how the payment was made.");
+            return refuse(Text.get("feedback.checkoutCommands.chooseMethod"));
         }
         applyWaiverAgreements(trip, draft);
         final Prepared prepared = prepare(trip, draft, party, true);
@@ -336,23 +338,30 @@ public class CheckoutCommands {
             return null;
         }
         if (prepared.rows().isEmpty()) {
-            return refuse("Nothing to register: select at least one person.");
+            return refuse(Text.get("feedback.checkoutCommands.nothingToRegister"));
         }
         final long price = prepared.totalCents();
         final long dueNow = prepared.dueNowCents();
         final long received = "COMP".equals(kind) ? price
                 : amountDollars == null ? -1L : Math.round(amountDollars * 100);
         if (received < 0 || received > price || (!partial && received != dueNow)) {
-            return refuse(partial
-                    ? "A partial payment must be between $0.00 and " + MoneyMath.formatCents(price) + "."
-                    : "The amount received must be " + MoneyMath.formatCents(dueNow) + (dueNow == price ? ""
-                            : " (the deposits; tick Partial payment for another amount up to "
-                            + MoneyMath.formatCents(price) + ")") + ".");
+            return refuse(amountProblem(partial, dueNow, price));
         }
         final LocalDateTime when = receivedOn == null ? LocalDateTime.now() : receivedOn.atStartOfDay();
         final Payment payment = offlinePayment(trip, payerId == null ? callerSource.get().personId() : payerId,
                 prepared, received, new Payment.OfflineReceipt(kind, reference, when.toLocalDate()), when);
         return paymentSource.get().recordOffline(payment);
+    }
+
+    /** What an offline amount outside the admitted range is told: one whole sentence per case. */
+    private static String amountProblem(final boolean partial, final long dueNow, final long price) {
+        if (partial) {
+            return Text.get("feedback.checkoutCommands.partialRange", MoneyMath.formatCents(price));
+        }
+        return dueNow == price
+                ? Text.get("feedback.checkoutCommands.amountMustBe", MoneyMath.formatCents(dueNow))
+                : Text.get("feedback.checkoutCommands.amountMustBeDeposits", MoneyMath.formatCents(dueNow),
+                        MoneyMath.formatCents(price));
     }
 
     /** Finishes a checkout's return (or cancel) from the processor: the page's completion door. */
@@ -464,11 +473,15 @@ public class CheckoutCommands {
         }
         final PendingParty party = payment.getCheckout();
         final long total = party.getRows().stream().mapToLong(CheckoutCommands::priceOf).sum();
-        final String state = party.getFinalizedAt() != null ? "registered"
-                : payment.getStatus() == Payment.Status.CREATED ? "awaiting payment" : "not yet registered";
-        return party.getRows().size() + (party.getRows().size() == 1 ? " person, " : " people, ")
-                + MoneyMath.formatCents(total) + ", " + state
-                + (party.getWarnings().isEmpty() ? "" : " (" + String.join(" ", party.getWarnings()) + ")");
+        final int people = party.getRows().size();
+        final String money = MoneyMath.formatCents(total);
+        final String summary = party.getFinalizedAt() != null
+                ? Text.get("feedback.checkoutCommands.intentRegistered", people, money)
+                : payment.getStatus() == Payment.Status.CREATED
+                        ? Text.get("feedback.checkoutCommands.intentAwaiting", people, money)
+                        : Text.get("feedback.checkoutCommands.intentNotYet", people, money);
+        // The warnings are stored text (written when the payment was recorded), so they follow as they are.
+        return summary + (party.getWarnings().isEmpty() ? "" : " (" + String.join(" ", party.getWarnings()) + ")");
     }
 
     private static long priceOf(final Registration row) {
@@ -559,16 +572,16 @@ public class CheckoutCommands {
         if (!(canAdminister(trip) && registrations.withinStaffReach(trip, person.getId()))
                 && !registrations.canRegister(person)) {
             problems.add(new CheckoutProblem("NOT_ALLOWED", pid, null,
-                    "You cannot register " + person.getPreferredName() + "."));
+                    Text.get("api.registrations.cannotRegister", person.getPreferredName())));
         }
         if (existing.stream().anyMatch(reg -> reg.getUserId().equals(person.getId())
                 && reg.getStatus() != Registration.Status.NOT_REGISTERED)) {
             problems.add(new CheckoutProblem("ALREADY_REGISTERED", pid, null,
-                    person.getPreferredName() + " is already registered."));
+                    Text.get("feedback.checkoutCommands.alreadyRegistered", person.getPreferredName())));
         }
         if (!new WaiverCommands(callerSource).isSatisfied(trip, person.getId())) {
-            problems.add(new CheckoutProblem("WAIVERS_REQUIRED", pid, null, person.getPreferredName()
-                    + " must agree to every required document: tick both boxes under each one."));
+            problems.add(new CheckoutProblem("WAIVERS_REQUIRED", pid, null,
+                    Text.get("feedback.registrationCommands.waiversRequired", person.getPreferredName())));
         }
         return problems;
     }
@@ -733,7 +746,7 @@ public class CheckoutCommands {
 
     /** "March 1, 2027" (the balance due date on the pages), or "" for null. */
     public String formatLongDate(final LocalDate date) {
-        return date == null ? "" : LONG_DATE.format(date);
+        return Formats.format(date, LONG_DATE, RequestContext.currentLocale());
     }
 
     /** One breakdown line as a page shows it: the price of a base or add-on, a signed change otherwise. */
@@ -827,11 +840,12 @@ public class CheckoutCommands {
                 .orElse(null);
         final String name = person.getPreferredName() + " " + person.getLast();
         if (reg == null) {
-            return new ResultRow(person.getId().getValue(), name, "", "", "Not Registered", "");
+            return new ResultRow(person.getId().getValue(), name, "", "",
+                    Registration.Status.NOT_REGISTERED.getLabel(), "");
         }
         return new ResultRow(person.getId().getValue(), name, blank(reg.getRegistrationType()),
                 reg.getPriceBreakdown() == null ? "" : MoneyMath.formatCents(reg.getPriceBreakdown().getTotalCents()),
-                reg.getStatus().getDescription(), blank(reg.getTicketCode()));
+                reg.getStatus().getLabel(), blank(reg.getTicketCode()));
     }
 
     private static String blank(final String text) {
@@ -846,24 +860,22 @@ public class CheckoutCommands {
      */
     public String policySummary(final Trip trip) {
         if (trip == null || !trip.getCheckout().isOn()) {
-            return "off";
+            return Text.get("feedback.checkoutCommands.policyOff");
         }
         final CheckoutConfig policy = trip.getCheckout();
         final List<String> parts = new ArrayList<>();
-        parts.add(policy.isDeposit() ? "deposit " + MoneyMath.formatCents(policy.getDepositCents()) + " per person"
-                : "full payment");
-        parts.add(policy.isConfirmPaid() ? "auto-confirmed" : "approval required");
+        parts.add(policy.isDeposit()
+                ? Text.get("feedback.checkoutCommands.policyDeposit", MoneyMath.formatCents(policy.getDepositCents()))
+                : Text.get("feedback.checkoutCommands.policyFull"));
+        parts.add(policy.isConfirmPaid() ? Text.get("feedback.checkoutCommands.policyAutoConfirmed")
+                : Text.get("feedback.checkoutCommands.policyApproval"));
         if (!policy.getAgeBands().isEmpty()) {
-            parts.add(counted(policy.getAgeBands().size(), "age band"));
+            parts.add(Text.get("feedback.checkoutCommands.policyAgeBands", policy.getAgeBands().size()));
         }
         if (!policy.getCodes().isEmpty()) {
-            parts.add(counted(policy.getCodes().size(), "discount code"));
+            parts.add(Text.get("feedback.checkoutCommands.policyCodes", policy.getCodes().size()));
         }
-        return "on: " + String.join(", ", parts);
-    }
-
-    private static String counted(final int n, final String noun) {
-        return n + " " + noun + (n == 1 ? "" : "s");
+        return Text.get("feedback.checkoutCommands.policyOn", String.join(", ", parts));
     }
 
     /** Whether the trip resolves to a payment processor: the dialog warns when a priced trip has none. */
@@ -901,11 +913,11 @@ public class CheckoutCommands {
             return "";
         }
         return switch (kind) {
-            case PERCENT -> "% off";
-            case TOTAL -> "$ off";
-            case FIXED_PRICE -> "At most $";
-            case COMPLIMENTARY -> "Free";
-            case PER_NIGHT -> "$ off per night";
+            case PERCENT -> Text.get("feedback.checkoutCommands.kindPercent");
+            case TOTAL -> Text.get("feedback.checkoutCommands.kindTotal");
+            case FIXED_PRICE -> Text.get("feedback.checkoutCommands.kindFixedPrice");
+            case COMPLIMENTARY -> Text.get("feedback.checkoutCommands.kindComplimentary");
+            case PER_NIGHT -> Text.get("feedback.checkoutCommands.kindPerNight");
         };
     }
 

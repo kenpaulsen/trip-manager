@@ -6,6 +6,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import org.paulsens.trip.action.LodgingViews.ConcessionForm;
 import org.paulsens.trip.audit.AuditEventBuilder;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.Accommodation;
 import org.paulsens.trip.model.Concession;
 import org.paulsens.trip.model.Reservation;
@@ -46,7 +47,7 @@ final class LodgingConcessions {
         form.setSide(sideOf(side));
         final Reservation res = lodging.findReservation(tripId, reservationId);
         if (res == null) {
-            form.setProblem("This reservation no longer exists.");
+            form.setProblem(Text.get("feedback.lodgingConcessions.reservationGone"));
             return form;
         }
         if (!maySet(form, res)) {
@@ -68,12 +69,12 @@ final class LodgingConcessions {
     /** Sets or clears ({@code kind == ""}) the side's concession; refusals land on the form AND in a growl. */
     boolean set(final ConcessionForm form) {
         if (form == null) {
-            return refuse("Nothing to save.");
+            return refuse(Text.get("feedback.shared.nothingToSave"));
         }
         form.setSide(sideOf(form.getSide()));
         final Reservation res = lodging.findReservation(form.getTripId(), form.getReservationId());
         if (res == null || !res.isActive()) {
-            return refuseInto(form, "This reservation no longer exists or is cancelled.");
+            return refuseInto(form, Text.get("feedback.reservation.gone"));
         }
         if (!maySet(form, res)) {
             return refuseInto(form, notAllowed(form));
@@ -92,7 +93,7 @@ final class LodgingConcessions {
         final ReservationOffer offer = lodging.findOffer(form.getTripId(), LodgingCommands.idValue(res.getOfferId()));
         final Accommodation acc = lodging.findAccommodation(LodgingCommands.idValue(res.getAccommodationId()));
         if (!lodging.persistReservation(trip, offer, acc, res, res.getRoomId())) {
-            return refuseInto(form, "The concession could not be saved.");
+            return refuseInto(form, Text.get("feedback.lodgingConcessions.notSaved"));
         }
         final String what = (concession == null) ? "CONCESSION cleared (" + form.getSide() + ") for "
                 : "CONCESSION set (" + form.getSide() + "): " + concession.label() + " for ";
@@ -106,15 +107,12 @@ final class LodgingConcessions {
         return true;
     }
 
-    /** What the COST preview says when the option has no stated cost (nothing to discount from). */
-    static final String NO_COST = "Hotel cost is not set for this option.";
-
     /**
      * What the form's concession would do, on its side: the stay's new PRICE total as "$300.00", or the hotel's
-     * charge for the stay before and after as "Hotel cost for this stay: $240.00 -> $216.00" ({@link #NO_COST}
-     * when the option has no cost). "" for an unknown stay or a form that would be refused (whose reason lands
-     * on {@code problem}). Priced on a COPY: the DAO hands out copies, so setting the proposed concession on it
-     * changes nothing stored.
+     * charge for the stay before and after as "Hotel cost for this stay: $240.00 -> $216.00" (or that the
+     * option has no hotel cost set, so nothing to discount from). "" for an unknown stay or a form that would be
+     * refused (whose reason lands on {@code problem}). Priced on a COPY: the DAO hands out copies, so setting the
+     * proposed concession on it changes nothing stored.
      */
     String preview(final ConcessionForm form) {
         if (form == null) {
@@ -138,12 +136,13 @@ final class LodgingConcessions {
             return MoneyMath.formatCents(total(LodgingPricing.price(copy, offer, acc, onRoom, lodging.nameResolver())));
         }
         if (offer.getCost() == null) {
-            return NO_COST;
+            return Text.get("feedback.lodgingConcessions.noCost");
         }
         final long before = total(LodgingPricing.cost(copy, offer, acc, onRoom, lodging.nameResolver()));
         copy.setCostConcession(build(form));
         final long after = total(LodgingPricing.cost(copy, offer, acc, onRoom, lodging.nameResolver()));
-        return "Hotel cost for this stay: " + MoneyMath.formatCents(before) + " -> " + MoneyMath.formatCents(after);
+        return Text.get("feedback.lodgingConcessions.costPreview", MoneyMath.formatCents(before),
+                MoneyMath.formatCents(after));
     }
 
     private static long total(final List<LodgingPricing.Line> lines) {
@@ -173,17 +172,18 @@ final class LodgingConcessions {
         }
         final Concession.Kind kind = kindOf(form.getKind());
         if (kind == null) {
-            return "Choose a concession kind.";
+            return Text.get("feedback.lodgingConcessions.chooseKind");
         }
         final Double amount = form.getAmount();
         if (kind == Concession.Kind.PERCENT && (amount == null || amount < 0 || amount > 100)) {
-            return "A percentage must be between 0 and 100.";
+            return Text.get("feedback.lodgingConcessions.percentRange");
         }
         if ((kind == Concession.Kind.PER_NIGHT || kind == Concession.Kind.TOTAL) && amount == null) {
-            return "A " + (kind == Concession.Kind.PER_NIGHT ? "per-night" : "total") + " discount needs an amount.";
+            return kind == Concession.Kind.PER_NIGHT ? Text.get("feedback.lodgingConcessions.perNightNeedsAmount")
+                    : Text.get("feedback.lodgingConcessions.totalNeedsAmount");
         }
         if (amount != null && amount < 0) {
-            return "The amount cannot be negative.";
+            return Text.get("feedback.lodgingConcessions.amountNegative");
         }
         return null;
     }
@@ -199,9 +199,8 @@ final class LodgingConcessions {
     }
 
     private static String notAllowed(final ConcessionForm form) {
-        return form.isPriceSide()
-                ? "Not allowed: only the trip's managers and lodging admins grant a price concession."
-                : "Not allowed: only the trip's lodging admins and the hotel's operators record a cost concession.";
+        return form.isPriceSide() ? Text.get("feedback.lodgingConcessions.onlyManagersGrantPrice")
+                : Text.get("feedback.lodgingConcessions.onlyAdminsRecordCost");
     }
 
     /** The dialog shows the form's problem; a growl too would render twice under the dialog's p:messages. */

@@ -107,6 +107,40 @@ public class PeopleResourceTest extends ResourceTestSupport {
         Mockito.verify(audit).person(ArgumentMatchers.any(), ArgumentMatchers.eq("EDITED"), ArgumentMatchers.any());
     }
 
+    @Test
+    public void languageIsSelfOnlyValidatedAndBlankClearsIt() {
+        bind(PersonCommands.class, new PersonCommands());
+        final PersonCommands real = new PersonCommands();
+        final Person me = real.createPerson();
+        me.setFirst("Language");
+        me.setLast("Chooser");
+        Assert.assertTrue(real.savePerson(me));
+        signedInAs(me.getId());
+        resource = resource(new PeopleResource());
+        final String id = me.getId().getValue();
+
+        assertError(resource.setLanguage(OTHER.getValue(), CSRF_OK, Map.of("language", "es")), 403,
+                ApiErrors.FORBIDDEN);
+        assertError(resource.setLanguage(id, null, Map.of("language", "es")), 403, ApiErrors.CSRF);
+        assertError(resource.setLanguage(id, CSRF_OK, Map.of("language", "klingon")), 400,
+                ApiErrors.VALIDATION_FAILED);
+        Assert.assertNull(real.getPerson(me.getId()).getLanguage(), "a refusal saves nothing");
+
+        final Response chosen = resource.setLanguage(id, CSRF_OK, Map.of("language", "es-MX"));
+        assertOk(chosen);
+        Assert.assertEquals(((Map<?, ?>) chosen.getEntity()).get("language"), "es",
+                "stored as the language alone: a regional tag would split one translation in two");
+        Assert.assertEquals(real.getPerson(me.getId()).getLanguage(), "es");
+
+        final Response cleared = resource.setLanguage(id, CSRF_OK, Map.of("language", ""));
+        assertOk(cleared);
+        Assert.assertNull(((Map<?, ?>) cleared.getEntity()).get("language"));
+        Assert.assertNull(real.getPerson(me.getId()).getLanguage(), "blank goes back to deciding per request");
+        assertOk(resource.setLanguage(id, CSRF_OK, null));
+        Mockito.verify(audit, Mockito.times(3))
+                .person(ArgumentMatchers.any(), ArgumentMatchers.eq("EDITED"), ArgumentMatchers.any());
+    }
+
     /**
      * The trap that motivated {@code BaseResource.findPerson}.
      *
@@ -399,7 +433,7 @@ public class PeopleResourceTest extends ResourceTestSupport {
         exists(person(ME, "Ken"));
         exists(other);
         Mockito.when(people.signInChangeRefusal(ArgumentMatchers.eq(other), ArgumentMatchers.any()))
-                .thenReturn(org.paulsens.trip.action.OrgCommands.SIGN_IN_CHANGE_REFUSED);
+                .thenReturn(org.paulsens.trip.action.PersonCommands.signInChangeRefused());
 
         final Response refused = resource.update(OTHER.getValue(), CSRF_OK, dto("Sam"));
 

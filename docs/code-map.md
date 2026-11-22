@@ -25,7 +25,9 @@ touching either -- MAIL-kind templates are runtime-editable email copy rendered 
 tokens filled by Java only), `family` (FamilyCommands -- family accounts; the create-and-link security boundary, see
 `docs/family-accounts.md`), `support` (SupportChatCommands -- the support:main channel; requests post without
 membership), `orgPages` (SitePageCommands -- an org site's own pages and menu links, `admin/orgPages.xhtml`,
-`page.xhtml`), `payPage` (PayPageCommands -- the org-aware "How to pay" page, `trip/pay.xhtml`: `destination` /
+`page.xhtml`), `legacyPages` (LegacyPageCommands -- the shared menu's links to the hand-written pages another
+organization now holds as Site Pages, from `web/LegacyPages`; see `docs/org-admin.md` "Hand-written shared pages"),
+`payPage` (PayPageCommands -- the org-aware "How to pay" page, `trip/pay.xhtml`: `destination` /
 `inApp` is THE in-app-or-how-to decision that `pay.xhtml` and `payment.xhtml` both redirect on, `orgIdFor` and
 `payPageKey` say whose page a request is for, `ensurePage` seeds its starter text once per organization;
 `docs/org-admin.md`, "The pay

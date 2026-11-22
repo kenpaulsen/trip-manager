@@ -21,6 +21,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.api.Beans;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.BindingType;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Transaction;
@@ -59,7 +60,9 @@ public class TransactionsCommands {
 
     /**
      * The refusal for a row with no trip: a NEW one, or an edit of a stored one that is on no trip. Every row is
-     * recorded on a trip, which is what gives it its org.
+     * recorded on a trip, which is what gives it its org. This constant and the two below are the ENGLISH of the
+     * messages the code says through {@code Text} ({@code feedback.transactionsCommands.*}), kept for the tests
+     * that read the English page.
      */
     public static final String NEEDS_TRIP = "Choose the trip this transaction is for. Every transaction is recorded "
             + "on a trip, which is what ties it to that trip's organization.";
@@ -92,7 +95,8 @@ public class TransactionsCommands {
         if (!isNoTrip(tripId)) {
             return false;
         }
-        PageFeedback.refuse("Not saved", NEEDS_TRIP);
+        PageFeedback.refuse(Text.get("feedback.shared.notSaved"),
+                Text.get("feedback.transactionsCommands.needsTrip"));
         return true;
     }
 
@@ -122,7 +126,7 @@ public class TransactionsCommands {
      */
     public static String tripProblem(final Transaction storedOrNull, final String tripId, final Trip chosen) {
         if (isNoTrip(tripId)) {
-            return boundTripOf(storedOrNull) == null ? NEEDS_TRIP : null;
+            return boundTripOf(storedOrNull) == null ? Text.get("feedback.transactionsCommands.needsTrip") : null;
         }
         return chosenTripProblem(storedOrNull, chosen);
     }
@@ -134,9 +138,10 @@ public class TransactionsCommands {
      */
     static String chosenTripProblem(final Transaction storedOrNull, final Trip trip) {
         if (trip == null) {
-            return NOT_A_LEDGER_TRIP;
+            return Text.get("feedback.transactionsCommands.notALedgerTrip");
         }
-        return storedOrNull != null && isOtherOrgs(storedOrNull, trip) ? OTHER_ORG_TRIP : null;
+        return storedOrNull != null && isOtherOrgs(storedOrNull, trip)
+                ? Text.get("feedback.transactionsCommands.otherOrgTrip") : null;
     }
 
     /**
@@ -162,20 +167,22 @@ public class TransactionsCommands {
         if (isNoTrip(tripId)) {
             final String onTrip = tripOfGroup(stored);
             if (onTrip == null) {
-                return new GroupTrip(NEEDS_TRIP, null);
+                return new GroupTrip(Text.get("feedback.transactionsCommands.needsTrip"), null);
             }
             final Trip joined = adding ? tripReader.apply(onTrip) : null;
-            return new GroupTrip(adding && joined == null ? NOT_A_LEDGER_TRIP : null, joined);
+            final String problem = adding && joined == null ? Text.get("feedback.transactionsCommands.notALedgerTrip")
+                    : null;
+            return new GroupTrip(problem, joined);
         }
         if (rows.isEmpty()) {
             return new GroupTrip(null, null);
         }
         final Trip trip = tripReader.apply(tripId);
         if (trip == null) {
-            return new GroupTrip(NOT_A_LEDGER_TRIP, null);
+            return new GroupTrip(Text.get("feedback.transactionsCommands.notALedgerTrip"), null);
         }
         final boolean foreign = stored.stream().anyMatch(row -> isOtherOrgs(row, trip));
-        return new GroupTrip(foreign ? OTHER_ORG_TRIP : null, trip);
+        return new GroupTrip(foreign ? Text.get("feedback.transactionsCommands.otherOrgTrip") : null, trip);
     }
 
     /** Whether a stored row carries another organization than the trip's (one with none stamped does not). */
@@ -248,12 +255,11 @@ public class TransactionsCommands {
         try {
             result = DAO.getInstance().saveTransaction(tx);
         } catch (final RuntimeException ex) {
-            PageFeedback.failure("Unable to save transaction for userId: " + tx.getUserId().getValue());
+            PageFeedback.failure(Text.get("feedback.transactionsCommands.saveFailed", tx.getUserId().getValue()));
             log.error("Error while saving transaction: ", ex);
             result = false;
         } catch (final IOException ex) {
-            PageFeedback.failure("Unable to save transaction for userId: "
-                    + tx.getUserId().getValue());
+            PageFeedback.failure(Text.get("feedback.transactionsCommands.saveFailed", tx.getUserId().getValue()));
             log.error("Error while saving transaction: ", ex);
             result = false;
         }
@@ -409,8 +415,8 @@ public class TransactionsCommands {
                 .map(TransactionsCommands::nameOf)
                 .toList();
         if (!refused.isEmpty()) {
-            return PageFeedback.refuse("Not saved", "Everyone on a batch or shared transaction must be on this "
-                    + "trip. Not on it: " + String.join(", ", refused) + ".");
+            return PageFeedback.refuse(Text.get("feedback.shared.notSaved"),
+                    Text.get("feedback.transactionsCommands.notOnTrip", String.join(", ", refused)));
         }
         return saveGroupTransaction(gid, origPeople, type, txType, date, amount, cat, note, tripId, eventId,
                 txPeople);
@@ -455,7 +461,8 @@ public class TransactionsCommands {
                 final List<Person.Id> members) {
         final GroupSave save = saveGroup(gid, origPeople, type, txType, date, amount, cat, note, tripId, eventId,
                 members);
-        return save.problem() == null ? save.saved() : PageFeedback.refuse("Not saved", save.problem());
+        return save.problem() == null ? save.saved()
+                : PageFeedback.refuse(Text.get("feedback.shared.notSaved"), save.problem());
     }
 
     /** How a group save ended: written or not, and the trip rule it broke when that is why not (else null). */
@@ -792,16 +799,18 @@ public class TransactionsCommands {
         if (stored != null && judgedTripId == null) {
             // A stored row on no trip, saved with none chosen: the page refuses this too, but the rule is
             // Java's. Asked before the books gate so a site admin and a trip's staff get the same clear answer.
-            return PageFeedback.refuse("Not saved", NEEDS_TRIP);
+            return PageFeedback.refuse(Text.get("feedback.shared.notSaved"),
+                    Text.get("feedback.transactionsCommands.needsTrip"));
         }
         if (!mayPutOnBooks(gate, judgedTripId, tx.getUserId(), stored)) {
             return refuseOffBooks();
         }
         // The trip is read ONCE: the same read judges the save and stamps the row.
         final Trip trip = noTrip ? null : ledgerTrip(tripId);
-        final String problem = noTrip ? (stored == null ? NEEDS_TRIP : null) : chosenTripProblem(stored, trip);
+        final String problem = noTrip ? (stored == null ? Text.get("feedback.transactionsCommands.needsTrip") : null)
+                : chosenTripProblem(stored, trip);
         if (problem != null) {
-            return PageFeedback.refuse("Not saved", problem);
+            return PageFeedback.refuse(Text.get("feedback.shared.notSaved"), problem);
         }
         // The org is never the page's to choose: a stored row keeps its own, a new one takes its trip's (as does
         // a stored row from before rows carried one, when its trip is named).
@@ -810,8 +819,8 @@ public class TransactionsCommands {
     }
 
     private static boolean refuseOffBooks() {
-        return PageFeedback.refuse("Not saved", "You can record transactions only on the books of a trip whose "
-                + "finances you administer, for the people on that trip.");
+        return PageFeedback.refuse(Text.get("feedback.shared.notSaved"),
+                Text.get("feedback.transactionsCommands.offBooks"));
     }
 
     /** Puts the row on the trip's books (both directions), replacing any other trip it was bound to. */

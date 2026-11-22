@@ -323,6 +323,34 @@ public class DiscoverSearchTest {
     }
 
     /**
+     * A facet's label is worded per request in the reader's language, from the same index every reader shares; the
+     * values (what a filter takes) never change, and a language is still named in its own words.
+     */
+    @Test
+    public void facetLabelsAreInTheReadersLanguageAndTheValuesAreNot() {
+        final DiscoverSearch.Result spanish = DiscoverSearch.search(ALL, DiscoverQuery.all(),
+                java.util.Locale.forLanguageTag("es"));
+        Assert.assertEquals(labelOf(spanish.facets().countries(), "BA"), "Bosnia y Herzegovina");
+        Assert.assertEquals(labelOf(spanish.facets().countries(), "FR"), "Francia");
+        Assert.assertEquals(labelOf(spanish.facets().kinds(), "CONFERENCE"), "Conferencia");
+        Assert.assertEquals(labelOf(spanish.facets().months(), "2026-12"), "diciembre de 2026");
+        Assert.assertEquals(labelOf(spanish.facets().languages(), "Spanish"), "Español");
+        final DiscoverSearch.Result croatian = DiscoverSearch.search(ALL, DiscoverQuery.all(),
+                java.util.Locale.forLanguageTag("hr"));
+        Assert.assertEquals(labelOf(croatian.facets().countries(), "FR"), "Francuska");
+        Assert.assertEquals(labelOf(croatian.facets().months(), "2026-12"), "prosinac 2026.");
+        Assert.assertEquals(croatian.facets().countries().stream().map(DiscoverFacetDto::value).sorted().toList(),
+                DiscoverSearch.search(ALL, DiscoverQuery.all()).facets().countries().stream()
+                        .map(DiscoverFacetDto::value).sorted().toList(), "the same values in every language");
+        final DiscoverSearch.Result german = DiscoverSearch.search(ALL, DiscoverQuery.all(), java.util.Locale.GERMAN);
+        Assert.assertEquals(labelOf(german.facets().countries(), "BA"), "Bosnia & Herzegovina",
+                "a language the product does not speak reads the English names");
+        Assert.assertEquals(ids(DiscoverSearch.search(ALL, query("q", "francia"),
+                java.util.Locale.forLanguageTag("es"))), List.of(),
+                "search text stays the index's: the reader's language words labels only");
+    }
+
+    /**
      * A filter's own facet is counted WITHOUT that filter, every other one with it: choosing Bosnia must not
      * hide Portugal's chip beside it, and must cut the tags down to Bosnia's.
      */

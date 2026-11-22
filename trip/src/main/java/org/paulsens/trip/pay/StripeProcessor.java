@@ -20,6 +20,7 @@ import com.stripe.param.PaymentMethodDomainCreateParams;
 import java.util.List;
 import java.util.OptionalLong;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.Payment;
 import org.paulsens.trip.model.ProcessorType;
 
@@ -122,11 +123,11 @@ public final class StripeProcessor implements PaymentProcessor {
             Balance.retrieve(options(secretKey, baseUrl, null));
             return null;
         } catch (final AuthenticationException ex) {
-            return "Stripe rejected the secret key (HTTP " + ex.getStatusCode() + ").";
+            return Text.get("server.processorPing.stripeRejected", String.valueOf(ex.getStatusCode()));
         } catch (final ApiConnectionException ex) {
-            return "Could not reach Stripe: " + ex.getMessage();
+            return Text.get("server.processorPing.stripeUnreachable", String.valueOf(ex.getMessage()));
         } catch (final StripeException ex) {
-            return "Stripe answered: " + ex.getMessage();
+            return Text.get("server.processorPing.stripeAnswered", String.valueOf(ex.getMessage()));
         }
     }
 

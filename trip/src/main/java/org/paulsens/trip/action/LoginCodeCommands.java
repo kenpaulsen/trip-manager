@@ -13,11 +13,14 @@ import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.Audit;
 import org.paulsens.trip.audit.AuditActor;
+import org.paulsens.trip.audit.RequestContext;
 import org.paulsens.trip.cache.CacheClient;
 import org.paulsens.trip.cache.CacheKeys;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.FakeData;
+import org.paulsens.trip.i18n.ReaderLanguage;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.Creds;
@@ -111,9 +114,11 @@ public class LoginCodeCommands {
             log.info("LOCAL MODE: login code for {} is {}", lowEmail, code);
         }
         final MailAddressCommands addresses = new MailAddressCommands(config);
+        final Locale locale = readerLanguage(person);
         mail.send(addresses.from(KnownSettings.LOGIN_MAIL_FROM), lowEmail, null,
-                addresses.replyTo(KnownSettings.LOGIN_MAIL_REPLY_TO, null), "Your sign-in code",
-                codeEmail(code, ttl), AuditActor.current());
+                addresses.replyTo(KnownSettings.LOGIN_MAIL_REPLY_TO, null),
+                Text.forLocale(locale, "mail.loginCode.subject"), codeEmail(locale, code, ttl),
+                AuditActor.current());
         Audit.builder(AuditAction.CODE_REQUEST, AuditOutcome.SUCCESS)
                 .actor(lowEmail, person.getId().getValue())
                 .message("Login code sent")
@@ -236,12 +241,21 @@ public class LoginCodeCommands {
         return Duration.ofSeconds(config.getInt(KnownSettings.LOGIN_CODE_TTL_SECONDS, 60, 1800));
     }
 
-    private String codeEmail(final String code, final Duration ttl) {
-        return "<p>Your sign-in code is:</p>"
+    /**
+     * The language the code mail is written in: the request's, because the person asking for a code is on the
+     * page reading it (they are not signed in, so the page's language is the best word on what they read). Off a
+     * request there is no page, and their own saved choice decides.
+     */
+    static Locale readerLanguage(final Person person) {
+        return RequestContext.SCOPE.isBound() ? RequestContext.currentLocale() : ReaderLanguage.of(person, null);
+    }
+
+    /** The mail.loginCode values are our own markup-free sentences, written into the HTML as they are. */
+    private static String codeEmail(final Locale locale, final String code, final Duration ttl) {
+        return "<p>" + Text.forLocale(locale, "mail.loginCode.intro") + "</p>"
                 + "<p style=\"font-size:2em;font-weight:bold;letter-spacing:0.2em;\">" + code + "</p>"
-                + "<p>It works for the next " + ttl.toMinutes() + " minutes, once.</p>"
-                + "<p>If you didn't request this, you can ignore this email; nothing has changed on your "
-                + "account.</p>";
+                + "<p>" + Text.forLocale(locale, "mail.loginCode.validFor", ttl.toMinutes()) + "</p>"
+                + "<p>" + Text.forLocale(locale, "mail.loginCode.ignore") + "</p>";
     }
 
     static String sha256(final String value) {

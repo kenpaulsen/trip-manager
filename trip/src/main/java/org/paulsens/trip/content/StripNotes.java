@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import org.paulsens.trip.i18n.Text;
 
 /**
  * What {@link PageHtml} is taking out of something an author typed, said so that the author can find it and fix
@@ -41,8 +42,15 @@ public final class StripNotes {
             counted.merge(explain(drop), 1, Integer::sum);
         }
         final List<String> lines = new ArrayList<>(counted.size());
-        counted.forEach((what, times) -> lines.add(field + ": " + what + (times > 1 ? " (" + times + " times)" : "")));
+        counted.forEach((what, times) -> lines.add(line(field, what, times)));
         return lines;
+    }
+
+    private static String line(final String field, final String what, final int times) {
+        // The count goes in twice: as a number, which picks the plural form, and as text, which is what shows
+        // (a number would gain a thousands separator, and a pasted document can repeat a tag that often).
+        return times > 1 ? Text.get("server.stripNotes.lineRepeated", field, what, times, String.valueOf(times))
+                : Text.get("server.stripNotes.line", field, what);
     }
 
     /** One removal in an author's words: what it is, as they typed it, then why. */
@@ -50,76 +58,69 @@ public final class StripNotes {
         return switch (drop.kind()) {
             case TAG -> tag(drop.element().toLowerCase(Locale.ROOT));
             case ATTRIBUTE -> attribute(drop.detail().toLowerCase(Locale.ROOT), drop.element());
-            case COMMENT -> "the comment \"" + drop.detail()
-                    + "\": it is written in a way a browser could read as markup.";
+            case COMMENT -> Text.get("server.stripNotes.comment", drop.detail());
             case CSS_RULE -> cssRule(drop.detail());
         };
     }
 
     private static String tag(final String element) {
-        final String named = "the <" + element + "> tag";
         if ("script".equals(element)) {
-            return named + " and everything inside it: script cannot be saved here.";
+            return Text.get("server.stripNotes.tagScript");
         }
         if (GOES_WITH_CONTENTS.contains(element)) {
-            return named + " and everything inside it: it is not allowed here.";
+            return Text.get("server.stripNotes.tagWithContents", element);
         }
         if (FORM_PARTS.contains(element)) {
-            return named + " (what is inside it stays): a form or form field cannot be saved here.";
+            return Text.get("server.stripNotes.tagFormPart", element);
         }
         if (DOCUMENT_PARTS.contains(element)) {
-            return named + " (what is inside it stays): it belongs to a whole page, and this is one part of a page.";
+            return Text.get("server.stripNotes.tagDocumentPart", element);
         }
         if ("link".equals(element)) {
-            return named + ": a stylesheet is linked from the organization's stylesheets, not from here.";
+            return Text.get("server.stripNotes.tagLink");
         }
         if ("style".equals(element)) {
-            return "a <style> block: it sits where a browser would not read it as a style block.";
+            return Text.get("server.stripNotes.tagStyle");
         }
-        return named + " (what is inside it stays): it is not on the list of allowed tags.";
+        return Text.get("server.stripNotes.tagNotAllowed", element);
     }
 
     private static String attribute(final String name, final String element) {
-        final String named = "the " + name + " attribute on <" + element + ">";
         if (name.startsWith("on")) {
-            return named + ": an event handler runs script, which cannot be saved here.";
+            return Text.get("server.stripNotes.attrEventHandler", name, element);
         }
         if (ADDRESSES.contains(name)) {
-            return named + ": that address is not allowed (use https, or a path on this site that starts with /).";
+            return Text.get("server.stripNotes.attrAddress", name, element);
         }
         final boolean linkName = "name".equals(name) && "a".equalsIgnoreCase(element);
         if ("id".equals(name) || linkName) {
-            return named + ": use letters, digits, - and _ only, starting with a letter, and not an id the page"
-                    + " itself uses.";
+            return Text.get("server.stripNotes.attrId", name, element);
         }
         if ("name".equals(name)) {
-            return named + ": only a link (<a>) takes a name here.";
+            return Text.get("server.stripNotes.attrName", name, element);
         }
         if ("srcdoc".equals(name)) {
-            return named + ": a frame shows an https address, not markup typed here.";
+            return Text.get("server.stripNotes.attrSrcdoc", name, element);
         }
         if (name.startsWith("data-")) {
-            return named + ": a script on this site's pages uses that name (pick another data- name), or its value"
-                    + " is too long, or a comment or style block was typed inside the name.";
+            return Text.get("server.stripNotes.attrData", name, element);
         }
-        return named + ": that attribute, or its value, is not allowed there.";
+        return Text.get("server.stripNotes.attrNotAllowed", name, element);
     }
 
     private static String cssRule(final String opening) {
         final String lower = opening.toLowerCase(Locale.ROOT);
-        final String why;
         if (lower.contains("import")) {
-            why = "a stylesheet cannot load another one (@import).";
-        } else if (lower.contains("data-") && !lower.contains("[value")) {
-            why = "a rule cannot test a data- attribute this site's own pages use.";
-        } else {
-            why = "a rule cannot test a form field's value ([value...]).";
+            return Text.get("server.stripNotes.cssImport", opening);
         }
-        return "the rule \"" + opening + "\" in a <style> block: " + why;
+        if (lower.contains("data-") && !lower.contains("[value")) {
+            return Text.get("server.stripNotes.cssDataTest", opening);
+        }
+        return Text.get("server.stripNotes.cssValueTest", opening);
     }
 
     /** The one sentence a page says after a save that removed something; empty lines, no sentence. */
     public static String savedNotice(final List<String> lines) {
-        return lines.isEmpty() ? "" : "Saved, with some markup removed. " + String.join(" ", lines);
+        return lines.isEmpty() ? "" : Text.get("server.stripNotes.savedNotice", String.join(" ", lines));
     }
 }

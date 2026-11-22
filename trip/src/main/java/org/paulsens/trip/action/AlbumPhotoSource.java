@@ -13,6 +13,7 @@ import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.MediaItem;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.site.ListingScope;
@@ -74,10 +75,7 @@ public class AlbumPhotoSource {
 
         /** "12 photos", "1 photo" or "No photos yet", the line under the album's title. */
         public String getCountLabel() {
-            if (photos.isEmpty()) {
-                return "No photos yet";
-            }
-            return photos.size() == 1 ? "1 photo" : photos.size() + " photos";
+            return Text.get("feedback.albumPhotoSource.photoCount", photos.size());
         }
 
         /** Why some photos are missing, or blank when none are. */
@@ -85,9 +83,7 @@ public class AlbumPhotoSource {
             if (withheld == 0) {
                 return "";
             }
-            return withheld == 1
-                    ? "1 photo in this album is not offered: it was kept out of public view."
-                    : withheld + " photos in this album are not offered: they were kept out of public view.";
+            return Text.get("feedback.albumPhotoSource.withheld", withheld);
         }
     }
 
@@ -329,7 +325,8 @@ public class AlbumPhotoSource {
         if (item.getDescription() != null && !item.getDescription().isBlank()) {
             return item.getDescription();
         }
-        return item.getTitle() == null || item.getTitle().isBlank() ? "Photo" : item.getTitle();
+        return item.getTitle() == null || item.getTitle().isBlank()
+                ? Text.get("common.photo") : item.getTitle();
     }
 
     // ------------------------------------------------------------------ seams
