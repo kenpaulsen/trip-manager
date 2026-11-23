@@ -36,7 +36,6 @@ import org.paulsens.trip.theme.ThemeResources;
 import org.paulsens.trip.content.OrgPageBootstrap;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.ContentInstance;
-import org.paulsens.trip.model.Language;
 import org.paulsens.trip.model.MediaItem;
 import org.paulsens.trip.model.OptionChoice;
 import org.paulsens.trip.model.Organization;
@@ -146,7 +145,9 @@ public class TripPageCommands {
     }
 
     private static List<AgendaDay> buildAgenda(final Trip trip) {
-        final Locale locale = localeOf(trip);
+        // The unmarked page's language (pageLocaleOf), so the labels match the page's own text. A written language
+        // version of the page still shows them in the unmarked page's language: a known gap.
+        final Locale locale = OrgPageBootstrap.pageLocaleOf(trip);
         final DateTimeFormatter dayFormat = Formats.formatter("MMMMEEEEd", locale);
         final DateTimeFormatter timeFormat = DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT).withLocale(locale);
         final Map<LocalDate, List<AgendaItem>> byDay = new LinkedHashMap<>();
@@ -774,10 +775,6 @@ public class TripPageCommands {
     }
 
     // ------------------------------------------------------------------ helpers
-
-    private static Locale localeOf(final Trip trip) {
-        return (trip.getLanguage() == null ? Language.English : trip.getLanguage()).getLocale();
-    }
 
     private static String blankToNull(final String text) {
         return (text == null || text.isBlank()) ? null : text;

@@ -1728,7 +1728,7 @@ public class TripCommands {
      * so no trip drops out of every language section. Public because the apps' listings fold the same way.
      */
     public static Language languageOf(final Trip trip) {
-        return trip.getLanguage() == null ? Language.English : trip.getLanguage();
+        return trip.getLanguageOrDefault();
     }
 
     /** A stored or requested language name, English for none or one this build does not know. */

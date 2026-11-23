@@ -841,8 +841,17 @@ public final class Trip implements Serializable {
         if (startDate == null) {
             return "";
         }
-        final Locale locale = (language == null ? Language.English : language).getLocale();
-        return startDate.getMonth().getDisplayName(TextStyle.SHORT, locale);
+        return startDate.getMonth().getDisplayName(TextStyle.SHORT, getLanguageOrDefault().getLocale());
+    }
+
+    /**
+     * This trip's language, English for a trip that stored none: the rule for listings, reminders and the labels below,
+     * which have no site to ask. The text of a trip's page follows the page's own rule instead,
+     * {@code OrgPageBootstrap.pageLanguageOf}, which falls back to the site's first language.
+     */
+    @JsonIgnore
+    public Language getLanguageOrDefault() {
+        return language == null ? Language.English : language;
     }
 
     /**
@@ -852,7 +861,7 @@ public final class Trip implements Serializable {
      */
     @JsonIgnore
     public String getLanguageTag() {
-        return (language == null ? Language.English : language).getLocale().getLanguage();
+        return getLanguageOrDefault().getLocale().getLanguage();
     }
 
     /**

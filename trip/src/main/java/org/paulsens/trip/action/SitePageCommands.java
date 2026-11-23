@@ -435,12 +435,13 @@ public class SitePageCommands {
     /**
      * Seeds the org site's starter Site Pages ({@link OrgPageBootstrap#starterPages()}) ONCE: on the subdomain's
      * first assignment ({@code OrgCommands.saveOrgEdits}, beside {@code ensureHomePage}) and for the local
-     * fixture's sites; {@code scripts/seed-starter-site-pages.py} in the private repo does the same for sites
-     * hosted before starters existed. Each starter the list lacks is appended and gets its starter content only
-     * when nothing is stored under its key yet, so rows already there (a hand-built board) are adopted as-is; a
-     * starter whose name the list already has is left alone. The org row records the seeding, so a starter page
-     * deleted later never comes back. The platform org's site is the product's own, whose Site Pages are the
-     * marketing pages ({@code MarketingPageBootstrap.sitePages()}, installed by the private repo's
+     * fixture's sites; {@code scripts/seed-starter-site-pages.py} in the private repo does the same for sites hosted
+     * before starters existed. Each starter the list lacks is appended and gets its starter content only when nothing
+     * is stored under its key yet, so rows already there (a hand-built board) are adopted as-is; a starter whose name
+     * the list already has is left alone. An appended starter's entry carries its menu title in every starter language,
+     * the site's default one as its {@code title}; its content is English only. The org row records the seeding, so a
+     * starter page deleted later never comes back. The platform org's site is the product's own, whose Site Pages are
+     * the marketing pages ({@code MarketingPageBootstrap.sitePages()}, installed by the private repo's
      * {@code update-marketing-site} script) rather than an About Us and a Board, so it is only marked.
      *
      * @return whether the org now has (or already had) its starters; false without a subdomain, for a caller who
@@ -592,13 +593,14 @@ public class SitePageCommands {
     private static List<String> addStarters(final Organization org) {
         final List<SitePage> pages = new ArrayList<>(entries(org));
         final List<String> added = new ArrayList<>();
+        final Language siteDefault = new ConfigCommands().siteLanguages(org).get(0);
         for (final StarterPage starter : OrgPageBootstrap.starterPages()) {
             final boolean wanted = find(pages, starter.name()).isEmpty() && pages.size() < MAX_PAGES;
             if (wanted && !seedStarter(org.getId(), starter)) {
                 return null;
             }
             if (wanted) {
-                pages.add(starter.entry());
+                pages.add(starter.entry(siteDefault));
                 added.add(starter.name());
             }
         }

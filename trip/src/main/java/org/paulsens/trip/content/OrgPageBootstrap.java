@@ -11,6 +11,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -308,13 +309,36 @@ public final class OrgPageBootstrap {
 
     /**
      * One starter Site Page: its menu entry ({@code name} is its address and content key, {@code placement} a
-     * {@link SitePage.Placement} name) and the rows its content starts with.
+     * {@link SitePage.Placement} name) and the rows its content starts with. {@code title} is English and
+     * {@code titles} the menu title in other languages (tag to title, or null). Only the title is translated: the
+     * content is seeded in English alone, since a seeded language version would keep outranking the English page
+     * for its readers after the organization rewrote that page ({@code PageVersions.resolve} serves any version
+     * with rows).
      */
-    public record StarterPage(String name, String title, String placement, List<StarterRow> rows) {
+    public record StarterPage(String name, String title, String placement, Map<String, String> titles,
+            List<StarterRow> rows) {
 
-        /** The page's menu entry. */
+        /** The page's menu entry on an English-first site. */
         public SitePage entry() {
-            return new SitePage(name, title, null, placement);
+            return entry(Language.English);
+        }
+
+        /**
+         * The page's menu entry on a site whose default language is {@code siteDefault}. A {@link SitePage}'s
+         * {@code title} is in the site's DEFAULT language and its {@code titles} in the others (the Site Pages
+         * dialog edits only those, and a save keeps only those), so on a Spanish-first site the Spanish title is
+         * the entry's own and English joins the other languages. A default with no starter title keeps English.
+         */
+        public SitePage entry(final Language siteDefault) {
+            final Map<String, String> all = new LinkedHashMap<>();
+            all.put(Language.English.getTag(), title);
+            if (titles != null) {
+                all.putAll(titles);
+            }
+            final String own = siteDefault == null || !all.containsKey(siteDefault.getTag())
+                    ? Language.English.getTag() : siteDefault.getTag();
+            final String ownTitle = all.remove(own);
+            return new SitePage(name, ownTitle, null, placement, all);
         }
     }
 
@@ -455,7 +479,7 @@ public final class OrgPageBootstrap {
      * must never take the language of the request that happened to seed it (an admin browsing in Spanish would
      * otherwise leave a Spanish button on an English page for every visitor).
      */
-    static Locale pageLocaleOf(final Trip trip) {
+    public static Locale pageLocaleOf(final Trip trip) {
         return pageLanguageOf(trip).getLocale();
     }
 

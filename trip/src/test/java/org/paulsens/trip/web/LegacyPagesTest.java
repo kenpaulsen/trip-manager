@@ -1,5 +1,6 @@
 package org.paulsens.trip.web;
 
+import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -11,6 +12,7 @@ import java.util.function.Function;
 import java.util.function.Predicate;
 import org.mockito.Mockito;
 import org.paulsens.trip.dynamo.FakeData;
+import org.paulsens.trip.model.Language;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.SitePage;
 import org.paulsens.trip.site.SiteContext;
@@ -236,5 +238,43 @@ public class LegacyPagesTest {
         } catch (final IllegalArgumentException | IOException expected) {
             return expected instanceof IllegalArgumentException;
         }
+    }
+
+    @Test
+    public void aLinkOutCarriesTheLanguageTheVisitorChoseWheneverTheOtherSiteOffersIt() {
+        final List<Language> offered = List.of(Language.English, Language.Spanish, Language.Croatian);
+        final String param = "&" + RequestLocale.CHOICE + "=";
+        Assert.assertEquals(LegacyPages.langParam(Language.Spanish, offered, Language.Spanish), param + "es");
+        Assert.assertEquals(LegacyPages.langParam(Language.English, offered, Language.English), param + "en",
+                "its default too: that site may otherwise follow its own cookie or the browser");
+        Assert.assertEquals(LegacyPages.langParam(Language.Spanish, offered, null), "",
+                "an inferred language is not sent: that site would remember it as a pick");
+        Assert.assertEquals(LegacyPages.langParam(Language.English, offered, Language.Spanish), "",
+                "a stale choice this page is not in (a one-language host, a pick it does not offer) is not sent");
+        Assert.assertEquals(LegacyPages.langParam(Language.English, List.of(Language.English), Language.English), "",
+                "a one-language site needs no parameter");
+        Assert.assertEquals(LegacyPages.langParam(Language.Spanish, List.of(Language.English), Language.Spanish), "",
+                "a language the other site does not offer is not asked for");
+    }
+
+    private static final List<Language> ALL = List.of(Language.English, Language.Spanish, Language.Croatian);
+
+    @Test
+    public void aChoiceIsAPickOnThisRequestBeforeTheLangCookie() {
+        Assert.assertTrue(RequestLocale.choiceOf(null, ALL).isEmpty(), "no request, no choice");
+        Assert.assertTrue(RequestLocale.choiceOf(Mockito.mock(HttpServletRequest.class), ALL).isEmpty());
+        final HttpServletRequest cookie = Mockito.mock(HttpServletRequest.class);
+        Mockito.when(cookie.getCookies()).thenReturn(new Cookie[] {new Cookie(RequestLocale.CHOICE, "es")});
+        Assert.assertEquals(RequestLocale.choiceOf(cookie, ALL).orElseThrow(), Language.Spanish);
+        final HttpServletRequest garbage = Mockito.mock(HttpServletRequest.class);
+        Mockito.when(garbage.getCookies()).thenReturn(new Cookie[] {new Cookie(RequestLocale.CHOICE, "zz")});
+        Assert.assertTrue(RequestLocale.choiceOf(garbage, ALL).isEmpty(), "a language this build does not speak");
+        final HttpServletRequest both = Mockito.mock(HttpServletRequest.class);
+        Mockito.when(both.getCookies()).thenReturn(new Cookie[] {new Cookie(RequestLocale.CHOICE, "es")});
+        Mockito.when(both.getMethod()).thenReturn("GET");
+        Mockito.when(both.getQueryString()).thenReturn("x=1&" + RequestLocale.CHOICE + "=hr");
+        Assert.assertEquals(RequestLocale.choiceOf(both, ALL).orElseThrow(), Language.Croatian, "a pick now wins");
+        Assert.assertEquals(RequestLocale.choiceOf(both, List.of(Language.English, Language.Spanish)).orElseThrow(),
+                Language.Spanish, "a pick the site does not offer leaves the cookie's choice, as the page does");
     }
 }

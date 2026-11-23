@@ -720,6 +720,12 @@ content key, fixed at creation.
   Board) is only marked. Orgs hosted before 2026-11-13
   are backfilled by `medjugorje/scripts/seed-starter-site-pages.py` (dry run by default; it skips an org whose
   row is already marked, which the CFPW cut-over sets).
+  Each starter's menu entry carries its title in every starter language (the JSON's English `title` and its
+  `titles`), built for the site's default language (`StarterPage.entry(Language)`): that language's title is the
+  entry's `title` and the rest its `titles`, as the Site Pages dialog edits them. The same script adds the missing
+  ones to already seeded sites, listing an entry left with the English title on a non-English site. The content
+  is English only: a seeded `@es` / `@hr` version would keep outranking the org's later rewrite of the English
+  page for those readers (`PageVersions.resolve` serves any version with rows).
 - **The list is the org admins'** (`admin/orgPages.xhtml`, "Site Pages", a hub card and a link on the settings
   page's Home tab; `SitePageCommands` as `#{orgPages}`: add a page or a link, settings dialog, up/down,
   delete with confirmation). The table is grouped by menu, and Up/Down swap an entry with its neighbor IN
@@ -772,6 +778,11 @@ this repo names no path and no organization):
   else `{slug}.{base}`, `{slug}.localhost` from a localhost request), but only while that organization holds such
   a page: otherwise the hand-written page keeps rendering, so a link out never lands on a 404. The menu's
   shared entries link there directly through `#{legacyPages.href(path)}` (`LegacyPageCommands`), the same rule.
+  The address carries `&lang=` the visitor's language when they CHOSE it on the shared host (its `lang` cookie or a
+  `?lang=` on the request), it is the language the page is in, and that site offers it among two or more
+  (`LegacyPages.langParam`): the choice is a cookie of the shared host, which the other domain never sees. A language
+  only inferred here is not sent, because the other site remembers a `lang` it is given as a pick, over the browser's
+  own preference.
 - Everything else passes. The decision is the pure `LegacyPages.decide` (`LegacyPagesTest`); the filter maps
   after `SessionRecoveryFilter` (the site binding) and `SecurityHeadersFilter`, before `RememberMeFilter`, and
   never touches the session, so its redirects and 404s set no cookie. Malformed data fails the start.

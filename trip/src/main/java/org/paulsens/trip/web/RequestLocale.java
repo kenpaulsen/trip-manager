@@ -149,6 +149,20 @@ public final class RequestLocale {
         return choice.find() ? Language.forTag(choice.group(1)) : Optional.empty();
     }
 
+    /**
+     * The language the visitor chose on this host, as {@link #among} honors it: a pick on this request this site
+     * {@code offered}, else the {@code lang} cookie; empty with no choice, one this build does not speak, or no request
+     * (a link built outside one). Whether it decided the page is the caller's to compare: a one-language site, or a
+     * cookie it does not offer, resolves to something else.
+     */
+    static Optional<Language> choiceOf(final HttpServletRequest request, final List<Language> offered) {
+        if (request == null) {
+            return Optional.empty();
+        }
+        final Optional<Language> now = pickedNow(request).filter(offered::contains);
+        return now.isPresent() ? now : Language.forTag(cookieChoice(request));
+    }
+
     private static String cookieChoice(final HttpServletRequest request) {
         final Cookie[] cookies = request.getCookies();
         if (cookies == null) {

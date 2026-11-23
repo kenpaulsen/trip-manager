@@ -2,10 +2,13 @@ package org.paulsens.trip.content;
 
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import org.paulsens.trip.action.TripCommands;
 import org.paulsens.trip.model.ContentInstance;
+import org.paulsens.trip.model.Language;
 import org.paulsens.trip.model.Organization;
+import org.paulsens.trip.model.SitePage;
 import org.paulsens.trip.site.SiteContext;
 import org.testng.Assert;
 import org.testng.annotations.Test;
@@ -215,6 +218,28 @@ public class OrgPageBootstrapTest {
                 Assert.assertFalse(body.contains("\u2014") || body.toLowerCase().contains("pilgrimage"), body);
             }
         }
+    }
+
+    @Test
+    public void eachStarterPageShipsItsMenuTitleInSpanishAndCroatian() {
+        for (final OrgPageBootstrap.StarterPage starter : OrgPageBootstrap.starterPages()) {
+            Assert.assertEquals(starter.entry().titles().keySet(), Set.of("es", "hr"), starter.name());
+            Assert.assertEquals(starter.entry().titleIn("en"), starter.title(), "English is the entry's own title");
+            for (final String title : starter.entry().titles().values()) {
+                Assert.assertFalse(title.contains("\u2014"), title);
+            }
+        }
+        final List<OrgPageBootstrap.StarterPage> starters = OrgPageBootstrap.starterPages();
+        Assert.assertEquals(starters.get(0).entry().titleIn("es"), "Quiénes somos");
+        Assert.assertEquals(starters.get(0).entry().titleIn("hr"), "O nama");
+        Assert.assertEquals(starters.get(1).entry().titleIn("es"), "Junta directiva");
+        Assert.assertEquals(starters.get(1).entry().titleIn("hr"), "Upravni odbor");
+
+        final SitePage croatianFirst = starters.get(1).entry(Language.Croatian);
+        Assert.assertEquals(croatianFirst.title(), "Upravni odbor", "the site's default language is the own title");
+        Assert.assertEquals(croatianFirst.titles(), Map.of("en", "Board of Directors", "es", "Junta directiva"));
+        Assert.assertEquals(starters.get(1).entry(Language.English), starters.get(1).entry());
+        Assert.assertEquals(starters.get(1).entry(null), starters.get(1).entry(), "no default reads English");
     }
 
     @Test

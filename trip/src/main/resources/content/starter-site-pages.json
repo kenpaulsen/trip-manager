@@ -2,6 +2,10 @@
   {
     "name": "about",
     "title": "About Us",
+    "titles": {
+      "es": "Quiénes somos",
+      "hr": "O nama"
+    },
     "placement": "ABOUT",
     "rows": [
       {
@@ -17,6 +21,10 @@
   {
     "name": "board",
     "title": "Board of Directors",
+    "titles": {
+      "es": "Junta directiva",
+      "hr": "Upravni odbor"
+    },
     "placement": "ABOUT",
     "rows": [
       {

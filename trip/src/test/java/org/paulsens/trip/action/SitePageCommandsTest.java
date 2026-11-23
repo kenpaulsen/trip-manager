@@ -54,19 +54,48 @@ public class SitePageCommandsTest {
         final SitePageCommands pages = commandsFor(orgAdmin);
 
         assertEquals(names(pages.pagesOf(orgId)), List.of("about", "board"), "the slug's first save seeds them");
-        assertEquals(pages.pageOf(orgId, "board"), new SitePage("board", "Board of Directors", null, "ABOUT"));
+        assertEquals(pages.pageOf(orgId, "board"), new SitePage("board", "Board of Directors", null, "ABOUT",
+                Map.of("es", "Junta directiva", "hr", "Upravni odbor")), "with its menu titles in each language");
         assertEquals(pages.pageOf(orgId, "about").where(), Placement.ABOUT);
+        assertEquals(pages.pageOf(orgId, "about").titleIn("hr"), "O nama");
         assertNotNull(org.getSitePagesSeededAt(), "the org row records the seeding");
         assertEquals(content("about", org).size(), 1, "each starter page starts with its starter content");
         final List<ContentInstance> board = content("board", org);
         assertEquals(board.size(), 2);
         assertEquals(board.get(1).getAllowedChildTemplateIds(), List.of("person"), "a list of person cards");
         assertTrue(board.get(0).getValues().get("body").contains("Board of Directors"));
+        for (final Language language : List.of(Language.Spanish, Language.Croatian)) {
+            assertEquals(version("about", org, language), List.of(), "the content is English only: a seeded "
+                    + "version would outrank the org's own rewrite of the English page for that language");
+            assertEquals(version("board", org, language), List.of());
+        }
 
         assertTrue(pages.deletePage(orgId, "board"), "an org admin may delete a starter page");
         assertTrue(pages.ensureStarterPages(orgId), "already seeded");
         assertEquals(names(pages.pagesOf(orgId)), List.of("about"), "a deleted starter page never comes back");
         assertEquals(content("board", org), List.of());
+    }
+
+    @Test
+    public void aSpanishFirstSiteGetsItsStarterTitlesInSpanishAndKeepsThemThroughADialogSave() throws Exception {
+        final Person orgAdmin = savedPerson();
+        final Organization unhosted = orgWithAdmin(orgAdmin);
+        final String orgId = unhosted.getId().getValue();
+        assertTrue(new OrgCommands(SitePageCommandsTest::siteAdminCaller).saveOrgSettings(orgId,
+                Map.of(KnownSettings.SITE_LANGUAGES.getName(), "es,en,hr")));
+        host(unhosted);
+        final SitePageCommands pages = commandsFor(orgAdmin);
+
+        final SitePage about = pages.pageOf(orgId, "about");
+        assertEquals(about.title(), "Quiénes somos", "the entry's own title is in the site's default language");
+        assertEquals(about.titles(), Map.of("en", "About Us", "hr", "O nama"), "English is one of the others");
+        assertEquals(pages.titlesEdit(orgId, about), Map.of("en", "About Us", "hr", "O nama"),
+                "every title is one the dialog shows");
+        assertEquals(pages.pageOf(orgId, "board").title(), "Junta directiva");
+
+        assertTrue(pages.saveDialog(orgId, "edit", "about", about.title(), pages.titlesEdit(orgId, about), null,
+                about.placement()), "the dialog saved as it opened");
+        assertEquals(pages.pageOf(orgId, "about"), about, "nothing lost or moved by the save");
     }
 
     @Test
@@ -85,7 +114,8 @@ public class SitePageCommandsTest {
 
         host(org);
         assertEquals(pages.pagesOf(orgId), List.of(new SitePage("about", "Who We Are", null, "HELP"),
-                new SitePage("board", "Board of Directors", null, "ABOUT")), "the org's own entry is kept as is");
+                new SitePage("board", "Board of Directors", null, "ABOUT",
+                        Map.of("es", "Junta directiva", "hr", "Upravni odbor"))), "the org's own entry is kept as is");
         assertEquals(content("about", org).size(), 1, "its own page, its own content");
         final List<ContentInstance> board = content("board", org);
         assertEquals(board.size(), 1, "the rows already under the key are adopted, never added to");
@@ -538,6 +568,11 @@ public class SitePageCommandsTest {
 
     private List<ContentInstance> content(final String page, final Organization org) {
         return dao.getContentForSection(OrgPageBootstrap.pageKey(org.getId(), page), Cached.NO);
+    }
+
+    private List<ContentInstance> version(final String page, final Organization org, final Language language) {
+        return dao.getContentForSection(PageVersions.keyFor(OrgPageBootstrap.pageKey(org.getId(), page), language),
+                Cached.NO);
     }
 
     private static <T> T onSite(final SiteContext site, final ScopedValue.CallableOp<T, Exception> body)

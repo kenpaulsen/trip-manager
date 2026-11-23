@@ -14,11 +14,14 @@ import java.util.Optional;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.action.ConfigCommands;
 import org.paulsens.trip.action.SiteCommands;
+import org.paulsens.trip.audit.RequestContext;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.content.OrgPageBootstrap;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.LocalMode;
+import org.paulsens.trip.model.Language;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.SitePage;
 import org.paulsens.trip.site.SiteContext;
@@ -216,7 +219,25 @@ public final class LegacyPages {
 
     private String sitePageUrlOf(final String name, final HttpServletRequest request) {
         final Organization target = orgWithSlug(linkOutSlug(LocalMode.isLocal()));
-        return holdsPage(target, name) ? SiteCommands.orgSiteRoot(target, request) + SitePage.PATH + name : null;
+        return holdsPage(target, name)
+                ? SiteCommands.orgSiteRoot(target, request) + SitePage.PATH + name
+                        + langParam(RequestContext.currentLanguage(), new ConfigCommands().siteLanguages(target),
+                                RequestLocale.choiceOf(request, new ConfigCommands().siteLanguages()).orElse(null))
+                : null;
+    }
+
+    /**
+     * The {@code &lang=} a link-out carries: the visitor's language, when they CHOSE it on this host and it is the
+     * language this page is in ({@code choice}, null for none; not a stale cookie or a pick this site does not offer),
+     * and the other site offers it among two or more. The choice is a cookie of this host, which the other
+     * organization's domain never sees, so without it that site follows its own cookie or the browser even against
+     * the choice. A language this host only inferred (its default, the browser's) is not sent: the other site takes a
+     * {@code lang} it is given as a pick and remembers it for months, over the browser's own preference.
+     */
+    static String langParam(final Language current, final List<Language> offered, final Language choice) {
+        return current == choice && offered.size() > 1 && offered.contains(current)
+                ? "&" + RequestLocale.CHOICE + "=" + current.getTag()
+                : "";
     }
 
     /** The slug of the organization the shared site links out to: the local one in local mode. */

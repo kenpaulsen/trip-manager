@@ -16,6 +16,7 @@ import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.ContentTemplate;
+import org.paulsens.trip.model.Language;
 import org.paulsens.trip.model.OptionChoice;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
@@ -199,6 +200,16 @@ public class TripPageTest {
         assertNull(opening.notes(), "blank notes show nothing");
         assertNull(days.get(1).items().get(0).location());
         assertEquals(new TripPageCommands(() -> null, () -> NOW).publicAgenda(null), List.of());
+    }
+
+    @Test
+    public void theAgendaIsInTheUnmarkedPagesLanguageNotATripLanguageTheSiteDoesNotOffer() {
+        final LocalDateTime day1 = LocalDateTime.of(2027, 3, 5, 0, 0);
+        final Trip trip = Trip.builder().title("Agenda").language(Language.Spanish)
+                .tripEvents(List.of(event("Opening", day1.withHour(9), null))).build();
+        assertEquals(OrgPageBootstrap.pageLanguageOf(trip), Language.English, "the test site offers English only");
+        assertEquals(new TripPageCommands(() -> null, () -> NOW).publicAgenda(trip).get(0).label(),
+                "Friday, March 5", "the day label matches the English page it sits on");
     }
 
     @Test
