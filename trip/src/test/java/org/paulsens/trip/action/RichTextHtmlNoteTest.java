@@ -70,7 +70,8 @@ public class RichTextHtmlNoteTest {
         Assert.assertEquals(RichTextHtml.cleanNote("<font color=\"red;background:url(x)\" size=\"7\">a</font>"),
                 "<span>a</span>", "an old font's color is one literal value or nothing");
         Assert.assertEquals(RichTextHtml.clean("<font color=\"red\">a</font><a href=\"deltaklm.jsf\">b</a>"),
-                "a<a>b</a>", "a reminder keeps neither");
+                "<span style=\"color: red\">a</span><a>b</a>",
+                "mail keeps the color (since 2026-11-23) but no site link: a relative address leads nowhere in mail");
     }
 
     /** Text that once ran as EL is only text now: kept as typed, never evaluated, never markup. */
@@ -81,11 +82,13 @@ public class RichTextHtmlNoteTest {
         Assert.assertEquals(RichTextHtml.cleanNote("<script>#{7*7}</script>ok"), "ok");
     }
 
-    /** A reminder's body is unchanged by the note's extras: still no colors, still no images. */
+    /** Mail keeps a plain color and an image by web address, as both mail editors offer them (2026-11-23). */
     @Test
-    public void aReminderStillKeepsNeitherColorsNorImages() {
+    public void mailKeepsPlainColorsAndImages() {
         Assert.assertEquals(RichTextHtml.clean("<span style=\"color:#c00\">a</span><img src=\"https://x/y.png\">"),
-                "<span>a</span>");
+                "<span style=\"color: #c00\">a</span><img src=\"https://x/y.png\">");
+        Assert.assertEquals(RichTextHtml.clean("<img src=\"data:image/png;base64,AAAA\" onerror=\"x()\">"), "",
+                "an image is rebuilt from a web address only, never a data address or a handler");
         Assert.assertEquals(RichTextHtml.cleanNote(null), "");
         Assert.assertEquals(RichTextHtml.cleanNote("<ol><li data-list=\"bullet\" style=\"color:#000\">a</li></ol>"),
                 "<ul><li data-list=\"bullet\" style=\"color: #000\">a</li></ul>");

@@ -1330,7 +1330,7 @@ Tests: `CustomPalettesTest`, `ThemeColorMathTest`, `BrandCommandsCustomPaletteTe
 
 Owner decisions: brand colors are ORG-WIDE (set once on the Appearance tab, available whatever palette the site uses,
 stock or own, never inside a palette); each has one color and an OPTIONAL dark value (blank = the same color in both
-modes); the rich-text editors' color buttons offer theme colors and brand colors ONLY (Quill's fixed grid is gone).
+modes); the rich-text editors' color buttons offer theme colors and brand colors ONLY (no stock palette, no hex box).
 
 - **Stored** on the org row: `Organization.brandColors`, a list of `BrandColor {id, name, light, dark}`, at most 12
   (`BrandColors.MAX_COLORS`), names 1 to 30 characters and unique in any case, every value an opaque `#rrggbb`. The id
@@ -1342,7 +1342,7 @@ modes); the rich-text editors' color buttons offer theme colors and brand colors
   `--ct-*` colors, so `getRootStyle`, `rootStyleWith` and the app embed carry them on the org's site. The embed also
   adds the TRIP's org's colors whatever host the app asked on (`TripPageCommands.embedCss`). Off the org's site
   (the shared hosts) nothing defines them, and content draws each color's fallback (below).
-- **In the editors** (`EditorColors`, `#{editorColors}`, read by `WEB-INF/quillEditor.xhtml`): text colors Text,
+- **In the editors** (`EditorColors`, `#{editorColors}`, read by `WEB-INF/richEditor.xhtml`): text colors Text,
   Accent and the four status colors; highlight colors Accent soft, the four status panels and One step off; then the
   brand colors in both. Each swatch carries its property and the org's current LIGHT value, resolved from the org's
   compiled theme (`ThemeVars`, which follows `var()` chains, decimal `rgb()`, and the custom theme's
@@ -1363,7 +1363,7 @@ modes); the rich-text editors' color buttons offer theme colors and brand colors
   trip-manager 805aa082de4f F1/F2). Two gates: `EditorColors.json` puts the brand swatches in only for a caller who
   belongs to the org (a member, one of its admins, or a site admin; cached reads), so a signed-in person from
   another org, or a Hotel Operator on the lodging page, gets the theme colors alone; and each host renders the colors
-  element only where an editor can open for this viewer (`quillEditor.xhtml`'s `editorColorsShown` param: the
+  element only where an editor can open for this viewer (`richEditor.xhtml`'s `editorColorsShown` param: the
   itinerary passes its trip-manager flag, the content sections their edit right). The trip page style editor lists
   the colors (a Brand group under More, each inserting `var(--brand-<id>, #light)`) only under
   `tripStylesheets.canEdit`; the REST look carries `{var, light, dark}` without names.

@@ -80,6 +80,27 @@ public final class PageHtml {
     private static final String NO_OPENER = "noopener";
     private static final Pattern REL_WORDS = Pattern.compile("[A-Za-z -]{0,80}");
 
+    /**
+     * The schemes an address typed into the site's HTML may use: the web, mail and phone. One list for the page
+     * cleaner and the publish check ({@link HtmlCheck}), so that narrowing one narrows both.
+     */
+    static final List<String> LINK_SCHEMES = List.of("http", "https", "mailto", "tel", "sms");
+
+    /**
+     * The elements of a document's own text, links, images and tables: everything a page keeps except
+     * {@link #EMBEDS}. Shared with {@link HtmlCheck#document}, which holds a published document to this list, so that
+     * markup pasted from a site page publishes.
+     */
+    static final Set<String> TEXT_ELEMENTS = Set.of("p", "div", "span", "br", "hr", "h1", "h2", "h3", "h4",
+            "h5", "h6", "strong", "b", "em", "i", "u", "s", "strike", "del", "ins", "mark", "small", "sub", "sup",
+            "abbr", "cite", "q", "code", "pre", "blockquote", "center", "font", "address", "big", "tt", "kbd", "var",
+            "samp", "time", "a", "ul", "ol", "li", "dl", "dt", "dd", "table", "caption", "colgroup", "col", "thead",
+            "tbody", "tfoot", "tr", "th", "td", "figure", "figcaption", "img", "section", "article", "header",
+            "footer", "main", "aside", "nav", "details", "summary");
+
+    /** Embedded media and drawings: a page keeps them, a published document does not. */
+    static final Set<String> EMBEDS = Set.of("picture", "source", "video", "audio", "iframe", "svg", "path");
+
     /** The name every author-typed {@code data-} attribute travels under through the library ({@link #dataAllowed}). */
     static final String CHECKED_DATA = "data-trip-checked-data";
 
@@ -127,9 +148,13 @@ public final class PageHtml {
             "data-title", "data-token", "data-token-value", "data-tooltip", "data-tx", "data-userid", "data-utc",
             "data-value", "data-var", "data-widget", "data-wired");
 
-    /** Whole families a script owns: PrimeFaces ({@code data-pf...}, {@code data-p-...}), and this site's own. */
+    /**
+     * Whole families a script owns: PrimeFaces ({@code data-pf...}, {@code data-p-...}), this site's own, and the
+     * rich-text editor's ({@code data-jodit...}: the selection markers and temporary wrappers it puts into the text
+     * being edited, which stored content must never carry).
+     */
     private static final List<String> DATA_RESERVED_PREFIXES = List.of("data-pf", "data-p-", "data-trip",
-            "data-tooltip", "data-ui-", "data-jsf", "data-faces");
+            "data-tooltip", "data-ui-", "data-jsf", "data-faces", "data-jodit");
 
     private static final String[] ARIA_ATTRIBUTES = {"aria-hidden", "aria-label", "aria-labelledby",
         "aria-describedby", "aria-expanded", "aria-controls", "aria-current", "aria-level", "aria-live"};
@@ -293,14 +318,8 @@ public final class PageHtml {
 
     private static PolicyFactory policy() {
         return new HtmlPolicyBuilder()
-                .allowElements("p", "div", "span", "br", "hr", "h1", "h2", "h3", "h4", "h5", "h6",
-                        "strong", "b", "em", "i", "u", "s", "strike", "del", "ins", "mark", "small", "sub", "sup",
-                        "abbr", "cite", "q", "code", "pre", "blockquote", "center", "font", "address",
-                        "big", "tt", "kbd", "var", "samp", "time", "picture", "source", "video", "audio",
-                        "a", "ul", "ol", "li", "dl", "dt", "dd",
-                        "table", "caption", "colgroup", "col", "thead", "tbody", "tfoot", "tr", "th", "td",
-                        "figure", "figcaption", "img", "iframe", "svg", "path",
-                        "section", "article", "header", "footer", "main", "aside", "nav", "details", "summary")
+                .allowElements(TEXT_ELEMENTS.toArray(String[]::new))
+                .allowElements(EMBEDS.toArray(String[]::new))
                 // The library drops these three when they carry no attribute; a bare span or link is still text.
                 .allowWithoutAttributes("a", "span", "font")
                 .allowAttributes("id").matching(PageHtml::pageId).globally()
@@ -365,7 +384,7 @@ public final class PageHtml {
                 .allowAttributes("stroke-width").matching(SIZE).onElements("svg", "path")
                 .allowAttributes("stroke-linecap", "stroke-linejoin", "fill-rule", "clip-rule")
                         .matching(Pattern.compile("[a-z]{1,10}")).onElements("svg", "path")
-                .allowUrlProtocols("http", "https", "mailto", "tel", "sms")
+                .allowUrlProtocols(LINK_SCHEMES.toArray(String[]::new))
                 // The library writes no rel of its own: the author's travels as CHECKED_REL, and StyleRestorer adds
                 // the one word a new tab needs.
                 .skipRelsOnLinks(NO_OPENER, "noreferrer")

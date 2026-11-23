@@ -58,7 +58,11 @@ public class ContentCommandsTest {
     }
 
     private static ContentCommands as(final Person.Id who, final boolean siteAdmin) {
-        final ContentCommands content = new ContentCommands();
+        return acting(new ContentCommands(), who, siteAdmin);
+    }
+
+    private static ContentCommands acting(final ContentCommands content, final Person.Id who,
+            final boolean siteAdmin) {
         content.setCallerSource(() -> new Caller(who, siteAdmin,
                 new AuditActor(who == null ? null : who.getValue() + "@example.com",
                         who == null ? null : who.getValue()),
@@ -118,6 +122,108 @@ public class ContentCommandsTest {
         clean.getValues().put("body", "<p>fine</p>");
         Assert.assertEquals(content.removalsKey(clean), "");
         Assert.assertTrue(content.applyFromDrawer(clean, null, null), "nothing to remove, nothing to ask");
+    }
+
+    /**
+     * A value too large to compare within what one request may spend (here words inside twenty wrappers, each of
+     * which an edit touches) is not checked for lost formatting; the drawer says so, and Apply asks before saving.
+     */
+    @Test
+    public void aValueTooLargeToCheckForLostFormattingSaysSoAndApplyAsks() {
+        final ContentCommands content = as(ADMIN, false);
+        final ContentInstance item = richItem(content, "cc.section-too-large");
+        item.setTitle("Plain");
+        final StringBuilder words = new StringBuilder();
+        for (int i = 0; i < 12_000; i++) {
+            words.append("word").append(i).append(' ');
+        }
+        final String body = "<div class=\"w\">".repeat(20) + words + "</div>".repeat(20);
+        item.getValues().put("body", body);
+        Assert.assertTrue(content.saveContent(item));
+        final ContentInstance working = content.getContent(item.getId());
+        Assert.assertEquals(content.wouldRemove(working), List.of(), "untouched: nothing to check");
+        working.getValues().put("body", working.getValues().get("body").replace("word77 ", "word77 here "));
+        Assert.assertEquals(content.wouldRemove(working), List.of("Body: this text is too large to check for"
+                + " formatting that went missing while it was edited. Look it over before you save."));
+        Assert.assertFalse(content.applyFromDrawer(working, null, null), "the first Apply only asks");
+        Assert.assertTrue(content.applyFromDrawer(working, null, content.removalsKey(working)));
+        Assert.assertTrue(content.getContent(item.getId()).getValues().get("body").contains("word77 here"));
+    }
+
+    /**
+     * A row stored before saves were tidied may still hold Quill's alignment class; the typed side's tidy turns it
+     * into the inline style. Both sides are tidied alike before the loss check, so opening such a row and changing
+     * nothing asks nothing.
+     */
+    @Test
+    public void aStoredQuillAlignmentClassIsNotReadAsLost() {
+        final ContentCommands content = as(ADMIN, false);
+        final ContentInstance item = richItem(content, "cc.section-ql-align");
+        item.setTitle("Plain");
+        item.getValues().put("body", "<p class=\"ql-align-center\">Welcome to our parish</p><p>More text here</p>");
+        Assert.assertTrue(DAO.getInstance().saveContent(item, 5), "stored as an old row was, untidied");
+        Assert.assertEquals(content.wouldRemove(content.getContent(item.getId())), List.of());
+    }
+
+    /**
+     * One redraw asks several times what a save would remove, and each answer reads the stored row and every
+     * rich-text value: within a request the answer is worked out once per working copy, again when the copy changes,
+     * and again after a save (which changes what the copy is compared with).
+     */
+    @Test
+    public void whatASaveWouldRemoveIsWorkedOutOncePerRequestAndWorkingCopy() {
+        final Map<String, Object> request = new HashMap<>();
+        final ContentCommands content = acting(new ContentCommands() {
+            @Override
+            protected Map<String, Object> requestMemo() {
+                return request;
+            }
+        }, ADMIN, false);
+        final ContentInstance item = richItem(content, "cc.section-memo");
+        item.setTitle("Plain");
+        item.getValues().put("body", "<p><span style=\"color:red\">Pay by Friday please</span></p>");
+        Assert.assertTrue(content.saveContent(item));
+        final ContentInstance working = content.getContent(item.getId());
+        working.getValues().put("body", "<p>Pay by Friday please</p>");
+        final List<String> asked = content.wouldRemove(working);
+        Assert.assertEquals(asked.size(), 1, "the color went: " + asked);
+        Assert.assertSame(content.wouldRemove(working), asked, "the same copy, the same request: not worked out again");
+        Assert.assertEquals(content.removalsKey(working), content.removalsKey(working));
+
+        working.getValues().put("body", "<p>Pay by Friday please</p><script>x()</script>");
+        Assert.assertEquals(content.wouldRemove(working).size(), 2, "what was typed since is seen");
+
+        working.getValues().put("body", "<p>Pay by Friday please</p>");
+        Assert.assertEquals(content.wouldRemove(working).size(), 1);
+        Assert.assertTrue(content.applyFromDrawer(working, null, content.removalsKey(working)));
+        Assert.assertEquals(content.wouldRemove(content.getContent(item.getId())), List.of(),
+                "after the save, in the same request, the stored row is the new one");
+        final ContentInstance again = content.getContent(item.getId());
+        again.setTitle("Plain");
+        Assert.assertEquals(content.wouldRemove(again), List.of());
+    }
+
+    /**
+     * 2026-11-23: a stored image's float went while the author typed (Quill dropped it; "Clear formatting" does the
+     * same). Apply names it and asks, exactly like a removal by the allowlist, and saves only on the author's OK.
+     */
+    @Test
+    public void theDrawersApplyAsksBeforeSavingLostFormatting() {
+        final ContentCommands content = as(ADMIN, false);
+        final ContentInstance item = richItem(content, "cc.section-editor-loss");
+        item.setTitle("Plain");
+        final String img = "https://media.example.com/a.jpg";
+        item.getValues().put("body", "<p><img style=\"float:left\" src=\"" + img + "\" />Hello</p>");
+        Assert.assertTrue(content.saveContent(item));
+        final ContentInstance working = content.getContent(item.getId());
+        working.getValues().put("body", "<p><img src=\"" + img + "\" />Hello there</p>");
+        Assert.assertEquals(content.wouldRemove(working), List.of("Body: <img style=\"float:left\">: this formatting"
+                + " is gone while its text stayed. Use Undo, or add it again in the HTML view."));
+        Assert.assertFalse(content.applyFromDrawer(working, null, null), "the first Apply only asks");
+        Assert.assertTrue(content.applyFromDrawer(working, null, content.removalsKey(working)));
+        // RichTextRules unwraps the single attribute-free paragraph on save.
+        Assert.assertEquals(content.getContent(item.getId()).getValues().get("body"),
+                "<img src=\"" + img + "\" />Hello there");
     }
 
     /** A language version starts as a deep copy: new rows, new ids, children under the NEW container. */
@@ -502,7 +608,8 @@ public class ContentCommandsTest {
 
         final ContentInstance broken = admin.createContent("cc.section-html", "cc-rich-tpl");
         broken.setTitle("ok title");
-        broken.getValues().put("body", "<div><p>never closed</div>");
+        // A <span>, not a <p>: HTML lets a <p> close itself at its parent's end tag, as a browser does.
+        broken.getValues().put("body", "<div><span>never closed</div>");
         Assert.assertFalse(admin.saveContent(broken), "misnested rich text must not reach the page");
 
         broken.getValues().put("body", "<div><p>fine</p></div>");

@@ -25,8 +25,9 @@ import org.paulsens.trip.audit.Audit;
 import org.paulsens.trip.audit.AuditEventBuilder;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.content.ContentRenderer;
-import org.paulsens.trip.content.HtmlFragmentValidator;
+import org.paulsens.trip.content.HtmlCheck;
 import org.paulsens.trip.model.Trip;
+import org.paulsens.trip.content.MarkupLoss;
 import org.paulsens.trip.content.OrgPageBootstrap;
 import org.paulsens.trip.content.PageVersions;
 import org.paulsens.trip.content.PageHtml;
@@ -169,7 +170,7 @@ public class ContentCommands {
         instance.setModifiedBy(caller.auditActor().email());
         final boolean saved;
         try {
-            saved = DAO.getInstance().saveContent(instance, retainCount());
+            saved = storeContent(instance, retainCount());
         } catch (final RuntimeException ex) {
             log.error("Unable to save content: " + instance.getId(), ex);
             return false;
@@ -313,7 +314,7 @@ public class ContentCommands {
         container.setEventDate(null);
         container.setModifiedBy(caller.auditActor().email());
         try {
-            if (DAO.getInstance().saveContent(container, retainCount())) {
+            if (storeContent(container, retainCount())) {
                 audit(caller, container.getId(), "Published '" + container.getTitle()
                         + "' (a seeded placeholder) with its first item");
             }
@@ -421,12 +422,85 @@ public class ContentCommands {
         if (working == null) {
             return List.of();
         }
+        // One redraw of the drawer asks four times about the same working copy (and Apply asks again before it), and
+        // each answer costs a fresh read of the stored row and a reading of every rich-text value: the answer is kept
+        // for the request, for exactly the copy it was given for. A save forgets it ({@link #storeContent}).
+        final Map<String, Object> memo = requestMemo();
+        if (memo != null && memo.get(WOULD_REMOVE_MEMO) instanceof WouldRemove(var asked, var answer)
+                && asked.equals(working)) {
+            return answer;
+        }
+        final List<String> removed = computeWouldRemove(working);
+        RequestMemo.put(memo, WOULD_REMOVE_MEMO, new WouldRemove(working.copy(), removed));
+        return removed;
+    }
+
+    private List<String> computeWouldRemove(final ContentInstance working) {
         try {
-            return cleanAuthoredHtml(working.copy());
+            final List<String> removed = new ArrayList<>(cleanAuthoredHtml(working.copy()));
+            removed.addAll(editorLosses(working));
+            return List.copyOf(removed);
         } catch (final RuntimeException ex) {
             log.warn("Unable to preview what a save of content " + working.getId() + " would remove", ex);
             return List.of();
         }
+    }
+
+    /** {@link #wouldRemove}'s answer for one working copy, as it was when asked. */
+    private record WouldRemove(ContentInstance asked, List<String> answer) {
+    }
+
+    private static final String WOULD_REMOVE_MEMO = "content.wouldRemove";
+
+    /**
+     * Seam: {@link #wouldRemove}'s memo map, the Faces request map ({@link RequestMemo}); null off a page, where
+     * every call computes.
+     */
+    protected Map<String, Object> requestMemo() {
+        return RequestMemo.facesRequestMap();
+    }
+
+    /** Every write of a content row: what {@link #wouldRemove} answered was compared with the row as it was. */
+    private boolean storeContent(final ContentInstance instance, final int retain) {
+        RequestMemo.forget(requestMemo(), WOULD_REMOVE_MEMO);
+        return DAO.getInstance().saveContent(instance, retain);
+    }
+
+    /**
+     * Formatting removed from a stored rich-text value while its text stayed (an image's float, a styled wrapper;
+     * {@link MarkupLoss}), one line per lost tag, so that Apply asks before saving it. Compared with the editor's
+     * value tidied the way a save tidies it, and before the allowlist runs, so that nothing the allowlist removes is
+     * reported twice. A new item has nothing stored to lose, and a failed read ({@link #storedRow} logs it) asks
+     * nothing here while the allowlist's own lines still stand. A value too large to compare gets one line saying
+     * so, in place of its losses.
+     */
+    private List<String> editorLosses(final ContentInstance working) {
+        final ContentInstance stored = working.getId() == null ? null : storedRow(working.getId());
+        final ContentTemplate template = stored == null ? null : resolveTemplate(working);
+        if (template == null) {
+            return List.of();
+        }
+        final List<String> lines = new ArrayList<>();
+        for (final Placeholder ph : ProgrammaticTypes.placeholdersOf(template)) {
+            if (ph.getType() == Placeholder.Type.RICH_TEXT) {
+                final String typed = RichTextRules.normalize(working.getValues().get(ph.getName()));
+                // Both sides tidied alike: a row stored before saves were tidied may still hold Quill's alignment
+                // class, which the typed side's tidy turns into the inline style, and would otherwise read as lost.
+                final MarkupLoss.Check check = MarkupLoss.check(
+                        RichTextRules.normalize(stored.getValues().get(ph.getName())), typed);
+                for (final String tag : check.lost()) {
+                    lines.add(Text.get("server.stripNotes.line", ph.getLabel(),
+                            Text.get("server.stripNotes.formattingRemoved", tag)));
+                }
+                if (check.skipped()) {
+                    // Too large to compare within what one request may spend: said, so that Apply still asks
+                    // (the owner's rule, 2026-11-23: never a silent skip of the check either).
+                    lines.add(Text.get("server.stripNotes.line", ph.getLabel(),
+                            Text.get("server.stripNotes.notChecked")));
+                }
+            }
+        }
+        return lines;
     }
 
     /**
@@ -997,7 +1071,7 @@ public class ContentCommands {
     /** The title (when it carries markup) and every RICH_TEXT value must be structurally sound HTML. */
     private String validateAuthoredHtml(final ContentInstance instance) {
         if (PageHtml.titleHasMarkup(instance.getTitle())) {
-            final String titleProblem = HtmlFragmentValidator.validate(instance.getTitle());
+            final String titleProblem = HtmlCheck.structureProblem(instance.getTitle());
             if (titleProblem != null) {
                 return Text.get("common.title") + ": " + titleProblem;
             }
@@ -1010,7 +1084,7 @@ public class ContentCommands {
             if (ph.getType() != Placeholder.Type.RICH_TEXT) {
                 continue;
             }
-            final String problem = HtmlFragmentValidator.validate(instance.getValues().get(ph.getName()));
+            final String problem = HtmlCheck.structureProblem(instance.getValues().get(ph.getName()));
             if (problem != null) {
                 return ph.getLabel() + ": " + problem;
             }
@@ -1450,7 +1524,7 @@ public class ContentCommands {
                 row.getEditorPrivileges() == null ? null : new ArrayList<>(row.getEditorPrivileges()),
                 row.getAllowedChildTemplateIds() == null ? null : new ArrayList<>(row.getAllowedChildTemplateIds()),
                 row.isStayOnLatest());
-        if (!DAO.getInstance().saveContent(copy, retainCount())) {
+        if (!storeContent(copy, retainCount())) {
             return false;
         }
         audit(caller, copy.getId(), "Copied '" + copy.getTitle() + "' into " + section + " from " + copiedFrom);
@@ -1554,7 +1628,7 @@ public class ContentCommands {
         final List<String> removed = cleanAuthoredHtml(restored);
         final boolean saved;
         try {
-            saved = DAO.getInstance().saveContent(restored, retainCount());
+            saved = storeContent(restored, retainCount());
         } catch (final RuntimeException ex) {
             log.error("Unable to restore content: " + id, ex);
             return false;

@@ -164,17 +164,17 @@ public class StarterTemplatesTest {
         for (final String id : standardBands) {
             final ContentTemplate band = byId(id);
             Assert.assertEquals(band.getKind(), TemplateKind.STANDARD, id);
-            Assert.assertNull(HtmlFragmentValidator.validate(band.getBody()), id + " body must validate");
+            Assert.assertNull(HtmlCheck.structureProblem(band.getBody()), id + " body must validate");
             Assert.assertTrue(band.getPlaceholders().stream().anyMatch(ph -> ph.getName().equals("tone")),
                     id + " takes a tone");
             Assert.assertTrue(band.getBody().contains("band-{{tone}}"), id + " renders the tone as a class");
         }
-        Assert.assertNull(HtmlFragmentValidator.validate(byId(StarterTemplates.BAND_HERO_ID).getBody()));
+        Assert.assertNull(HtmlCheck.structureProblem(byId(StarterTemplates.BAND_HERO_ID).getBody()));
         Assert.assertTrue(byId(StarterTemplates.BAND_HERO_ID).getPlaceholders().stream()
                 .noneMatch(ph -> ph.getName().equals("tone")), "the hero always wears its own look");
         for (final String id : List.of(StarterTemplates.FEATURE_CARD_ID, StarterTemplates.STAT_ITEM_ID)) {
             Assert.assertEquals(byId(id).getKind(), TemplateKind.STANDARD, id);
-            Assert.assertNull(HtmlFragmentValidator.validate(byId(id).getBody()), id);
+            Assert.assertNull(HtmlCheck.structureProblem(byId(id).getBody()), id);
         }
 
         final List<String> containers = List.of(StarterTemplates.BAND_FEATURES_ID, StarterTemplates.BAND_STATS_ID,
@@ -182,7 +182,7 @@ public class StarterTemplatesTest {
         for (final String id : containers) {
             final ContentTemplate band = byId(id);
             Assert.assertEquals(band.getKind(), TemplateKind.CONTAINER, id);
-            Assert.assertNull(HtmlFragmentValidator.validate(band.getBody()), id + " body must validate");
+            Assert.assertNull(HtmlCheck.structureProblem(band.getBody()), id + " body must validate");
             Assert.assertNull(ContentRenderer.containerBodyProblem(band.getBody()), id + " is a usable row");
             Assert.assertTrue(ContentRenderer.hasContainerTitleSlot(band.getBody()), id + " places its title");
             Assert.assertFalse(ContentRenderer.containerBody(band.getBody()).beforeAll().isEmpty(),

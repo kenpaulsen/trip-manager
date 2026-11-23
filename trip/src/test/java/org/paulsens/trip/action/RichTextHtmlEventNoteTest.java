@@ -104,13 +104,16 @@ public class RichTextHtmlEventNoteTest {
                         + "</iframe>", "only the fixed attributes and the address are written");
     }
 
-    /** The extras are the event's alone: a private note and a reminder still keep no image, video or code block. */
+    /**
+     * The video and code block are the event's alone; the image is the event's and mail's (since 2026-11-23), and a
+     * private note still keeps none of the three.
+     */
     @Test
     public void privateNotesAndRemindersKeepTheirOwnLists() {
         final String extras = "<img src=\"https://x.example/a.png\"><iframe class=\"ql-video\" "
                 + "src=\"https://v.example/1\"></iframe><div class=\"ql-code-block\">c</div>";
         Assert.assertEquals(RichTextHtml.cleanNote(extras), "<div>c</div>");
-        Assert.assertEquals(RichTextHtml.clean(extras), "<div>c</div>");
+        Assert.assertEquals(RichTextHtml.clean(extras), "<img src=\"https://x.example/a.png\"><div>c</div>");
         Assert.assertEquals(RichTextHtml.cleanEventNote("<font color=\"red\">a</font><a href=\"deltaklm.jsf\">b</a>"),
                 "<span style=\"color: red\">a</span><a href=\"deltaklm.jsf\"" + LINK_TAIL + ">b</a>",
                 "the private note's old tags and site links are the event's too");

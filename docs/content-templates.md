@@ -364,15 +364,17 @@ registry never changes at runtime.
   included — in a rotating dashed color frame (`content.frameClass(index)`), item-scoped buttons render
   outlined (`contentItemBtn`) vs the filled section/page buttons, and the page toolbar is titled "Page
   Operations".
-- **HTML validation**: `HtmlFragmentValidator` (structural: balance, nesting, quotes, comments; void and
-  raw-text elements understood) gates `saveTemplate` bodies and `saveContent` RICH_TEXT values and
-  markup-bearing titles. Failures keep the dialog open and are listed IN it (`dlgMsgs`, a `p:messages`: the
-  page's growl renders under a modal dialog's overlay, so a message that only went there is never seen). It
-  shares its tag scanner with `RichTextRules` (`HtmlTags`), so the two never disagree about where a `<p>` begins.
-- **RICH_TEXT is BLOCK html, and that is not negotiable**: Quill's document model is a list of lines and
-  every line is a block element, so a one-line caption comes back as `<p>…</p>` plus a trailing empty
-  paragraph, and alignment arrives as a `ql-align-*` CLASS that only works where Quill's stylesheet is
-  loaded. Two consequences, each handled in its own place:
+- **HTML validation**: `HtmlCheck.structureProblem` (jsoup's HTML5 parser: every place a browser would repair
+  the markup, such as a stray or out-of-order end tag, an element left open, or a tag, quote or comment left
+  unfinished; the end tags HTML lets an author leave out are fine) gates `saveTemplate` bodies and `saveContent`
+  RICH_TEXT values and markup-bearing titles. Failures keep the dialog open and are listed IN it (`dlgMsgs`, a
+  `p:messages`: the page's growl renders under a modal dialog's overlay, so a message that only went there is never
+  seen). It reads markup as a browser does, which `RichTextRules`' own tag scanner (`HtmlTags`) does not attempt:
+  that one only finds block boundaries for its normalizing.
+- **RICH_TEXT is BLOCK html, and that is not negotiable**: the editor writes every line as a block element, so a
+  one-line caption comes back as `<p>…</p>`, and rows written before 2026-11-23 by Quill (the editor then) carry
+  alignment as a `ql-align-*` CLASS that only works where Quill's stylesheet is loaded. Two consequences, each
+  handled in its own place:
   - **On save** (`RichTextRules.normalize`, called from `saveContent` AFTER validation): alignment classes
     become inline `text-align` styles, trailing empty paragraphs are dropped, and a value that is exactly
     ONE ATTRIBUTE-FREE `<p>` loses that wrapper. Multi-paragraph values keep their blocks (there the blocks
@@ -435,19 +437,88 @@ registry never changes at runtime.
 - **Growl messages must carry everything in the SUMMARY**: `template.xhtml` renders message details only for
   the URL-parameter messages (`hasDetail`), so a detail-only explanation is invisible to the user. Found by
   clicking through the container; no test can see it.
-- **Raw HTML in the WYSIWYG editors**: every `p:textEditor` on the site carries an "HTML" toolbar button
-  that swaps Quill for a textarea (`WEB-INF/quillEditor.xhtml`, patched onto the widget prototype, so
-  editors created later by ajax get it too). While in Source mode the textarea writes straight into the
-  widget's hidden input, so markup Quill has no format for (wrapper divs, iframes, inline styles,
-  data-attributes) reaches the server as typed, where it goes through the allowlist like any typed HTML
-  ("Typed HTML and the allowlist", below). Switching back to visual re-parses through Quill and
-  therefore simplifies such markup, so that pass runs only when the text actually changed. A template
-  BODY additionally has the model-bound "Edit raw HTML" mode in `templateDialog` (no Quill parse at all
-  in either direction) -- the right choice for structural template bodies. **The content drawer's editors**
-  use the same toolbar button. They once carried a Visual | HTML | Preview tab strip; it was removed once the
-  drawer drew the item in the page as it is typed (the in-page preview, below), which made a second preview
-  redundant. That redraw carries `contentPreview=1`, which every `required` in the dialog honors as a bypass,
-  or a half-filled form could never preview.
+- **The editor never removes what the author did not remove (owner's rule, 2026-11-23).** Only the server's rules for
+  a field decide what is stored, and anything they drop is named before saving, never silently. Script, object, embed,
+  noscript and srcdoc markup becomes a locked placeholder block while editing ("kept as written") and comes back
+  exactly on save; an on* handler is renamed to an inert data- name while editing and renamed back on save; the HTML
+  view shows and edits the real markup; the editor's own clean-up on load never counts as the author's change. Four
+  kinds of host: (1) trusted code, a STANDARD template body: everything is kept, scripts and handlers included, and
+  stored as written; (2) published web content (the content drawer's sections, Site Pages, trip page body and pay
+  page, waivers (whose publish refuses, naming it, anything but a document's own elements, a handler or a script
+  address, and otherwise stores the body as written), the lodging option policy, and to a lesser degree event notes):
+  every tag and style the author wrote is kept, and whatever the server will not store is named before saving (the
+  drawer's strip question; elsewhere the save's notice); (3) email (MAIL template bodies, mail merge, scheduled
+  messages): what mail clients show is kept and offered (colors as plain values, alignment, indent, tables, images by
+  web address), and no video; (4) notes written by or about members (event notes, the itinerary's private notes): a
+  small toolbar, and member-supplied text (a name in a placeholder, an aria-label, a tooltip, a swatch label) is
+  always text, never markup. Machine checks: a stored body opened and saved with no edit comes back byte for byte, and
+  one holding a script and an onclick keeps both and runs neither while edited.
+- **The rich-text editor (2026-11-23)**: every rich-text field on the site is an `h:inputTextarea` with the style
+  class `tripRichEditor`, which `resources/trip-js/richEditor.js` turns into a Jodit editor (MIT, vendored in
+  `resources/trip-js/vendor/jodit/`), on a page that includes `WEB-INF/richEditor.xhtml`. It replaced PrimeFaces'
+  `p:textEditor` (Quill), which wrote its HTML back out from its own model and silently dropped any markup it had no
+  format for: an image's float, a styled wrapper `div`, a frame's size, the moment an author typed (found
+  2026-11-23 on the visitqueenofpeace.com home page). Jodit edits the markup itself, and the config turns off every
+  clean-up that would change what the author did not touch (`wrap-nodes`, `safeLinksTarget`,
+  `sandboxIframesInContent`, old-tag replacement, empty-element removal); a spike over every rich-text value of the
+  home page and two trip pages found an edit changes only what was typed, and undo and the HTML view round-trip
+  exactly. `RichEditorPolicyIT` fails the build on any `p:textEditor` or Quill, on an editor made outside
+  `richEditor.js`, on a rich-text field whose page never loads the editor, and on a test naming the editor's markup
+  outside `pw/Editors`.
+  - **The field holds what will be saved**: the stored markup until something changes (Jodit spells a few things its
+    own way, `<img>` for `<img />`, so an untouched editor never rewrites a row), then Jodit's value, or in the HTML
+    view exactly what is typed. Jodit copies its value into the textarea only after a short pause, so every click,
+    submit and Enter first brings each field up to date (capture phase, ahead of PrimeFaces' request); each change
+    also fires a bubbling `input` on the textarea, which is what the content drawer listens for.
+  - **Toolbars** follow what the field's cleaner keeps: the full one for page content, templates and the lodging
+    policy; the same without video (`tripRichNoVideo`) for waivers, whose publish check refuses every frame; one
+    mail toolbar for both mail editors, a scheduled message and the mail merge (plain colors, alignment, indent,
+    tables and images by web address, which `RichTextHtml` keeps in mail since 2026-11-23, and no video, which it
+    drops);
+    `tripRichNote` for an event note and `tripRichNote tripRichPrivate` for a private note.
+    An event note keeps a video only as Quill's `ql-video` frame, so the note editor marks the frames it inserts.
+  - **Words**: Jodit carries Spanish; `resources/trip-js/richEditorLang.js` adds Croatian (formal) and moves its
+    Spanish to "tú". The image prompt is `js.editor.imageUrl`.
+  - **A template BODY** also has the model-bound "Edit raw HTML" mode in `templateDialog` (no editor at all), the
+    one way to write a CONTAINER body. **The content drawer's editors** once carried a Visual | HTML | Preview tab
+    strip; it went when the drawer started drawing the item in the page as it is typed (the in-page preview,
+    below). That redraw carries `contentPreview=1`, which every `required` in the dialog honors as a bypass, or a
+    half-filled form could never preview.
+- **Markup lost while its words stayed is never saved silently (2026-11-23).** The net under the editor: the
+  content drawer's Apply compares each stored rich-text value with what is about to be saved (`content/MarkupLoss`,
+  called from `ContentCommands.wouldRemove`) and names every tag with attributes that went while its words, its
+  image's address or its link's address stayed, in the same question that names what the allowlist removes. An
+  author's own deletion or replacement (the words went too; word PAIRS are compared, since common words are in any
+  text) and a change of spelling (`b`/`strong`, a `div` that became a `p` with the same attributes, attribute order,
+  Quill's alignment classes) are not reported. "Clear formatting" over styled text is the everyday way to reach it.
+  Re-applying the lost markup onto the edited HTML was considered and rejected: an editor splits and merges
+  elements, so which edited element a lost wrapper belonged to cannot be told reliably.
+  The check leans to asking (the owner's choice, 2026-11-23): it reads the whole edited value, so joining two styled
+  lines into one, or deleting one of several lines alike, asks about formatting that did not go. A rule that left out
+  the other lines' words stopped those questions but hid real losses inside an unchanged tag of the same spelling, and
+  was reverted: an unneeded question costs a click, a missed loss costs the formatting. Only tags that carry
+  formatting (an attribute beyond an address) are compared at all. **What it compares and indexes follows the size of
+  the edit, not of the page** (reading the two values and one set of the edited value's words follow the page, which
+  the length bound caps), because it runs on a page request at every redraw of the drawer, on the one server every
+  organization shares, over whatever an author posts. Equal values are answered unread; a reading holds each word once
+  (a tag's text is a range of the words, however deep the tag sits); tags identical on both sides cancel in one pass;
+  only the tags an edit touched are compared by content, through an index of the edited text's word pairs (never a
+  scan of every tag: that was quadratic, 14 seconds for a 300 KB page whose font had changed), and a restyled version
+  is looked for under the RAREST attribute name the stored tag has. What is left is bounded by COUNTS of work, never
+  by a clock: comparisons, each attribute name compared counting as one (`MarkupLoss.WORK_BOUND`; a value of tags with
+  two dozen attributes once held a request thread for eight seconds while counting as little work), what is kept per
+  indexed tag, charged before it is built (`HELD_BOUND`; a tag with 300 attributes around 50,000 words was once
+  indexed once per attribute, 2.4 GB from one 254 KB value), and a value's length (`LENGTH_BOUND`, 400,000 characters,
+  more than any row holds). And at most two checks run at once (`MarkupLoss.AT_ONCE`, a semaphore; the next waits), so
+  whatever they cost, they never hold every carrier thread; a check that waits more than 1.5 seconds for a turn is
+  skipped, and an untouched field never waits. That wait is the one clock: when it runs out at Apply but not at the
+  redraw, the two lists differ and Apply asks once more, never saves unasked. The redraw and Apply must list the same
+  losses, since Apply is answered by the key of the list that was shown. Above a bound no tag is listed, a warning is
+  logged, and the drawer shows one line instead saying the text is too large to check
+  (`server.stripNotes.notChecked`), so Apply still asks. `wouldRemove` itself is answered once per request and working
+  copy (`RequestMemo`; one redraw asks four times), and any write of a content row forgets the answer. Both sides are
+  tidied alike before the check (`RichTextRules.normalize`), so a row still holding Quill's alignment classes does not
+  read as lost.
 - **The content dialog (2026-11)**: 90% of the window (capped at 1400px by `trip.css`, `.contentDlg`); each
   prompt's label is a `p:outputLabel` FOR the row's widget (`content.widgetIdFor`), so PrimeFaces draws the
   required star from the widget's own `required` and a blank required prompt refuses Apply with the message in
@@ -584,8 +655,8 @@ then asked for the preview to follow the form, field by field. It is `WEB-INF/co
 - **Step 2, the form** (`dlgFill`), for a new item and for an edit alike. Every field change redraws the
   preview: `liveContent` processes the form with `contentPreview=1` (so a half-filled form still applies; nothing
   is saved) and re-renders ONLY the preview host, on each change and after a typing pause, since each redraw is
-  a round trip. PrimeFaces copies a rich-text editor into its field only on blur, so the script does that for
-  the editors the author has changed before each redraw (an untouched editor keeps its stored markup).
+  a round trip. The rich-text editor writes its field and fires `input` on it at each change (`richEditor.js`,
+  `flush`), so the drawer only listens (an untouched editor keeps its stored markup).
 - **Examples while adding** (owner-confirmed): a prompt the author has not touched shows its example in the
   preview, so a new section does not collapse on the first keystroke; a touched prompt shows exactly what was
   typed, blank included; only typed values are ever saved. `content.liveHtml(working, touched, plain)` renders
@@ -610,13 +681,15 @@ then asked for the preview to follow the form, field by field. It is `WEB-INF/co
 
 ### Colors in the rich-text editors (2026-11-16)
 
-The text and highlight color buttons of every `p:textEditor` offer the theme's colors and the organization's brand
-colors only, never fixed hex values (`WEB-INF/quillEditor.xhtml`, `EditorColors`). Stored content therefore holds
+The color button of every rich-text editor offers the theme's colors and the organization's brand colors only, never
+fixed hex values (`WEB-INF/richEditor.xhtml`, `resources/trip-js/richEditor.js`, `EditorColors`); Jodit's own hex box
+and system color picker are hidden, and its habit of turning a picked color into hex is overridden so a variable is
+applied as offered. Stored content therefore holds
 `style="color: var(--status-danger, #b71c1c)"` or `var(--brand-<id>, #a07a2c)`: the variable follows the org's palette
 and dark mode, the fallback is the org's light value at the time of writing. A MAIL template's body (and the mail
-merge) is a `mailEditor` and gets the plain `#rrggbb`. `HtmlFragmentValidator`, `RichTextRules.normalize` and
-`WaiverHtml.sanitize` keep these inline styles; `RichTextHtml` drops all styles, and the Communications editor has no
-color buttons. Doc for the brand colors themselves: `org-admin.md`, "Brand colors".
+merge) is a `mailEditor` and gets the plain `#rrggbb`. `RichTextRules.normalize`, the mail cleaner
+`RichTextHtml` (a color, size, alignment and indent) and `HtmlCheck` (the template and waiver checks, which change
+nothing) keep these inline colors. Doc for the brand colors themselves: `org-admin.md`, "Brand colors".
 
 ## Typed HTML and the allowlist (2026-11, medjugorje#158)
 
@@ -682,11 +755,11 @@ Rules worth knowing before changing this:
   Latest reads its own cached field instead (`getLatestTemplate`); `RenderPathCacheTest` pins both, including
   a guard that fails if the unversioned lookup ever becomes cache-served.
 - **CONTAINER bodies edit as raw HTML only** (`templateDialog.xhtml` hides the visual editor for the
-  kind): Quill rewrites structural markup and would move the `{{child}}` marker out of place.
+  kind): a row is not prose, and the `{{child}}` marker must stay exactly where it is written.
 - `.contentTitle:empty` is `display:none` in `trip.css` — the row writes the heading unconditionally, so
   an untitled child (and every programmatic one) would otherwise leave an empty heading box.
 - **The wrapper is a region, not two extra fields.** `beforeAll`/`afterAll` as their own columns would each
-  hold an unbalanced fragment (`<ul>` … `</ul>`), which `HtmlFragmentValidator` must reject on its own —
+  hold an unbalanced fragment (`<ul>` … `</ul>`), which `HtmlCheck` must reject on its own —
   so they would have to skip validation or be validated concatenated, at which point they are one
   document. As a region the whole body validates normally and `ContentTemplate` gains no fields:
 

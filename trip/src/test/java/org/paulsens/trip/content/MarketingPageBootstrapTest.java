@@ -222,7 +222,7 @@ public class MarketingPageBootstrapTest {
 
     private static void assertValueFits(final ContentTemplate template, final ContentInstance row,
             final Map.Entry<String, String> value) {
-        Assert.assertNull(HtmlFragmentValidator.validate(value.getValue()),
+        Assert.assertNull(HtmlCheck.structureProblem(value.getValue()),
                 row.getTitle() + "." + value.getKey() + " must validate");
         final Placeholder declared = template.getPlaceholders().stream()
                 .filter(ph -> ph.getName().equals(value.getKey())).findFirst().orElse(null);

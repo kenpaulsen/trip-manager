@@ -101,6 +101,54 @@ public class MailMergeTest {
                 "a trip manager's address fields need their trip chosen");
     }
 
+    /**
+     * The fields checked are the ones FILLED: cleaning a body can make a field (encoded braces restored, a comment or
+     * an unlisted tag dropped between two braces), and a field the check never saw would be filled for every
+     * recipient (review blocker, 2026-11-23). Each such body is refused like the plain field, at every door.
+     */
+    @Test
+    public void aFieldTheCleanerWouldMakeIsCheckedLikeOneTyped() {
+        final MailCommands mail = Mockito.mock(MailCommands.class);
+        Mockito.when(mail.emailsToPeople(ArgumentMatchers.anyList())).thenReturn(List.of(traveler));
+        Mockito.when(mail.findPersonByEmail(ArgumentMatchers.anyString())).thenReturn(traveler);
+        final MailMerge mailer = merge(holding((name, scope) -> PrivilegeCommands.EMAIL_ADMIN.equals(name)), mail);
+        for (final String hidden : List.of("<p>{<!-- -->{cell}}</p>", "<p>{<x>{street}}</p>",
+                "<p>%7B%7BbalanceDue%7D%7D</p>", "<p>{<form>{passportIssue}}</p>", "<p>%7B%7BtirpLink%7D%7D</p>",
+                "<p><iframe src=\"https://www.youtube.com/embed/abc\"></iframe></p>")) {
+            Assert.assertNotNull(mailer.problem("S", hidden, trip), hidden);
+            Assert.assertThrows(IllegalArgumentException.class, () -> mailer.render(traveler, "S", hidden, trip));
+            Assert.assertNull(mailer.preview(List.of(traveler.getEmail()), "S", hidden, trip), hidden);
+            Assert.assertFalse(mailer.send("no-reply@example.com", List.of(traveler.getEmail()), null, "r", "S",
+                    hidden, trip), hidden);
+        }
+        Mockito.verify(mail, Mockito.never()).sendMerged(ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any(), ArgumentMatchers.anyList());
+        Assert.assertEquals(mailer.problem("S", "<p><iframe src=\"https://www.youtube.com/embed/abc\"></iframe></p>",
+                trip), "Write the message.", "a body that cleans to nothing is refused, never mailed empty (F5)");
+        Assert.assertNull(mailer.problem("S", "<p><img src=\"https://media.example.com/flyer.png\"></p>", trip),
+                "a picture alone is a message");
+    }
+
+    /**
+     * A body longer than any message may be is refused before it is cleaned, at every door, with the scheduled
+     * message's own words (the two share one check).
+     */
+    @Test
+    public void aBodyTooLongIsRefusedUncleanedAtEveryDoor() {
+        final MailCommands mail = Mockito.mock(MailCommands.class);
+        final MailMerge merge = merge(siteAdmin(), mail);
+        final String huge = "<p>" + "a".repeat(ReminderCommands.MAX_RAW_BODY) + "</p>";
+        Assert.assertEquals(merge.problem("S", huge, null), "The message is too long.");
+        Assert.assertThrows(IllegalArgumentException.class, () -> merge.render(traveler, "S", huge, null));
+        Assert.assertFalse(merge.send("no-reply@example.com", List.of(traveler.getEmail()), null, "r", "S", huge,
+                null));
+        Mockito.verify(mail, Mockito.never()).sendMerged(ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any(), ArgumentMatchers.anyList());
+        final String longCleaned = "<p>" + "a".repeat(ReminderCommands.MAX_BODY + 1) + "</p>";
+        Assert.assertEquals(merge.problem("S", longCleaned, null), "The message is too long.",
+                "under the raw limit but over a message's cleaned length, as a scheduled message refuses it");
+    }
+
     private static List<MergeText.Kind> listed(final MailMerge merge, final String tripId) {
         return merge.fieldGroupsFor(tripId).stream().map(MergeText.Group::kind).toList();
     }
@@ -182,6 +230,46 @@ public class MailMergeTest {
                 List.of(new MailCommands.Merged(traveler, "Hi " + traveler.getPreferredName(), "Room 301")));
         Assert.assertFalse(merge(holding((name, scope) -> false), mail).send("no-reply@example.com",
                 List.of(traveler.getEmail()), null, "r", "S", "B", null), "no emailAdmin anywhere, no sending");
+    }
+
+    /**
+     * The body is mailed through the one mail allowlist a scheduled message uses (2026-11-23): a plain color and an
+     * image by web address go, a video, a script and a handler never do, and what is left out is said on the preview
+     * and on the send. A paste too large to read is refused, as a scheduled message's save refuses it.
+     */
+    @Test
+    public void theBodyIsMailedThroughTheMailAllowlistAndADropIsSaid() {
+        final String typed = "<p onclick=\"x()\"><span style=\"color: #c00\">Hi</span> {{firstName}}"
+                + "<img src=\"https://media.example.com/a.png\"></p><iframe src=\"https://v.example/1\"></iframe>"
+                + "<script>bad()</script>";
+        final String mailed = "<p><span style=\"color: #c00\">Hi</span> " + traveler.getPreferredName()
+                + "<img src=\"https://media.example.com/a.png\"></p>";
+        final String cannotCarry = "a video, a frame, a style other than a color, size, alignment or indent, a link "
+                + "that is not a full web, email or phone address, an image that is not a full web address, or a "
+                + "field inside a link or image address";
+        final String removed = "Some formatting a mail cannot carry (" + cannotCarry + ") is left out of what is sent."
+                + " Check the preview.";
+        final String removedSent = "Some formatting a mail cannot carry (" + cannotCarry + ") was left out of what was"
+                + " sent.";
+        final MailCommands mail = Mockito.mock(MailCommands.class);
+        Mockito.when(mail.emailsToPeople(ArgumentMatchers.anyList())).thenReturn(List.of(traveler));
+        Mockito.when(mail.findPersonByEmail(ArgumentMatchers.anyString())).thenReturn(traveler);
+        final MailMerge merge = merge(siteAdmin(), mail);
+
+        Assert.assertEquals(TestFaces.growlsOf(new HashMap<>(), () -> Assert.assertEquals(merge.preview(
+                List.of(traveler.getEmail()), "S", typed, null).body(), mailed)), List.of(removed));
+        Assert.assertEquals(TestFaces.growlsOf(new HashMap<>(), () -> Assert.assertTrue(merge.send(
+                "no-reply@example.com", List.of(traveler.getEmail()), null, "r@example.com", "S", typed, null))),
+                List.of(removedSent), "past tense on the send: the mail has gone");
+        Mockito.verify(mail).sendMerged("no-reply@example.com", null, "r@example.com",
+                List.of(new MailCommands.Merged(traveler, "S", mailed)));
+        Assert.assertEquals(merge.render(traveler, "S", typed, null).body(), mailed, "the REST preview alike");
+
+        final String clean = "<p><span style=\"color: #c00\">Hi</span></p>";
+        Assert.assertEquals(TestFaces.growlsOf(new HashMap<>(), () -> merge.preview(
+                List.of(traveler.getEmail()), "S", clean, null)), List.of(), "nothing left out, nothing said");
+        Assert.assertNotNull(asAdmin().problem("S", "<img src=\"data:image/png;base64," + "A".repeat(3_000)
+                + "\">", null), "a pasted image too large to read is refused");
     }
 
     /** A typo is skipped as unusable, not as an outsider, and a list of nothing but typos sends nothing. */

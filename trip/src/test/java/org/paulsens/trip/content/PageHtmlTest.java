@@ -178,7 +178,8 @@ public class PageHtmlTest {
         Assert.assertTrue(cleaned.body().contains("data-src=\"a b&amp;c=d%20e\""), cleaned.body());
 
         for (final String owned : List.of("data-pfconfirmcommand", "data-p-label", "data-item-id", "data-ph",
-                "data-return-url", "data-trip-anything", "data-tooltip-delay", PageHtml.CHECKED_DATA, "data-BAD!")) {
+                "data-return-url", "data-trip-anything", "data-tooltip-delay", "data-jodit-temp", PageHtml.CHECKED_DATA,
+                "data-BAD!")) {
             final PageHtml.Cleaned refused = PageHtml.cleanNoting("<div " + owned + "=\"alert(1)\">x</div>");
             Assert.assertEquals(refused.body(), "<div>x</div>", owned);
         }

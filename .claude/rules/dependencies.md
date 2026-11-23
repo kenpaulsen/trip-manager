@@ -18,7 +18,9 @@ travels per call in `RequestOptions`, never the global `Stripe.apiKey`) · Apach
 unversioned `libheif.so` on `java.library.path`; without it HEIC uploads get a clean "convert to JPEG" rejection and
 everything else works) · metadata-extractor (EXIF orientation) · OWASP Java HTML Sanitizer (Apache-2.0 or
 BSD-2-Clause, no runtime dependencies; parses and writes hand-authored page HTML for `content/PageHtml`,
-`docs/migrations/html-clean.md`; keep it current, its 2026 releases are bypass fixes) · ICU4J (Unicode
+`docs/migrations/html-clean.md`; keep it current, its 2026 releases are bypass fixes) · jsoup (MIT, no runtime
+dependencies; the HTML5 parser behind `content/HtmlCheck`, which validates HTML stored and shown as written; moving the
+cleaners onto it and dropping OWASP is medjugorje#180) · ICU4J (Unicode
 License v3, MIT-style, no runtime dependencies; plural-aware message formatting for `i18n/MessageText`, since the
 JDK's `MessageFormat` cannot express Croatian's three plural forms, `docs/i18n.md`).
 

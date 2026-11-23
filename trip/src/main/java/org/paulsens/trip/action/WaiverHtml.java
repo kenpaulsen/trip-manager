@@ -9,25 +9,26 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * The text handling a waiver document needs, with no HTML library on the classpath: the publish-time cleanup,
- * the body's hash, and a plain-text rendering for the signed-copy PDF.
+ * The text handling a waiver document needs: the longest body a publish reads, the body's hash, and a plain-text
+ * rendering for the signed-copy PDF.
  *
- * <p>The body is the trip editor's kind of rich text (Quill output, or an org admin's hand-written source), and
- * it is rendered unescaped on the website and inside the phones' web views. {@link #sanitize} therefore removes
- * everything that can run -- script and style blocks, embedded frames and objects, {@code on*} handlers,
- * {@code javascript:} URLs -- and keeps the markup that carries meaning. It is defense in depth for a body only
- * an org admin can write, not a general-purpose sanitizer.
+ * <p>The body is the trip editor's kind of rich text (the site's rich-text editor's output, Jodit since 2026-11-23, or
+ * an org admin's hand-written source), and it is rendered unescaped on the website and inside the phones' web views,
+ * with no cleaner on the way out. A publish therefore VALIDATES and never cleans: {@code HtmlCheck.document} lists
+ * everything that keeps a body from being published as written, and a body with none is stored exactly as typed. A
+ * cleaner loses what the author wrote without a word; a list of problems leaves the author in control of what is
+ * saved (the owner's rule, 2026-11-23).
  */
 public final class WaiverHtml {
 
+    /**
+     * The longest body a publish reads, in characters. Checked before any parsing, so a crafted body costs nothing;
+     * a long waiver with the editor's markup is a few tens of thousands.
+     */
+    public static final int MAX_BODY = 200_000;
+
     private static final Pattern DANGEROUS_BLOCK = Pattern.compile(
             "(?is)<(script|style|iframe|object|embed|noscript|template)\\b[^>]*>.*?</\\1\\s*>");
-    private static final Pattern DANGEROUS_TAG = Pattern.compile(
-            "(?is)</?(script|style|iframe|object|embed|noscript|template|link|meta|base|form|input|button)\\b[^>]*>");
-    private static final Pattern EVENT_ATTR = Pattern.compile(
-            "(?is)\\s+on[a-z]+\\s*=\\s*(\"[^\"]*\"|'[^']*'|[^\\s>]+)");
-    private static final Pattern SCRIPT_URL = Pattern.compile(
-            "(?is)(href|src)\\s*=\\s*([\"']?)\\s*(javascript|vbscript|data):[^\"'>\\s]*\\2");
     private static final Pattern BREAK = Pattern.compile("(?i)<br\\s*/?>");
     private static final Pattern LIST_ITEM = Pattern.compile("(?i)<li\\b[^>]*>");
     private static final Pattern BLOCK_END = Pattern.compile(
@@ -40,19 +41,7 @@ public final class WaiverHtml {
     private WaiverHtml() {
     }
 
-    /** The body with anything executable removed; null becomes blank. */
-    public static String sanitize(final String html) {
-        if (html == null) {
-            return "";
-        }
-        String out = DANGEROUS_BLOCK.matcher(html).replaceAll("");
-        out = DANGEROUS_TAG.matcher(out).replaceAll("");
-        out = EVENT_ATTR.matcher(out).replaceAll("");
-        out = SCRIPT_URL.matcher(out).replaceAll("$1=\"#\"");
-        return out.trim();
-    }
-
-    /** Whether the body says anything once its markup is gone (an empty Quill editor is {@code <p><br></p>}). */
+    /** Whether the body says anything once its markup is gone (an empty editor is {@code <p><br></p>}). */
     public static boolean isBlank(final String html) {
         return toText(html).isBlank();
     }

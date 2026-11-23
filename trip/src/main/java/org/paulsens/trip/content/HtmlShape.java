@@ -69,7 +69,8 @@ public record HtmlShape(List<String> tags, String text, List<String> comments) {
         return missing;
     }
 
-    private static String describe(final String element, final List<String> attributes) {
+    /** One tag as its element and its attributes in canonical spelling; {@link MarkupLoss} keys tags the same way. */
+    static String describe(final String element, final List<String> attributes) {
         final Map<String, String> sorted = new TreeMap<>();
         for (int i = 0; i + 1 < attributes.size(); i += 2) {
             final String name = attributes.get(i).toLowerCase(Locale.ROOT);

@@ -26,9 +26,9 @@ import org.paulsens.trip.theme.ThemeResources;
 import org.paulsens.trip.theme.ThemeVars;
 
 /**
- * The colors the rich-text editors' text and highlight buttons offer (Quill's fixed grid of hex colors ignored the
- * org's palette and dark mode, issue #26), exposed to pages as {@code #{editorColors}} and read by
- * {@code WEB-INF/quillEditor.xhtml}: a few theme colors, then the organization's own {@link BrandColors}.
+ * The colors the rich-text editor's color button offers (a stock grid of hex colors ignored the org's palette and dark
+ * mode, issue #26), exposed to pages as {@code #{editorColors}} and read by {@code WEB-INF/richEditor.xhtml} (the
+ * site's editor, Jodit, since 2026-11-23): a few theme colors, then the organization's own {@link BrandColors}.
  *
  * <p>Each swatch carries its custom property AND the org's current light value for it, resolved here from the org's
  * theme ({@link ThemeVars}). A web editor inserts {@code var(--name, #rrggbb)}: the page follows the palette and dark

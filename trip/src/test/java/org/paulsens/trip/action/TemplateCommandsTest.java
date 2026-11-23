@@ -218,7 +218,7 @@ public class TemplateCommandsTest {
         Assert.assertFalse(admin.saveTemplate(slotless), "a body must mark where the child goes");
 
         final ContentTemplate unbalanced = new ContentTemplate("tpl-unbalanced", 0, "Unbalanced", null,
-                "<li>{{child}}", List.of(), null, null, TemplateKind.CONTAINER, null, null, null);
+                "<div>{{child}}", List.of(), null, null, TemplateKind.CONTAINER, null, null, null);
         Assert.assertFalse(admin.saveTemplate(unbalanced), "a row is validated like any other fragment");
 
         // The once-around wrapper: an unclosed region would emit a stray <ul> into the page.
@@ -305,11 +305,46 @@ public class TemplateCommandsTest {
     public void brokenTemplateBodiesAreRejected() {
         final TemplateCommands admin = as(true);
         final ContentTemplate broken = new ContentTemplate("tpl-broken-body", 0, "Broken", null,
-                "<div><p>never closed</div>", List.of(), null, null);
+                "<div><span>never closed</div>", List.of(), null, null);
         Assert.assertFalse(admin.saveTemplate(broken), "a structurally broken body must not save");
         broken.setBody("<div><p>fine</p></div>");
         Assert.assertTrue(admin.saveTemplate(broken));
         Assert.assertTrue(admin.deleteTemplate("tpl-broken-body"));
+    }
+
+    /**
+     * A body is checked as it is used once filled: a placeholder between table tags, a whole mail document and a
+     * container's bare table row all render soundly, and were refused when the raw text was read as a page's body
+     * (review, 2026-11-24).
+     */
+    @Test
+    public void templatesShapedAroundTablesAndWholeMailDocumentsSave() {
+        final TemplateCommands admin = as(true);
+        final String rows = "<table class=\"sched\"><tbody>{{rows}}</tbody></table>";
+        final ContentTemplate table = new ContentTemplate("tpl-table-rows", 0, "Rows", null, rows, List.of(),
+                null, null);
+        Assert.assertTrue(admin.saveTemplate(table), "a placeholder standing for table rows");
+        Assert.assertTrue(admin.deleteTemplate("tpl-table-rows"));
+
+        final String mail = "<!DOCTYPE html><html><head><style>p { color: #333; }</style></head>"
+                + "<body><p>Dear {{firstName}},</p></body></html>";
+        final ContentTemplate whole = new ContentTemplate("tpl-whole-mail", 0, "Whole", null, mail, List.of(),
+                null, null, TemplateKind.MAIL, null, null, null);
+        Assert.assertTrue(admin.saveTemplate(whole), "a mail template pasted as a whole document");
+        Assert.assertTrue(admin.deleteTemplate("tpl-whole-mail"));
+
+        for (final String body : new String[] {
+            "<table><tbody>{{children:start}}<tr><td>{{child}}</td></tr>{{children:end}}</tbody></table>",
+            "<tr><td>{{child:title}}</td><td>{{child}}</td></tr>",
+        }) {
+            final ContentTemplate container = new ContentTemplate("tpl-table-container", 0, "Table", null, body,
+                    List.of(), null, null, TemplateKind.CONTAINER, null, null, null);
+            Assert.assertTrue(admin.saveTemplate(container), body);
+            Assert.assertTrue(admin.deleteTemplate("tpl-table-container"));
+        }
+        final ContentTemplate stray = new ContentTemplate("tpl-table-stray", 0, "Stray", null,
+                "<table><tbody>{{rows}}</tbody></table></div>", List.of(), null, null);
+        Assert.assertFalse(admin.saveTemplate(stray), "taking the placeholders out hides no real problem");
     }
 
     @Test

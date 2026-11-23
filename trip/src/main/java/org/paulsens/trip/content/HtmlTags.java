@@ -4,10 +4,10 @@ import java.util.Locale;
 import java.util.Set;
 
 /**
- * The lenient tag scanner shared by the HTML rules in this package ({@link HtmlFragmentValidator}'s
- * structural check and {@link RichTextRules}' block-context rules). Deliberately not a parser: it reads one
- * tag at a time and knows only what both callers need -- the element name, whether the tag self-closes, and
- * where it ends -- so the two never disagree about where a {@code <p>} begins or ends.
+ * The lenient tag scanner behind {@link RichTextRules}' block-context rules, and the HTML spec's void-element list.
+ * Deliberately not a parser: it reads one tag at a time and knows only what those rules need -- the element name,
+ * whether the tag self-closes, and where it ends. {@link MarkupLoss} shares only {@link #VOID_ELEMENTS}: it reads
+ * tags with OWASP's lexer, not with this scanner.
  */
 final class HtmlTags {
 

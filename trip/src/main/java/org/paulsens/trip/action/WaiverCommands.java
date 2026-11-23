@@ -21,6 +21,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.AuditEventBuilder;
 import org.paulsens.trip.audit.RequestContext;
 import org.paulsens.trip.cache.Cached;
+import org.paulsens.trip.content.HtmlCheck;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.i18n.Formats;
 import org.paulsens.trip.i18n.Text;
@@ -254,8 +255,10 @@ public class WaiverCommands {
             return refusal(Result.NOT_FOUND, Text.get("feedback.waiverCommands.documentGone"));
         }
         final WaiverVersion current = fresh.getCurrent();
-        final String clean = WaiverHtml.sanitize(bodyHtml);
-        if (current != null && clean.equals(current.getBodyHtml()) && title.trim().equals(current.getTitle())) {
+        // Stored as written: the publish already listed anything that keeps it from being (problemWith), and a
+        // cleaner here would cut what the author wrote without a word.
+        final String stored = bodyHtml.trim();
+        if (current != null && stored.equals(current.getBodyHtml()) && title.trim().equals(current.getTitle())) {
             return refusal(Result.VALIDATION_FAILED, Text.get("feedback.waiverCommands.nothingChanged"));
         }
         final Caller caller = callerSource.get();
@@ -343,7 +346,18 @@ public class WaiverCommands {
         if (title.trim().length() > MAX_TITLE) {
             return Text.get("feedback.waiverCommands.titleTooLong", MAX_TITLE);
         }
-        if (bodyHtml == null || WaiverHtml.isBlank(WaiverHtml.sanitize(bodyHtml))) {
+        if (bodyHtml == null) {
+            return Text.get("feedback.waiverCommands.noText");
+        }
+        // The length first, before anything reads the body: a crafted body must cost nothing.
+        if (bodyHtml.length() > WaiverHtml.MAX_BODY) {
+            return Text.get("feedback.waiverCommands.bodyTooLong", bodyHtml.length(), WaiverHtml.MAX_BODY);
+        }
+        final List<String> problems = HtmlCheck.document(bodyHtml);
+        if (!problems.isEmpty()) {
+            return Text.get("feedback.waiverCommands.cannotKeep", String.join(" ", problems));
+        }
+        if (WaiverHtml.isBlank(bodyHtml)) {
             return Text.get("feedback.waiverCommands.noText");
         }
         if (note != null && note.trim().length() > MAX_NOTE) {
@@ -354,12 +368,12 @@ public class WaiverCommands {
 
     private static WaiverVersion newVersion(final int number, final String title, final String bodyHtml,
             final String note, final Person.Id who, final LocalDateTime when) {
-        final String clean = WaiverHtml.sanitize(bodyHtml);
+        final String stored = bodyHtml.trim();
         return WaiverVersion.builder()
                 .number(number)
                 .title(title.trim())
-                .bodyHtml(clean)
-                .sha256(WaiverHtml.sha256(clean))
+                .bodyHtml(stored)
+                .sha256(WaiverHtml.sha256(stored))
                 .publishedBy(who)
                 .publishedAt(when)
                 .note(note)

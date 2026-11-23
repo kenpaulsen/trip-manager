@@ -3,6 +3,7 @@ package org.paulsens.trip.api;
 import jakarta.ws.rs.core.Response;
 import java.util.List;
 import java.util.Map;
+import org.mockito.ArgumentCaptor;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
 import org.paulsens.trip.action.MailCommands;
@@ -275,6 +276,31 @@ public class MailResourceTest extends ResourceTestSupport {
                 ArgumentMatchers.any(), ArgumentMatchers.eq("good@x.org"),
                 ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
                 ArgumentMatchers.any(AuditActor.class));
+    }
+
+    /** The page's mail allowlist covers this door too: it mailed a body as typed (review, 2026-11-24). */
+    @Test
+    public void theBodyIsMailedAsTheAllowlistCleansItAndTheAnswerSaysSo() {
+        signedInAsSiteAdmin(ADMIN);
+        Mockito.when(mail.validateEmail("good@x.org")).thenReturn("good@x.org");
+        final Response response = resource.send(CSRF_OK, new MailResource.SendRequest("from@example.com",
+                List.of("good@x.org"), null, null, "A subject",
+                "<p>Hello</p><iframe src=\"https://x.org/\"></iframe><script>x()</script>"));
+        assertOk(response);
+        @SuppressWarnings("unchecked")
+        final Map<String, Object> answer = (Map<String, Object>) response.getEntity();
+        Assert.assertEquals(answer.get("formattingRemoved"), true);
+        final ArgumentCaptor<String> mailed = ArgumentCaptor.forClass(String.class);
+        Mockito.verify(mail, Mockito.timeout(5000)).send(ArgumentMatchers.any(), ArgumentMatchers.eq("good@x.org"),
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(), mailed.capture(),
+                ArgumentMatchers.any(AuditActor.class));
+        Assert.assertTrue(mailed.getValue().contains("Hello"), mailed.getValue());
+        Assert.assertFalse(mailed.getValue().contains("iframe") || mailed.getValue().contains("script"),
+                mailed.getValue());
+
+        assertError(resource.send(CSRF_OK, new MailResource.SendRequest("from@example.com", List.of("good@x.org"),
+                null, null, "A subject", "<video src=\"https://x.org/v.mp4\"></video>")), 422,
+                ApiErrors.VALIDATION_FAILED);
     }
 
     @Test

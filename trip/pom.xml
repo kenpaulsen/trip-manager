@@ -358,6 +358,18 @@
             <version>20261110.1</version>
         </dependency>
         <!--
+            The HTML5 parser behind content.HtmlCheck: it reads markup exactly as a browser does (the WHATWG
+            parsing rules) and lists every place a browser would repair it, which is what a check of HTML that
+            is stored and shown as written needs. OWASP's tokenizer reads some markup differently, so it can
+            clean safely but cannot validate. MIT, no runtime dependencies. Moving the cleaners onto it and
+            dropping OWASP is medjugorje#180.
+        -->
+        <dependency>
+            <groupId>org.jsoup</groupId>
+            <artifactId>jsoup</artifactId>
+            <version>1.23.2</version>
+        </dependency>
+        <!--
             Profile-picture background removal (U^2-Net-small via ONNX Runtime; flag-gated by
             profile.bgRemoval.enabled). The jar bundles its natives for linux-aarch64 and macOS, so the
             container image needs NOTHING extra. The model itself (src/main/resources/models/u2netp.onnx,

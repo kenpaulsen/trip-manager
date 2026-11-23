@@ -121,7 +121,51 @@ public class MailMerge {
      * trip-admin rule), the balance for whoever may see the trip's money ({@link TripFinanceGate}). Refused,
      * never blanked: a sender can BCC themselves, so a field they may not use would read every recipient's value.
      */
-    public String problem(final String subject, final String body, final String tripId) {
+    public String problem(final String subject, final String raw, final String tripId) {
+        return checked(subject, raw, tripId).problem();
+    }
+
+    /** One check's answer: why the text is refused (or null), and the body as it is filled and mailed. */
+    private record Checked(String problem, RichTextHtml.Cleaned mailed) {
+    }
+
+    /** A body as the site mails it: why it is refused (or null), and the cleaned body (null when refused raw). */
+    public record Mailable(String problem, RichTextHtml.Cleaned cleaned) {
+    }
+
+    /**
+     * A mail body through the one allowlist for everything the site mails: refused before it is cleaned when too long
+     * or holding what the cleaner could only write out as text, then cleaned, then refused when it says nothing. The
+     * page's merge and the REST send ({@code MailResource}) both mail exactly this, so the two doors cannot drift.
+     */
+    public static Mailable mailable(final String raw) {
+        final String rawProblem = ReminderCommands.rawMailProblem(raw, "feedback.mailMerge.pasteTooLarge");
+        if (rawProblem != null) {
+            return new Mailable(rawProblem, null);
+        }
+        final RichTextHtml.Cleaned cleaned = ReminderCommands.cleanNoting(raw);
+        return new Mailable(ReminderCommands.cleanedMailProblem(cleaned.body()), cleaned);
+    }
+
+    /**
+     * The text checked, and cleaned ONCE: every door fills exactly the body that was checked. A body too long, or
+     * holding what the mail cleaner could only write out as text, is refused before it is cleaned, as a scheduled
+     * message's save refuses it (the cleaner's cost grows with its input). Every field check then reads the body that
+     * is FILLED, never the text as typed: cleaning can make a field (it restores encoded braces, and drops a comment or
+     * an unlisted tag between two braces), and a field the check never saw would be filled for every recipient, gated
+     * or not (review blocker, 2026-11-23).
+     */
+    private Checked checked(final String subject, final String raw, final String tripId) {
+        final Mailable mailable = mailable(raw);
+        if (mailable.problem() != null) {
+            return new Checked(mailable.problem(), mailable.cleaned());
+        }
+        final RichTextHtml.Cleaned mailed = mailable.cleaned();
+        return new Checked(fieldProblem(subject, mailed.body(), tripId), mailed);
+    }
+
+    /** Why the fields of this (cleaned) body cannot be filled for this sender, or null. */
+    private String fieldProblem(final String subject, final String body, final String tripId) {
         if (MergeText.hasExpression(subject, body)) {
             return Text.get("feedback.mailMerge.expression");
         }
@@ -162,12 +206,27 @@ public class MailMerge {
      * One person's merge, personalized: what the REST preview answers once it has checked who the person is.
      * Throws for text {@link #problem} refuses, so no caller can render a field its sender may not use.
      */
-    public Preview render(final Person person, final String subject, final String body, final String tripId) {
-        final String problem = problem(subject, body, tripId);
-        if (problem != null) {
-            throw new IllegalArgumentException(problem);
+    public Preview render(final Person person, final String subject, final String raw, final String tripId) {
+        final Checked checked = checked(subject, raw, tripId);
+        if (checked.problem() != null) {
+            throw new IllegalArgumentException(checked.problem());
         }
+        final String body = checked.mailed().body();
         return render(values(tripId, subject, body), person, subject, body);
+    }
+
+    /**
+     * The body as it is mailed: through the one allowlist for everything the site mails (a scheduled message's,
+     * {@link RichTextHtml}), so plain colors and images by web address go and a video, a frame, a script or a handler
+     * never does. What it drops is said, on the preview before the send ({@code feedback.mailMerge.formattingRemoved})
+     * and again on the send ({@code .formattingRemovedSent}), never silently (the owner's rule, 2026-11-23). Until then
+     * the body was mailed as typed.
+     */
+    private static String mailed(final RichTextHtml.Cleaned cleaned, final String droppedKey) {
+        if (cleaned.dropped()) {
+            PageFeedback.warn(ReminderCommands.formattingRemoved(droppedKey));
+        }
+        return cleaned.body();
     }
 
     /**
@@ -175,13 +234,18 @@ public class MailMerge {
      * been added yet. Null, after a growl, when the text is refused or that recipient has no usable address or is
      * outside the sender's organization(s). Warns how many recipients are not on the chosen trip, as the send does.
      */
-    public Preview preview(final List<String> toEmails, final String subject, final String body,
+    public Preview preview(final List<String> toEmails, final String subject, final String raw,
             final String tripId) {
         final OrgCommands org = org();
-        final String problem = org.canMail() ? problem(subject, body,
-                tripId) : Text.get("feedback.mailMerge.needsEmailAdmin");
-        if (problem != null) {
-            PageFeedback.refuse(Text.get("feedback.mailMerge.cannotPreview"), problem);
+        // The permission first, as the send asks it: nothing is cleaned or checked for a caller who may not mail.
+        if (!org.canMail()) {
+            PageFeedback.refuse(Text.get("feedback.mailMerge.cannotPreview"),
+                    Text.get("feedback.mailMerge.needsEmailAdmin"));
+            return null;
+        }
+        final Checked checked = checked(subject, raw, tripId);
+        if (checked.problem() != null) {
+            PageFeedback.refuse(Text.get("feedback.mailMerge.cannotPreview"), checked.problem());
             return null;
         }
         final List<String> toList = (toEmails == null) ? List.of() : toEmails;
@@ -206,6 +270,7 @@ public class MailMerge {
                     Text.get("feedback.mailMerge.nobodyToPreview"));
             return null;
         }
+        final String body = mailed(checked.mailed(), "feedback.mailMerge.formattingRemoved");
         final MergeValues values = values(tripId, subject, body);
         if (!toList.isEmpty()) {
             warnOffTrip(values, mail.emailsToPeople(toList), subject, body);
@@ -221,15 +286,15 @@ public class MailMerge {
      * @param tripId the trip the text's trip fields are about; null or blank when it uses none
      */
     public boolean send(final String from, final List<String> toEmails, final String bcc, final String replyTo,
-            final String subject, final String body, final String tripId) {
+            final String subject, final String raw, final String tripId) {
         final OrgCommands org = org();
         if (!org.canMail()) {
             return PageFeedback.refuse(Text.get("feedback.shared.notAllowed"),
                     Text.get("feedback.mailMerge.needsEmailAdmin"));
         }
-        final String problem = problem(subject, body, tripId);
-        if (problem != null) {
-            return PageFeedback.refuse(Text.get("feedback.shared.notSent"), problem);
+        final Checked checked = checked(subject, raw, tripId);
+        if (checked.problem() != null) {
+            return PageFeedback.refuse(Text.get("feedback.shared.notSent"), checked.problem());
         }
         final Set<String> allowed = org.allowedRecipientEmails();
         final List<String> toList = (toEmails == null) ? List.of() : toEmails;
@@ -254,6 +319,8 @@ public class MailMerge {
         }
         final MailCommands mail = mailSource.get();
         final List<Person> people = mail.emailsToPeople(accepted);
+        // Past tense, with nothing left to check: the mail has gone by the time this is read.
+        final String body = mailed(checked.mailed(), "feedback.mailMerge.formattingRemovedSent");
         final MergeValues values = values(tripId, subject, body);
         warnOffTrip(values, people, subject, body);
         mail.sendMerged(from, OrgCommands.boundBcc(bcc, allowed), replyTo,

@@ -184,7 +184,14 @@ public class ReminderSender {
         final String replyTo = replyToSource.apply(trip, plan);
         // Cleaned ONCE here, on the way out, and merged per traveler in sendOne with ReminderText.render: the
         // same body for every one of them. Only the fan-out gets the cleaned copy; it is the one that mails.
-        final TripReminder cleaned = reminder.withBody(RichTextHtml.clean(reminder.getBody()));
+        final RichTextHtml.Cleaned body = RichTextHtml.cleanNoting(reminder.getBody());
+        if (body.dropped()) {
+            // A row saved before the cleaner changed (a field inside a link address, refused in mail since
+            // 2026-11-23): mailed as cleaned, and logged, so the drop is never silent.
+            log.warn("Reminder '{}' of trip {} lost formatting the mail cleaner no longer keeps", reminder.getName(),
+                    trip.getId());
+        }
+        final TripReminder cleaned = reminder.withBody(body.body());
         final List<ReminderRecipients.Target> targets = recipients.targets(trip, reminder, today);
         final List<ReminderSend.Outcome> outcomes =
                 fanOut(trip, cleaned, sendDate, manual, who, from, replyTo, targets);

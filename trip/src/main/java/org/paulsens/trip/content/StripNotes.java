@@ -42,15 +42,23 @@ public final class StripNotes {
             counted.merge(explain(drop), 1, Integer::sum);
         }
         final List<String> lines = new ArrayList<>(counted.size());
-        counted.forEach((what, times) -> lines.add(line(field, what, times)));
+        for (final String what : withCounts(counted)) {
+            lines.add(Text.get("server.stripNotes.line", field, what));
+        }
         return lines;
     }
 
-    private static String line(final String field, final String what, final int times) {
+    /**
+     * Each distinct thing once, in the order first found, followed by how many times it occurs when that is more
+     * than once. Shared by every list of markup problems ({@link HtmlCheck} too), so that all of them count alike.
+     */
+    static List<String> withCounts(final Map<String, Integer> counted) {
+        final List<String> out = new ArrayList<>(counted.size());
         // The count goes in twice: as a number, which picks the plural form, and as text, which is what shows
         // (a number would gain a thousands separator, and a pasted document can repeat a tag that often).
-        return times > 1 ? Text.get("server.stripNotes.lineRepeated", field, what, times, String.valueOf(times))
-                : Text.get("server.stripNotes.line", field, what);
+        counted.forEach((what, times) -> out.add(times > 1
+                ? Text.get("server.stripNotes.repeated", what, times, String.valueOf(times)) : what));
+        return out;
     }
 
     /** One removal in an author's words: what it is, as they typed it, then why. */

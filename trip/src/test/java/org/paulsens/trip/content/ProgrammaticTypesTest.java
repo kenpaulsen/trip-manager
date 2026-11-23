@@ -162,7 +162,7 @@ public class ProgrammaticTypesTest {
         for (final ProgrammaticContentTemplate type : ProgrammaticTypes.ALL) {
             final String sample = type.getSampleHtml();
             Assert.assertFalse(sample.isBlank(), type.getTypeId() + " has no sample");
-            Assert.assertNull(HtmlFragmentValidator.validate(sample), type.getTypeId());
+            Assert.assertNull(HtmlCheck.structureProblem(sample), type.getTypeId());
             Assert.assertFalse(sample.contains("{{") || sample.contains("#{"), type.getTypeId());
             Assert.assertFalse(BundledContentColorTest.COLOR.matcher(sample).find(),
                     type.getTypeId() + " writes a literal color");

@@ -1,5 +1,9 @@
 package org.paulsens.trip.action;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import jakarta.faces.application.FacesMessage;
 import java.io.IOException;
 import java.time.Instant;
@@ -31,6 +35,7 @@ import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripReminder;
 import org.paulsens.trip.model.TripReminderPlan;
 import org.paulsens.trip.util.RandomData;
+import org.slf4j.LoggerFactory;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
@@ -403,12 +408,42 @@ public class ReminderCommandsTest {
         assertTrue(DAO.getInstance().saveReminderPlan(TripReminderPlan.builder().tripId(trip.getId()).orgId(orgId)
                 .reminders(List.of(raw)).build()));
         assertEquals(previewBody(admin(), trip.getId(), "raw"), "<p>Hi Ann</p>");
-        assertEquals(admin().formFor(trip.getId(), "raw").getBody(), "<p>Hi {{firstName}}</p>",
-                "The editor loads it as HTML too");
+        // The editor loads it as HTML too, and says that it lost something rather than dropping it without a word.
+        assertEquals(TestFaces.growlsOf(new HashMap<>(), () -> assertEquals(
+                admin().formFor(trip.getId(), "raw").getBody(), "<p>Hi {{firstName}}</p>")),
+                List.of(ReminderCommands.FORMATTING_REMOVED));
         assertTrue(admin().sendTest(trip.getId(), "raw", "raw.test@example.com"));
         assertEquals(mailTo("raw.test@example.com").get(0).body(), "<p>Hi Ann</p>");
-        assertTrue(admin().sendNow(trip.getId(), "raw"));
+        final Logger senderLog = (Logger) LoggerFactory.getLogger(ReminderSender.class);
+        final ListAppender<ILoggingEvent> logged = new ListAppender<>();
+        logged.start();
+        senderLog.addAppender(logged);
+        try {
+            assertTrue(admin().sendNow(trip.getId(), "raw"));
+        } finally {
+            senderLog.detachAppender(logged);
+        }
         assertEquals(mailTo(ann.getEmail()).get(0).body(), "<p>Hi Ann</p>");
+        assertTrue(logged.list.stream().anyMatch(line -> line.getLevel() == Level.WARN
+                && line.getFormattedMessage().contains("lost formatting")), "the send says so in the log");
+    }
+
+    /** A row approved before mail refused a field inside an address opens with a warning; a clean row with none. */
+    @Test
+    public void aStoredFieldInsideALinkAddressIsSaidWhenTheFormOpens() throws IOException {
+        final Trip trip = newTrip();
+        final TripReminder fieldInLink = TripReminder.builder().id("field").name("Field")
+                .anchor(TripReminder.Anchor.FIXED_DATE).fixedDate(TODAY).subject("s")
+                .body("<p><a href=\"https://forms.example.org/signup?name={{firstName}}\">Sign up</a></p>").build()
+                .approved(trip, TestCallers.SITE_ADMIN_ID, NOW);
+        final TripReminder clean = TripReminder.builder().id("clean").name("Clean")
+                .anchor(TripReminder.Anchor.FIXED_DATE).fixedDate(TODAY).subject("s").body("<p>Hi</p>").build()
+                .approved(trip, TestCallers.SITE_ADMIN_ID, NOW);
+        assertTrue(DAO.getInstance().saveReminderPlan(TripReminderPlan.builder().tripId(trip.getId()).orgId(orgId)
+                .reminders(List.of(fieldInLink, clean)).build()));
+        assertEquals(TestFaces.growlsOf(new HashMap<>(), () -> admin().formFor(trip.getId(), "field")),
+                List.of(ReminderCommands.FORMATTING_REMOVED));
+        assertEquals(TestFaces.growlsOf(new HashMap<>(), () -> admin().formFor(trip.getId(), "clean")), List.of());
     }
 
     @Test
@@ -1202,6 +1237,21 @@ public class ReminderCommandsTest {
             assertFalse(mail.getSubject().isBlank());
             assertEquals(mail.getWording(), "Standard wording");
         }
+        // The real send fills {{tripUrl}}; the preview shows the field and keeps the link (review, F3).
+        final ReminderViews.AutoMail received = mails.stream()
+                .filter(mail -> "Registration received".equals(mail.getName())).findFirst().orElseThrow();
+        assertTrue(received.getBody().contains("<a href=\"{{tripUrl}}\""), received.getBody());
+    }
+
+    @Test
+    public void aTemplatePreviewKeepsWholeFieldsAsAddressesAndNothingElse() {
+        assertEquals(RichTextHtml.cleanTemplatePreview("<p><a href=\"{{tripUrl}}\">Trip</a>"
+                + "<img src=\"{{orgLogoUrl}}\"></p>"), "<p><a href=\"{{tripUrl}}\" rel=\"noopener noreferrer\""
+                + " target=\"_blank\">Trip</a><img src=\"{{orgLogoUrl}}\"></p>");
+        assertFalse(RichTextHtml.cleanTemplatePreview("<a href=\"https://x.org/?n={{firstName}}\">x</a>")
+                .contains("href"), "a field inside an address is still refused");
+        assertFalse(RichTextHtml.clean("<a href=\"{{tripUrl}}\">x</a>").contains("href"),
+                "a reminder keeps only {{...Link}} fields as addresses");
     }
 
     @Test
@@ -1235,7 +1285,7 @@ public class ReminderCommandsTest {
                 List.of(saved, ReminderCommands.FORMATTING_REMOVED), "Still saved, and says what it lost");
         assertEquals(onPaste.get(1).getSeverity(), FacesMessage.SEVERITY_WARN, "a warning, not a second info line");
         final TripReminder stored = stored(trip, pasted.getId());
-        assertEquals(stored.getBody(), "<p><span>Pay by Friday</span>  <a>pay</a></p>");
+        assertEquals(stored.getBody(), "<p><span style=\"color: rgb(230, 0, 0)\">Pay by Friday</span>  <a>pay</a></p>");
         assertEquals(stored.getStatus(), TripReminder.Status.DRAFT);
     }
 

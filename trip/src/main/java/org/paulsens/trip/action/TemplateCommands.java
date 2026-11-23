@@ -21,7 +21,7 @@ import org.paulsens.trip.audit.Audit;
 import org.paulsens.trip.audit.AuditEventBuilder;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.content.ContentRenderer;
-import org.paulsens.trip.content.HtmlFragmentValidator;
+import org.paulsens.trip.content.HtmlCheck;
 import org.paulsens.trip.content.PageVersions;
 import org.paulsens.trip.content.ProgrammaticContentTemplate;
 import org.paulsens.trip.content.ProgrammaticTypes;
@@ -898,7 +898,7 @@ public class TemplateCommands {
             return Text.get("feedback.templateCommands.kindFixed");
         }
         return switch (template.getKind()) {
-            case STANDARD, MAIL -> HtmlFragmentValidator.validate(template.getBody());
+            case STANDARD, MAIL -> HtmlCheck.templateProblem(template.getBody());
             case CONTAINER -> normalizeContainer(template);
             case PROGRAMMATIC -> normalizeProgrammatic(template);
         };
@@ -922,7 +922,7 @@ public class TemplateCommands {
             return unusable;
         }
         if (body != null && !body.isBlank()) {
-            final String invalid = HtmlFragmentValidator.validate(body);
+            final String invalid = HtmlCheck.templateProblem(body);
             if (invalid != null) {
                 return invalid;
             }

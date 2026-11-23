@@ -8,7 +8,7 @@ code of conduct, a photo release. "Waiver" is used loosely for all of them. Read
 
 | Decision | Answer |
 |---|---|
-| Format | Rich text (the site's Quill editor, stored HTML). The traveler can download the SIGNED copy as a PDF. |
+| Format | Rich text (the site's rich-text editor, stored HTML). The traveler can download the SIGNED copy as a PDF. |
 | Ownership | Documents belong to an ORGANIZATION (its dashboard's Trip Documents card); a trip may only use its own org's documents. |
 | Versioning | Every save publishes the next version; no published text is ever rewritten or pruned. A trip PINS a version (default: the newest when added). Publishing a new version moves no trip. |
 | Moving a pin | The trip admin decides at that moment whether signatures of the earlier version still count (`acceptOlder`, **default yes**) or everyone must sign again. |
@@ -24,7 +24,7 @@ person (identity never changes, the family-acting rule), the traveler is the sub
 | Type | Where | What |
 |---|---|---|
 | `WaiverDocument` | `org_waivers` (PK `orgId`, SK `id`) | `title`, `retired`, `versions` (ALL of them, oldest first), `createdBy`, `created`, `version` (the row's optimistic counter, unrelated to the document's version numbers) |
-| `WaiverVersion` | inline | `number` (1..n), `title`, `bodyHtml` (sanitized at publish), `sha256` of the body, `publishedBy`, `publishedAt`, `note` |
+| `WaiverVersion` | inline | `number` (1..n), `title`, `bodyHtml` (stored exactly as written; a publish is VALIDATED, never cleaned: `content/HtmlCheck.document` lists, by name and line, an element that is not a site page's text element, a handler, an address that is not a web, mail or phone one, a body that ends inside a tag, value or comment, and every place a browser would repair the markup (jsoup's HTML5 parser, so it reads the body as a browser does), and the publish is refused until the author fixes them; a body over `WaiverHtml.MAX_BODY` characters is refused before it is read), `sha256` of the body, `publishedBy`, `publishedAt`, `note` |
 | `TripWaiver` | `Trip.waivers` | `waiverId`, `version` (the pin), `acceptOlder` (absent reads true), `addedBy`, `added` |
 | `WaiverAcceptance` | `waiver_acceptances` (PK `tripId`, SK `personId#waiverId#00005`) | the traveler (`personId`), the document and version, its `title` and `sha256`, the signer (`signerId`, `signerName`, `signerEmail`), the traveler's `subjectName`, both attestations, `acceptedAt`, `client` (WEB/IOS/ANDROID/API), `ip`, `userAgent`, `orgId` |
 
@@ -94,9 +94,9 @@ trip they own (`WebFixtures.requireWaiver`).
 ## Tests
 
 Unit: `WaiverCommandsTest` (library, pins, the standing matrix, signing, the gate, the PDF), `WaiversResourceTest`,
-`WaiverDAOTest`, `WaiverHtmlTest`, `WaiverModelTest`, `WaiverPdfServletTest`. Browser: `WaiverPwIT` (author and
-version, require and move with the re-sign decision, Ken registers Lucy only once both boxes are ticked, her PDF,
-the re-sign flag).
+`WaiverDAOTest`, `WaiverHtmlTest`, `HtmlCheckTest`, `WaiverModelTest`, `WaiverPdfServletTest`. Browser: `WaiverPwIT`
+(author and version, require and move with the re-sign decision, Ken registers Lucy only once both boxes are ticked,
+her PDF, the re-sign flag).
 
 ## Out of scope
 

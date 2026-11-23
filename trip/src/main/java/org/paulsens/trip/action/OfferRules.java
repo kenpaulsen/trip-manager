@@ -2,7 +2,7 @@ package org.paulsens.trip.action;
 
 import org.paulsens.trip.action.LodgingViews.OfferForm;
 import org.paulsens.trip.cache.Cached;
-import org.paulsens.trip.content.HtmlFragmentValidator;
+import org.paulsens.trip.content.HtmlCheck;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.Reservation;
@@ -54,7 +54,7 @@ final class OfferRules {
         if (money != null) {
             return money;
         }
-        final String policy = HtmlFragmentValidator.validate(LodgingCommands.nullSafe(form.getPolicyHtml()));
+        final String policy = HtmlCheck.structureProblem(LodgingCommands.nullSafe(form.getPolicyHtml()));
         return (policy == null) ? null : Text.get("feedback.offerRules.policyProblem", policy);
     }
 

@@ -4,9 +4,9 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Post-processing for HTML that comes out of the site's WYSIWYG editor (Quill, via {@code p:textEditor}).
+ * Post-processing for HTML that comes out of the site's rich-text editor (Jodit since 2026-11-23, Quill before).
  *
- * <p>Quill wraps every line in a {@code <p>}, and the site's paragraph styling puts a full blank line between
+ * <p>The editor wraps every line in a {@code <p>}, and the site's paragraph styling puts a full blank line between
  * them. For short, note-like text (a person's private notes on an itinerary event) that reads as double
  * spacing, so those fields want a {@code <br />} per Enter instead. This is the one place that rewrite lives.
  */

@@ -37,7 +37,7 @@ public class V2PageBootstrapTest {
         // Authored bodies must pass the same validator the save path enforces.
         for (final ContentInstance row : rows) {
             for (final String value : row.getValues().values()) {
-                Assert.assertNull(HtmlFragmentValidator.validate(value), row.getId());
+                Assert.assertNull(HtmlCheck.structureProblem(value), row.getId());
             }
         }
     }

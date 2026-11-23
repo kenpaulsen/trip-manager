@@ -115,24 +115,39 @@ substitution with no EL, like the managed MAIL templates, so a facilitator's tex
 renders on the scheduler's thread. A message with an unknown token is refused at save. The body is HTML-escaped per
 value (`render`); the subject and the push text are plain text (`renderPlain`).
 
-The body is cleaned by `RichTextHtml.clean`, an ALLOWLIST: a facilitator (who may hold no privilege) writes it,
-and it is rendered unescaped to every reviewer, admins included, and mailed to travelers. Only the tags the
-editor writes are kept, each rebuilt with no attributes except a link's checked address (`http://`, `https://`,
-`mailto:`, `tel:`, `sms:` or exactly one `{{...Link}}` placeholder), a list item's `data-list` kind, and the few
-Quill layout classes the toolbar can produce (never `ql-hidden` or `ql-clipboard`, which Quill's stylesheet
-hides: the reviewer's page has that stylesheet and a mail client does not). Inline styles, images and every
-unknown tag are dropped, and the page's toolbar offers only what is kept. A paste can still bring a color, an
-image or a link the cleaner refuses (a scheme-less `example.com` leaves an `<a>` that goes nowhere), so the save
-still stores the draft but then warns "Some formatting this message cannot carry (colors, images, or a link that
-is not a full web, email or phone address) was removed. Check the preview." The cleaner itself reports the drop
+The mail merge's body (`MailMerge`) goes through the same cleaner since 2026-11-23 (until then it was mailed as
+typed): one allowlist for everything the site mails, so a scheduled message and a merge carry the same things, and
+what the merge leaves out is said on its preview (`feedback.mailMerge.formattingRemoved`) and again, in the past
+tense, on its send (`feedback.mailMerge.formattingRemovedSent`); its fields are checked on the cleaned body, the one
+that is filled, never on the text as typed (cleaning can join a field split by a comment or an unlisted tag); a body
+over the scheduled message's raw limit, or a paste too large to read, is refused there too.
+
+The body is cleaned by `RichTextHtml.clean`, an ALLOWLIST: a facilitator (who may hold no privilege) writes it, and
+it is rendered unescaped to every reviewer, admins included, and mailed to travelers. Only the tags the editor
+writes are kept, each rebuilt with no attributes except a link's checked address (`http://`, `https://`, `mailto:`,
+`tel:`, `sms:` or exactly one `{{...Link}}` placeholder; since 2026-11-23 a mail address holding any other brace is
+refused, since fields are filled into addresses too and a field inside an image's address would send each
+recipient's value to its host; a stored message that loses such a link says so when it is opened, and its send logs
+it), a list item's `data-list` kind, the few Quill layout classes that rows Quill wrote still hold (never
+`ql-hidden` or `ql-clipboard`, which Quill's stylesheet hides: the reviewer's page has that stylesheet and a mail
+client does not), and since 2026-11-23 (the owner's call: mail keeps what mail clients show and the mail editors
+offer, so a scheduled message carries what a mail merge does) a style only as a plain color, background color, size,
+weight, alignment, indent or width, a table (rows, cells, a cell's span), and an image by `http(s)://` address with
+at most its alt text and size. An image in mail is fetched by each reader's mail client, so its sender could see who
+opened the message; the owner accepted that. A video, a frame and every unknown tag are dropped, and the page's
+toolbar offers only what is kept. A paste can still bring something the cleaner refuses (a scheme-less `example.com`
+leaves an `<a>` that goes nowhere), so the save still stores the draft but then warns "Some formatting this message
+cannot carry (a video, a frame, a style other than a color, size, alignment or indent, or a link that is not a full
+web, email or phone address) was removed. Check the preview." The cleaner itself reports the drop
 (`RichTextHtml.cleanNoting`, the same single pass that produces the stored body, noting each tag, style, class or
 address it refuses); a string comparison would fire on every body, since cleaning always rewrites a link's
-`rel`/`target`, escapes and trims. A small image (a remote `https://` one) is dropped with that warning, but a
+`rel`/`target`, escapes and trims.
+A remote image is kept, but a
 pasted image whose tag runs past `MAX_TAG` (any data address of real size) is refused outright: the cleaner could
 only write it out as that much visible text (`RichTextHtml.hasUnreadableTag`; "Something pasted into this message
 (usually an image) is too large to send").
-Quill 2 writes every list as `<ol>` and marks bullets with `data-list`; the cleaner writes a bullet list as `<ul>`
-so a mail client shows bullets.
+Quill 2 (the editor before 2026-11-23, whose rows are stored) wrote every list as `<ol>` and marked bullets with
+`data-list`; the cleaner writes a bullet list as `<ul>` so a mail client shows bullets.
 
 It runs when a message is saved and again at EVERY place the stored body is written out: the editor
 (`formFor`), `ReminderText.renderBody` (the clean-then-merge helper behind the preview and the test email), and
@@ -141,8 +156,15 @@ the send, which cleans the body once in `ReminderSender.sendAll` and merges it p
 when any tag runs past `RichTextHtml.MAX_TAG` (a link's, an address of about 1,950 characters or more, gets its own
 message): the cleaner would otherwise write that tag out as visible text. "Add suggested messages" never copies
 such a tag either: an org starter template holding one falls back to the built-in text. Never clean this body with
-`WaiverHtml.sanitize`: that is a blocklist for text only an org admin writes, and the first review found three
-bodies it passes unchanged (`RichTextHtmlTest` pins them).
+a blocklist: the waiver's former one (removed 2026-11-23) passed three bodies unchanged in the first review
+(`RichTextHtmlTest` pins them). A blank body is refused by the check the mail merge shares
+(`ReminderCommands.cleanedMailProblem`): a body that was only a video cleans to nothing; a picture alone is a
+message. Each warning that the cleaner dropped something names what mail cannot carry from ONE key,
+`feedback.reminderCommands.cannotCarry`, so a new cleaner rule is named everywhere at once.
+
+The automatic mails' preview on the Communications page shows each managed MAIL template through
+`RichTextHtml.cleanTemplatePreview`: mail's list, plus a link or image whose address is one whole field
+(`{{tripUrl}}`), which the real send fills and the preview does not.
 
 Tokens: `firstName`, `travelerName`, `tripTitle`, `tripDates`, `daysUntilDeparture`, `balanceDue`,
 `balanceDueOn`, `documentList`, `passportIssue`, `orgName`, `tripLink`, `paymentLink`, `documentsLink`,

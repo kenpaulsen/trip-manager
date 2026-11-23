@@ -73,8 +73,10 @@ public class ReminderCommands {
      */
     static final String TAG_TOO_LONG = "Something pasted into this message (usually an image) is too large to "
             + "send. Remove it, then save.";
-    static final String FORMATTING_REMOVED = "Some formatting this message cannot carry (colors, images, or a link "
-            + "that is not a full web, email or phone address) was removed. Check the preview.";
+    static final String FORMATTING_REMOVED = "Some formatting this message cannot carry (a video, a frame, a style "
+            + "other than a color, size, alignment or indent, a link that is not a full web, email or phone address, "
+            + "an image that is not a full web address, or a field inside a link or image address) was removed. "
+            + "Check the preview.";
     /** Test emails one person may send in one clock hour: plenty for wording work, useless as a mail relay. */
     static final int MAX_TESTS_PER_HOUR = 20;
     /** The raw body is refused above this before it is cleaned: the cleaner's cost grows with its input. */
@@ -363,8 +365,14 @@ public class ReminderCommands {
         form.setFixedDate(reminder.getFixedDate());
         form.setAudience(reminder.getAudience().name());
         form.setSubject(reminder.getSubject());
-        // Cleaned on the way out like every other place the body is written: the editor loads it as HTML.
-        form.setBody(RichTextHtml.clean(reminder.getBody()));
+        // Cleaned on the way out like every other place the body is written: the editor loads it as HTML. A stored
+        // body the cleaner now changes (a field inside a link address, refused in mail since 2026-11-23) is said, as
+        // the save says it, never dropped without a word.
+        final RichTextHtml.Cleaned body = RichTextHtml.cleanNoting(reminder.getBody());
+        if (body.dropped()) {
+            warn(formattingRemoved("feedback.reminderCommands.formattingRemoved"));
+        }
+        form.setBody(body.body());
         form.setPushText(reminder.getPushText());
         return form;
     }
@@ -422,11 +430,20 @@ public class ReminderCommands {
         form.setProblem(null);
         info(Text.get("feedback.reminderCommands.savedAsDraft"));
         if (cleaned.dropped()) {
-            // Still saved: the stored body is safe and is what the review shows. But a pasted color or logo, or a
-            // link with no scheme, vanished without a word, and a dead link is easy to approve unnoticed.
-            warn(Text.get("feedback.reminderCommands.formattingRemoved"));
+            // Still saved: the stored body is safe and is what the review shows. But a pasted video or frame, or a
+            // link with no scheme, would vanish without a word, and a dead link is easy to approve unnoticed.
+            warn(formattingRemoved("feedback.reminderCommands.formattingRemoved"));
         }
         return true;
+    }
+
+    /**
+     * A warning that the mail cleaner dropped something, worded by {@code key} around ONE list of what mail cannot
+     * carry ({@code feedback.reminderCommands.cannotCarry}), shared by the scheduled messages and the mail merge, so
+     * that a new rule in the cleaner is named in every warning at once.
+     */
+    static String formattingRemoved(final String key) {
+        return Text.get(key, Text.get("feedback.reminderCommands.cannotCarry"));
     }
 
     /**
@@ -438,9 +455,40 @@ public class ReminderCommands {
         return cleanNoting(html).body();
     }
 
-    /** {@link #cleanBody}, with whether the cleaner dropped something the writer could see. */
-    private static RichTextHtml.Cleaned cleanNoting(final String html) {
+    /**
+     * {@link #cleanBody}, with whether the cleaner dropped something the writer could see. The mail merge cleans its
+     * body here too ({@link MailMerge}): one allowlist for everything the site mails.
+     */
+    static RichTextHtml.Cleaned cleanNoting(final String html) {
         return RichTextHtml.cleanNoting(bracesRestored(html));
+    }
+
+    /**
+     * Why a mail body as typed is refused before it is cleaned, or null: longer than any message may be (the
+     * cleaner's cost grows with its input), a link too long to read, or a paste too large (named by
+     * {@code pasteTooLarge}, worded for the page's own button). ONE copy for everything the site mails, a scheduled
+     * message and the mail merge, so the two doors cannot drift apart.
+     */
+    static String rawMailProblem(final String raw, final String pasteTooLarge) {
+        if (raw != null && raw.length() > MAX_RAW_BODY) {
+            return Text.get("feedback.reminderCommands.messageTooLong");
+        }
+        if (RichTextHtml.hasUnreadableLink(raw)) {
+            return Text.get("feedback.reminderCommands.linkTooLong");
+        }
+        return RichTextHtml.hasUnreadableTag(raw) ? Text.get(pasteTooLarge) : null;
+    }
+
+    /**
+     * Why a cleaned mail body is refused, or null: it says and shows nothing (a body that was only a video cleans to
+     * an empty paragraph, review 2026-11-23), or it is longer than a message may be once cleaned. Shared by a
+     * scheduled message and the mail merge, like {@link #rawMailProblem}.
+     */
+    static String cleanedMailProblem(final String body) {
+        if (WaiverHtml.isBlank(body) && !body.contains("<img")) {
+            return Text.get("feedback.reminderCommands.bodyMissing");
+        }
+        return body.length() > MAX_BODY ? Text.get("feedback.reminderCommands.messageTooLong") : null;
     }
 
     private static String bracesRestored(final String html) {
@@ -481,21 +529,14 @@ public class ReminderCommands {
         if (form.getSubject().trim().length() > MAX_SUBJECT) {
             return Text.get("feedback.reminderCommands.subjectTooLong", MAX_SUBJECT);
         }
-        if (form.getBody() != null && form.getBody().length() > MAX_RAW_BODY) {
-            return Text.get("feedback.reminderCommands.messageTooLong");
-        }
-        if (RichTextHtml.hasUnreadableLink(form.getBody())) {
-            return Text.get("feedback.reminderCommands.linkTooLong");
-        }
-        if (RichTextHtml.hasUnreadableTag(form.getBody())) {
-            return Text.get("feedback.reminderCommands.tagTooLong");
+        final String rawProblem = rawMailProblem(form.getBody(), "feedback.reminderCommands.tagTooLong");
+        if (rawProblem != null) {
+            return rawProblem;
         }
         final String body = cleanBody(form.getBody());
-        if (WaiverHtml.isBlank(body)) {
-            return Text.get("feedback.reminderCommands.bodyMissing");
-        }
-        if (body.length() > MAX_BODY) {
-            return Text.get("feedback.reminderCommands.messageTooLong");
+        final String bodyProblem = cleanedMailProblem(body);
+        if (bodyProblem != null) {
+            return bodyProblem;
         }
         if (form.getPushText() != null && form.getPushText().trim().length() > MAX_PUSH) {
             return Text.get("feedback.reminderCommands.pushTooLong", MAX_PUSH);
@@ -1021,7 +1062,7 @@ public class ReminderCommands {
         out.add(new ReminderViews.AutoMail(templateId, name, trigger,
                 (template.getOrgId() == null) ? Text.get("feedback.reminderCommands.wordingStandard")
                         : Text.get("feedback.reminderCommands.wordingOrganization"),
-                template.getName(), WaiverHtml.sanitize(template.getBody())));
+                template.getName(), RichTextHtml.cleanTemplatePreview(bracesRestored(template.getBody()))));
     }
 
     // ================================================================== plumbing

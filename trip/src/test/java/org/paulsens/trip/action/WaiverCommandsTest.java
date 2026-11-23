@@ -119,15 +119,26 @@ public class WaiverCommandsTest {
         final WaiverCommands.Result same = admin.publishVersion(orgId, doc.getId(), doc.getTitle(), BODY, null);
         assertEquals(same.code(), WaiverCommands.Result.VALIDATION_FAILED, "an unchanged publish is refused");
 
+        // What a published document may not hold is refused and named, never dropped silently (the owner's rule,
+        // 2026-11-23): the author decides what is saved.
+        final WaiverCommands.Result withScript = admin.publishVersion(orgId, doc.getId(), doc.getTitle(),
+                "<p>New words.</p><script>alert(1)</script><p onclick=\"x()\">a</p>", "Reworded");
+        assertEquals(withScript.code(), WaiverCommands.Result.VALIDATION_FAILED);
+        assertTrue(withScript.message().startsWith("This text cannot be published as written."), withScript.message());
+        assertTrue(withScript.message().contains("The <script> tag"), withScript.message());
+        assertTrue(withScript.message().contains("The onclick attribute on <p>"), withScript.message());
         final WaiverCommands.Result v2 = admin.publishVersion(orgId, doc.getId(), doc.getTitle(),
-                "<p>New words.</p><script>alert(1)</script>", "Reworded");
+                "<p>New words.</p>", "Reworded");
         assertTrue(v2.ok(), v2.message());
         final WaiverDocument stored = admin.document(orgId, doc.getId());
         assertEquals(stored.getVersions().size(), 2);
         assertEquals(stored.version(1).getBodyHtml(), BODY, "version 1 is never rewritten");
-        assertEquals(stored.version(2).getBodyHtml(), "<p>New words.</p>", "scripts are stripped at publish");
+        assertEquals(stored.version(2).getBodyHtml(), "<p>New words.</p>");
+        final String prose = "<p>Option one = $40 each, and online = free.</p>";
+        assertTrue(admin.publishVersion(orgId, doc.getId(), doc.getTitle(), prose, null).ok(), "prose is not refused");
+        assertEquals(admin.document(orgId, doc.getId()).version(3).getBodyHtml(), prose, "and is stored as written");
         assertEquals(stored.version(2).getNote(), "Reworded");
-        assertEquals(admin.documentVersion(orgId, doc.getId(), 0).getNumber(), 2, "0 asks for the newest");
+        assertEquals(admin.documentVersion(orgId, doc.getId(), 0).getNumber(), 3, "0 asks for the newest");
         assertEquals(admin.documentVersion(orgId, doc.getId(), 1).getNumber(), 1);
         assertNull(admin.documentVersion(orgId, "nope", 1));
         assertEquals(admin.tripsUsing(orgId, doc.getId()), 0);
@@ -150,6 +161,15 @@ public class WaiverCommandsTest {
                 WaiverCommands.Result.VALIDATION_FAILED);
         assertEquals(admin.createDocument(orgId, "T", "<p><br></p>", null).message(), "The document has no text.");
         assertEquals(admin.createDocument(orgId, "T", null, null).code(), WaiverCommands.Result.VALIDATION_FAILED);
+        // A body over the cap is refused before anything reads it, so a crafted one costs nothing (review, F2).
+        final String huge = "<p>Terms</p>" + "<scr".repeat(50_000) + "<script>" + "ipt>".repeat(50_000);
+        final long started = System.nanoTime();
+        assertEquals(admin.createDocument(orgId, "T", huge, null).message(),
+                String.format("The document is too long to publish (%,d characters; at most %,d).", huge.length(),
+                        WaiverHtml.MAX_BODY));
+        assertTrue(System.nanoTime() - started < 1_000_000_000L, "refused at once");
+        assertTrue(admin.createDocument(orgId, "T", "<p>Terms</p><img src=x onerror=\"alert(1)\"", null).message()
+                .contains("The text ends inside an unfinished tag"), "an unfinished tag is named (review blocker F1)");
         assertEquals(admin.createDocument(orgId, "T", BODY, "n".repeat(WaiverCommands.MAX_NOTE + 1)).code(),
                 WaiverCommands.Result.VALIDATION_FAILED);
         assertEquals(admin.publishVersion(orgId, "missing", "T", BODY, null).code(), WaiverCommands.Result.NOT_FOUND);

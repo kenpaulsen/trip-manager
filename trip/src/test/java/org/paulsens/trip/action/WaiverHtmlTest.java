@@ -6,19 +6,8 @@ import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertTrue;
 
-/** {@link WaiverHtml}: what publish strips, what the PDF's text keeps, and the hash. */
+/** {@link WaiverHtml}: what the PDF's text keeps, and the hash. The publish check is {@code HtmlCheckTest}. */
 public class WaiverHtmlTest {
-
-    @Test
-    public void sanitizeRemovesEverythingThatCanRun() {
-        assertEquals(WaiverHtml.sanitize(null), "");
-        assertEquals(WaiverHtml.sanitize("<p onclick=\"steal()\">Hi</p><script>x()</script>"), "<p>Hi</p>");
-        assertEquals(WaiverHtml.sanitize("<a href=\"javascript:alert(1)\">x</a>"), "<a href=\"#\">x</a>");
-        assertEquals(WaiverHtml.sanitize("<iframe src=\"https://e.com\"></iframe><p>ok</p>"), "<p>ok</p>");
-        assertEquals(WaiverHtml.sanitize("<style>p{}</style><form><input name=a></form><b>kept</b>"),
-                "<b>kept</b>");
-        assertEquals(WaiverHtml.sanitize("<img src='data:image/png;base64,AAA'>"), "<img src=\"#\">");
-    }
 
     @Test
     public void textKeepsParagraphsAndBullets() {
@@ -30,6 +19,7 @@ public class WaiverHtmlTest {
                 + "&hellip; &#99999999;"), "<b> \"x\" 'y' – ‘’“”…");
         assertTrue(WaiverHtml.isBlank("<p><br></p>"));
         assertFalse(WaiverHtml.isBlank("<p>x</p>"));
+        assertFalse(WaiverHtml.isBlank("<p> one = x</p>"), "prose that looks like a handler is text");
     }
 
     @Test

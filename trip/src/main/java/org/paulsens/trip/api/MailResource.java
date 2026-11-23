@@ -122,6 +122,13 @@ public class MailResource extends BaseResource {
         if (!orgs.isMergeFromSendable(body.from())) {
             return error(422, ApiErrors.VALIDATION_FAILED, MailMerge.invalidMergeFrom());
         }
+        // The page's allowlist too (review, 2026-11-24): this door mailed the body as typed, a frame or a script
+        // included. What the cleaner dropped is said in the answer, never silently (the owner's rule).
+        final MailMerge.Mailable mailable = MailMerge.mailable(body.body());
+        if (mailable.problem() != null) {
+            return error(422, ApiErrors.VALIDATION_FAILED, mailable.problem());
+        }
+        final String mailed = mailable.cleaned().body();
         final MailCommands mail = Beans.get(MailCommands.class);
         final AuditActor actor = actor();
         // emailAdmin is org-scoped: recipients outside the caller's orgs are dropped and counted in
@@ -139,16 +146,17 @@ public class MailResource extends BaseResource {
         for (final String recipient : accepted) {
             // startAs, not a bare spawn: send() is blocking now, and a plain spawn would not inherit the
             // ScopedValue-bound identity -- the actor must ride along explicitly for the EMAIL audit record.
-            TripThreads.startAs(actor, () -> sendOne(mail, body, recipient, bcc, actor));
+            TripThreads.startAs(actor, () -> sendOne(mail, body, mailed, recipient, bcc, actor));
         }
         // Reports what was ACCEPTED, not what was delivered. The sends run on their own virtual threads and
         // SES decides delivery later; claiming success here would be claiming something this call cannot know.
-        return ok(Map.of("accepted", accepted, "rejected", body.to().size() - accepted.size()));
+        return ok(Map.of("accepted", accepted, "rejected", body.to().size() - accepted.size(),
+                "formattingRemoved", mailable.cleaned().dropped()));
     }
 
-    private static void sendOne(final MailCommands mail, final SendRequest body, final String recipient,
-            final String bcc, final AuditActor actor) {
-        mail.send(body.from(), recipient, bcc, body.replyTo(), body.subject(), body.body(), actor);
+    private static void sendOne(final MailCommands mail, final SendRequest body, final String mailed,
+            final String recipient, final String bcc, final AuditActor actor) {
+        mail.send(body.from(), recipient, bcc, body.replyTo(), body.subject(), mailed, actor);
     }
 
     private Response validate(final SendRequest body) {

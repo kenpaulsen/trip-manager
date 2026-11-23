@@ -11,58 +11,67 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * The platform's rich-text ALLOWLIST, for three kinds of typed text: a trip reminder's body ({@code
- * docs/reminders.md}), an event's shared notes ({@link #cleanEventNote}), and a traveler's private note on an event
- * ({@link #cleanNote}). Named ReminderHtml until 2026-11-17, when it already served all three; any new rich-text sink
- * starts here, never at {@link WaiverHtml#sanitize}.
+ * The platform's rich-text ALLOWLIST, for three kinds of typed text: mail (a trip reminder's body, {@code
+ * docs/reminders.md}, and a mail merge's, {@link MailMerge}), an event's shared notes ({@link #cleanEventNote}), and a
+ * traveler's private note on an event ({@link #cleanNote}). Named ReminderHtml until 2026-11-17, when it already
+ * served all three; any new rich-text sink that cleans starts here.
  *
  * <p>A reminder's body is written by a trip facilitator, who may hold no privilege at all, and it is rendered
  * unescaped to everyone who reviews it (organization and site admins included) and mailed to travelers. So nothing
- * gets through because it failed to look dangerous: a tag is kept only when its name is on the list, and it is
- * rebuilt from scratch with only the attributes named here. Everything else is dropped or escaped.
+ * gets through because it failed to look dangerous: a tag is kept only when its name is on the list, and it is rebuilt
+ * from scratch with only the attributes named here. Everything else is dropped or escaped.
  *
- * <p>{@link WaiverHtml#sanitize} is the wrong tool for this body, which is why this class exists. It is a
- * blocklist for text only an org admin writes, and the first review of the reminders found three bodies it
- * passes unchanged: an event handler with no space before it ({@code <img src="x"onerror=...>}), a tag it
- * never heard of ({@code <svg/onload=...>}), and a script URL spelled with an entity
- * ({@code href="jav&#97;script:..."}). None of the three can survive here: {@code img} and {@code svg} are not
- * on the list, no {@code on...} attribute is ever copied, and a link address must literally start with
- * {@code http://}, {@code https://} or {@code mailto:}, or be exactly one {@code {{...Link}}} placeholder.
+ * <p>The waiver's former blocklist cleaner (removed 2026-11-23; a waiver is now validated by
+ * {@link org.paulsens.trip.content.HtmlCheck}) was the wrong tool for this body, which is why this class exists. The
+ * first review of the reminders found three bodies that blocklist passed unchanged: an
+ * event handler with no space before it ({@code <img src="x"onerror=...>}), a tag it never heard of ({@code
+ * <svg/onload=...>}), and a script URL spelled with an entity ({@code href="jav&#97;script:..."}). None of the three
+ * can survive here: {@code img} and {@code svg} are not on the list as written (an image is rebuilt from its address
+ * alone), no {@code on...} attribute is ever copied, and a link address must literally start with {@code http://},
+ * {@code https://} or {@code mailto:}, or be exactly one {@code {{...Link}}} placeholder.
  *
- * <p>What is kept is what the page's editor (Quill 2, inside PrimeFaces) writes: paragraphs, line breaks,
- * bold, italic, underline, strike, links, lists, headings, block quotes, and the handful of {@code ql-} layout
- * classes named in {@link #QUILL_CLASS}. Inline styles and images are deliberately not kept, and the page's
- * toolbar does not offer them; a paste can still bring them, and {@link #cleanNoting} lets the save say so.
+ * <p>What is kept is what the page's editor offers (the site's rich-text editor, Jodit since 2026-11-23; Quill before,
+ * whose rows are still stored): paragraphs, line breaks, bold, italic, underline, strike, links, lists, headings,
+ * block quotes, the handful of Quill {@code ql-} layout classes stored rows hold, named in {@link #QUILL_CLASS}, and
+ * since 2026-11-23 (the owner's call: mail carries what mail clients show and the mail editors offer) a style rebuilt
+ * from {@link #STYLE_DECLARATION} (a plain color, size or weight, an alignment, an indent, a width), a table (its rows
+ * and cells, a cell's {@code colspan} and {@code rowspan}) and an image by web address. A video or a frame is not
+ * kept: a mail client shows neither. What is dropped, {@link #cleanNoting} lets the save say. An image in mail is
+ * fetched by each reader's mail client, so a sender could see who opened it; mail is written by trip facilitators and
+ * administrators, and the owner accepted that.
  *
- * <p>Quill 2 writes EVERY list as {@code <ol>} and says "bullet" only with {@code data-list} on each item. That
- * attribute is kept (the editor needs it to reopen the list as it was), and an {@code <ol>} whose first item is
- * a bullet is written as {@code <ul>} (and the written list switches kind where the items do), because a mail
- * client knows nothing of {@code data-list} and would number the list.
+ * <p>Quill 2 (the editor before 2026-11-23, whose rows are stored) wrote EVERY list as {@code <ol>} and says "bullet"
+ * only with {@code data-list} on each item. That attribute is kept (the editor needs it to reopen the list as it was),
+ * and an {@code <ol>} whose first item is a bullet is written as {@code <ul>} (and the written list switches kind
+ * where the items do), because a mail client knows nothing of {@code data-list} and would number the list.
  *
- * <p>A trip event's private NOTE ({@code TripCommands.saveEventNoteById}) is cleaned here too, by
- * {@link #cleanNote}: the same list, plus what the itinerary's note editor offers and a reminder's does not,
- * and what years of stored notes hold (the 2026-11 production scan: named colors, {@code <font color>},
- * {@code <strike>}, a smaller font, bold, and links to the site's own pages). All of it is rebuilt, never
- * copied: a style only as {@code color}, {@code background-color}, {@code font-size} or {@code font-weight}
- * with one literal value ({@code #hex}, {@code rgb()}, {@code var(--name, #hex)}, a bare word, a size such as
- * {@code 0.8em}; no {@code url()}, no escape, no entity can match); {@code <font color>} written as a colored
- * {@code <span>} and {@code <strike>} as {@code <s>}; and a link to one of the site's own {@code .jsf} pages by
- * relative address, which cannot carry a scheme. No image in either of those lists ({@link Mode}). Notes were
- * evaluated as EL until 2026-11 (medjugorje#116) and written out unescaped, so this is what makes them safe to show.
+ * <p>A trip event's private NOTE ({@code TripCommands.saveEventNoteById}) is cleaned here too, by {@link #cleanNote}:
+ * mail's list without its images and tables, plus links to the site's own pages, and what years of stored notes hold
+ * (the 2026-11 production scan: named colors, {@code <font color>}, {@code <strike>}, a smaller font, bold). All of it
+ * is rebuilt, never copied, in every list: a style only as one of the properties of {@link #STYLE_DECLARATION}, each
+ * with one literal value ({@code #hex}, {@code rgb()}, {@code var(--name, #hex)}, a bare word, a size such as {@code
+ * 0.8em}; no {@code url()}, no escape, no entity can match); {@code <font color>} written as a colored {@code <span>}
+ * and {@code <strike>} as {@code <s>}; and a link to one of the site's own {@code .jsf} pages by relative address,
+ * which cannot carry a scheme. What each list keeps is {@link Mode}'s. Notes were evaluated as EL until 2026-11
+ * (medjugorje#116) and written out unescaped, so this is what makes them safe to show.
  *
- * <p>A trip event's shared NOTES ({@link #cleanEventNote}, medjugorje#156) keep the private note's list plus the
- * three tools the event dialog's editor offers that it does not: an image by web address, a video embed and a code
- * block. Rebuilt like everything else: an {@code <img>} only with an {@code http(s)://} address (a numeric size and a
- * plain alt text at most), an {@code <iframe>} only as Quill's own {@code ql-video} with an {@code https://}
- * address and fixed attributes, and Quill's two code-block classes. The 2026-11-16 production scan of all 1,071
- * event notes found nothing the private note's list does not keep (colors, sizes, links, lists, strike), and no
- * image, video or code block; the three are kept because the editor offers them, not because a note uses them.
+ * <p>A trip event's shared NOTES ({@link #cleanEventNote}, medjugorje#156) keep the private note's list plus the three
+ * tools the event dialog's editor offers that it does not: an image by web address (as mail does), a video embed and a
+ * code block. Rebuilt like everything else: an {@code <img>} only with an {@code http(s)://} address (a numeric size
+ * and a plain alt text at most), an {@code <iframe>} only as Quill's own {@code ql-video} with an {@code https://}
+ * address and fixed attributes, and Quill's two code-block classes. The 2026-11-16 production scan of all 1,071 event
+ * notes found nothing the private note's list does not keep (colors, sizes, links, lists, strike), and no image, video
+ * or code block; the three are kept because the editor offers them, not because a note uses them.
  */
 public final class RichTextHtml {
     /** Tags copied through, without their attributes unless named below. */
     private static final Set<String> ALLOWED = Set.of("p", "br", "b", "strong", "i", "em", "u", "s", "a", "ul", "ol",
             "li", "h1", "h2", "h3", "h4", "blockquote", "span", "div", "pre", "code", "sub", "sup", "hr");
     private static final Set<String> VOID = Set.of("br", "hr");
+    /** A table's tags, copied through in mail ({@link Mode#tables}); a cell keeps its span ({@link #CELL_SPAN}). */
+    private static final Set<String> TABLE = Set.of("table", "thead", "tbody", "tfoot", "tr", "td", "th");
+    /** A cell's {@code colspan} or {@code rowspan}: a small number. */
+    private static final Pattern CELL_SPAN = Pattern.compile("[1-9][0-9]?");
     /** Tags whose CONTENT is dropped with them: it is code or markup, never prose. */
     private static final Set<String> DROP_WITH_CONTENT = Set.of("script", "style", "iframe", "object", "embed",
             "noscript", "template", "svg", "math", "textarea", "title", "select", "xmp", "noembed", "noframes");
@@ -76,12 +85,19 @@ public final class RichTextHtml {
             "(?<![-a-zA-Z0-9_:.])([a-zA-Z_:][-a-zA-Z0-9_:.]*+)\\s*+=\\s*(\"[^\"]*\"|'[^']*'|[^\\s\"'>]+)");
     /**
      * What may follow an address's scheme, for every address this class writes into a double-quoted {@code href}
-     * or {@code src}: no space, quote, angle bracket, backtick or backslash. ONE copy, so a tightening reaches
-     * links, images and videos alike. An apostrophe is fine: the value is always written back inside double quotes.
+     * or {@code src}: no space, quote, angle bracket, backtick or backslash. ONE copy, so a tightening reaches links,
+     * images and videos alike. An apostrophe is fine: the value is always written back inside double quotes. Mail
+     * refuses a brace on top of this ({@link #mailAddress(String, Mode)}).
      */
     private static final String ADDRESS_TAIL = "[^\\s\"<>`\\\\]+";
     private static final Pattern WEB_ADDRESS = Pattern.compile("(?i)(https?://|mailto:|tel:|sms:)" + ADDRESS_TAIL);
     private static final Pattern LINK_TOKEN = Pattern.compile("\\{\\{[a-zA-Z]+Link\\}\\}");
+    /**
+     * Any one whole field as an address, for a managed mail template's PREVIEW only: its links are
+     * {@code {{tripUrl}}} and the like, which the real send fills ({@code MailCommands.renderManagedTemplateForOrg})
+     * and the preview never does, so the address it shows is the field's name, a relative address that opens nothing.
+     */
+    private static final Pattern FIELD_TOKEN = Pattern.compile("\\{\\{[a-zA-Z]+\\}\\}");
     /**
      * The Quill classes kept: the ones the toolbar can produce, and nothing else. NOT every {@code ql-} class:
      * the page loads Quill's stylesheet and a mail client does not, so a class that stylesheet hides
@@ -91,29 +107,36 @@ public final class RichTextHtml {
             "ql-(align-(center|right|justify)|indent-[1-8]|direction-rtl|size-(small|large|huge)"
                     + "|font-(serif|monospace)|ui)");
     private static final Set<String> LIST_KINDS = Set.of("bullet", "ordered", "checked", "unchecked");
-    /** One style value a note may keep: a color, a bare word (a named color, bold), or a size; nothing else. */
-    private static final String NOTE_VALUE = "(#[0-9a-fA-F]{3,8}|rgba?\\([0-9.,%\\s]{1,40}\\)"
-            + "|var\\(--[a-zA-Z0-9-]{1,60}(?:\\s*,\\s*#[0-9a-fA-F]{3,8})?\\)|[a-zA-Z]{1,30}"
-            + "|[0-9]{1,3}(?:\\.[0-9]{1,2})?(?:px|em|rem|%)?)";
     /**
-     * One style declaration a note may keep, read whole: the property, then ONE literal value. Bounded
-     * repetitions, so a long run of digits cannot make it backtrack.
+     * One style value kept: a color, a bare word (a named color, bold, center), or a size; nothing else. A size takes
+     * four decimals: the editor writes a third of a table as {@code 33.3333%}.
      */
-    private static final Pattern NOTE_DECLARATION = Pattern.compile(
-            "\\s*((?i:color|background-color|font-size|font-weight))\\s*:\\s*" + NOTE_VALUE + "\\s*");
+    private static final String STYLE_VALUE = "(#[0-9a-fA-F]{3,8}|rgba?\\([0-9.,%\\s]{1,40}\\)"
+            + "|var\\(--[a-zA-Z0-9-]{1,60}(?:\\s*,\\s*#[0-9a-fA-F]{3,8})?\\)|[a-zA-Z]{1,30}"
+            + "|[0-9]{1,3}(?:\\.[0-9]{1,4})?(?:px|em|rem|%)?)";
+    /**
+     * One style declaration kept, read whole: the property, then ONE literal value. Bounded repetitions, so a long
+     * run of digits cannot make it backtrack. The properties are what the editors write and mail clients show: a
+     * color, a size, a weight, an alignment ({@code text-align}), an indent ({@code margin-left}, and the
+     * {@code padding-left} some clients need instead), and a table's widths and layout.
+     */
+    private static final Pattern STYLE_DECLARATION = Pattern.compile(
+            "\\s*((?i:color|background-color|font-size|font-weight|text-align|margin-left|padding-left|width"
+                    + "|vertical-align|border-collapse))\\s*:\\s*" + STYLE_VALUE + "\\s*");
     /** The value of an old {@code <font color>}: one literal color, as above. */
-    private static final Pattern NOTE_COLOR = Pattern.compile(NOTE_VALUE);
+    private static final Pattern FONT_COLOR = Pattern.compile(STYLE_VALUE);
     /** A link to one of the site's own pages by relative address: no scheme, so nothing but a page can open. */
     private static final Pattern SITE_PAGE = Pattern.compile(
             "/?[A-Za-z0-9_-]{1,80}(?:/[A-Za-z0-9_-]{1,80}){0,5}\\.jsf(?:\\?[A-Za-z0-9_=&%.+ -]{0,200})?");
-    /** Old tags a note writes as their current equivalent. */
-    private static final Map<String, String> NOTE_ALIASES = Map.of("strike", "s", "font", "span");
+    /** Old tags written as their current equivalent. */
+    private static final Map<String, String> OLD_TAGS = Map.of("strike", "s", "font", "span");
     /**
-     * The address of an event note's image: a literal web address, nothing that decodes into one. Plain http too,
-     * because the editor's image-by-URL prompt accepts it ({@code quillEditor.xhtml}) and the browser upgrades it.
+     * The address of an image (mail, an event's notes): a literal web address, nothing that decodes into one. Plain
+     * http too, because the editor's image-by-URL prompt accepts it ({@code richEditor.js}) and the browser upgrades
+     * it.
      */
     private static final Pattern IMAGE_ADDRESS = Pattern.compile("(?i)https?://" + ADDRESS_TAIL);
-    /** The address of an event note's video: https only, as Quill's own video embeds are. */
+    /** The address of an event note's video: https only, as the editor's video embeds are. */
     private static final Pattern VIDEO_ADDRESS = Pattern.compile("(?i)https://" + ADDRESS_TAIL);
     /** Quill 2's code block, which only an event note keeps (a mailed reminder has no Quill stylesheet). */
     private static final Pattern CODE_CLASS = Pattern.compile("ql-code-block(-container)?");
@@ -123,18 +146,76 @@ public final class RichTextHtml {
     private static final Pattern IMAGE_ALT = Pattern.compile("[^\"<>&]{0,200}");
 
     /**
-     * Which list a clean keeps: a reminder's; a private note's (the reminder's plus its styles, site links and old
-     * tags); or an event's shared notes (the private note's plus https images, Quill video embeds and code blocks,
-     * which the event dialog's editor offers). A private note keeps no image: a remote one is fetched by every
-     * reader's browser (a tracking pixel in a note any trip member may write). An event's notes are written only
-     * by its trip's managers, through the editor that offers images.
+     * Which list a clean keeps. All three keep the common tags, the kept styles ({@link #STYLE_DECLARATION}) and the
+     * old tags' current spelling; beyond those:
+     * <pre>
+     *                REMINDER (mail)   NOTE (private)   EVENT_NOTE (shared)
+     *   site links         -                 yes               yes
+     *   images            yes                 -                yes
+     *   tables            yes                 -                 -
+     *   videos             -                  -                yes
+     *   code blocks        -                  -                yes
+     *   fields filled     yes                 -                 -    (an address with a brace refused)
+     * </pre>
+     * A private note keeps no image: a remote one is fetched by every reader's browser (a tracking pixel in a note any
+     * trip member may write). An event's notes are written only by its trip's managers, through the editor that
+     * offers images. Mail keeps no site link (a relative address leads nowhere in mail) and no video (a mail client
+     * shows no frame). TEMPLATE_PREVIEW is mail's list, plus a link or image whose address is one whole field.
      */
     private enum Mode {
-        REMINDER, NOTE, EVENT_NOTE;
+        REMINDER, NOTE, EVENT_NOTE,
+        /** A managed mail template shown for reading (the automatic mails): mail's list, and any whole field. */
+        TEMPLATE_PREVIEW;
 
-        /** Whether this list keeps a note's styles, site links and old tags: both notes do, a reminder not. */
-        boolean noteFormatting() {
-            return this != REMINDER;
+        /**
+         * Whether this list keeps links to the site's own pages by relative address: both notes do, which are read
+         * on the site; mail is not, where a relative address leads nowhere.
+         */
+        boolean siteLinks() {
+            return this == NOTE || this == EVENT_NOTE;
+        }
+
+        /**
+         * Whether this list keeps an image by web address: mail does (owner, 2026-11-23: a scheduled message and a
+         * mail merge carry colors and images, as the mail editors offer them) and an event's notes do; a private
+         * note does not (a remote image is fetched by every reader's browser, a tracking pixel in a note any trip
+         * member may write).
+         */
+        boolean images() {
+            return this != NOTE;
+        }
+
+        /** Whether this list keeps a table: mail does (owner, 2026-11-23), the notes' editors offer none. */
+        boolean tables() {
+            return isMail();
+        }
+
+        /**
+         * Whether a body of this list has its {@code {{fields}}} filled, attributes included: mail does, so a mail
+         * address may hold a field only as a whole link ({@link #mailAddress(String, Mode)}); the notes fill none.
+         */
+        boolean fillsFields() {
+            return isMail();
+        }
+
+        /** Whether this list is mail's: a reminder or mail merge as sent, or a mail template as previewed. */
+        boolean isMail() {
+            return this == REMINDER || this == TEMPLATE_PREVIEW;
+        }
+
+        /** Whether an address may be one whole field of any name: a mail template's preview only. */
+        boolean wholeFields() {
+            return this == TEMPLATE_PREVIEW;
+        }
+
+        /** Whether this list keeps a video embed: an event's notes only, which are read on the site. */
+        boolean videos() {
+            return this == EVENT_NOTE;
+        }
+
+        /** Whether this list keeps Quill's code blocks: an event's notes only (mail has no Quill stylesheet). */
+        boolean codeBlocks() {
+            return this == EVENT_NOTE;
         }
     }
     /**
@@ -154,7 +235,8 @@ public final class RichTextHtml {
 
     /**
      * A clean body and whether cleaning it removed something its writer could see: a tag that is not on the list
-     * (an image, a video, a table), an inline style (a color, a background), a class that is not one of Quill's
+     * (a video in mail, a form, a frame), a style declaration that is not kept (a font family, a position), a class
+     * that is not one of Quill's
      * kept ones, a link address that is refused (which leaves the link's text in an {@code <a>} that goes
      * nowhere), or a tag too long to read (written out as its own text). The save tells the facilitator, rather
      * than reporting plain success over a body that lost them.
@@ -177,6 +259,15 @@ public final class RichTextHtml {
         final Drops drops = new Drops();
         final String body = clean(html, drops, Mode.REMINDER);
         return new Cleaned(body, drops.any);
+    }
+
+    /**
+     * A managed mail template's body as the Communications page shows it for reading: mail's allowlist, with each
+     * link or image whose address is one whole field ({@code {{tripUrl}}}) kept as written, since the real send
+     * fills it and the preview does not (review, 2026-11-23: the plain mail list left these links dead).
+     */
+    public static String cleanTemplatePreview(final String html) {
+        return clean(html, new Drops(), Mode.TEMPLATE_PREVIEW);
     }
 
     /** A trip event's private note with only allowlisted markup left (see the class comment); null becomes blank. */
@@ -357,9 +448,9 @@ public final class RichTextHtml {
             nameEnd++;
         }
         final String tag = html.substring(nameStart, nameEnd).toLowerCase(Locale.ROOT);
-        final String name = mode.noteFormatting() ? NOTE_ALIASES.getOrDefault(tag, tag) : tag;
-        final String embed = (mode == Mode.EVENT_NOTE && !closing)
-                ? embedTag(name, html.substring(nameEnd, end), drops) : null;
+        final String name = OLD_TAGS.getOrDefault(tag, tag);
+        final String embed = (mode.images() && !closing) ? embedTag(name, html.substring(nameEnd, end), drops, mode)
+                : null;
         if (embed != null) {
             out.append(embed);
             // A video's frame has nothing inside it to show, so it is skipped through its closing tag.
@@ -369,7 +460,7 @@ public final class RichTextHtml {
             drops.any = true;
             return afterClosing(html, name, end + 1);
         }
-        if (closing && mode == Mode.EVENT_NOTE && "img".equals(name)) {
+        if (closing && mode.images() && "img".equals(name)) {
             // A stray </img> closes nothing; the image itself was written (or refused) at its opening tag.
             return end + 1;
         }
@@ -379,7 +470,7 @@ public final class RichTextHtml {
         } else if ("li".equals(name) && !closing) {
             final String attributes = attributesOf(name, html.substring(nameEnd, end), drops, mode);
             out.append(switchList(attributes, lists)).append("<li").append(attributes).append('>');
-        } else if (ALLOWED.contains(name)) {
+        } else if (ALLOWED.contains(name) || (mode.tables() && TABLE.contains(name))) {
             if (closing) {
                 out.append(VOID.contains(name) ? "" : "</" + name + ">");
             } else {
@@ -434,14 +525,16 @@ public final class RichTextHtml {
     }
 
     /**
-     * An event note's image or video embed, rebuilt from scratch, or null when this tag is neither or its address
+     * An image (mail, an event's notes) or an event note's video embed, rebuilt from scratch, or null when this tag is
+     * neither or its address
      * is refused (the caller then drops it as any unlisted tag, and notes the drop). Only what Quill writes is
      * read: an image's {@code src}, {@code alt}, {@code width} and {@code height}; a video's {@code class} and
      * {@code src}. Every other attribute (an event handler, a {@code srcdoc}, a {@code sandbox} to lift) is
      * never copied, and a style or class on a kept image is noted as dropped.
      */
-    private static String embedTag(final String name, final String raw, final Drops drops) {
-        if (!"img".equals(name) && !"iframe".equals(name)) {
+    private static String embedTag(final String name, final String raw, final Drops drops, final Mode mode) {
+        // A video plays on the site only: a mail client shows no frame, so mail keeps no video.
+        if (!"img".equals(name) && !("iframe".equals(name) && mode.videos())) {
             return null;
         }
         final Map<String, String> attributes = new HashMap<>();
@@ -450,7 +543,8 @@ public final class RichTextHtml {
             attributes.putIfAbsent(attribute.group(1).toLowerCase(Locale.ROOT), unquoted(attribute.group(2)).trim());
         }
         final String src = attributes.getOrDefault("src", "");
-        if (!("iframe".equals(name) ? VIDEO_ADDRESS : IMAGE_ADDRESS).matcher(src).matches()) {
+        if (!(("iframe".equals(name) ? VIDEO_ADDRESS : IMAGE_ADDRESS).matcher(src).matches()
+                || wholeField(src, mode)) || (mode.fillsFields() && !mailAddress(src, mode))) {
             return null;
         }
         if ("iframe".equals(name)) {
@@ -506,22 +600,27 @@ public final class RichTextHtml {
         while (attribute.find()) {
             final String key = attribute.group(1).toLowerCase(Locale.ROOT);
             final String value = unquoted(attribute.group(2)).trim();
-            if (mode.noteFormatting() && "style".equals(key) && !styled) {
-                final String styles = noteStyle(value, drops);
+            if ("style".equals(key) && !styled) {
+                final String styles = keptStyle(value, drops);
                 kept.append(styles.isEmpty() ? "" : " style=\"" + styles + '"');
                 styled = true;
-            } else if (mode.noteFormatting() && "color".equals(key) && !styled
-                    && NOTE_COLOR.matcher(value).matches()) {
+            } else if ("color".equals(key) && !styled
+                    && FONT_COLOR.matcher(value).matches()) {
                 // An old <font color="red">, written as the <span> it now is.
                 kept.append(" style=\"color: ").append(value).append('"');
                 styled = true;
             } else if ("a".equals(name) && "href".equals(key) && !linked
-                    && (isSafeAddress(value) || (mode.noteFormatting() && SITE_PAGE.matcher(value).matches()))) {
+                    && (isSafeAddress(value) || (mode.siteLinks() && SITE_PAGE.matcher(value).matches())
+                            || wholeField(value, mode))
+                    && (!mode.fillsFields() || mailAddress(value, mode))) {
                 kept.append(" href=\"").append(value).append('"');
                 linked = true;
             } else if ("class".equals(key) && !classed && isQuillClasses(value, mode)) {
                 kept.append(" class=\"").append(value).append('"');
                 classed = true;
+            } else if (("td".equals(name) || "th".equals(name)) && ("colspan".equals(key) || "rowspan".equals(key))
+                    && CELL_SPAN.matcher(value).matches()) {
+                kept.append(' ').append(key).append("=\"").append(value).append('"');
             } else if ("li".equals(name) && "data-list".equals(key) && !listed && LIST_KINDS.contains(value)) {
                 kept.append(" data-list=\"").append(value).append('"');
                 listed = true;
@@ -548,14 +647,14 @@ public final class RichTextHtml {
     }
 
     /**
-     * The declarations of a note's {@code style} it may keep, rebuilt ("color: red; font-size: 0.8em"), or "" when
-     * none is kept. Each declaration must match {@link #NOTE_DECLARATION} whole; any other one (a font family, a
+     * The declarations of a {@code style} kept, rebuilt ("color: red; font-size: 0.8em"), or "" when none is kept.
+     * Each declaration must match {@link #STYLE_DECLARATION} whole; any other one (a font family, a
      * position, a {@code url()}) is dropped and noted.
      */
-    private static String noteStyle(final String value, final Drops drops) {
+    private static String keptStyle(final String value, final Drops drops) {
         final StringBuilder kept = new StringBuilder();
         for (final String declaration : value.split(";")) {
-            final Matcher style = NOTE_DECLARATION.matcher(declaration);
+            final Matcher style = STYLE_DECLARATION.matcher(declaration);
             if (style.matches()) {
                 kept.append(kept.isEmpty() ? "" : "; ").append(style.group(1).toLowerCase(Locale.ROOT)).append(": ")
                         .append(style.group(2));
@@ -573,7 +672,7 @@ public final class RichTextHtml {
     private static boolean isQuillClasses(final String value, final Mode mode) {
         for (final String one : value.split(" ")) {
             if (!QUILL_CLASS.matcher(one).matches()
-                    && !(mode == Mode.EVENT_NOTE && CODE_CLASS.matcher(one).matches())) {
+                    && !(mode.codeBlocks() && CODE_CLASS.matcher(one).matches())) {
                 return false;
             }
         }
@@ -583,6 +682,23 @@ public final class RichTextHtml {
     private static String unquoted(final String value) {
         final boolean quoted = value.length() >= 2 && (value.charAt(0) == '"' || value.charAt(0) == '\'');
         return quoted ? value.substring(1, value.length() - 1) : value;
+    }
+
+    /**
+     * Whether mail may hold this address: a whole {@code {{...Link}}} field, or an address with no brace in it. Mail
+     * fills its {@code {{fields}}} everywhere in the body, attributes included, so a field inside an address (an
+     * image's above all) would send each recipient's own value (a balance, a passport problem) to the host the writer
+     * chose, fetched by every mail client with no click (review blocker, 2026-11-23). The notes fill no field, and
+     * keep a brace as they always did.
+     */
+    private static boolean mailAddress(final String value, final Mode mode) {
+        return LINK_TOKEN.matcher(value).matches() || wholeField(value, mode)
+                || (value.indexOf('{') < 0 && value.indexOf('}') < 0);
+    }
+
+    /** Whether this address is one whole field where a whole field is allowed ({@link #FIELD_TOKEN}). */
+    private static boolean wholeField(final String value, final Mode mode) {
+        return mode.wholeFields() && FIELD_TOKEN.matcher(value).matches();
     }
 
     /**

@@ -343,7 +343,7 @@ yourself too. The signer is always the caller (identity never changes); the trav
 
 | Route | Who | Answer |
 |---|---|---|
-| `GET /api/trips/{tripId}/waivers[?personId=]` | the subject, someone who manages them, the trip's registration admin or manager, a site admin (403 else) | `{personId, satisfied, waivers:[{waiverId, title, version, acceptOlder, bodyHtml, sha256, standing: SIGNED\|SIGNED_OLDER\|OUTDATED\|MISSING, agreeText, authorityText, acceptance?:{version, acceptedAt, signerId, signerName, onBehalf, pdfUrl}}]}` -- the ONE call a client needs before registering. `bodyHtml` is the PINNED version's text (rich HTML, scripts stripped at publish; render it like the trip description). `agreeText`/`authorityText` are the two checkbox sentences, already naming the document and the traveler |
+| `GET /api/trips/{tripId}/waivers[?personId=]` | the subject, someone who manages them, the trip's registration admin or manager, a site admin (403 else) | `{personId, satisfied, waivers:[{waiverId, title, version, acceptOlder, bodyHtml, sha256, standing: SIGNED\|SIGNED_OLDER\|OUTDATED\|MISSING, agreeText, authorityText, acceptance?:{version, acceptedAt, signerId, signerName, onBehalf, pdfUrl}}]}` -- the ONE call a client needs before registering. `bodyHtml` is the PINNED version's text (rich HTML, a body with a script, a handler or an element a document does not keep is refused at publish; render it like the trip description). `agreeText`/`authorityText` are the two checkbox sentences, already naming the document and the traveler |
 | `POST /api/trips/{tripId}/waivers/{waiverId}/accept` `{personId, version, agreed, authorityAttested, client?}` | the caller signs for themselves or someone they manage | `{acceptance, satisfied}`; signing the same version twice answers the first row. 422 `MISSING_ATTESTATION` unless both are true, 409 `NOT_PINNED` when `version` is not the trip's pin (reload and read), 403 `FORBIDDEN`, 404 |
 | `GET /api/trips/{tripId}/waivers/{waiverId}/pdf?personId=&version=` (Accept `application/pdf`) | as the list | the signed copy (the version's text, then who signed for whom, both statements, when in UTC, from where, the text's SHA-256); 404 when there is no such signature |
 | `PUT /api/trips/{tripId}/waivers` `{waivers:[{waiverId, version, acceptOlder}]}` | registration admin or trip manager | replaces the pins; `{waivers:[{waiverId, title, version, acceptOlder, latestVersion}]}`; 400 `VALIDATION_FAILED` for another org's document, an unknown version or a repeat |
@@ -629,14 +629,21 @@ photos).
 - **Mail** (`POST /api/mail`, 2026-11-12): `from` must be a mailbox on one of the caller's sending domains (their
   organization's allow-list; every verified domain for a site admin), the website's mail-merge rule; otherwise
   422 `VALIDATION_FAILED` "The From address must use one of your verified sending domains." A missing `from` is
-  refused the same way.
+  refused the same way. Since 2026-11-24 the `body` goes through the same mail allowlist as the website's merge
+  (`RichTextHtml`: no script, frame or video): what is mailed is the cleaned markup, and the answer's
+  `formattingRemoved` (boolean) says whether the cleaner dropped anything. A body too long, holding a paste the
+  cleaner cannot read, or saying nothing once cleaned is 422 `VALIDATION_FAILED`, naming the problem.
 - **Mail preview** (`POST /api/mail/preview`, 2026-11-16): `{"personId", "template", "subject"?, "tripId"?}` answers
   `{"rendered"}` (plus `"subject"` when one was sent). The template is the website mail merge's text: `{{field}}`
-  substitution (`MergeText`), never evaluated. It was EL until medjugorje#79, which let an org-scoped `emailAdmin`
-  run code on the server. 422 `VALIDATION_FAILED`, naming the problem, for text still holding `#{` or `${`, an
-  unknown field, a trip field with no `tripId` the caller may mail, or a field the caller may not use (address and
-  passport status: site admin or the trip's `tripMgr`; balance: the trip's finance viewers). `personId` blank means
-  the caller; anyone else must be someone the caller may mail (403 otherwise).
+  substitution (`MergeText`), never evaluated, over the template as the mail allowlist cleans it (`RichTextHtml`, the
+  scheduled message's list since 2026-11-23: no script, frame or video; colors, alignment, tables and web images
+  kept), so `rendered` is the cleaned markup. It was EL until medjugorje#79, which let an org-scoped `emailAdmin` run
+  code on the server. 422 `VALIDATION_FAILED`, naming the problem, for text still holding `#{` or `${`, an unknown
+  field, a trip field with no `tripId` the caller may mail, or a field the caller may not use (address and passport
+  status: site admin or the trip's `tripMgr`; balance: the trip's finance viewers), a template longer than a scheduled
+  message may be, a link address too long to read, or a paste (usually an image) too large to send. Fields are checked
+  on the cleaned template, the one that is filled. `personId` blank means the caller; anyone else must be someone the
+  caller may mail (403 otherwise).
 - **Photo mention search** (`GET /api/photo-chat/mention-search?q=`, 2026-11-12): returns only people who share
   an organization with the caller (it searched every account before), matched by name and by what each person
   shares with everyone, in last-name order; a caller in no organization gets an empty list. Shape, limits and
