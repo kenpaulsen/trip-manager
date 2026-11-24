@@ -68,11 +68,11 @@ import static org.paulsens.trip.action.MoneyForms.dollars;
 import static org.paulsens.trip.action.MoneyForms.dollarsProblem;
 import static org.paulsens.trip.action.MoneyForms.money;
 import static org.paulsens.trip.action.MoneyForms.parse;
-import static org.paulsens.trip.action.MoneyForms.refused;
 import static org.paulsens.trip.action.MoneyForms.signedDollarsProblem;
 import static org.paulsens.trip.action.MoneyForms.tooLong;
 import static org.paulsens.trip.action.PageFeedback.info;
 import static org.paulsens.trip.action.PageFeedback.refuse;
+import static org.paulsens.trip.action.PageFeedback.refuseInto;
 import static org.paulsens.trip.action.PageFeedback.warn;
 
 /**
@@ -786,7 +786,7 @@ public class ExpenseCommands {
         }
         final String problem = headerProblem(form);
         if (problem != null) {
-            return refused(refusal, problem);
+            return refuseInto(refusal, problem);
         }
         final TripExpenseReport report = reportOrDefault(trip, Cached.NO);
         report.setSubmittedBy(trimToNull(form.getSubmittedBy()));
@@ -800,11 +800,11 @@ public class ExpenseCommands {
     }
 
     private static Consumer<String> headerRefusal(final HeaderForm form) {
-        return message -> refuseInto(form, message);
+        return message -> refuseHeader(form, message);
     }
 
     /** The header has no dialog of its own: a refusal both growls and stays on the form for the REST answer. */
-    private static void refuseInto(final HeaderForm form, final String message) {
+    private static void refuseHeader(final HeaderForm form, final String message) {
         form.setProblem(message);
         refuse(message);
     }
@@ -862,18 +862,18 @@ public class ExpenseCommands {
         final String code = CurrencyRate.normalizeCode(form.getCode());
         final String problem = currencyProblem(code, form.getRate(), form.getNote());
         if (problem != null) {
-            return refused(refusal, problem);
+            return refuseInto(refusal, problem);
         }
         final TripExpenseReport report = reportOrDefault(trip, Cached.NO);
         final CurrencyRate existing = report.currency(code);
         if (form.isExisting() && existing == null) {
-            return refused(refusal, Text.get("feedback.expenseCommands.currencyGone"));
+            return refuseInto(refusal, Text.get("feedback.expenseCommands.currencyGone"));
         }
         if (!form.isExisting() && existing != null) {
-            return refused(refusal, Text.get("feedback.expenseCommands.currencyAlreadyThere", code));
+            return refuseInto(refusal, Text.get("feedback.expenseCommands.currencyAlreadyThere", code));
         }
         if (existing == null && report.getCurrencies().size() >= MAX_CURRENCIES) {
-            return refused(refusal, Text.get("feedback.expenseCommands.tooManyCurrencies", MAX_CURRENCIES));
+            return refuseInto(refusal, Text.get("feedback.expenseCommands.tooManyCurrencies", MAX_CURRENCIES));
         }
         final CurrencyRate rate = CurrencyRate.builder().code(code).perUsdMicros(micros(form.getRate()))
                 .note(form.getNote()).build();
@@ -953,7 +953,7 @@ public class ExpenseCommands {
         }
         final String problem = lineProblem(form);
         if (problem != null) {
-            return refused(refusal, problem);
+            return refuseInto(refusal, problem);
         }
         final TripExpenseReport report = reportOrDefault(trip, Cached.NO);
         final String currency = currencyFor(report, form, refusal);
@@ -964,7 +964,7 @@ public class ExpenseCommands {
         final String budgetLineId = trimToNull(form.getBudgetLineId());
         final ExpenseCategory matched = categoryOf(budget, budgetLineId);
         if (budgetLineId != null && matched == null) {
-            return refused(refusal, Text.get("feedback.expenseCommands.budgetLineGone"));
+            return refuseInto(refusal, Text.get("feedback.expenseCommands.budgetLineGone"));
         }
         final ExpenseCategory category = (trimToNull(form.getCategory()) == null)
                 ? ((matched == null) ? ExpenseCategory.GENERAL : matched)
@@ -972,14 +972,14 @@ public class ExpenseCommands {
         final boolean adding = form.getId() == null || form.getId().isBlank();
         final ExpenseLine existing = adding ? null : report.line(form.getId());
         if (!adding && existing == null) {
-            return refused(refusal, Text.get("feedback.expenseCommands.expenseGone"));
+            return refuseInto(refusal, Text.get("feedback.expenseCommands.expenseGone"));
         }
         if (adding && report.getLines().size() >= MAX_LINES) {
-            return refused(refusal, Text.get("feedback.expenseCommands.tooManyExpenses", MAX_LINES));
+            return refuseInto(refusal, Text.get("feedback.expenseCommands.tooManyExpenses", MAX_LINES));
         }
         final ExpensePaidStatus paidStatus = paidStatusOf(form);
         if (!adding && paidStatus.isSettled() && report.isPaid(existing.getId())) {
-            return refused(refusal, Text.get("feedback.expenseCommands.paidLine"));
+            return refuseInto(refusal, Text.get("feedback.expenseCommands.paidLine"));
         }
         final ExpenseLine line = ExpenseLine.builder().id(adding ? null : existing.getId()).date(form.getDate())
                 .category(category).description(form.getDescription()).currency(currency)
@@ -1213,21 +1213,21 @@ public class ExpenseCommands {
         }
         final String problem = paymentProblem(form);
         if (problem != null) {
-            return refused(refusal, problem);
+            return refuseInto(refusal, problem);
         }
         final TripExpenseReport report = reportOrDefault(trip, Cached.NO);
         final boolean adding = form.getId() == null || form.getId().isBlank();
         final ExpensePayment existing = adding ? null : report.payment(form.getId());
         if (!adding && existing == null) {
-            return refused(refusal, Text.get("feedback.expenseCommands.paymentGone"));
+            return refuseInto(refusal, Text.get("feedback.expenseCommands.paymentGone"));
         }
         if (adding && report.getPayments().size() >= MAX_PAYMENTS) {
-            return refused(refusal, Text.get("feedback.expenseCommands.tooManyPayments", MAX_PAYMENTS));
+            return refuseInto(refusal, Text.get("feedback.expenseCommands.tooManyPayments", MAX_PAYMENTS));
         }
         final List<String> lineIds = distinct(form.getLineIds());
         final String lineProblem = paymentLinesProblem(report, existing, lineIds);
         if (lineProblem != null) {
-            return refused(refusal, lineProblem);
+            return refuseInto(refusal, lineProblem);
         }
         final ExpensePayment payment = ExpensePayment.builder().id(adding ? null : existing.getId())
                 .date(form.getDate()).amountCents(cents(form.getAmount())).method(form.getMethod())
@@ -1510,17 +1510,17 @@ public class ExpenseCommands {
         if (lineId == null || lineId.isBlank()) {
             ids = report.getReceiptIds();
             if (ids.size() >= MAX_REPORT_RECEIPTS) {
-                return refused(refusal,
+                return refuseInto(refusal,
                         Text.get("feedback.expenseCommands.tooManyReportReceipts", MAX_REPORT_RECEIPTS));
             }
         } else {
             final ExpenseLine line = report.line(lineId);
             if (line == null) {
-                return refused(refusal, Text.get("feedback.expenseCommands.expenseGone"));
+                return refuseInto(refusal, Text.get("feedback.expenseCommands.expenseGone"));
             }
             ids = line.getReceiptIds();
             if (ids.size() >= MAX_RECEIPTS_PER_LINE) {
-                return refused(refusal,
+                return refuseInto(refusal,
                         Text.get("feedback.expenseCommands.tooManyLineReceipts", MAX_RECEIPTS_PER_LINE));
             }
         }
@@ -1538,7 +1538,7 @@ public class ExpenseCommands {
         if (!report.getReceiptIds().remove(mediaId)) {
             final ExpenseLine line = report.lineWithReceipt(mediaId);
             if (line == null) {
-                return refused(refusal, Text.get("feedback.expenseCommands.receiptNotHere"));
+                return refuseInto(refusal, Text.get("feedback.expenseCommands.receiptNotHere"));
             }
             line.getReceiptIds().remove(mediaId);
         }
@@ -1675,16 +1675,16 @@ public class ExpenseCommands {
         final AdvanceType type = parse(AdvanceType.class, form.getType());
         final String problem = advanceProblem(trip, type, form);
         if (problem != null) {
-            return refused(refusal, problem);
+            return refuseInto(refusal, problem);
         }
         final TripExpenseReport report = reportOrDefault(trip, Cached.NO);
         final boolean adding = form.getId() == null || form.getId().isBlank();
         final AdvanceEntry existing = adding ? null : report.advance(form.getId());
         if (!adding && existing == null) {
-            return refused(refusal, Text.get("feedback.expenseCommands.advanceGone"));
+            return refuseInto(refusal, Text.get("feedback.expenseCommands.advanceGone"));
         }
         if (adding && report.getAdvances().size() >= MAX_ADVANCES) {
-            return refused(refusal, Text.get("feedback.expenseCommands.tooManyAdvances", MAX_ADVANCES));
+            return refuseInto(refusal, Text.get("feedback.expenseCommands.tooManyAdvances", MAX_ADVANCES));
         }
         final String currency = currencyFor(report, form.isAddingCurrency(), form.getCurrency(), form.getNewCode(),
                 form.getNewRate(), refusal);
@@ -1850,15 +1850,15 @@ public class ExpenseCommands {
         }
         try {
             if (!DAO.getInstance().saveTripExpenseReport(report)) {
-                return refused(refusal, Text.get("feedback.expenseCommands.notSaved"));
+                return refuseInto(refusal, Text.get("feedback.expenseCommands.notSaved"));
             }
         } catch (final ConditionalCheckFailedException ex) {
-            return refused(refusal, Text.get("feedback.shared.savedBySomeoneElse"));
+            return refuseInto(refusal, Text.get("feedback.shared.savedBySomeoneElse"));
         } catch (final IllegalArgumentException ex) {
-            return refused(refusal, Text.get("feedback.expenseCommands.tooLarge"));
+            return refuseInto(refusal, Text.get("feedback.expenseCommands.tooLarge"));
         } catch (final IOException ex) {
             log.error("Unable to save the expense report of trip {}", trip.getId(), ex);
-            return refused(refusal, Text.get("feedback.expenseCommands.saveFailed"));
+            return refuseInto(refusal, Text.get("feedback.expenseCommands.saveFailed"));
         }
         auditSource.get().expenseReport(trip.getId(), trip.getOrgId(),
                 "Expense report of '" + trip.getTitle() + "': " + what, caller().auditActor());

@@ -55,10 +55,10 @@ import static org.paulsens.trip.action.MoneyForms.dollars;
 import static org.paulsens.trip.action.MoneyForms.dollarsProblem;
 import static org.paulsens.trip.action.MoneyForms.money;
 import static org.paulsens.trip.action.MoneyForms.parse;
-import static org.paulsens.trip.action.MoneyForms.refused;
 import static org.paulsens.trip.action.MoneyForms.tooLong;
 import static org.paulsens.trip.action.PageFeedback.info;
 import static org.paulsens.trip.action.PageFeedback.refuse;
+import static org.paulsens.trip.action.PageFeedback.refuseInto;
 
 /**
  * A trip's planning budget, exposed to pages as {@code #{budget}} ({@code docs/budget.md}): the four typed
@@ -764,16 +764,16 @@ public class BudgetCommands {
         final BudgetCategory category = parse(BudgetCategory.class, form.getCategory());
         final String problem = lineProblem(form, kind, category);
         if (problem != null) {
-            return refused(refusal, problem);
+            return refuseInto(refusal, problem);
         }
         final TripBudget budget = budgetOrDefault(trip, Cached.NO);
         final boolean adding = form.getId() == null || form.getId().isBlank();
         final BudgetLine existing = adding ? null : budget.line(form.getId());
         if (!adding && existing == null) {
-            return refused(refusal, Text.get("feedback.budgetCommands.lineGone"));
+            return refuseInto(refusal, Text.get("feedback.budgetCommands.lineGone"));
         }
         if (adding && budget.getLines().size() >= MAX_LINES) {
-            return refused(refusal, Text.get("feedback.budgetCommands.tooManyLines", MAX_LINES));
+            return refuseInto(refusal, Text.get("feedback.budgetCommands.tooManyLines", MAX_LINES));
         }
         final BudgetLine line = BudgetLine.builder().id(adding ? null : existing.getId()).kind(kind)
                 .category(category).name(form.getName())
@@ -790,10 +790,10 @@ public class BudgetCommands {
         // Checked against the budget WITH this line in place: a cycle runs through the line being saved.
         final String percent = BudgetMath.percentProblem(budget, line);
         if (percent != null) {
-            return refused(refusal, percent);
+            return refuseInto(refusal, percent);
         }
         if (!adding && line.getKind() != existing.getKind() && !budget.linesFollowing(line.getId()).isEmpty()) {
-            return refused(refusal, Text.get("feedback.budgetCommands.kindLocked"));
+            return refuseInto(refusal, Text.get("feedback.budgetCommands.kindLocked"));
         }
         if (!persist(trip, budget, refusal, (adding ? "added" : "edited") + " line '" + line.getName() + "'",
                 Text.get("feedback.budgetCommands.lineSaved"))) {
@@ -897,21 +897,21 @@ public class BudgetCommands {
         final ReservationOffer offer = (form.getOfferId() == null) ? null
                 : offersById(tripId).get(form.getOfferId());
         if (offer == null) {
-            return refused(refusal, Text.get("feedback.budgetCommands.chooseLodgingOption"));
+            return refuseInto(refusal, Text.get("feedback.budgetCommands.chooseLodgingOption"));
         }
         refreshFlags(form, offer);
         final String problem = lodgingProblem(form);
         if (problem != null) {
-            return refused(refusal, problem);
+            return refuseInto(refusal, problem);
         }
         final TripBudget budget = budgetOrDefault(trip, Cached.NO);
         final boolean adding = form.getId() == null || form.getId().isBlank();
         final BudgetLodgingLine existing = adding ? null : budget.lodgingLine(form.getId());
         if (!adding && existing == null) {
-            return refused(refusal, Text.get("feedback.budgetCommands.lodgingLineGone"));
+            return refuseInto(refusal, Text.get("feedback.budgetCommands.lodgingLineGone"));
         }
         if (adding && budget.getLodging().size() >= MAX_LODGING_LINES) {
-            return refused(refusal, Text.get("feedback.budgetCommands.tooManyLodgingLines", MAX_LODGING_LINES));
+            return refuseInto(refusal, Text.get("feedback.budgetCommands.tooManyLodgingLines", MAX_LODGING_LINES));
         }
         final BudgetLodgingLine line = BudgetLodgingLine.builder().id(adding ? null : existing.getId())
                 .offerId(offer.getId().getValue()).label(offerName(offer)).nights(form.getNights())
@@ -986,15 +986,15 @@ public class BudgetCommands {
         }
         try {
             if (!DAO.getInstance().saveTripBudget(budget)) {
-                return refused(refusal, Text.get("feedback.budgetCommands.notSaved"));
+                return refuseInto(refusal, Text.get("feedback.budgetCommands.notSaved"));
             }
         } catch (final ConditionalCheckFailedException ex) {
-            return refused(refusal, Text.get("feedback.shared.savedBySomeoneElse"));
+            return refuseInto(refusal, Text.get("feedback.shared.savedBySomeoneElse"));
         } catch (final IllegalArgumentException ex) {
-            return refused(refusal, Text.get("feedback.budgetCommands.tooLarge"));
+            return refuseInto(refusal, Text.get("feedback.budgetCommands.tooLarge"));
         } catch (final IOException ex) {
             log.error("Unable to save the budget of trip {}", trip.getId(), ex);
-            return refused(refusal, Text.get("feedback.budgetCommands.notSavedBecause", ex.getMessage()));
+            return refuseInto(refusal, Text.get("feedback.budgetCommands.notSavedBecause", ex.getMessage()));
         }
         auditSource.get().budget(trip.getId(), trip.getOrgId(), "Budget of '" + trip.getTitle() + "': " + what,
                 caller().auditActor());

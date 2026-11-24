@@ -2,6 +2,7 @@ package org.paulsens.trip.action;
 
 import jakarta.faces.application.FacesMessage;
 import jakarta.faces.context.FacesContext;
+import java.util.function.Consumer;
 import org.primefaces.PrimeFaces;
 
 /**
@@ -69,6 +70,16 @@ public final class PageFeedback {
 
     public static boolean refuse(final String summary, final String detail) {
         error(summary, detail);
+        return false;
+    }
+
+    /**
+     * Hands the reason to {@code problem} (a dialog form's {@code setProblem}, a REST caller's collector) and
+     * answers {@code false}: {@link #refuse(String)} for a refusal the caller shows somewhere a growl cannot be
+     * seen, such as under a modal dialog. Raises no message itself, or the same sentence would show twice.
+     */
+    public static boolean refuseInto(final Consumer<String> problem, final String reason) {
+        problem.accept(reason);
         return false;
     }
 

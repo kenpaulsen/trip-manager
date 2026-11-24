@@ -84,6 +84,7 @@ import static org.paulsens.trip.action.PageFeedback.callbackParam;
 import static org.paulsens.trip.action.PageFeedback.error;
 import static org.paulsens.trip.action.PageFeedback.info;
 import static org.paulsens.trip.action.PageFeedback.refuse;
+import static org.paulsens.trip.action.PageFeedback.refuseInto;
 import static org.paulsens.trip.action.PageFeedback.refuseAction;
 import static org.paulsens.trip.action.PageFeedback.warn;
 
@@ -1202,12 +1203,6 @@ public class LodgingCommands {
             log.error("Unable to save offer {}", offer.getId(), ex);
             return refuse(Text.get("feedback.lodgingCommands.optionNotSavedBecause", ex.getMessage()));
         }
-    }
-
-    /** A refusal the dialog shows through its form; NOT also growled, or the dialog's p:messages shows it twice. */
-    private static boolean refuseInto(final java.util.function.Consumer<String> problem, final String message) {
-        problem.accept(message);
-        return false;
     }
 
     /** An edited PRICE changes what the option's ACTIVE reservations cost: recompute them, by room where placed. */

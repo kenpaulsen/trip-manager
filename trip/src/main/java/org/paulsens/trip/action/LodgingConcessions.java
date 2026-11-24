@@ -16,6 +16,7 @@ import org.paulsens.trip.pay.LodgingPricing;
 import org.paulsens.trip.pay.MoneyMath;
 
 import static org.paulsens.trip.action.PageFeedback.refuse;
+import static org.paulsens.trip.action.PageFeedback.refuseInto;
 
 /**
  * Per-stay concessions, one side at a time: the PRICE side forgives the participants part of their lodging
@@ -74,14 +75,14 @@ final class LodgingConcessions {
         form.setSide(sideOf(form.getSide()));
         final Reservation res = lodging.findReservation(form.getTripId(), form.getReservationId());
         if (res == null || !res.isActive()) {
-            return refuseInto(form, Text.get("feedback.reservation.gone"));
+            return refuseInto(form::setProblem, Text.get("feedback.reservation.gone"));
         }
         if (!maySet(form, res)) {
-            return refuseInto(form, notAllowed(form));
+            return refuseInto(form::setProblem, notAllowed(form));
         }
         final String problem = problem(form);
         if (problem != null) {
-            return refuseInto(form, problem);
+            return refuseInto(form::setProblem, problem);
         }
         final Concession concession = build(form);
         if (form.isPriceSide()) {
@@ -93,7 +94,7 @@ final class LodgingConcessions {
         final ReservationOffer offer = lodging.findOffer(form.getTripId(), LodgingCommands.idValue(res.getOfferId()));
         final Accommodation acc = lodging.findAccommodation(LodgingCommands.idValue(res.getAccommodationId()));
         if (!lodging.persistReservation(trip, offer, acc, res, res.getRoomId())) {
-            return refuseInto(form, Text.get("feedback.lodgingConcessions.notSaved"));
+            return refuseInto(form::setProblem, Text.get("feedback.lodgingConcessions.notSaved"));
         }
         final String what = (concession == null) ? "CONCESSION cleared (" + form.getSide() + ") for "
                 : "CONCESSION set (" + form.getSide() + "): " + concession.label() + " for ";
@@ -204,11 +205,6 @@ final class LodgingConcessions {
     }
 
     /** The dialog shows the form's problem; a growl too would render twice under the dialog's p:messages. */
-    private static boolean refuseInto(final ConcessionForm form, final String message) {
-        form.setProblem(message);
-        return false;
-    }
-
     private static String sideOf(final String side) {
         return COST.equalsIgnoreCase(side) ? COST : PRICE;
     }

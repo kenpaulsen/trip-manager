@@ -2,7 +2,6 @@ package org.paulsens.trip.action;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.util.function.Consumer;
 import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.pay.MoneyMath;
 
@@ -77,11 +76,5 @@ final class MoneyForms {
         } catch (final IllegalArgumentException ex) {
             return null;
         }
-    }
-
-    /** Hands {@code message} to the refusal and answers false, so a refusal can be a one-line return. */
-    static boolean refused(final Consumer<String> refusal, final String message) {
-        refusal.accept(message);
-        return false;
     }
 }

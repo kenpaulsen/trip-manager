@@ -1,12 +1,9 @@
 package org.paulsens.trip.action;
 
-import java.util.ArrayList;
-import java.util.List;
 import org.paulsens.trip.model.ExpenseCategory;
 import org.testng.annotations.Test;
 
 import static org.testng.Assert.assertEquals;
-import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNull;
 
 public class MoneyFormsTest {
@@ -57,12 +54,5 @@ public class MoneyFormsTest {
         assertNull(MoneyForms.parse(ExpenseCategory.class, "nope"));
         assertNull(MoneyForms.parse(ExpenseCategory.class, " "));
         assertNull(MoneyForms.parse(ExpenseCategory.class, null));
-    }
-
-    @Test
-    public void refusedHandsOverTheMessage() {
-        final List<String> got = new ArrayList<>();
-        assertFalse(MoneyForms.refused(got::add, "No."));
-        assertEquals(got, List.of("No."));
     }
 }

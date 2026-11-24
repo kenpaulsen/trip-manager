@@ -42,8 +42,10 @@ import org.paulsens.trip.security.Digests;
 import org.paulsens.trip.util.EmailAddresses;
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
 
+import static org.paulsens.trip.action.MoneyForms.parse;
 import static org.paulsens.trip.action.PageFeedback.info;
 import static org.paulsens.trip.action.PageFeedback.refuse;
+import static org.paulsens.trip.action.PageFeedback.refuseInto;
 import static org.paulsens.trip.action.PageFeedback.warn;
 
 /**
@@ -392,16 +394,16 @@ public class ReminderCommands {
         }
         final String problem = formProblem(form);
         if (problem != null) {
-            return refused(refusal, problem);
+            return refuseInto(refusal, problem);
         }
         final TripReminderPlan plan = planOf(trip);
         final boolean adding = form.getId() == null || form.getId().isBlank();
         final TripReminder existing = adding ? null : plan.reminder(form.getId());
         if (!adding && existing == null) {
-            return refused(refusal, Text.get("feedback.reminderCommands.noLongerExists"));
+            return refuseInto(refusal, Text.get("feedback.reminderCommands.noLongerExists"));
         }
         if (adding && plan.getReminders().size() >= MAX_REMINDERS) {
-            return refused(refusal, Text.get("feedback.reminderCommands.tooManyMessages", MAX_REMINDERS));
+            return refuseInto(refusal, Text.get("feedback.reminderCommands.tooManyMessages", MAX_REMINDERS));
         }
         final TripReminder.Anchor anchor = parse(TripReminder.Anchor.class, form.getAnchor());
         final boolean dated = anchor == TripReminder.Anchor.FIXED_DATE;
@@ -420,7 +422,7 @@ public class ReminderCommands {
                 .pushText((form.getPushText() == null) ? "" : form.getPushText().trim())
                 .status(TripReminder.Status.DRAFT).build();
         if (!reminder.isReachable(trip)) {
-            return refused(refusal, tooLate());
+            return refuseInto(refusal, tooLate());
         }
         plan.put(reminder);
         if (!persist(trip, plan, refusal, (adding ? "added" : "edited") + " '" + reminder.getName() + "' (draft)")) {
@@ -1079,19 +1081,6 @@ public class ReminderCommands {
         return trip;
     }
 
-    private static boolean refused(final Consumer<String> refusal, final String problem) {
-        refusal.accept(problem);
-        return false;
-    }
-
-    private static <E extends Enum<E>> E parse(final Class<E> type, final String name) {
-        try {
-            return (name == null) ? null : Enum.valueOf(type, name);
-        } catch (final IllegalArgumentException ex) {
-            return null;
-        }
-    }
-
     /** Saves the plan with one versioned put and audits what changed. */
     private boolean persist(final Trip trip, final TripReminderPlan plan, final Consumer<String> refusal,
             final String what) {
@@ -1101,15 +1090,15 @@ public class ReminderCommands {
         }
         try {
             if (!DAO.getInstance().saveReminderPlan(plan)) {
-                return refused(refusal, Text.get("feedback.reminderCommands.notSaved"));
+                return refuseInto(refusal, Text.get("feedback.reminderCommands.notSaved"));
             }
         } catch (final ConditionalCheckFailedException ex) {
-            return refused(refusal, Text.get("feedback.shared.savedBySomeoneElse"));
+            return refuseInto(refusal, Text.get("feedback.shared.savedBySomeoneElse"));
         } catch (final IllegalArgumentException ex) {
-            return refused(refusal, Text.get("feedback.reminderCommands.tooLargeToSave"));
+            return refuseInto(refusal, Text.get("feedback.reminderCommands.tooLargeToSave"));
         } catch (final IOException ex) {
             log.error("Unable to save the reminders of trip {}", trip.getId(), ex);
-            return refused(refusal, Text.get("feedback.reminderCommands.notSaved"));
+            return refuseInto(refusal, Text.get("feedback.reminderCommands.notSaved"));
         }
         auditSource.get().reminder(trip.getId(), trip.getOrgId(), "Messages of '" + trip.getTitle() + "': " + what,
                 caller().auditActor());

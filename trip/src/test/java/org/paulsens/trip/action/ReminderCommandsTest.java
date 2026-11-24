@@ -290,6 +290,22 @@ public class ReminderCommandsTest {
         assertEquals(rows.get(0).getName(), "Passport check", "Earliest send date first");
     }
 
+    /** The dialog's menu values are read by the money forms' reader: padding is forgiven, as it is there. */
+    @Test
+    public void aPaddedMenuValueIsReadAsTheValue() throws IOException {
+        final Trip trip = newTrip();
+        final ReminderViews.Form form = form("Padded", TODAY);
+        form.setAnchor(" FIXED_DATE ");
+        form.setAudience(" PENDING ");
+        final TripReminder stored = stored(trip, saved(trip, form));
+        assertEquals(stored.getAnchor(), TripReminder.Anchor.FIXED_DATE);
+        assertEquals(stored.getAudience(), TripReminder.Audience.PENDING);
+        form.setKind(" PASSPORT ");
+        assertEquals(admin().audienceLabel(form), "Confirmed travelers with a missing or expiring passport");
+        form.setKind("  ");
+        assertEquals(admin().audienceLabel(form), "");
+    }
+
     @Test
     public void saveRefusesWhatCouldNotBeSentAsWritten() throws IOException {
         final Trip trip = newTrip();

@@ -30,6 +30,14 @@ public class PageFeedbackTest {
         Assert.assertEquals(PageFeedback.compose("Note:", "x"), "Note: x");
     }
 
+    /** A refusal for a form to show: handed over whole, answered false, and no growl beside it. */
+    @Test
+    public void refuseIntoHandsTheReasonOverAndAnswersFalse() {
+        final List<String> got = new ArrayList<>();
+        Assert.assertFalse(PageFeedback.refuseInto(got::add, "No."));
+        Assert.assertEquals(got, List.of("No."));
+    }
+
     @Test
     public void aMissingHalfIsJustTheOtherHalf() {
         Assert.assertEquals(PageFeedback.compose("Saved", null), "Saved");
