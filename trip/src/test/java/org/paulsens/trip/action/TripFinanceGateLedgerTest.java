@@ -65,7 +65,7 @@ public class TripFinanceGateLedgerTest {
     /** The budget's and the expense report's reads: the trip for whoever may view it, null for everyone else. */
     @Test
     public void theViewableTripIsTheTripBehindTheViewGate() throws IOException {
-        final Trip trip = storedTrip(Person.Id.newInstance());
+        final Trip trip = ledgerTrip(Person.Id.newInstance());
         Assert.assertEquals(gateFor(PrivilegeCommands.TRIP_FIN_VIEW, trip).viewableTrip(trip.getId()).getId(),
                 trip.getId());
         Assert.assertEquals(gateFor(PrivilegeCommands.TRIP_MGR, trip).viewableTrip(trip.getId()).getId(),
@@ -79,7 +79,7 @@ public class TripFinanceGateLedgerTest {
 
     @Test
     public void theReminderGateAndTheLodgingReportsAskTheSameTest() throws IOException {
-        final Trip trip = storedTrip(Person.Id.newInstance());
+        final Trip trip = ledgerTrip(Person.Id.newInstance());
         final String padded = " " + trip.getId() + " ";
         final ReminderGate reminders = new ReminderGate(TenancyFixtures::siteAdminCaller,
                 () -> new TripCommands(TenancyFixtures::asSiteAdmin, TenancyFixtures::siteAdminCaller),
