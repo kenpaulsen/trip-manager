@@ -1260,26 +1260,8 @@ public class OrgCommands {
             return caller().isSiteAdmin()
                     ? DAO.getInstance().searchPeople(query, MANAGER_PICKER_LIMIT, Cached.NO) : List.of();
         }
-        final String needle = (query == null) ? "" : query.trim().toLowerCase(Locale.ROOT);
-        return getMembers(owner).stream()
-                .filter(member -> matchesPicker(member, needle))
-                .sorted(Comparator.comparing(OrgCommands::rosterSortKey))
-                .limit(MANAGER_PICKER_LIMIT)
-                .toList();
-    }
-
-    /** Case-insensitive substring over the names and email the picker's row label shows. */
-    private static boolean matchesPicker(final Person person, final String lowerNeedle) {
-        if (lowerNeedle.isEmpty()) {
-            return true;
-        }
-        final String haystack = (person.getPreferredName() + " " + person.getFirst() + " "
-                + person.getLast() + " " + person.getEmail()).toLowerCase(Locale.ROOT);
-        return haystack.contains(lowerNeedle);
-    }
-
-    private static String rosterSortKey(final Person person) {
-        return (person.getLast() + " " + person.getPreferredName()).toLowerCase(Locale.ROOT);
+        // The scoping is HERE, the owning organization's members and nobody else; the picker only narrows them.
+        return PeoplePicker.pick(getMembers(owner), query, MANAGER_PICKER_LIMIT);
     }
 
     /**

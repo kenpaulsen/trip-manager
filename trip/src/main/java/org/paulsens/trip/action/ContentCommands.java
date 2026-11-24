@@ -1161,14 +1161,10 @@ public class ContentCommands {
         }
         final Organization.Id org = orgOf(section, containerOf(section));
         if (org != null) {
-            final String needle = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
-            return DAO.getInstance().getOrgMembers(org, Cached.YES).stream()
+            // The scoping is HERE, the organization's members and nobody else; the picker only narrows them.
+            return PeoplePicker.pick(DAO.getInstance().getOrgMembers(org, Cached.YES).stream()
                     .map(member -> DAO.getInstance().getPerson(member.getPersonId(), Cached.YES))
-                    .flatMap(Optional::stream)
-                    .filter(person -> matchesPicker(person, needle))
-                    .sorted(Comparator.comparing(ContentCommands::pickerSortKey))
-                    .limit(PERSON_PICKER_LIMIT)
-                    .toList();
+                    .flatMap(Optional::stream).toList(), query, PERSON_PICKER_LIMIT);
         }
         if (!caller.has(PrivilegeCommands.CONTENT_ADMIN)) {
             return List.of();
@@ -1179,19 +1175,6 @@ public class ContentCommands {
             log.error("Failed to search people for '{}'", query, ex);
             return List.of();
         }
-    }
-
-    private static boolean matchesPicker(final Person person, final String lowerNeedle) {
-        if (lowerNeedle.isEmpty()) {
-            return true;
-        }
-        final String haystack = (person.getPreferredName() + " " + person.getFirst() + " "
-                + person.getLast() + " " + person.getEmail()).toLowerCase(Locale.ROOT);
-        return haystack.contains(lowerNeedle);
-    }
-
-    private static String pickerSortKey(final Person person) {
-        return (person.getLast() + " " + person.getPreferredName()).toLowerCase(Locale.ROOT);
     }
 
     /**

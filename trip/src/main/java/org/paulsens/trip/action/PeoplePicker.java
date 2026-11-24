@@ -1,0 +1,50 @@
+package org.paulsens.trip.action;
+
+import java.util.Collection;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Locale;
+import org.paulsens.trip.model.Person;
+
+/**
+ * What a people autocomplete answers from a roster its bean has ALREADY scoped: the content dialog's person
+ * prompt ({@link ContentCommands#completeForContent}) and the trip editor's Add Manager picker
+ * ({@link OrgCommands#completeTripManagerCandidates}) filtered and ordered their organization's members with the
+ * same lines.
+ *
+ * <p>Tenancy stays in the bean. This class reads no people and knows no organization: it only narrows the
+ * list it is handed, so it can never widen what a caller may search. Whoever calls it decides, and tests, whose
+ * roster that is.
+ */
+final class PeoplePicker {
+
+    private PeoplePicker() {
+    }
+
+    /**
+     * The people of {@code scopedRoster} whose names or email contain {@code query} (case-insensitive; a blank
+     * query matches everyone), by last name then preferred name, at most {@code limit} of them.
+     */
+    static List<Person> pick(final Collection<Person> scopedRoster, final String query, final int limit) {
+        final String needle = (query == null) ? "" : query.trim().toLowerCase(Locale.ROOT);
+        return scopedRoster.stream()
+                .filter(person -> matches(person, needle))
+                .sorted(Comparator.comparing(PeoplePicker::sortKey))
+                .limit(limit)
+                .toList();
+    }
+
+    /** Case-insensitive substring over the names and email the picker's row label shows. */
+    private static boolean matches(final Person person, final String lowerNeedle) {
+        if (lowerNeedle.isEmpty()) {
+            return true;
+        }
+        final String haystack = (person.getPreferredName() + " " + person.getFirst() + " "
+                + person.getLast() + " " + person.getEmail()).toLowerCase(Locale.ROOT);
+        return haystack.contains(lowerNeedle);
+    }
+
+    private static String sortKey(final Person person) {
+        return (person.getLast() + " " + person.getPreferredName()).toLowerCase(Locale.ROOT);
+    }
+}
