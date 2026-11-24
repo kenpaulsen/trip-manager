@@ -821,7 +821,7 @@ public class PaymentCommands {
             final Trip trip = DAO.getInstance().getTrip(payment.getTripId(), Cached.NO).orElse(null);
             final boolean mailed = mailerSource.get().sendPaymentFailed(payment, trip,
                     orgs.effectivePaymentConfig(trip), orgNameOf(payment), displayNameOf(configOf(payment)),
-                    reason, current.auditActor());
+                    reason, notifyEmail(), current.auditActor());
             if (!mailed) {
                 audit.payment(payment, false, "Payment-failed email was not sent", current.auditActor());
             }

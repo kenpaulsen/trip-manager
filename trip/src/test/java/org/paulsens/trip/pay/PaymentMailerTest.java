@@ -62,21 +62,21 @@ public class PaymentMailerTest {
                 .mailFrom("CFPW <no-reply@unitetrip.com>").bcc("books@x.org").build();
 
         assertTrue(mailer.sendPaymentFailed(payment(payer), trip(), effective, "CFPW", "Stripe",
-                "the bank returned the debit", AuditActor.system()));
+                "the bank returned the debit", "notify@x.org", AuditActor.system()));
         @SuppressWarnings("unchecked")
         final ArgumentCaptor<java.util.Map<String, Object>> values = ArgumentCaptor.forClass(java.util.Map.class);
         Mockito.verify(mail).sendManagedTemplateForOrg(ArgumentMatchers.eq("payment-failed"),
                 ArgumentMatchers.any(), ArgumentMatchers.any(), values.capture(),
                 ArgumentMatchers.eq("joe@example.com"),
                 ArgumentMatchers.eq("CFPW <no-reply@unitetrip.com>"), ArgumentMatchers.any(),
-                ArgumentMatchers.eq("books@x.org"), ArgumentMatchers.any());
+                ArgumentMatchers.eq("books@x.org,notify@x.org"), ArgumentMatchers.any());
         assertEquals(values.getValue().get("failureReason"), "the bank returned the debit");
         assertEquals(values.getValue().get("processorName"), "Stripe");
 
         assertFalse(mailer.sendPaymentFailed(payment(payer), trip(), TripPaymentConfig.builder().build(),
-                "CFPW", "Stripe", "x", AuditActor.system()), "no From = unsendable, quietly");
+                "CFPW", "Stripe", "x", null, AuditActor.system()), "no From = unsendable, quietly");
         assertFalse(new PaymentMailer(mail, id -> null).sendPaymentFailed(payment(payer), trip(), effective,
-                "CFPW", "Stripe", "x", AuditActor.system()), "no payer = unsendable, quietly");
+                "CFPW", "Stripe", "x", null, AuditActor.system()), "no payer = unsendable, quietly");
     }
 
     /**
@@ -385,7 +385,7 @@ public class PaymentMailerTest {
         final PaymentMailer mailer = new PaymentMailer(mail, id -> payer);
 
         assertTrue(mailer.sendPaymentFailed(payment(payer), trip, effective, "Beta Corp", "Stripe", "returned",
-                AuditActor.system()));
+                null, AuditActor.system()));
         Mockito.verify(mail).send(ArgumentMatchers.any(), ArgumentMatchers.eq("ana@example.com"),
                 ArgumentMatchers.any(), ArgumentMatchers.any(),
                 ArgumentMatchers.eq("Pago no completado - Roma 2027"),
@@ -394,7 +394,7 @@ public class PaymentMailerTest {
         Mockito.clearInvocations(mail);
         payer.setLanguage("en");
         assertTrue(mailer.sendPaymentFailed(payment(payer), trip, effective, "Beta Corp", "Stripe", "returned",
-                AuditActor.system()));
+                null, AuditActor.system()));
         Mockito.verify(mail).send(ArgumentMatchers.any(), ArgumentMatchers.eq("ana@example.com"),
                 ArgumentMatchers.any(), ArgumentMatchers.any(),
                 ArgumentMatchers.eq("Payment not completed - Roma 2027"),

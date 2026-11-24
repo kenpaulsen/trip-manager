@@ -76,8 +76,8 @@ public class StripeWebhookResourceTest extends ResourceTestSupport {
                 ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
                 .thenReturn(true);
         Mockito.when(mailer.sendPaymentFailed(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
-                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
-                .thenReturn(true);
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any())).thenReturn(true);
         final java.util.function.Supplier<Caller> system = () -> Caller.forActor(AuditActor.system());
         bind(PaymentCommands.class, new PaymentCommands(system, new OrgCommands(system), new AuditCommands(),
                 new PaymentRecorder(), (cfg, sandbox) -> stripe, () -> mailer));
@@ -234,12 +234,12 @@ public class StripeWebhookResourceTest extends ResourceTestSupport {
         Mockito.verify(mailer).sendPaymentFailed(ArgumentMatchers.argThat(p -> bank.getPaymentId()
                 .equals(p.getPaymentId())), ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
                 ArgumentMatchers.eq("Stripe"), ArgumentMatchers.eq("The customer's account has insufficient funds."),
-                ArgumentMatchers.any());
+                ArgumentMatchers.any(), ArgumentMatchers.any());
         Assert.assertEquals(entity(post(configId(), sign(returned, LIVE_SECRET), returned)).get("status"),
                 "unchanged", "redelivery of the failure changes nothing and mails nobody again");
         Mockito.verify(mailer, Mockito.times(1)).sendPaymentFailed(ArgumentMatchers.any(), ArgumentMatchers.any(),
                 ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
-                ArgumentMatchers.any());
+                ArgumentMatchers.any(), ArgumentMatchers.any());
     }
 
     @Test

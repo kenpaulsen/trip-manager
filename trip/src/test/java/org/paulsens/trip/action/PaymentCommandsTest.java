@@ -900,7 +900,7 @@ public class PaymentCommandsTest {
         final PaymentCommands commands = commandsFor(payer, false);
         Mockito.when(mailer.sendPaymentFailed(ArgumentMatchers.any(), ArgumentMatchers.any(),
                 ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
-                ArgumentMatchers.any())).thenReturn(true);
+                ArgumentMatchers.any(), ArgumentMatchers.any())).thenReturn(true);
         final String failing = commands.startPayment(trip(), Map.of(payer.getId().getValue(), "10"), null,
                 false, "http://localhost/pay").getPaymentId();
         commands.noteFailure(failing, "card_declined");
@@ -913,7 +913,7 @@ public class PaymentCommandsTest {
         Mockito.verify(mailer).sendPaymentFailed(ArgumentMatchers.argThat(p -> failing.equals(p.getPaymentId())),
                 ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.eq("CFPW"),
                 ArgumentMatchers.eq("Test Processor"), ArgumentMatchers.eq("the bank returned the debit"),
-                ArgumentMatchers.any());
+                ArgumentMatchers.any(), ArgumentMatchers.any());
         assertFalse(commands.failFromWebhook(failing, "again"), "FAILED is terminal");
         assertFalse(commands.failFromWebhook("no-such-payment", "x"));
 
@@ -936,7 +936,7 @@ public class PaymentCommandsTest {
         assertTrue(sandboxed.failFromWebhook(sandboxId, "returned"));
         Mockito.verify(mailer, Mockito.never()).sendPaymentFailed(ArgumentMatchers.any(), ArgumentMatchers.any(),
                 ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
-                ArgumentMatchers.any());
+                ArgumentMatchers.any(), ArgumentMatchers.any());
     }
 
     // ------------------------------------------------------------------ refunds (webhook-driven)

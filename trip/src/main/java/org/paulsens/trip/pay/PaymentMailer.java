@@ -70,11 +70,13 @@ public class PaymentMailer {
     /**
      * The "your bank payment did not go through" notice for a payment that FAILED after the payer saw
      * "processing" (a returned debit, days later): the fixed {@code payment-failed} MAIL starter, sent from
-     * the same effective From/reply-to as the confirmation, bcc'ing the org copy. Same contract as
+     * the same effective From/reply-to as the confirmation, bcc'ing the org copy and the payment notify address
+     * like its two siblings: whoever was told the payment arrived has to hear that it bounced. Same contract as
      * {@link #sendConfirmation}: false when unconfigured or unsendable, logged, never thrown.
      */
     public boolean sendPaymentFailed(final Payment payment, final Trip trip, final TripPaymentConfig effective,
-            final String orgName, final String processorName, final String reason, final AuditActor actor) {
+            final String orgName, final String processorName, final String reason, final String notifyEmail,
+            final AuditActor actor) {
         final Person payer = people.apply(payment.getPayerId());
         if (payer == null || payer.getEmail() == null || payer.getEmail().isBlank()) {
             log.warn("Payment {}: payer has no address; failure notice not sent", payment.getPaymentId());
@@ -88,7 +90,7 @@ public class PaymentMailer {
         values.put("failureReason", reason == null ? "" : reason);
         return mail.sendManagedTemplateForOrg(StarterTemplates.PAYMENT_FAILED_ID, orgOf(payment, trip),
                 ReaderLanguage.of(payer, trip), values, payer.getEmail(), fromFor(trip, effective),
-                effective.getReplyTo(), effective.getBcc(), actor);
+                effective.getReplyTo(), joinAddresses(effective.getBcc(), notifyEmail), actor);
     }
 
     /**
