@@ -6,11 +6,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
+import org.paulsens.trip.util.Env;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.http.apache.ApacheHttpClient;
-import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClientBuilder;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
@@ -59,7 +59,7 @@ class DynamoPersistence implements Persistence {
      */
     DynamoPersistence(final URI endpoint) {
         final DynamoDbClientBuilder builder = DynamoDbClient.builder()
-                .region(resolveRegion())
+                .region(Env.awsRegion())
                 // Default chain: finds the ECS task role / instance role in AWS, and ~/.aws [default] on a laptop.
                 .credentialsProvider(endpoint == null
                         ? DefaultCredentialsProvider.builder().build()
@@ -90,16 +90,6 @@ class DynamoPersistence implements Persistence {
     static URI resolveEndpoint() {
         final String endpoint = System.getProperty("trip.dynamo.endpoint");
         return (endpoint == null || endpoint.isBlank()) ? null : URI.create(endpoint.trim());
-    }
-
-    // Region defaults to us-west-2 (the active deployment) but can be overridden so a one-off tool -- e.g. the
-    // password-pepper rotation/migration script -- can target another deployment's account/region without a rebuild.
-    static Region resolveRegion() {
-        String region = System.getProperty("trip.dynamo.region");
-        if (region == null || region.isBlank()) {
-            region = System.getenv("TRIP_DYNAMO_REGION");
-        }
-        return (region == null || region.isBlank()) ? Region.US_WEST_2 : Region.of(region.trim());
     }
 
     @Override

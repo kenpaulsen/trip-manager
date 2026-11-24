@@ -3,6 +3,7 @@ package org.paulsens.trip.cache;
 import java.util.Locale;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.util.Env;
 
 /**
  * Resolves shared-cache settings from system properties with environment-variable fallback, mirroring the
@@ -34,8 +35,8 @@ public final class CacheConfig {
     }
 
     public static CacheConfig resolve() {
-        final String uri = prop("trip.valkey.uri", "TRIP_VALKEY_URI");
-        final String rawMode = prop("trip.cache.mode", "TRIP_CACHE_MODE");
+        final String uri = Env.setting("trip.valkey.uri", "TRIP_VALKEY_URI");
+        final String rawMode = Env.setting("trip.cache.mode", "TRIP_CACHE_MODE");
         final Mode mode = parseMode(rawMode, uri);
         if (mode == Mode.VALKEY && (uri == null)) {
             log.error("Cache mode is 'valkey' but no trip.valkey.uri / TRIP_VALKEY_URI is set! "
@@ -58,18 +59,10 @@ public final class CacheConfig {
     }
 
     private static boolean isCluster(final String uri) {
-        final String protocol = prop("trip.valkey.protocol", "TRIP_VALKEY_PROTOCOL");
+        final String protocol = Env.setting("trip.valkey.protocol", "TRIP_VALKEY_PROTOCOL");
         if (protocol != null && !protocol.isBlank()) {
             return "cluster".equalsIgnoreCase(protocol.trim());
         }
         return uri != null && uri.startsWith("rediss://");
-    }
-
-    private static String prop(final String sysProp, final String envVar) {
-        String value = System.getProperty(sysProp);
-        if (value == null || value.isBlank()) {
-            value = System.getenv(envVar);
-        }
-        return (value == null || value.isBlank()) ? null : value.trim();
     }
 }
