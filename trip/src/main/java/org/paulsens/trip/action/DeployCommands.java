@@ -22,6 +22,7 @@ import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.deploy.PipelineStageStatus;
 import org.paulsens.trip.model.deploy.PipelineStatus;
+import org.paulsens.trip.util.Env;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.codepipeline.CodePipelineClient;
@@ -312,13 +313,7 @@ public class DeployCommands {
     }
 
     private static String pipelineName() {
-        return env(PIPELINE_VAR);
-    }
-
-    private static String env(final String name) {
-        final String sysProp = System.getProperty(name.toLowerCase(Locale.ROOT).replace('_', '.'));
-        final String value = (sysProp == null || sysProp.isBlank()) ? System.getenv(name) : sysProp;
-        return (value == null || value.isBlank()) ? null : value.trim();
+        return Env.setting(PIPELINE_VAR);
     }
 
     private CodePipelineClient client() {
@@ -327,7 +322,7 @@ public class DeployCommands {
             synchronized (this) {
                 existing = client;
                 if (existing == null) {
-                    final String region = env(REGION_VAR);
+                    final String region = Env.setting(REGION_VAR);
                     existing = CodePipelineClient.builder()
                             .region(Region.of(region == null ? DEFAULT_REGION : region))
                             .credentialsProvider(DefaultCredentialsProvider.builder().build())

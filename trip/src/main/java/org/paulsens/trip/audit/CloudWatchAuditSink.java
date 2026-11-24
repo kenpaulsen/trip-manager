@@ -12,10 +12,10 @@ import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
 import org.paulsens.trip.model.AuditEvent;
+import org.paulsens.trip.util.Env;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.awscore.exception.AwsServiceException;
 import software.amazon.awssdk.core.exception.SdkClientException;
-import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.cloudwatchlogs.CloudWatchLogsClient;
 import software.amazon.awssdk.services.cloudwatchlogs.model.CreateLogStreamRequest;
 import software.amazon.awssdk.services.cloudwatchlogs.model.InputLogEvent;
@@ -73,7 +73,7 @@ public final class CloudWatchAuditSink implements AuditSink {
      */
     public CloudWatchAuditSink(final String logGroup) {
         this(logGroup, CloudWatchLogsClient.builder()
-                .region(resolveRegion())
+                .region(Env.awsRegion())
                 // Default chain: the ECS task role in AWS, ~/.aws [default] on a laptop.
                 .credentialsProvider(DefaultCredentialsProvider.builder().build())
                 // The client-level bound replaces the CF-era per-call orTimeout: send() is reached from
@@ -255,14 +255,5 @@ public final class CloudWatchAuditSink implements AuditSink {
         // In a container this is the container id, which is the useful thing to correlate with.
         final String host = System.getenv("HOSTNAME");
         return (host == null || host.isBlank()) ? "unknown" : host.trim();
-    }
-
-    /** Mirrors DynamoPersistence's precedence so every AWS client in the app lands in the same region. */
-    private static Region resolveRegion() {
-        String region = System.getProperty("trip.dynamo.region");
-        if (region == null || region.isBlank()) {
-            region = System.getenv("TRIP_DYNAMO_REGION");
-        }
-        return (region == null || region.isBlank()) ? Region.US_WEST_2 : Region.of(region.trim());
     }
 }

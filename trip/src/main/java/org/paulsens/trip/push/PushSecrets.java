@@ -12,13 +12,10 @@ import java.security.interfaces.RSAPrivateKey;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.dynamo.LocalMode;
-import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
-import software.amazon.awssdk.regions.Region;
-import software.amazon.awssdk.services.secretsmanager.SecretsManagerClient;
-import software.amazon.awssdk.services.secretsmanager.model.GetSecretValueRequest;
+import org.paulsens.trip.security.SecretsManagerReader;
+import org.paulsens.trip.util.Env;
 
 /**
  * The push credentials: ONE Secrets Manager secret ({@code trip/push}) holding the APNs signing key, the
@@ -67,7 +64,8 @@ public final class PushSecrets {
 
     public static PushSecrets getInstance() {
         return INSTANCE.updateAndGet(
-                existing -> (existing != null) ? existing : create(LocalMode.isLocal(), prop(), fileProp()));
+                existing -> (existing != null) ? existing
+                        : create(LocalMode.isLocal(), Env.setting(SECRET_PROP, SECRET_ENV), fileProp()));
     }
 
     /** Package-private so the resolution ladder is testable (LocalMode is fixed for a test JVM). */
@@ -88,7 +86,7 @@ public final class PushSecrets {
                     + "it is set.", SECRET_PROP, SECRET_ENV);
             return new PushSecrets(null);
         }
-        return new PushSecrets(new SecretsManagerStore(secretId, null));
+        return new PushSecrets(storeOf(new SecretsManagerReader(secretId, null)));
     }
 
     /** Test seam: hand in a fake {@link Store} (or null for "nothing configured"). */
@@ -235,13 +233,9 @@ public final class PushSecrets {
         return value.isTextual() && !value.asText().isBlank() ? value.asText() : null;
     }
 
-    private static String prop() {
-        final String fromProp = System.getProperty(SECRET_PROP);
-        if (fromProp != null && !fromProp.isBlank()) {
-            return fromProp.trim();
-        }
-        final String fromEnv = System.getenv(SECRET_ENV);
-        return (fromEnv == null || fromEnv.isBlank()) ? null : fromEnv.trim();
+    /** Not {@code reader::read} inline: one named place says the push secret is only ever read, never written. */
+    private static Store storeOf(final SecretsManagerReader reader) {
+        return reader::read;
     }
 
     /** Sysprop only, like {@code trip.cache.local.useConfigured}: an env var is too easy to leave set. */
@@ -269,43 +263,6 @@ public final class PushSecrets {
             } catch (final IOException ex) {
                 throw new IllegalStateException("Cannot read the push secret file " + path, ex);
             }
-        }
-    }
-
-    static final class SecretsManagerStore implements Store {
-        private final String secretId;
-        /** Test seam; null means build a real per-call client (the Pepper pattern). */
-        private final Supplier<SecretsManagerClient> clients;
-
-        SecretsManagerStore(final String secretId, final Supplier<SecretsManagerClient> clients) {
-            this.secretId = secretId;
-            this.clients = clients;
-        }
-
-        @Override
-        public String read() {
-            try (SecretsManagerClient client = client()) {
-                return client.getSecretValue(GetSecretValueRequest.builder().secretId(secretId).build())
-                        .secretString();
-            }
-        }
-
-        // Per-call client like Pepper's and ProcessorSecrets': reads are cached a minute. Package-private
-        // (with resolveRegion) so the no-network construction path is testable.
-        SecretsManagerClient client() {
-            if (clients != null) {
-                return clients.get();
-            }
-            return SecretsManagerClient.builder()
-                    .region(resolveRegion())
-                    .credentialsProvider(DefaultCredentialsProvider.builder().build())
-                    .build();
-        }
-
-        static Region resolveRegion() {
-            final String dynamoRegion = System.getProperty("trip.dynamo.region",
-                    System.getenv().getOrDefault("TRIP_DYNAMO_REGION", ""));
-            return dynamoRegion.isBlank() ? Region.US_WEST_2 : Region.of(dynamoRegion);
         }
     }
 }

@@ -51,6 +51,7 @@ import java.util.function.Supplier;
 import lombok.Setter;
 import org.paulsens.trip.site.ListingScope;
 import org.paulsens.trip.site.SiteContext;
+import org.paulsens.trip.util.Env;
 
 /**
  * Managed media, exposed to pages as {@code #{media}}.
@@ -1397,9 +1398,7 @@ public class MediaCommands {
     }
 
     static String env(final String name) {
-        final String sysProp = System.getProperty(name.toLowerCase(Locale.ROOT).replace('_', '.'));
-        final String value = (sysProp == null || sysProp.isBlank()) ? System.getenv(name) : sysProp;
-        return (value == null || value.isBlank()) ? null : value.trim();
+        return Env.setting(name);
     }
 
     private S3Client s3() {
@@ -1409,7 +1408,7 @@ public class MediaCommands {
                 client = s3;
                 if (client == null) {
                     client = S3Client.builder()
-                            .region(Region.of(regionName()))
+                            .region(Env.awsRegion())
                             .credentialsProvider(DefaultCredentialsProvider.builder().build())
                             .build();
                     s3 = client;
@@ -1426,7 +1425,7 @@ public class MediaCommands {
                 client = presigner;
                 if (client == null) {
                     client = S3Presigner.builder()
-                            .region(Region.of(regionName()))
+                            .region(Env.awsRegion())
                             .credentialsProvider(DefaultCredentialsProvider.builder().build())
                             .build();
                     presigner = client;
@@ -1434,10 +1433,5 @@ public class MediaCommands {
             }
         }
         return client;
-    }
-
-    private static String regionName() {
-        final String region = env("TRIP_DYNAMO_REGION");
-        return (region == null) ? "us-west-2" : region;
     }
 }

@@ -168,8 +168,8 @@ public class ProcessorSecretsTest {
                         software.amazon.awssdk.services.secretsmanager.model.GetSecretValueRequest.class)))
                 .thenReturn(software.amazon.awssdk.services.secretsmanager.model.GetSecretValueResponse
                         .builder().secretString("{\"cfg\":{\"clientSecret\":\"s\"}}").build());
-        final ProcessorSecrets.SecretsManagerStore store =
-                new ProcessorSecrets.SecretsManagerStore("trip/payment-processors", () -> client);
+        final SecretsManagerReader store =
+                new SecretsManagerReader("trip/payment-processors", () -> client);
 
         assertEquals(store.read(), "{\"cfg\":{\"clientSecret\":\"s\"}}");
         store.write("{}");
@@ -185,12 +185,12 @@ public class ProcessorSecretsTest {
     public void theRealClientPathConstructsOffline() {
         // Building the AWS client resolves nothing until a call is made, so this is safe without AWS --
         // and it pins the region ladder without touching the network.
-        final ProcessorSecrets.SecretsManagerStore store =
-                new ProcessorSecrets.SecretsManagerStore("trip/payment-processors", null);
+        final SecretsManagerReader store =
+                new SecretsManagerReader("trip/payment-processors", null);
         try (software.amazon.awssdk.services.secretsmanager.SecretsManagerClient client = store.client()) {
             org.testng.Assert.assertNotNull(client);
         }
-        org.testng.Assert.assertNotNull(ProcessorSecrets.SecretsManagerStore.resolveRegion());
+        org.testng.Assert.assertNotNull(SecretsManagerReader.resolveRegion());
     }
 
     @Test

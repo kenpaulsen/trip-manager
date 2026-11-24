@@ -8,11 +8,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.dynamo.LocalMode;
-import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
-import software.amazon.awssdk.regions.Region;
-import software.amazon.awssdk.services.secretsmanager.SecretsManagerClient;
-import software.amazon.awssdk.services.secretsmanager.model.GetSecretValueRequest;
-import software.amazon.awssdk.services.secretsmanager.model.PutSecretValueRequest;
+import org.paulsens.trip.util.Env;
 
 /**
  * Payment-processor API secrets: ONE Secrets Manager secret holding a JSON object keyed by
@@ -53,7 +49,8 @@ public final class ProcessorSecrets {
 
     public static ProcessorSecrets getInstance() {
         return INSTANCE.updateAndGet(
-                existing -> (existing != null) ? existing : create(LocalMode.isLocal(), prop()));
+                existing -> (existing != null) ? existing
+                        : create(LocalMode.isLocal(), Env.setting(SECRET_PROP, SECRET_ENV)));
     }
 
     /** Package-private so the resolution ladder is testable (LocalMode is fixed for a test JVM). */
@@ -66,7 +63,7 @@ public final class ProcessorSecrets {
                     + "unavailable until it is set.", SECRET_PROP, SECRET_ENV);
             return new ProcessorSecrets(null);
         }
-        return new ProcessorSecrets(new SecretsManagerStore(secretId, null));
+        return new ProcessorSecrets(new SecretsManagerReader(secretId, null));
     }
 
     /** Test seam: hand in a fake {@link Store} (or null for pure in-memory). */
@@ -173,64 +170,9 @@ public final class ProcessorSecrets {
         }
     }
 
-    private static String prop() {
-        final String fromProp = System.getProperty(SECRET_PROP);
-        if (fromProp != null && !fromProp.isBlank()) {
-            return fromProp.trim();
-        }
-        final String fromEnv = System.getenv(SECRET_ENV);
-        return (fromEnv == null || fromEnv.isBlank()) ? null : fromEnv.trim();
-    }
-
     /** The persistence behind the map: Secrets Manager in AWS, absent in local mode, fake in tests. */
     interface Store {
         String read();
         void write(String json);
-    }
-
-    static final class SecretsManagerStore implements Store {
-        private final String secretId;
-        /** Test seam; null means build a real per-call client (the Pepper pattern). */
-        private final java.util.function.Supplier<SecretsManagerClient> clients;
-
-        SecretsManagerStore(final String secretId,
-                final java.util.function.Supplier<SecretsManagerClient> clients) {
-            this.secretId = secretId;
-            this.clients = clients;
-        }
-
-        @Override
-        public String read() {
-            try (SecretsManagerClient client = client()) {
-                return client.getSecretValue(GetSecretValueRequest.builder().secretId(secretId).build())
-                        .secretString();
-            }
-        }
-
-        @Override
-        public void write(final String json) {
-            try (SecretsManagerClient client = client()) {
-                client.putSecretValue(
-                        PutSecretValueRequest.builder().secretId(secretId).secretString(json).build());
-            }
-        }
-
-        // Per-call client like Pepper's: reads are cached a minute and writes are rare admin actions.
-        // Package-private (with resolveRegion) so the no-network construction path is testable.
-        SecretsManagerClient client() {
-            if (clients != null) {
-                return clients.get();
-            }
-            return SecretsManagerClient.builder()
-                    .region(resolveRegion())
-                    .credentialsProvider(DefaultCredentialsProvider.builder().build())
-                    .build();
-        }
-
-        static Region resolveRegion() {
-            final String dynamoRegion = System.getProperty("trip.dynamo.region",
-                    System.getenv().getOrDefault("TRIP_DYNAMO_REGION", ""));
-            return dynamoRegion.isBlank() ? Region.US_WEST_2 : Region.of(dynamoRegion);
-        }
     }
 }

@@ -11,6 +11,7 @@ import java.util.Map;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.util.Env;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.secretsmanager.SecretsManagerClient;
@@ -128,12 +129,12 @@ public final class Pepper {
      * </ol>
      */
     public static Pepper resolve() {
-        final String directKey = prop(KEY_PROP, KEY_ENV);
+        final String directKey = Env.setting(KEY_PROP, KEY_ENV);
         if (directKey != null) {
-            final int version = parseVersion(prop(VERSION_PROP, VERSION_ENV), 1);
+            final int version = parseVersion(Env.setting(VERSION_PROP, VERSION_ENV), 1);
             return Pepper.of(version, decodeKey(directKey, KEY_PROP + " / " + KEY_ENV));
         }
-        final String secretId = prop(SECRET_PROP, SECRET_ENV);
+        final String secretId = Env.setting(SECRET_PROP, SECRET_ENV);
         if (secretId == null) {
             log.error("No password pepper configured ({} / {} unset). Passwords will be hashed with BCrypt but "
                     + "WITHOUT a pepper (version 0). Set the secret in production.", SECRET_PROP, SECRET_ENV);
@@ -168,12 +169,11 @@ public final class Pepper {
     // override falls back to the shared trip.dynamo.region / TRIP_DYNAMO_REGION, then to us-west-2. One --region on
     // the rotation script therefore points both the pepper read and the table writes at the same place.
     private static Region resolveRegion() {
-        final String pepperRegion = prop("trip.password.pepper.region", "TRIP_PASSWORD_PEPPER_REGION");
+        final String pepperRegion = Env.setting("trip.password.pepper.region", "TRIP_PASSWORD_PEPPER_REGION");
         if (pepperRegion != null) {
             return Region.of(pepperRegion);
         }
-        final String dynamoRegion = prop("trip.dynamo.region", "TRIP_DYNAMO_REGION");
-        return dynamoRegion == null ? Region.US_WEST_2 : Region.of(dynamoRegion);
+        return Env.awsRegion();
     }
 
     // Decodes a base64 pepper key, turning the JDK's opaque "Illegal base64 character" into an actionable message.
@@ -245,13 +245,5 @@ public final class Pepper {
             log.error("Invalid pepper version '{}'; using {}.", raw, fallback);
             return fallback;
         }
-    }
-
-    private static String prop(final String sysProp, final String envVar) {
-        String value = System.getProperty(sysProp);
-        if (value == null || value.isBlank()) {
-            value = System.getenv(envVar);
-        }
-        return (value == null || value.isBlank()) ? null : value.trim();
     }
 }

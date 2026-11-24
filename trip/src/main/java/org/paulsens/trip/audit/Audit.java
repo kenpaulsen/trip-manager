@@ -9,6 +9,7 @@ import java.util.List;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditEvent;
 import org.paulsens.trip.model.AuditOutcome;
+import org.paulsens.trip.util.Env;
 
 /**
  * Records key events so a traceable history exists in case there is ever a question about what happened.
@@ -106,11 +107,7 @@ public final class Audit {
     static final String DYNAMO_INDEX_PROP = "trip.audit.dynamo";
 
     private static String logGroupName() {
-        String group = System.getProperty("trip.audit.log.group");
-        if (group == null || group.isBlank()) {
-            group = System.getenv(LOG_GROUP_VAR);
-        }
-        return (group == null || group.isBlank()) ? null : group.trim();
+        return Env.setting("trip.audit.log.group", LOG_GROUP_VAR);
     }
 
     /**

@@ -8,6 +8,7 @@ import java.security.interfaces.ECPrivateKey;
 import java.security.interfaces.ECPublicKey;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.mockito.Mockito;
+import org.paulsens.trip.security.SecretsManagerReader;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 import software.amazon.awssdk.regions.Region;
@@ -173,16 +174,16 @@ public class PushSecretsTest {
         final SecretsManagerClient client = Mockito.mock(SecretsManagerClient.class);
         Mockito.when(client.getSecretValue(Mockito.any(GetSecretValueRequest.class)))
                 .thenReturn(GetSecretValueResponse.builder().secretString("{}").build());
-        final PushSecrets.SecretsManagerStore store = new PushSecrets.SecretsManagerStore("trip/push", () -> client);
+        final SecretsManagerReader store = new SecretsManagerReader("trip/push", () -> client);
         Assert.assertEquals(store.read(), "{}");
         Mockito.verify(client).close();
 
         // The no-seam construction path: builds a real client without touching the network.
-        final PushSecrets.SecretsManagerStore real = new PushSecrets.SecretsManagerStore("trip/push", null);
+        final SecretsManagerReader real = new SecretsManagerReader("trip/push", null);
         try (SecretsManagerClient built = real.client()) {
             Assert.assertNotNull(built);
         }
-        Assert.assertEquals(PushSecrets.SecretsManagerStore.resolveRegion(), Region.US_WEST_2);
+        Assert.assertEquals(SecretsManagerReader.resolveRegion(), Region.US_WEST_2);
     }
 
     @Test
