@@ -405,6 +405,15 @@ public class LodgingCommandsTest {
         final ReservationOffer offer = admin.getOffers(trip.getId()).stream()
                 .filter(o -> stay.accId().equals(o.getAccommodationId().getValue())).findFirst().orElseThrow();
         assertEquals(offer.getCancelFeeBps(), Integer.valueOf(1000));
+        // A cancellation percent rounds HALF_UP like the budget's and a concession's: 12.345% is 1235, where
+        // Math.round on the double said 1234.
+        final OfferForm odd = admin.offerFormFor(trip.getId(), offer.getId().getValue());
+        odd.setCancelFeeAmount(12.345);
+        assertTrue(admin.saveOffer(trip.getId(), odd), odd.getProblem());
+        assertEquals(admin.findOffer(trip.getId(), offer.getId().getValue()).getCancelFeeBps(),
+                Integer.valueOf(1235));
+        odd.setCancelFeeAmount(10.0);
+        assertTrue(admin.saveOffer(trip.getId(), odd), odd.getProblem());
         assertEquals(offer.getNightlyPriceCents(), 12000L);
         final Trip fresh = DAO.getInstance().getTrip(trip.getId(), Cached.NO).orElseThrow();
         final TripEvent event = fresh.getTripEvent(offer.getTripEventId());

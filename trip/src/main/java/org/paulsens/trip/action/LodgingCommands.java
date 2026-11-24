@@ -1062,7 +1062,7 @@ public class LodgingCommands {
         } else {
             form.setCancelFeeKind("FLAT");
             form.setCancelFeeAmount(offer.getCancelFeeFixedCents() == null ? null
-                    : dollars(offer.getCancelFeeFixedCents()));
+                    : MoneyForms.dollars(offer.getCancelFeeFixedCents()));
         }
         form.setDisabled(!offer.isEnabled());
         form.fillRanges();
@@ -1281,8 +1281,9 @@ public class LodgingCommands {
         offer.setPolicyHtml(RichTextRules.normalize(nullSafe(form.getPolicyHtml())));
         if ("PERCENT".equals(form.getCancelFeeKind())) {
             offer.setCancelFeeFixedCents(null);
+            // HALF_UP like every other percent field (docs/lodging.md, "Cancelling"), not Math.round on a double.
             offer.setCancelFeeBps(form.getCancelFeeAmount() == null ? null
-                    : (int) Math.round(form.getCancelFeeAmount() * 100));
+                    : Integer.valueOf(MoneyForms.bps(form.getCancelFeeAmount())));
         } else {
             offer.setCancelFeeBps(null);
             offer.setCancelFeeFixedCents(form.getCancelFeeAmount() == null ? null : cents(form.getCancelFeeAmount()));
@@ -2968,10 +2969,6 @@ public class LodgingCommands {
 
     static long cents(final Double dollars) {
         return (dollars == null) ? 0L : MoneyMath.toCents(BigDecimal.valueOf(Math.max(0.0, dollars)));
-    }
-
-    static Double dollars(final long cents) {
-        return cents / 100.0;
     }
 
     static String nullSafe(final String value) {

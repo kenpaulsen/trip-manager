@@ -699,7 +699,6 @@ public class BudgetCommandsTest {
         assertEquals(admin.categories().get(0).getLabel(), "Transportation");
         assertEquals(admin.categories().get(6).getId(), "GENERAL");
         assertEquals(BudgetCommands.percentText(1250), "12.5%");
-        assertEquals(BudgetCommands.bps(null), 0);
     }
 
     @Test

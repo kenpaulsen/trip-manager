@@ -4,7 +4,6 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Named;
 import java.io.IOException;
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -50,6 +49,7 @@ import org.paulsens.trip.pay.BudgetMath.PayeeTotal;
 import org.paulsens.trip.pay.LodgingPricing;
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
 
+import static org.paulsens.trip.action.MoneyForms.bps;
 import static org.paulsens.trip.action.MoneyForms.cents;
 import static org.paulsens.trip.action.MoneyForms.dollars;
 import static org.paulsens.trip.action.MoneyForms.dollarsProblem;
@@ -832,12 +832,6 @@ public class BudgetCommands {
             return Text.get("feedback.budgetCommands.percentRange", percentText(BudgetLine.MAX_PERCENT_BPS));
         }
         return null;
-    }
-
-    /** A percentage (12.5) to basis points (1250), HALF_UP; 0 for null. */
-    static int bps(final Double percent) {
-        return (percent == null) ? 0
-                : BigDecimal.valueOf(percent).movePointRight(2).setScale(0, RoundingMode.HALF_UP).intValueExact();
     }
 
     /** Deletes a typed line; refusals growl. Deleting a line that is already gone succeeds quietly. */

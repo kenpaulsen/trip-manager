@@ -9,6 +9,16 @@ import static org.testng.Assert.assertNull;
 public class MoneyFormsTest {
 
     @Test
+    public void aPercentBecomesBasisPointsHalfUp() {
+        assertEquals(MoneyForms.bps(null), 0);
+        assertEquals(MoneyForms.bps(12.5), 1250);
+        assertEquals(MoneyForms.bps(100.0), 10_000);
+        // 12.345 * 100 is 1234.4999... in binary: Math.round said 1234, the decimal rule says 1235.
+        assertEquals(MoneyForms.bps(12.345), 1235);
+        assertEquals(MoneyForms.bps(0.004), 0);
+    }
+
+    @Test
     public void dollarsAndCentsRoundTrip() {
         assertEquals(MoneyForms.cents(null), 0L);
         assertEquals(MoneyForms.cents(45_765.0), 4_576_500L);

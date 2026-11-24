@@ -1,7 +1,5 @@
 package org.paulsens.trip.action;
 
-import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.List;
 import org.paulsens.trip.action.LodgingViews.ConcessionForm;
@@ -160,7 +158,7 @@ final class LodgingConcessions {
             return null;
         }
         final Concession.Kind kind = Concession.Kind.valueOf(form.getKind().trim());
-        final int bps = (kind == Concession.Kind.PERCENT) ? toBps(form.getAmount()) : 0;
+        final int bps = (kind == Concession.Kind.PERCENT) ? MoneyForms.bps(form.getAmount()) : 0;
         final long cents = (kind == Concession.Kind.PER_NIGHT || kind == Concession.Kind.TOTAL)
                 ? LodgingCommands.cents(form.getAmount()) : 0L;
         return new Concession(kind, bps, cents, form.getReason(), lodging.caller().personId(), LocalDateTime.now());
@@ -230,11 +228,5 @@ final class LodgingConcessions {
             default:
                 return null;
         }
-    }
-
-    /** 12.5 (percent) -> 1250 basis points, half-up. */
-    private static int toBps(final Double percent) {
-        return (percent == null) ? 0
-                : BigDecimal.valueOf(percent).movePointRight(2).setScale(0, RoundingMode.HALF_UP).intValueExact();
     }
 }

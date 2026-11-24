@@ -176,19 +176,19 @@ final class OfferSchedules {
         form.setPriceKnown(price != null);
         if (price != null) {
             form.setPricingModel(price.getPricingModel().name());
-            form.setNightlyPrice(LodgingCommands.dollars(price.getNightlyCents()));
+            form.setNightlyPrice(MoneyForms.dollars(price.getNightlyCents()));
             form.setPerNightPricing(price.hasOverrides());
             form.setPerNight(perNightText(price));
-            form.setSingleSupplement(LodgingCommands.dollars(price.getSingleSupplementCents()));
+            form.setSingleSupplement(MoneyForms.dollars(price.getSingleSupplementCents()));
         }
         final RateSchedule cost = offer.getCost();
         form.setCostKnown(cost != null);
         if (cost != null) {
             form.setCostPricingModel(cost.getPricingModel().name());
-            form.setCostNightlyPrice(LodgingCommands.dollars(cost.getNightlyCents()));
+            form.setCostNightlyPrice(MoneyForms.dollars(cost.getNightlyCents()));
             form.setCostPerNight(cost.hasOverrides());
             form.setCostPerNightRates(perNightText(cost));
-            form.setCostSupplement(LodgingCommands.dollars(cost.getSingleSupplementCents()));
+            form.setCostSupplement(MoneyForms.dollars(cost.getSingleSupplementCents()));
         }
         form.setCostExtras(extraForms(offer.getCostExtras()));
     }
@@ -199,8 +199,8 @@ final class OfferSchedules {
         form.setCostKnown(cost != null);
         if (cost != null) {
             form.setCostPricingModel(cost.getPricingModel().name());
-            form.setCostNightlyPrice(LodgingCommands.dollars(cost.getNightlyCents()));
-            form.setCostSupplement(LodgingCommands.dollars(cost.getSingleSupplementCents()));
+            form.setCostNightlyPrice(MoneyForms.dollars(cost.getNightlyCents()));
+            form.setCostSupplement(MoneyForms.dollars(cost.getSingleSupplementCents()));
         }
         form.setCostExtras(extraForms(plan.getCostExtras()));
     }
@@ -215,8 +215,8 @@ final class OfferSchedules {
         form.setCostKnown(cost != null);
         if (cost != null) {
             form.setCostPricingModel(cost.getPricingModel().name());
-            form.setCostNightlyPrice(LodgingCommands.dollars(cost.getNightlyCents()));
-            form.setCostSupplement(LodgingCommands.dollars(cost.getSingleSupplementCents()));
+            form.setCostNightlyPrice(MoneyForms.dollars(cost.getNightlyCents()));
+            form.setCostSupplement(MoneyForms.dollars(cost.getSingleSupplementCents()));
         }
         form.setCostExtras(extraForms(offer.getCostExtras()));
         return form;

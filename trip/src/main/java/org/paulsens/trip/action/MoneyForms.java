@@ -6,8 +6,9 @@ import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.pay.MoneyMath;
 
 /**
- * The conversions and checks shared by the trip's money pages (the budget and the expense report): long cents
- * in the model, {@code Double} dollars in a form, HALF_UP to the cent, and the refusal text both pages use.
+ * The conversions and checks shared by the trip's money pages (the budget, the expense report, the lodging
+ * forms): long cents in the model, {@code Double} dollars in a form, HALF_UP to the cent, a percentage as basis
+ * points, and the refusal text the pages use.
  */
 final class MoneyForms {
     /** The largest amount a money field takes: ten million dollars. */
@@ -30,6 +31,16 @@ final class MoneyForms {
     /** Cents as the dollars a form shows. */
     static Double dollars(final long cents) {
         return BigDecimal.valueOf(cents).movePointLeft(2).doubleValue();
+    }
+
+    /**
+     * A percentage typed into a form (12.5) as basis points (1250), HALF_UP; 0 for null. THE conversion for every
+     * percent field: the lodging cancellation fee used {@code Math.round(percent * 100)}, which works in binary
+     * and so read 12.345% as 1234 where the budget and the concessions read 1235.
+     */
+    static int bps(final Double percent) {
+        return (percent == null) ? 0
+                : BigDecimal.valueOf(percent).movePointRight(2).setScale(0, RoundingMode.HALF_UP).intValueExact();
     }
 
     /**
