@@ -62,12 +62,27 @@ public class PersonMatchTest {
         assertEquals(PersonMatch.lookupWord(List.of()), "");
     }
 
+    /** The two-character minimum (owner decision 2026-11-24) is on the LONGEST word, the one the index looks up. */
+    @Test
+    public void aQueryWhoseLongestWordIsUnderTwoCharactersIsTooShortAndMatchesNobody() {
+        assertTrue(PersonMatch.tooShort(PersonMatch.queryWords("k")));
+        assertTrue(PersonMatch.tooShort(PersonMatch.queryWords("k p")), "no word of two characters");
+        assertTrue(PersonMatch.tooShort(PersonMatch.queryWords("(5)")), "a phone-like word counts its digits");
+        assertFalse(PersonMatch.tooShort(PersonMatch.queryWords("k paulsen")), "a long word carries a short one");
+        assertFalse(PersonMatch.tooShort(PersonMatch.queryWords("ke")));
+        assertFalse(PersonMatch.tooShort(List.of()), "no query is not a refused query");
+        assertFalse(PersonMatch.matchesQuery(ken, "k", ALL), "even though 'k' is inside Ken");
+        assertTrue(PersonMatch.matchesQuery(ken, "k paulsen", ALL));
+        assertTrue(PersonMatch.matchesQuery(ken, "ke", ALL));
+    }
+
     @Test
     public void indexTokensAreNameAndCellSuffixesPlusTheWholeEmail() {
         final Set<String> tokens = PersonMatch.indexTokens(ken);
         assertTrue(tokens.contains("paulsen"));
         assertTrue(tokens.contains("ulsen"), "a suffix, so a prefix lookup finds 'uls' inside the name");
-        assertTrue(tokens.contains("n"));
+        assertTrue(tokens.contains("en"));
+        assertFalse(tokens.contains("n"), "a one-character suffix can never be looked up, so it is never stored");
         assertTrue(tokens.contains("5309"), "cell digit suffix");
         assertFalse(tokens.contains("(555) 867-5309"), "the raw cell is never a token: cells match by digits");
         assertTrue(tokens.contains("ken.paulsen@example.com"));

@@ -32,6 +32,13 @@ public final class PersonMatch {
     /** Punctuation a phone-like word may carry besides digits (spaces split words, so none here). */
     private static final String PHONE_PUNCTUATION = "()+.-";
 
+    /**
+     * The shortest searchable query word, the same for every people search (owner decision 2026-11-24). It is the
+     * index's partition width, so every searchable word names exactly one partition. A one-character search filled
+     * the index window with noise and was answered truncated anyway.
+     */
+    public static final int MIN_QUERY_LENGTH = SearchIndex.PREFIX_LENGTH;
+
     /** The fields a viewer's privacy may withhold from a search. Names are never withheld. */
     public enum Field {
         CELL, EMAIL
@@ -63,9 +70,22 @@ public final class PersonMatch {
                 .toList();
     }
 
-    /** True when every word of {@code words} matches {@code person}; false for no person or no words. */
+    /**
+     * True when every word of {@code words} matches {@code person}; false for no person, no words, or a query
+     * {@link #tooShort} to search, so an in-memory list refuses exactly what the directory index cannot look up.
+     */
     public static boolean matchesAll(final Person person, final List<String> words, final Reach reach) {
-        return person != null && !words.isEmpty() && words.stream().allMatch(word -> matches(person, word, reach));
+        return person != null && !words.isEmpty() && !tooShort(words)
+                && words.stream().allMatch(word -> matches(person, word, reach));
+    }
+
+    /**
+     * True when {@code words} is a query too short to search: its {@link #lookupWord} has fewer than
+     * {@link #MIN_QUERY_LENGTH} characters ("K Paulsen" is fine, "K" alone is not). False for no words at all,
+     * which callers treat as "no search yet" rather than as a search to refuse.
+     */
+    public static boolean tooShort(final List<String> words) {
+        return !words.isEmpty() && lookupWord(words).length() < MIN_QUERY_LENGTH;
     }
 
     /** True when {@code query} has words and every one matches {@code person}. */
@@ -94,7 +114,10 @@ public final class PersonMatch {
         return isPhoneLike(longest) ? digits(longest) : longest;
     }
 
-    /** The search-index tokens for one person: suffixes of the names and of the cell's digits, and the email. */
+    /**
+     * The search-index tokens for one person: suffixes of the names and of the cell's digits, and the email. A
+     * suffix shorter than {@link #MIN_QUERY_LENGTH} is never looked up, so it is never stored.
+     */
     static Set<String> indexTokens(final Person person) {
         final Set<String> tokens = new HashSet<>();
         if (person == null) {
@@ -103,7 +126,7 @@ public final class PersonMatch {
         nameFields(person).forEach(field -> addSuffixes(tokens, field));
         addSuffixes(tokens, digits(person.getCell()));
         final String email = SearchIndex.normalizeToken(person.getEmail());
-        if (!email.isEmpty()) {
+        if (email.length() >= MIN_QUERY_LENGTH) {
             tokens.add(email);
         }
         return tokens;
@@ -123,7 +146,7 @@ public final class PersonMatch {
     private static void addSuffixes(final Set<String> tokens, final String value) {
         for (int start = 0; start < value.length(); start++) {
             final String suffix = value.substring(start).trim();
-            if (!suffix.isEmpty()) {
+            if (suffix.length() >= MIN_QUERY_LENGTH) {
                 tokens.add(suffix);
             }
         }

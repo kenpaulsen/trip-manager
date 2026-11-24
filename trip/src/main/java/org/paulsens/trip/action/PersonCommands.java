@@ -60,6 +60,8 @@ public class PersonCommands {
     private static final int PICKER_LIMIT = 25;
 
     private final Supplier<OrgCommands> orgSource;
+    /** The request map {@link RequestMemo} keeps per-request answers in; null outside a Faces request. */
+    private final Supplier<Map<String, Object>> requestMap;
 
     public PersonCommands() {
         this(() -> org.paulsens.trip.api.Beans.get(OrgCommands.class));
@@ -67,7 +69,13 @@ public class PersonCommands {
 
     /** Test seam (the {@link TripDeleteCommands} pattern): {@code Beans.get} needs a CDI container. */
     PersonCommands(final Supplier<OrgCommands> orgSource) {
+        this(orgSource, RequestMemo::facesRequestMap);
+    }
+
+    /** Test seam for the per-request memo (the {@link CheckinCommands} pattern): a test hands in its own map. */
+    PersonCommands(final Supplier<OrgCommands> orgSource, final Supplier<Map<String, Object>> requestMap) {
         this.orgSource = orgSource;
+        this.requestMap = requestMap;
     }
 
     public static PersonCommands getPersonCommands() {
@@ -527,10 +535,25 @@ public class PersonCommands {
      * rendering a few hundred rows, each with its own privacy and balance lookups.
      */
     public static final int PEOPLE_LIST_LIMIT = 60;
+    private static final String ADMIN_SEARCH_MEMO = "PersonCommands.adminSearch:";
 
     /** {@link #PEOPLE_LIST_LIMIT}, for the pages' copy. */
     public int getPeopleListLimit() {
         return PEOPLE_LIST_LIMIT;
+    }
+
+    /** {@link PersonMatch#MIN_QUERY_LENGTH}, for the pages' pickers and the "type at least N characters" hint. */
+    public int getMinQueryLength() {
+        return PersonMatch.MIN_QUERY_LENGTH;
+    }
+
+    /**
+     * Whether {@code query} is one every people search refuses as too short ({@link PersonMatch#tooShort}), for a
+     * page whose search answers a plain list (a Find button) and so carries no {@link PeopleResult#tooShort} flag:
+     * the page reads the refusal from here rather than testing the query text itself. False for a blank query.
+     */
+    public boolean queryTooShort(final String query) {
+        return PersonMatch.tooShort(PersonMatch.queryWords(query));
     }
 
     /**
@@ -551,6 +574,9 @@ public class PersonCommands {
             return PeopleResult.NONE;
         }
         final List<String> words = PersonMatch.queryWords(query);
+        if (PersonMatch.tooShort(words)) {
+            return PeopleResult.TOO_SHORT;
+        }
         if (words.isEmpty() && candidates.size() > limit) {
             return PeopleResult.NEEDS_QUERY;
         }
@@ -560,17 +586,25 @@ public class PersonCommands {
                 .toList(), limit);
     }
 
-    /** The admin People page's search: {@link #adminSearch(String, int)} at {@link #PEOPLE_LIST_LIMIT}. */
+    /**
+     * The admin People page's search: {@link #adminSearch(String, int)} at {@link #PEOPLE_LIST_LIMIT}, memoized per
+     * request and query. The page asks twice per request (initPage for the row commands' decode, then before
+     * encode for a new query), and the second ask for the same query must not search again.
+     */
     public PeopleResult adminSearch(final String query) {
-        return adminSearch(query, PEOPLE_LIST_LIMIT);
+        return RequestMemo.get(requestMap.get(), ADMIN_SEARCH_MEMO + query,
+                () -> adminSearch(query, PEOPLE_LIST_LIMIT));
     }
 
     /**
-     * The admin People search. A blank query always asks for one (the directory never fits the limit).
+     * The admin People search. A blank query always asks for one (the directory never fits the limit), and one
+     * {@link PersonMatch#tooShort too short} to search is refused.
      *
      * <p>A site admin searches the whole directory index, whose window is read in token order, so a short common
      * word can fill it: the result is then marked {@code truncated} even when fewer rows survive, and the page
-     * asks for a narrower search instead of presenting a partial list as complete.</p>
+     * asks for a narrower search instead of presenting a partial list as complete. It reads {@link Cached#YES}
+     * (owner decision 2026-11-24): the rows are a display, and resolving them through the near cache saves one
+     * Valkey round trip per row; nothing here is saved back.</p>
      *
      * <p>Anyone else searches, in memory, exactly the members of the orgs where they hold {@code peopleAdmin}
      * (the people {@code canAdminPerson} admits). Filtering a site-wide window down to their orgs instead could
@@ -587,8 +621,12 @@ public class PersonCommands {
      * so the website's People search and {@code GET /api/people} are one search.
      */
     public PeopleResult adminSearch(final String query, final int limit, final Supplier<OrgCommands> reach) {
-        if (PersonMatch.queryWords(query).isEmpty()) {
+        final List<String> words = PersonMatch.queryWords(query);
+        if (words.isEmpty()) {
             return PeopleResult.NEEDS_QUERY;
+        }
+        if (PersonMatch.tooShort(words)) {
+            return PeopleResult.TOO_SHORT;
         }
         final OrgCommands orgs = reach.get();
         if (!orgs.isSiteAdmin()) {
@@ -596,7 +634,7 @@ public class PersonCommands {
         }
         try {
             final PersonDAO.Search found =
-                    DAO.getInstance().searchPeople(query, limit, Cached.NO, PersonMatch.EVERY_FIELD);
+                    DAO.getInstance().searchPeople(query, limit, Cached.YES, PersonMatch.EVERY_FIELD);
             return new PeopleResult(
                     found.people(), false, found.cut());
         } catch (final RuntimeException ex) {

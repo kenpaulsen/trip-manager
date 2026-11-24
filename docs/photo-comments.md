@@ -106,7 +106,7 @@ parameter or body field, never a path segment** — keys contain `/` and Tomcat 
 | `DELETE comments/{msgId}?key=` | session+CSRF | tombstone; author or moderation |
 | `PUT/DELETE reactions/{emoji}?key=` | session+CSRF | idempotent (photo, person, emoji); returns fresh counts |
 | `POST login-return` `{target}` | open+CSRF | stashes `Sessions.AFTER_LOGIN_URL` after `LocalRedirect.sanitizeLocalTarget` (same-site path only) |
-| `GET mention-search?q=` | session | typeahead over the people who share an ORGANIZATION with the caller: ≥2 chars, ≤8 results, 30/min brake, masked-email disambiguation |
+| `GET mention-search?q=` | session | typeahead over the people who share an ORGANIZATION with the caller: the people-search minimum (the longest word has ≥2 chars, `PersonMatch.tooShort`; 400 otherwise), ≤8 results, 30/min brake, masked-email disambiguation |
 
 ## Mentions (user requirement 2026-08-09)
 

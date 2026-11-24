@@ -115,17 +115,59 @@ eviction, not a shorter TTL.
 
 ## The people search index
 
-`PersonDAO` searches through one `SearchIndex` (`t1:idx:people:v2`): a sorted set of `token|personId` entries that
-`SearchIndex` can only look up by PREFIX. Since 2026-11-12 the tokens are `PersonMatch.indexTokens`: every SUFFIX of
-the first name, last name, nickname and the cell's digits, plus the whole email. A prefix lookup over suffixes is a
-contains lookup, so "ulse" finds Paulsen and "5309" finds (555) 867-5309, while email stays
-prefix-only by owner decision ("gmail" would match half the site). `PersonMatch` also holds the matcher the results are
-filtered through and that every in-memory people list uses (`PersonCommands.listOrSearch`), so the directory search and
-the pages agree. The index window is read in token order (`limit * 3` ids), so a short word common across the site
-can fill it; `PersonDAO.Search.cut` says so, and the admin People page then asks for a narrower search. The key
-carries `:v2` because the token shape changed: the first search after the deploy builds the
-suffix index (one table scan) rather than answering from the old prefix-only one until its daily rebuild; the old key
-ages out on `GC_TTL`. Size is roughly 30 extra entries per person, a few MB.
+`PersonDAO` searches through one `SearchIndex` (`t1:idx:people:v3`), PARTITIONED by the first two characters of each
+token: a sorted set of `token|personId` entries per partition (`t1:idx:people:v3:<two chars>`) that `SearchIndex` can
+only look up by PREFIX, plus ONE hash `t1:idx:people:v3:parts` whose field per partition is the epoch millis that
+partition was last fully loaded. The tokens are `PersonMatch.indexTokens`: every SUFFIX of the first name, last name,
+nickname and the cell's digits, plus the whole email, none shorter than two characters. A prefix lookup over suffixes
+is a contains lookup, so "ulse" finds Paulsen and "5309" finds (555) 867-5309, while email stays prefix-only by owner
+decision ("gmail" would match half the site). `PersonMatch` also holds the matcher the results are filtered through
+and that every in-memory people list uses (`PersonCommands.listOrSearch`), so the directory search and the pages
+agree.
+
+**Two-character minimum (owner decision 2026-11-24).** Every people search refuses a query whose LONGEST word (digits
+only when phone-like) is under two characters (`PersonMatch.tooShort`; "K Paulsen" is fine, "K" is not). Pages show
+"Type at least 2 characters to search." (`PeopleResult.tooShort`, `CheckinCommands.Lookup.tooShort`; the searches
+behind a Find button answer a plain list, so their pages read `people.queryTooShort(query)` for the same hint), the
+people pickers take `minQueryLength` from `people.minQueryLength`, `GET /api/people` answers an empty list, and both
+apps hint before calling it.
+Since a one-character lookup never happens, one-character suffixes are not stored, and the two-character prefix of
+any searchable word names exactly one partition.
+
+**Why partitioned (2026-11-24).** The single-key `:v2` index was built by ONE ZADD of every entry in the directory
+(about 25 per person, so megabytes once a directory reaches a few thousand people). That one command can exceed
+the 3 s command timeout; when it did, the loaded marker was never set, so EVERY search rescanned the person table
+and retried the ZADD, taking seconds per search -- and while Valkey worked through it, other commands on that shard
+timed out too. A partition is a few hundred entries, written in chunks of `SearchIndex.WRITE_BATCH` (1,000), and a
+partition of at most 128 entries uses Valkey's compact listpack encoding.
+
+**Per-partition markers (owner decision 2026-11-24).** A partition's field is set ONLY after every chunk of that
+partition was written. A search does one HMGET of its own partition's field: present means the partition is trusted;
+missing (or unparseable, or older than `GC_TTL`) means the search is answered from a full table scan -- always
+correct -- that partition is written for next time, and the same scan fills every other unmarked partition in the
+background (one scan per cold index, not one per partition). So a partial or failed load can never make a person
+look nonexistent. Partitions are marked even when empty, so a query nobody matches does not rescan until the daily
+rebuild, which drops the field of every partition the load no longer produces (any two characters make a partition,
+so restamping would keep every made-up prefix forever). A cold load is single-flight and reused for 60 s
+(`reuseWindow`), so a burst of never-seen prefixes costs one table scan; a search answered from a reused load also
+reads its partition key, so a person saved after the load is still found. A field counts only while younger than
+`GC_TTL`, and a partition's key expiry is pushed out BEFORE its field is written, so a field can never outlive the
+entries it vouches for. The same hash is the partition registry: `invalidate` and the daily reconcile enumerate it
+(no SCAN). Write-through (`update`) ZADDs/ZREMs only the tokens a save changed, into a partition whether or not it
+is loaded (harmless: a load re-adds everything); drift from a failed write is healed by the daily rebuild. When the
+searched partition's field is older than `INDEX_SOFT_TTL` (a day), a lock-guarded background rebuild reloads every
+partition and reconciles away entries the load no longer produces.
+
+The index window is read in token order (`limit * 3` ids), so a short word common across the site can fill it;
+`PersonDAO.Search.cut` says so, and the admin People page then asks for a narrower search. The abandoned `:v2` key
+ages out on `GC_TTL`. Size is roughly 25 entries per person (about 3 KB in Valkey).
+
+**Resolving the rows.** The admin People search reads `Cached.YES` (owner decision 2026-11-24: the rows are a
+display, and the near cache saves a Valkey round trip per row). `PersonDAO.resolvePeople` forks one virtual thread
+per id so the cache reads go out together and Lettuce pipelines them; only misses that fall through to DynamoDB are
+bounded (16 at once). Measured 2026-11-24 on a local 3-shard cluster (180 ids): one GET at a time 9.0 ms, concurrent
+GETs 0.9 ms, one MGET 1.0 ms -- the cluster client splits an MGET into one command per hash slot anyway, so it buys
+nothing, and no single command came near the 10 ms slow-log threshold (server-side max 113 us).
 
 ## The bulkhead
 

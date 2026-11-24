@@ -150,15 +150,24 @@ public class CheckinCommands {
     // ------------------------------------------------------------------ lookup
 
     /**
-     * The check-in page's search result: the rows, {@code needsQuery} when nothing was typed, and {@code truncated}
-     * when more registrations matched than the {@value #LOOKUP_CAP} shown -- the same three answers every people
-     * list gives ({@link PeopleResult}).
+     * The check-in page's search result: the rows, {@code needsQuery} when nothing was typed, {@code truncated}
+     * when more registrations matched than the {@value #LOOKUP_CAP} shown, and {@code tooShort} when the query is
+     * too short to search -- the same answers every people list gives ({@link PeopleResult}).
      */
-    public record Lookup(List<RegistrationCommands.RegRow> rows, boolean needsQuery, boolean truncated) {
-        static final Lookup NEEDS_QUERY = new Lookup(List.of(), true, false);
+    public record Lookup(List<RegistrationCommands.RegRow> rows, boolean needsQuery, boolean truncated,
+            boolean tooShort) {
+        static final Lookup NEEDS_QUERY = new Lookup(List.of(), true, false, false);
+        static final Lookup TOO_SHORT = new Lookup(List.of(), false, false, true);
 
         public Lookup {
             rows = new ArrayList<>(rows);
+        }
+
+        /** {@code matched} cut to its first {@code cap} rows, flagged {@code truncated} when it was longer. */
+        static Lookup capped(final List<RegistrationCommands.RegRow> matched, final int cap) {
+            return matched.size() > cap
+                    ? new Lookup(matched.subList(0, cap), false, true, false)
+                    : new Lookup(matched, false, false, false);
         }
     }
 
@@ -181,6 +190,9 @@ public class CheckinCommands {
         }
         final Trip trip = knownTrip(tripId);
         final boolean ticket = TicketCodes.normalize(query) != null;
+        if (!ticket && PersonMatch.tooShort(words)) {
+            return Lookup.TOO_SHORT;
+        }
         final PersonMatch.Reach reach = PrivacyView.searchReach(viewer(), has(PrivilegeCommands.TRIP_MGR, tripId));
         final List<RegistrationCommands.RegRow> rows = new ArrayList<>();
         for (final Registration reg : registrations(tripId)) {
@@ -190,8 +202,7 @@ public class CheckinCommands {
             }
         }
         rows.sort(BY_NAME);
-        return rows.size() > LOOKUP_CAP
-                ? new Lookup(rows.subList(0, LOOKUP_CAP), false, true) : new Lookup(rows, false, false);
+        return Lookup.capped(rows, LOOKUP_CAP);
     }
 
     private static final Comparator<RegistrationCommands.RegRow> BY_NAME =

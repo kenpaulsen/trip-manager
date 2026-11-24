@@ -301,6 +301,7 @@ public class PhotoChatResourceTest extends ResourceTestSupport {
         signedInAs(ME);
         final PhotoChatResource fresh = resource(new PhotoChatResource());
         assertError(fresh.mentionSearch("p"), 400, ApiErrors.BAD_REQUEST);
+        assertError(fresh.mentionSearch("p q"), 400, ApiErrors.BAD_REQUEST); // the people-search rule: longest word
         assertError(fresh.mentionSearch(null), 400, ApiErrors.BAD_REQUEST);
 
         Mockito.when(photoChat.mentionSearchAllowed(ME)).thenReturn(false);

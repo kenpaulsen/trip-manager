@@ -96,17 +96,18 @@ public class DAOTest {
 
     @Test
     public void testGetPeople() throws IOException {
-        final Person person1 = new Person(Person.Id.from("1"), "nick", "n1", "middle", "l1", Sex.Male, LocalDate.now(),
+        final Person person1 = new Person(Person.Id.from("1"), "nick", "n1", "middle", "la1", Sex.Male, LocalDate.now(),
                 "cell", "email", "tsa", new Address(), new Passport(), "notes", null, null, null, null);
-        final Person person2 = new Person(Person.Id.from("2"), null, "n2", null, "l2", null, null,
+        final Person person2 = new Person(Person.Id.from("2"), null, "n2", null, "la2", null, null,
                 null, null, null, null, null, null, null, null, null, null);
-        final Person person3 = new Person(Person.Id.from("3"), "n3", "n3", null, "l3", null, null,
+        final Person person3 = new Person(Person.Id.from("3"), "n3", "n3", null, "la3", null, null,
                 null, null, null, null, null, null, null, null, null, null);
         assertTrue(dbUtils.savePerson(person2));
         assertTrue(dbUtils.savePerson(person1));
         assertTrue(dbUtils.savePerson(person3));
-        // No list-all anymore: find them via prefix search (last names all start with "l")
-        final List<Person> people = dbUtils.searchPeople("l", 10, Cached.NO);
+        // No list-all anymore: find them via prefix search (last names all start with "la"; a search needs two
+        // characters)
+        final List<Person> people = dbUtils.searchPeople("la", 10, Cached.NO);
         assertEquals(people.size(), 3);
         final Person person = people.stream().filter(p -> Person.Id.from("1").equals(p.getId())).findAny().orElse(null);
         assertEquals(person, person1);

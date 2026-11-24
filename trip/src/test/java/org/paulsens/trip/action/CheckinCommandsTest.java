@@ -214,6 +214,9 @@ public class CheckinCommandsTest {
         assertEquals(staff.lookup(trip.getId(), "moss").getFirst().getRegistrationType(), "Saturday only");
         assertTrue(as(Person.Id.newInstance()).lookup(trip.getId(), "ann").isEmpty(), "not staff, nothing");
         assertTrue(staff.find(trip.getId(), " , ").needsQuery(), "nothing typed asks for a search");
+        assertTrue(staff.find(trip.getId(), "a").tooShort(), "one character asks for more");
+        assertTrue(staff.lookup(trip.getId(), "a").isEmpty());
+        assertFalse(staff.find(trip.getId(), "a moss").tooShort(), "a long word carries a short one");
         assertEquals(names(staff.lookup(trip.getId(), "nnie le")), List.of("Lee, Annie"), "each word anywhere");
         assertTrue(staff.lookup(trip.getId(), "example.com").isEmpty(), "email only from its start");
     }

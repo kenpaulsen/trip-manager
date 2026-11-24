@@ -93,9 +93,9 @@ public class IndexLoaderDAOTest {
         // The search triggers the cold build; the build's scan must have produced the fake people's tokens.
         dao.searchPeople(known.getLast().toLowerCase(), 10);
 
+        final String last = known.getLast().toLowerCase();
         final List<String> entries = store.getSortedSetByPrefix(
-                org.paulsens.trip.cache.CacheKeys.PEOPLE_SEARCH,
-                known.getLast().toLowerCase(), 10);
+                org.paulsens.trip.cache.CacheKeys.PEOPLE_SEARCH + ":" + last.substring(0, 2), last, 10);
         Assert.assertFalse(entries.isEmpty(),
                 "the index scan must serve the fake people, or every local search answers nothing");
     }

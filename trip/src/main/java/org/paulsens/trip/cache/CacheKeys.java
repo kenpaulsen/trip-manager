@@ -82,11 +82,11 @@ public final class CacheKeys {
     // (and the authoritative store in local mode, where every save goes through write-through).
     public static final String EMAIL_IDX = FORMAT_VERSION + "email";
 
-    // People search index: lexicographic sorted set of "token|personId" entries plus a sibling loaded marker
-    // (value = epoch millis of last full build). See SearchIndex. ":v2" since the tokens became name and cell
-    // SUFFIXES (PersonMatch, contains search, 2026-11-12): a new key makes the first search after the deploy
-    // build the suffix index instead of answering from the old prefix-only one for up to a day.
-    public static final String PEOPLE_SEARCH = FORMAT_VERSION + "idx:people:v2";
+    // People search index: one lexicographic sorted set of "token|personId" entries per 2-character partition
+    // ("<key>:<partition>") plus a "<key>:parts" hash of per-partition load stamps. See SearchIndex. ":v2" was
+    // the suffix tokens (PersonMatch, contains search, 2026-11-12); ":v3" (2026-11-24) the partitioning, whose
+    // single-key predecessor timed out on its one-ZADD build. The abandoned ":v2" key ages out on GC_TTL.
+    public static final String PEOPLE_SEARCH = FORMAT_VERSION + "idx:people:v3";
     public static final String SEARCH_LOADED_SUFFIX = ":loaded";
 
     /** Separator between a search token and the entity id in a search index entry. Stripped from tokens. */

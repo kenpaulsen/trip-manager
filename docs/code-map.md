@@ -105,6 +105,12 @@ Every page that lists or searches people follows one rule (owner decision 2026-1
   email only from its start. The cached directory search (`PersonDAO.searchPeople`, behind `people.searchPeople`,
   `people.adminSearchPeople` and every people picker), the in-memory lists and the check-in lookup use the same
   class. Its index: `docs/caching.md` "The people search index".
+- **Two-character minimum** (owner decision 2026-11-24): a query whose longest word is under two characters is
+  refused by every people search (`PersonMatch.tooShort`), answered as `PeopleResult.TOO_SHORT` /
+  `Lookup.tooShort()` with the hint `account.peopleSearch.tooShort` (formatted with `people.minQueryLength`). The
+  Find-button searches (Manage People, Settings, Mail Merge, `WEB-INF/selectPeople.xhtml`) answer a plain list, so
+  their pages show the same hint from `people.queryTooShort(query)`; people pickers set
+  `minQueryLength="#{people.minQueryLength}"`.
 - **Reach**: cell and email are searched only where the viewer may see them (`PersonMatch.Reach`), or a row that
   stays as digits are typed would reveal a hidden number one digit at a time. Site admins, and org admins over their
   own members, search every field (they see private ones masked); trip Contacts and check-in use the viewer's own
@@ -117,12 +123,12 @@ Every page that lists or searches people follows one rule (owner decision 2026-1
   `PersonCommands.PEOPLE_LIST_LIMIT` (60), otherwise asks for a search; matches are capped at the same limit and
   flagged `truncated`. Org People (`org.searchMembers`), trip Contacts (`people.contactsSearch`) and the admin People
   page (`people.adminSearch`, which always asks first: the directory never fits) all use it; check-in's
-  `checkin.find` gives the same three answers. The admin People search scans, in memory, the members of the orgs
+  `checkin.find` gives the same answers. The admin People search scans, in memory, the members of the orgs
   where a non-site-admin holds `peopleAdmin` (`org.peopleAdminScope`), so other tenants' matches cannot crowd theirs
   out of the index window; a site admin searches the index and is told when its window filled.
 - **The search row** is ONE include, `WEB-INF/peopleSearchRow.xhtml` (People, Org People, Contacts, check-in): text
   box, Search button, Enter scoped to the row, and the truncation note. The empty message comes from the result's
-  `needsQuery()`, never from testing the raw query text.
+  `tooShort()` and `needsQuery()`, never from testing the raw query text.
 - **Order** is `Person.PEOPLE_SORTER` (last, first, then id), set by the SERVER. People tables carry no `sortBy` or
   `filterBy`: a table whose value is rebuilt per request cannot hold a PrimeFaces in-place sort, and a `sortBy` naming
   a variable set in a row `beforeEncode` never sorted at all. The uncapped roster reports freeze

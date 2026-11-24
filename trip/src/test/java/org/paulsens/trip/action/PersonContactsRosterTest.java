@@ -2,7 +2,10 @@ package org.paulsens.trip.action;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.PersonMatch;
 import org.paulsens.trip.model.Person;
@@ -127,10 +130,53 @@ public class PersonContactsRosterTest {
         assertTrue(people.sortedIds(null).isEmpty());
     }
 
+    /**
+     * The admin People page asks for its rows twice per request (initPage, then before encode): the second ask
+     * for the same query is answered from the request, not searched again; a new query or a new request searches.
+     */
+    @Test
+    public void theAdminSearchSearchesOncePerRequestAndQuery() {
+        final AtomicInteger searches = new AtomicInteger();
+        final Map<String, Object> request = new HashMap<>();
+        final PersonCommands memoized = new PersonCommands(() -> countedSiteAdmin(searches), () -> request);
+
+        final PeopleResult first = memoized.adminSearch(marker);
+        assertSame(memoized.adminSearch(marker), first, "the same query in the same request is not searched again");
+        assertEquals(searches.get(), 1);
+        memoized.adminSearch("needle");
+        assertEquals(searches.get(), 2, "a new query searches");
+        request.clear();
+        memoized.adminSearch(marker);
+        assertEquals(searches.get(), 3, "a new request searches");
+    }
+
+    private static OrgCommands countedSiteAdmin(final AtomicInteger searches) {
+        searches.incrementAndGet();
+        return TenancyFixtures.asSiteAdmin();
+    }
+
     @Test
     public void theAdminSearchAsksForAQueryWhenBlank() {
         assertSame(people.adminSearch(null), PeopleResult.NEEDS_QUERY);
         assertSame(people.adminSearch("  "), PeopleResult.NEEDS_QUERY);
+    }
+
+    /** One character is refused everywhere a people list searches, with its own hint, not "nobody matches". */
+    @Test
+    public void aOneCharacterQueryIsTooShortForTheAdminSearchAndEveryList() {
+        final List<Person> everyone = big.stream().map(people::getPerson).toList();
+        assertSame(people.adminSearch("n"), PeopleResult.TOO_SHORT);
+        assertSame(people.listOrSearch(everyone.subList(0, 5), "n", ALL), PeopleResult.TOO_SHORT,
+                "even a list small enough to show whole refuses a too-short search rather than ignoring it");
+        assertTrue(PeopleResult.TOO_SHORT.tooShort());
+        assertFalse(PeopleResult.TOO_SHORT.needsQuery());
+        assertFalse(people.listOrSearch(everyone, "ne", ALL).tooShort());
+        assertTrue(people.queryTooShort("n"), "a Find-button page reads the same refusal");
+        assertTrue(people.queryTooShort("n p"));
+        assertFalse(people.queryTooShort("n paulsen"));
+        assertFalse(people.queryTooShort("  "), "no query is not a refused query");
+        assertFalse(people.queryTooShort(null));
+        assertEquals(people.getMinQueryLength(), 2);
     }
 
     /**

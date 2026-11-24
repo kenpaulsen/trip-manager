@@ -314,7 +314,8 @@ admin, `tripMgr` or `checkinStaff`; clear = site admin or `tripMgr`; counts = th
 - `GET /api/trips/{tripId}/registrations/lookup?q=` → `[RegistrationDto]` (no `options`, no ticket; `name` is
   "Last, First"). A whole ticket code (grouped, any case, 0/1/8 for O/I/B) matches exactly that ticket, never a
   prefix; any other `q` is the people-search rule (every word must match: names and cell digits anywhere, email
-  from its start, cell and email only where the caller may see them). CONFIRMED and PENDING only, at most 60.
+  from its start, cell and email only where the caller may see them; a `q` whose longest word has fewer than two
+  characters answers an empty list). CONFIRMED and PENDING only, at most 60.
 - `GET /api/trips/{tripId}/registrations/ticket/{code}` → `RegistrationDto` with ticket, stamp, type and name
   (`options` only for `tripMgr`/`tripView`/`registrationAdmin`); 404 `NOT_FOUND` for no such ticket ON THIS TRIP.
 - `POST /api/trips/{tripId}/registrations/{personId}/checkin` (CSRF header for a cookie caller) → 200
@@ -366,7 +367,9 @@ their shared itinerary; absent on a PUT = unchanged. `PUT` absent = unchanged, `
 `PUT` also writes `address` (contact-gated), `passport` (travel-gated) and `sex` (`Male|Female`; anything
 else is 400 `VALIDATION_FAILED`). `GET /api/people?q=` needs `peopleAdmin` and is the website's admin People
 search (2026-11-12): a site admin searches the directory, anyone else exactly the members of the organizations
-where they hold `peopleAdmin`; a blank `q` answers an empty list.
+where they hold `peopleAdmin`; a blank `q` answers an empty list, and so does a `q` too short to search (2026-11-24:
+the longest word, digits only when phone-like, must have at least two characters; "k paulsen" searches, "k" does
+not). The apps check the same rule before calling and show "Type at least 2 characters to search." instead.
 A `PUT` that changes SOMEBODY ELSE's `email` is 403 `FORBIDDEN` ("Changing how this person signs in takes a
 site administrator.") unless the caller may change that person's sign-in (2026-11-12, `docs/org-admin.md`):
 a family manager may still add a first address to a member who has none, but not change or clear one; a
@@ -647,7 +650,8 @@ photos).
 - **Photo mention search** (`GET /api/photo-chat/mention-search?q=`, 2026-11-12): returns only people who share
   an organization with the caller (it searched every account before), matched by name and by what each person
   shares with everyone, in last-name order; a caller in no organization gets an empty list. Shape, limits and
-  the 429 brake are unchanged.
+  the 429 brake are unchanged, except that since 2026-11-24 a `q` whose longest word has fewer than two characters
+  is 400 (the people-search minimum; "k p" included).
 
 See the plan and the backend docs; wired in the next phases. Chat: `GET /api/chat/my-channels` (`unread` is a
 boolean; `unreadCount`, 2026-11-20, is the number of other people's unread messages, at most 100, which the apps'

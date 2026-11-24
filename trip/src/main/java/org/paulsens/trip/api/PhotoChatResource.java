@@ -21,6 +21,7 @@ import org.paulsens.trip.action.Caller;
 import org.paulsens.trip.action.ChatCommands;
 import org.paulsens.trip.action.ModerationCommands;
 import org.paulsens.trip.action.PhotoChatCommands;
+import org.paulsens.trip.dynamo.PersonMatch;
 import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.chat.ChatMessage;
@@ -325,8 +326,10 @@ public class PhotoChatResource extends BaseResource {
         } catch (final NotAuthorizedException ex) {
             return error(401, ChatErrors.NOT_AUTHENTICATED, Text.get("api.shared.signInRequired"));
         }
-        if (q == null || q.strip().length() < 2) {
-            return error(400, ApiErrors.BAD_REQUEST, Text.get("api.photoChat.queryTooShort"));
+        final List<String> words = PersonMatch.queryWords(q);
+        if (words.isEmpty() || PersonMatch.tooShort(words)) {
+            return error(400, ApiErrors.BAD_REQUEST, Text.get("api.photoChat.queryTooShort",
+                    PersonMatch.MIN_QUERY_LENGTH));
         }
         final PhotoChatCommands photoChat = PhotoChatCommands.getPhotoChatCommands();
         if (!photoChat.mentionSearchAllowed(me)) {

@@ -9,6 +9,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.StructuredTaskScope;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.cache.CacheClient;
 import org.paulsens.trip.cache.CacheKeys;
@@ -32,6 +34,9 @@ public class PersonDAO {
     /** Top-level (lowercased) copy of the person's email; partition key of the {@link #EMAIL_INDEX} GSI. */
     static final String EMAIL_ATTR = "email";
     static final String EMAIL_INDEX = "email-index";
+
+    /** Most of one search's cache misses that read DynamoDB at once ({@link #resolvePeople}). */
+    private static final int RESOLVE_LOADS = 16;
 
     private final ObjectMapper mapper;
     private final Persistence persistence;
@@ -144,7 +149,7 @@ public class PersonDAO {
     protected Search searchPeople(final String query, final int limit, final PersonMatch.Reach reach) {
         final List<String> words = PersonMatch.queryWords(query);
         final String lookup = PersonMatch.lookupWord(words);
-        if (lookup.isEmpty() || limit <= 0) {
+        if (lookup.length() < PersonMatch.MIN_QUERY_LENGTH || limit <= 0) {
             return new Search(List.of(), false);
         }
         final int window = limit * 3;
@@ -237,12 +242,36 @@ public class PersonDAO {
         return (person == null || person.getDeleted() != null) ? null : person;
     }
 
+    /**
+     * The people behind a search's ids, in order, skipping ids that name nobody. Forked per id so the cache reads
+     * go out together and Lettuce pipelines them on its connection: awaiting each GET before sending the next cost
+     * one round trip per row (measured 2026-11-24 on a local 3-shard cluster, 180 ids: 9.0 ms one at a time, 0.9
+     * ms concurrent). An MGET was measured too and is no faster: the cluster client splits it into one command per
+     * hash slot anyway. Only the misses that fall through to DynamoDB are bounded ({@link #RESOLVE_LOADS}), since
+     * its client pools 100 connections and an unbounded fan-out there fails as nulls.
+     */
     private List<Person> resolvePeople(final List<String> ids) {
-        final List<Person> people = new ArrayList<>();
-        for (final String id : ids) {
-            cache.get(id, this::loadPersonById).ifPresent(people::add);
+        final Semaphore loads = new Semaphore(RESOLVE_LOADS);
+        try (var scope = StructuredTaskScope.open()) {
+            final List<StructuredTaskScope.Subtask<Optional<Person>>> tasks = new ArrayList<>(ids.size());
+            for (final String id : ids) {
+                tasks.add(scope.fork(() -> cache.get(id, key -> loadBounded(loads, key))));
+            }
+            scope.join();
+            return tasks.stream().map(StructuredTaskScope.Subtask::get).flatMap(Optional::stream).toList();
+        } catch (final InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted while resolving people", ex);
         }
-        return people;
+    }
+
+    private Person loadBounded(final Semaphore loads, final String id) {
+        loads.acquireUninterruptibly();
+        try {
+            return loadPersonById(id);
+        } finally {
+            loads.release();
+        }
     }
 
     private Map<String, Set<String>> loadAllSearchTokens() {
