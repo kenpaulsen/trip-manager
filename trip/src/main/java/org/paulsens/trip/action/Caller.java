@@ -6,6 +6,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.paulsens.trip.audit.AuditActor;
+import org.paulsens.trip.cache.Cached;
+import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.site.SiteContext;
 import org.paulsens.trip.model.Privilege;
@@ -142,6 +144,11 @@ public final class Caller {
 
     public Person.Id personId() {
         return personId;
+    }
+
+    /** This caller's own {@link Person} row; null for an anonymous caller, or when the row is gone. */
+    public Person person(final Cached cached) {
+        return isAuthenticated() ? DAO.getInstance().getPerson(personId, cached).orElse(null) : null;
     }
 
     public boolean isSiteAdmin() {

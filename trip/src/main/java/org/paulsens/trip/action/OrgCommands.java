@@ -2649,8 +2649,7 @@ public class OrgCommands {
      */
     public boolean sendPaymentTestMail(final Trip trip, final String to) {
         final Caller current = caller();
-        final Person me = (current.isAuthenticated())
-                ? DAO.getInstance().getPerson(current.personId(), Cached.NO).orElse(null) : null;
+        final Person me = current.person(Cached.NO);
         if (me == null) {
             return fail(Text.get("feedback.shared.notSignedIn"), Text.get("feedback.orgCommands.signInToTest"));
         }
@@ -2697,8 +2696,7 @@ public class OrgCommands {
 
     private MailCommands.ManagedMail renderSamplePaymentMail(final Trip trip) {
         final Caller current = caller();
-        final Person me = (current.isAuthenticated())
-                ? DAO.getInstance().getPerson(current.personId(), Cached.NO).orElse(null) : null;
+        final Person me = current.person(Cached.NO);
         if (trip == null || me == null) {
             return null;
         }

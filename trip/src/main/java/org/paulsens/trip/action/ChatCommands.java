@@ -18,6 +18,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.Audit;
@@ -726,15 +727,10 @@ public class ChatCommands {
     boolean saveChatPrefs(final String tripId, final Person.Id me, final boolean mentionEmail,
             final boolean dailyDigest, final ChatNotifyPref.PushMode pushMode, final String color,
             final String imageUrl) {
-        if (tripId == null || me == null) {
+        final ChatMembership row = prefsRow(tripId, me);
+        if (row == null) {
             return false;
         }
-        final ChatChannel channel = ensureChannel(tripId, AuditActor.current());
-        if (channel == null || !canRead(channel, me)) {
-            return false;
-        }
-        final ChatMembership row = membershipRow(channel.getId(), me)
-                .orElseGet(() -> ChatMembership.joining(channel.getId(), me, channel.getCreated()));
         final ChatNotifyPref notify = row.getNotify().withEmail(mentionEmail, dailyDigest);
         final ChatMembership updated = row
                 .withNotify(pushMode == null ? notify : notify.withPushMode(pushMode))
@@ -1255,12 +1251,21 @@ public class ChatCommands {
      * message they sent before the mute — a hole that turns the edit window into an unmoderated channel.
      */
     private String editDenial(final ChatChannel channel, final Person.Id me, final Instant now) {
+        return actDenial(channel, me, now, ChatSettings::isAllowEdit, "EDIT_DISABLED");
+    }
+
+    /**
+     * The denial an edit and a reaction share, in this order: read access, the channel's switch for the action,
+     * a closed chat, a mute. The switch is read only after read access has answered, as both copies did.
+     */
+    private String actDenial(final ChatChannel channel, final Person.Id me, final Instant now,
+            final Predicate<ChatSettings> allowed, final String disabledCode) {
         final String readDenial = readDenial(channel, me);
         if (readDenial != null) {
             return readDenial;
         }
-        if (!channel.getSettings().isAllowEdit()) {
-            return "EDIT_DISABLED";
+        if (!allowed.test(channel.getSettings())) {
+            return disabledCode;
         }
         if (ChatVisibility.isArchived(channel, tripOf(channel), now)) {
             return "CHANNEL_ARCHIVED";
@@ -1411,16 +1416,26 @@ public class ChatCommands {
      */
     public boolean setEmailPrefs(
             final String tripId, final Person.Id me, final boolean mentionEmail, final boolean dailyDigest) {
+        final ChatMembership row = prefsRow(tripId, me);
+        return row != null
+                && dao().saveChatMembership(row.withNotify(row.getNotify().withEmail(mentionEmail, dailyDigest)));
+    }
+
+    /**
+     * The row a preference is written onto: this person's membership, materialised when they are an implicit
+     * member. Null (write nothing) without a trip or a person, or when they may not read the channel. The one
+     * gate the three preference writes share; it creates the channel, for the reasons {@link #setEmailPrefs} gives.
+     */
+    private ChatMembership prefsRow(final String tripId, final Person.Id me) {
         if (tripId == null || me == null) {
-            return false;
+            return null;
         }
         final ChatChannel channel = ensureChannel(tripId, AuditActor.current());
         if (channel == null || !canRead(channel, me)) {
-            return false;
+            return null;
         }
-        final ChatMembership row = membershipRow(channel.getId(), me)
+        return membershipRow(channel.getId(), me)
                 .orElseGet(() -> ChatMembership.joining(channel.getId(), me, channel.getCreated()));
-        return dao().saveChatMembership(row.withNotify(row.getNotify().withEmail(mentionEmail, dailyDigest)));
     }
 
     /**
@@ -1430,16 +1445,9 @@ public class ChatCommands {
      * OFF and ALL only exist as a stored row.
      */
     public boolean setPushMode(final String tripId, final Person.Id me, final ChatNotifyPref.PushMode mode) {
-        if (tripId == null || me == null || mode == null) {
-            return false;
-        }
-        final ChatChannel channel = ensureChannel(tripId, AuditActor.current());
-        if (channel == null || !canRead(channel, me)) {
-            return false;
-        }
-        final ChatMembership row = membershipRow(channel.getId(), me)
-                .orElseGet(() -> ChatMembership.joining(channel.getId(), me, channel.getCreated()));
-        return dao().saveChatMembership(row.withNotify(row.getNotify().withPushMode(mode)));
+        // A missing mode is refused before prefsRow, which would otherwise create the channel for nothing.
+        final ChatMembership row = mode == null ? null : prefsRow(tripId, me);
+        return row != null && dao().saveChatMembership(row.withNotify(row.getNotify().withPushMode(mode)));
     }
 
     /** This person's push choice for a trip's chat, as the enum name ({@code OFF|MENTIONS|ALL}). */
@@ -1779,21 +1787,7 @@ public class ChatCommands {
      * channel through a control that was never meant to be one, which defeats the moderation action.
      */
     private String reactDenial(final ChatChannel channel, final Person.Id me, final Instant now) {
-        final String readDenial = readDenial(channel, me);
-        if (readDenial != null) {
-            return readDenial;
-        }
-        if (!channel.getSettings().isAllowReactions()) {
-            return "REACTIONS_DISABLED";
-        }
-        if (ChatVisibility.isArchived(channel, tripOf(channel), now)) {
-            return "CHANNEL_ARCHIVED";
-        }
-        final ChatMembership row = membershipFor(channel.getId(), me);
-        if (row != null && row.isMuted(now)) {
-            return "MUTED";
-        }
-        return null;
+        return actDenial(channel, me, now, ChatSettings::isAllowReactions, "REACTIONS_DISABLED");
     }
 
     private static String reactDenialMessage(final String code) {

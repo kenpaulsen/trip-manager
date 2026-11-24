@@ -185,14 +185,8 @@ public class BrandingUploadCommands extends PhotoUploadBean {
      * @return true when the setting was repointed; false with a message otherwise.
      */
     public boolean useVersion(final String orgId, final String key) {
-        final BrandingPhotos.BrandingKey parsed = BrandingPhotos.parse(key);
-        if (parsed == null || orgId == null || !orgId.equals(parsed.orgId())) {
-            error(Text.get("feedback.brandingUploadCommands.notThisOrgs"));
-            return false;
-        }
-        final Optional<BrandingRole> role = BrandingRole.of(parsed.role());
-        if (role.isEmpty() || !orgs.canManageOrg(orgId)) {
-            error(Text.get("feedback.brandingUploadCommands.notAllowed"));
+        final Optional<BrandingRole> role = ownedRole(orgId, key);
+        if (role.isEmpty()) {
             return false;
         }
         applyToPreview(orgId, role.get(), brandingPhotos.urlFor(key));
@@ -212,14 +206,8 @@ public class BrandingUploadCommands extends PhotoUploadBean {
      * @return true when the new version was stored and previewed; false with a message otherwise.
      */
     public boolean rotateVersion(final String orgId, final String key, final String direction) {
-        final BrandingPhotos.BrandingKey parsed = BrandingPhotos.parse(key);
-        if (parsed == null || orgId == null || !orgId.equals(parsed.orgId())) {
-            error(Text.get("feedback.brandingUploadCommands.notThisOrgs"));
-            return false;
-        }
-        final Optional<BrandingRole> role = BrandingRole.of(parsed.role());
-        if (role.isEmpty() || !orgs.canManageOrg(orgId)) {
-            error(Text.get("feedback.brandingUploadCommands.notAllowed"));
+        final Optional<BrandingRole> role = ownedRole(orgId, key);
+        if (role.isEmpty()) {
             return false;
         }
         final Optional<QuarterTurn> turn = QuarterTurn.parse(direction);
@@ -312,6 +300,25 @@ public class BrandingUploadCommands extends PhotoUploadBean {
     /** What the parked upload is FOR, so a token minted for one role or org cannot be spent on another. */
     private static String targetIdFor(final String orgId, final BrandingRole role) {
         return orgId + "#" + role.getKey();
+    }
+
+    /**
+     * The role of a stored version this caller may act on, or empty after saying why not. The key must be this
+     * organization's own (checked FIRST: another tenant's key is refused before anything is asked about it), then
+     * name a real role, then the caller must manage the organization.
+     */
+    private Optional<BrandingRole> ownedRole(final String orgId, final String key) {
+        final BrandingPhotos.BrandingKey parsed = BrandingPhotos.parse(key);
+        if (parsed == null || orgId == null || !orgId.equals(parsed.orgId())) {
+            error(Text.get("feedback.brandingUploadCommands.notThisOrgs"));
+            return Optional.empty();
+        }
+        final Optional<BrandingRole> role = BrandingRole.of(parsed.role());
+        if (role.isEmpty() || !orgs.canManageOrg(orgId)) {
+            error(Text.get("feedback.brandingUploadCommands.notAllowed"));
+            return Optional.empty();
+        }
+        return role;
     }
 
     private BrandingRole role() {

@@ -101,6 +101,11 @@ public class FamilyCommands {
         if (family == null || me == null) {
             return false;
         }
+        return managerOrAdmin(family, me);
+    }
+
+    /** The write gate on a family: one of its managers, or a site administrator. Neither argument is null. */
+    private boolean managerOrAdmin(final Family family, final Person me) {
         return family.isManager(me.getId()) || caller().isSiteAdmin();
     }
 
@@ -375,7 +380,7 @@ public class FamilyCommands {
                     Text.get("feedback.familyCommands.managerNeedsOwnEmail", first));
         }
         Family family = familyOf(anchor);
-        if (family != null && !family.isManager(me.getId()) && !caller().isSiteAdmin()) {
+        if (family != null && !managerOrAdmin(family, me)) {
             return FamilyResult.refused(FamilyResult.NOT_MANAGER, Text.get("feedback.family.notAManager"),
                     Text.get("feedback.familyCommands.onlyManagerAdds"));
         }
@@ -454,7 +459,7 @@ public class FamilyCommands {
             return FamilyResult.refused(FamilyResult.NO_FAMILY, Text.get("feedback.familyCommands.noFamily"),
                     Text.get("feedback.familyCommands.notInYourFamily"));
         }
-        if (!family.isManager(me.getId()) && !caller().isSiteAdmin()) {
+        if (!managerOrAdmin(family, me)) {
             return FamilyResult.refused(FamilyResult.NOT_MANAGER, Text.get("feedback.family.notAManager"),
                     Text.get("feedback.familyCommands.onlyManagerRemoves"));
         }
@@ -509,7 +514,7 @@ public class FamilyCommands {
             return FamilyResult.refused(FamilyResult.NO_FAMILY, Text.get("feedback.familyCommands.noFamily"),
                     Text.get("feedback.familyCommands.notInYourFamily"));
         }
-        if (!family.isManager(me.getId()) && !caller().isSiteAdmin()) {
+        if (!managerOrAdmin(family, me)) {
             return FamilyResult.refused(FamilyResult.NOT_MANAGER, Text.get("feedback.family.notAManager"),
                     Text.get("feedback.familyCommands.onlyManagerChangesManagers"));
         }

@@ -284,13 +284,9 @@ public class CheckoutCommands {
             return refuse(Text.get("feedback.checkoutCommands.cannotRegisterParty"));
         }
         applyWaiverAgreements(trip, draft);
-        final Prepared prepared = prepare(trip, draft, party, true);
-        if (!prepared.problems().isEmpty() || prepared.persons().stream().anyMatch(p -> !p.problems().isEmpty())) {
-            growlProblems(prepared);
+        final Prepared prepared = preparedOrGrowl(trip, draft, party);
+        if (prepared == null) {
             return null;
-        }
-        if (prepared.rows().isEmpty()) {
-            return refuse(Text.get("feedback.checkoutCommands.nothingToRegister"));
         }
         if (prepared.totalCents() == 0) {
             final LocalDateTime now = LocalDateTime.now();
@@ -333,13 +329,9 @@ public class CheckoutCommands {
             return refuse(Text.get("feedback.checkoutCommands.chooseMethod"));
         }
         applyWaiverAgreements(trip, draft);
-        final Prepared prepared = prepare(trip, draft, party, true);
-        if (!prepared.problems().isEmpty() || prepared.persons().stream().anyMatch(p -> !p.problems().isEmpty())) {
-            growlProblems(prepared);
+        final Prepared prepared = preparedOrGrowl(trip, draft, party);
+        if (prepared == null) {
             return null;
-        }
-        if (prepared.rows().isEmpty()) {
-            return refuse(Text.get("feedback.checkoutCommands.nothingToRegister"));
         }
         final long price = prepared.totalCents();
         final long dueNow = prepared.dueNowCents();
@@ -701,6 +693,19 @@ public class CheckoutCommands {
     private static void growlProblems(final Prepared prepared) {
         prepared.persons().forEach(person -> person.problems().forEach(p -> PageFeedback.warn(p.message())));
         prepared.problems().forEach(problem -> PageFeedback.warn(problem.message()));
+    }
+
+    /**
+     * The party priced and checked for a start, or null after growling why not: its problems first, then an
+     * empty party. The gate a paid start and an offline registration share, in that order.
+     */
+    private Prepared preparedOrGrowl(final Trip trip, final RegistrationDraft draft, final List<Person> party) {
+        final Prepared prepared = prepare(trip, draft, party, true);
+        if (!prepared.problems().isEmpty() || prepared.persons().stream().anyMatch(p -> !p.problems().isEmpty())) {
+            growlProblems(prepared);
+            return null;
+        }
+        return prepared.rows().isEmpty() ? refuse(Text.get("feedback.checkoutCommands.nothingToRegister")) : prepared;
     }
 
     private static <T> T refuse(final String message) {

@@ -810,9 +810,7 @@ public class RegistrationCommands {
     }
 
     private Person currentPerson() {
-        final Caller caller = callerSource.get();
-        return caller.isAuthenticated()
-                ? DAO.getInstance().getPerson(caller.personId(), Cached.NO).orElse(null) : null;
+        return callerSource.get().person(Cached.NO);
     }
 
     public List<Registration> getRegistrations(final String tripId) {

@@ -1323,9 +1323,7 @@ public class PaymentCommands {
     }
 
     private Person currentPerson() {
-        final Caller current = caller();
-        return current.isAuthenticated()
-                ? DAO.getInstance().getPerson(current.personId(), Cached.NO).orElse(null) : null;
+        return caller().person(Cached.NO);
     }
 
     private boolean fail(final String summary, final String detail) {

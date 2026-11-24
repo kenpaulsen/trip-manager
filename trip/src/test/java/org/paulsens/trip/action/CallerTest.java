@@ -109,4 +109,21 @@ public class CallerTest {
         Mockito.when(session.getAttribute("userId")).thenReturn(id);
         return session;
     }
+
+    /** The caller's own row, the lookup four beans spelled by hand: nobody for an anonymous caller. */
+    @Test
+    public void personResolvesTheCallersOwnRowOrNobody() throws java.io.IOException {
+        final Person saved = new Person();
+        saved.setFirst("Callie");
+        saved.setLast("Caller-" + java.util.UUID.randomUUID());
+        Assert.assertTrue(org.paulsens.trip.dynamo.DAO.getInstance().savePerson(saved));
+        final PrivilegeCommands privs = Mockito.mock(PrivilegeCommands.class);
+
+        final Caller known = new Caller(saved.getId(), false, AuditActor.from(null), privs);
+        Assert.assertEquals(known.person(org.paulsens.trip.cache.Cached.NO).getLast(), saved.getLast());
+        Assert.assertNull(new Caller(null, false, AuditActor.from(null), privs)
+                .person(org.paulsens.trip.cache.Cached.NO));
+        Assert.assertNull(new Caller(Person.Id.newInstance(), false, AuditActor.from(null), privs)
+                .person(org.paulsens.trip.cache.Cached.NO), "a caller whose row is gone is nobody");
+    }
 }
