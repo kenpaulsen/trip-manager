@@ -222,25 +222,7 @@ public class PhotoChatResource extends BaseResource {
         }
         final ModerationCommands.ReportOutcome outcome = Beans.get(ModerationCommands.class)
                 .report(target, JsonBody.str(body, "reason"), caller());
-        if (outcome.ok()) {
-            return Response.status(202)
-                    .type(negotiatedType())
-                    .header("Vary", "Accept")
-                    .entity(Map.of("reported", true, "id", id == null ? "" : id,
-                            "response", ModerationCommands.RESPONSE_PROMISE))
-                    .build();
-        }
-        return switch (outcome.code() == null ? "" : outcome.code()) {
-            case ModerationCommands.REFUSED_NOT_FOUND -> error(404, ApiErrors.NOT_FOUND, outcome.message());
-            case ModerationCommands.REFUSED_RATE_LIMITED -> Response.status(429)
-                    .type(MediaType.APPLICATION_JSON)
-                    .header("Vary", "Accept")
-                    .header("Retry-After", Integer.toString(Math.max(1, outcome.retryAfterSeconds())))
-                    .entity(Map.of("error", ChatErrors.RATE_LIMITED, "message", outcome.message()))
-                    .build();
-            case ModerationCommands.REFUSED_FORBIDDEN -> error(403, ChatErrors.FORBIDDEN, outcome.message());
-            default -> error(400, ApiErrors.BAD_REQUEST, outcome.message());
-        };
+        return reportResponse(outcome, id);
     }
 
     /** Adds this person's emoji on the photo. PUT because the row key (photo, person, emoji) is idempotent. */
@@ -380,13 +362,7 @@ public class PhotoChatResource extends BaseResource {
         final String message = result.getMessage() == null
                 ? Text.get("api.photoChat.commentFailed") : result.getMessage();
         if (result.getDecision() != null) {
-            return Response.status(429)
-                    .type(MediaType.APPLICATION_JSON)
-                    .header("Vary", "Accept")
-                    .header("Retry-After",
-                            Integer.toString(result.getDecision().getRetryAfterSeconds()))
-                    .entity(Map.of("error", ChatErrors.RATE_LIMITED, "message", message))
-                    .build();
+            return tooManyRequests(ChatErrors.RATE_LIMITED, message, result.getDecision().getRetryAfterSeconds());
         }
         return switch (code == null ? "" : code) {
             case "disabled" -> error(403, ChatErrors.PHOTO_COMMENTS_DISABLED, message);

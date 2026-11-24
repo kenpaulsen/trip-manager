@@ -935,6 +935,11 @@ versioned put, so two simultaneous writes can refuse one as "Saved by someone el
 `NOT_A_TRIP_MEMBER, LEFT_CHANNEL, REMOVED_FROM_CHANNEL, CHANNEL_ARCHIVED, CHAT_DISABLED, MUTED, SLOW_MODE, BAD_CHANNEL,
 MESSAGE_EMPTY, MESSAGE_TOO_LONG, BAD_ATTACHMENT, EDIT_WINDOW_CLOSED, EDIT_DISABLED, ON_BEHALF_NOT_ALLOWED`.
 
+A 429 is an error body like the others: `{"error", "message"}` plus `Retry-After` (whole seconds). Since
+2026-11-24 the chat and photo-thread 429s (a send, a photo upload, a comment, the three reports) are stamped with
+the media type the request's `Accept` named, as every other error already was; they used to say
+`application/json` regardless. The body, the codes (`RATE_LIMITED`, `SLOW_MODE`) and the header are unchanged.
+
 A date in a JSON body that the server cannot read is 400 `BAD_REQUEST` with a `message` naming the field (the
 lodging endpoints `/api/lodging/...`, 2026-11-24; they answered 500 `INTERNAL` before, and a lodging write sent
 with no body at all, also a 500, is now read as an empty one). The expense report keeps its own 400

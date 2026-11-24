@@ -252,6 +252,33 @@ public class ChatResourceTest extends ResourceTestSupport {
         Assert.assertNotNull(response.getHeaderString("Retry-After"));
     }
 
+    /**
+     * A 429 is an error body like any other, so it answers in the media type the caller asked for. The 429s
+     * were built by hand and stamped plain JSON whatever the Accept header said.
+     */
+    @Test
+    public void a429IsStampedWithTheVersionTheCallerAskedFor() {
+        accepting(ApiMediaTypes.CHAT_V1);
+        Mockito.when(chat.send(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(AuditActor.class),
+                ArgumentMatchers.anyList(), ArgumentMatchers.any()))
+                .thenReturn(ChatCommands.SendResult.fail("rate_limit", "Slow down"));
+        final Response limited = send("spam");
+        assertError(limited, 429, ChatErrors.RATE_LIMITED);
+        assertVersionedType(limited, ApiMediaTypes.CHAT_V1);
+        Assert.assertEquals(limited.getHeaderString("Retry-After"), "5", "no decision in hand: the default wait");
+
+        final org.paulsens.trip.action.ModerationCommands moderation =
+                bindMock(org.paulsens.trip.action.ModerationCommands.class);
+        Mockito.when(moderation.report(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(new org.paulsens.trip.action.ModerationCommands.ReportOutcome(false,
+                        org.paulsens.trip.action.ModerationCommands.REFUSED_RATE_LIMITED, "slow down", 0));
+        final Response throttled = resource.report(CHANNEL, "m1", CSRF_OK, null);
+        assertError(throttled, 429, ChatErrors.RATE_LIMITED);
+        assertVersionedType(throttled, ApiMediaTypes.CHAT_V1);
+        Assert.assertEquals(throttled.getHeaderString("Retry-After"), "1", "never 0: a client would spin");
+    }
+
     @Test
     public void sendFailuresMapToTheStatusTheClientActsOn() {
         Mockito.when(chat.send(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
@@ -1014,6 +1041,7 @@ public class ChatResourceTest extends ResourceTestSupport {
         final Response limited = uploader.uploadPhoto(CHANNEL, CSRF_OK, null, null, null, null, null, bodyOf(bytes));
         assertError(limited, 429, ChatErrors.RATE_LIMITED);
         Assert.assertNotNull(limited.getHeaderString("Retry-After"), "a 429 always says when to come back");
+        assertPlainJsonType(limited);
         Mockito.verify(photos, Mockito.never()).stage(ArgumentMatchers.any(), ArgumentMatchers.any(),
                 ArgumentMatchers.any(), ArgumentMatchers.any());
     }

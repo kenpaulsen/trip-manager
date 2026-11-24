@@ -315,13 +315,8 @@ public class ChatResource extends BaseResource {
         final String message = result.getMessage() == null ? Text.get("api.chat.sendFailed") : result.getMessage();
         if (ChatErrors.RATE_LIMITED.equals(code) || ChatErrors.SLOW_MODE.equals(code)) {
             // 429 is NOT terminal: the client keeps polling, keeps the user's text, and shows the countdown.
-            return Response.status(429)
-                    .type(MediaType.APPLICATION_JSON)
-                    .header("Vary", "Accept")
-                    .header("Retry-After", result.getDecision() == null
-                            ? "5" : Integer.toString(result.getDecision().getRetryAfterSeconds()))
-                    .entity(Map.of("error", code, "message", message))
-                    .build();
+            return tooManyRequests(code, message,
+                    result.getDecision() == null ? 5 : result.getDecision().getRetryAfterSeconds());
         }
         if (ChatErrors.MUTED.equals(code) || ChatErrors.FORBIDDEN.equals(code)
                 || ChatErrors.CHANNEL_ARCHIVED.equals(code) || ChatErrors.ON_BEHALF_NOT_ALLOWED.equals(code)) {
@@ -371,13 +366,8 @@ public class ChatResource extends BaseResource {
         }
         final UploadRateLimiter limiter = uploadLimiter();
         if (!limiter.allow(me.getValue())) {
-            return Response.status(429)
-                    .type(MediaType.APPLICATION_JSON)
-                    .header("Vary", "Accept")
-                    .header("Retry-After", Integer.toString(limiter.retryAfterSeconds(me.getValue())))
-                    .entity(Map.of("error", ChatErrors.RATE_LIMITED,
-                            "message", Text.get("api.chat.tooManyUploads")))
-                    .build();
+            return tooManyRequests(ChatErrors.RATE_LIMITED, Text.get("api.chat.tooManyUploads"),
+                    limiter.retryAfterSeconds(me.getValue()));
         }
         final ChatCommands.AttachGate gate = ChatCommands.getChatCommands().checkAttach(tripId, me);
         if (gate.denial() != null) {
@@ -1134,29 +1124,6 @@ public class ChatResource extends BaseResource {
                 ModerationCommands.ReportTarget.message(tripId, ChatMessage.Id.from(msgId)),
                 JsonBody.str(body, "reason"), caller());
         return reportResponse(outcome, msgId);
-    }
-
-    /** The one mapping for report outcomes: 202 accepted, 404 not visible, 429 throttled, 400/403 otherwise. */
-    Response reportResponse(final ModerationCommands.ReportOutcome outcome, final String id) {
-        if (outcome.ok()) {
-            return Response.status(202)
-                    .type(negotiatedType())
-                    .header("Vary", "Accept")
-                    .entity(Map.of("reported", true, "id", id == null ? "" : id,
-                            "response", ModerationCommands.RESPONSE_PROMISE))
-                    .build();
-        }
-        return switch (outcome.code() == null ? "" : outcome.code()) {
-            case ModerationCommands.REFUSED_NOT_FOUND -> error(404, ChatErrors.NOT_FOUND, outcome.message());
-            case ModerationCommands.REFUSED_RATE_LIMITED -> Response.status(429)
-                    .type(MediaType.APPLICATION_JSON)
-                    .header("Vary", "Accept")
-                    .header("Retry-After", Integer.toString(Math.max(1, outcome.retryAfterSeconds())))
-                    .entity(Map.of("error", ChatErrors.RATE_LIMITED, "message", outcome.message()))
-                    .build();
-            case ModerationCommands.REFUSED_FORBIDDEN -> error(403, ChatErrors.FORBIDDEN, outcome.message());
-            default -> error(400, ApiErrors.BAD_REQUEST, outcome.message());
-        };
     }
 
     /** Mutes somebody for a number of minutes. Chat managers and site administrators. */

@@ -213,6 +213,27 @@ public class PhotoChatResourceTest extends ResourceTestSupport {
                 "the client shows this countdown and keeps the user's text");
     }
 
+    /** A 429 answers in the media type the caller asked for, like every other error body here. */
+    @Test
+    public void a429IsStampedWithTheVersionTheCallerAskedFor() {
+        signedInAs(ME);
+        accepting(ApiMediaTypes.PHOTO_CHAT_V1);
+        stubComment(ChatCommands.SendResult.rateLimited(ChatRateLimiter.Decision.deny("burst", 7)));
+        final Response limited = comment("hi");
+        assertError(limited, 429, ChatErrors.RATE_LIMITED);
+        assertVersionedType(limited, ApiMediaTypes.PHOTO_CHAT_V1);
+
+        final org.paulsens.trip.action.ModerationCommands moderation =
+                bindMock(org.paulsens.trip.action.ModerationCommands.class);
+        Mockito.when(moderation.report(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(new org.paulsens.trip.action.ModerationCommands.ReportOutcome(false,
+                        org.paulsens.trip.action.ModerationCommands.REFUSED_RATE_LIMITED, "wait", 7));
+        final Response throttled = resource.reportPhoto(KEY, CSRF_OK, null);
+        assertError(throttled, 429, ChatErrors.RATE_LIMITED);
+        assertVersionedType(throttled, ApiMediaTypes.PHOTO_CHAT_V1);
+        Assert.assertEquals(throttled.getHeaderString("Retry-After"), "7");
+    }
+
     @Test
     public void aSuccessfulCommentEchoesTheStoredMessage() {
         signedInAs(ME);

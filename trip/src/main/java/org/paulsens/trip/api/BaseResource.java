@@ -20,6 +20,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.paulsens.trip.action.Caller;
+import org.paulsens.trip.action.ModerationCommands;
 import org.paulsens.trip.action.PersonCommands;
 import org.paulsens.trip.action.ProfilePhotos;
 import org.paulsens.trip.action.TripCommands;
@@ -124,6 +125,40 @@ public abstract class BaseResource {
                 .header("Vary", "Accept")
                 .entity(body)
                 .build();
+    }
+
+    /**
+     * A 429: the error body every other refusal has (so it is negotiated like them), plus the {@code Retry-After}
+     * a client waits out. Built by hand per endpoint, these were stamped plain JSON whatever the caller asked for.
+     */
+    protected Response tooManyRequests(final String code, final String message, final int retryAfterSeconds) {
+        return Response.fromResponse(error(429, code, message))
+                .header("Retry-After", Integer.toString(retryAfterSeconds))
+                .build();
+    }
+
+    /**
+     * The one mapping for a moderation report's outcome: 202 accepted, 404 not visible to the reporter, 429
+     * throttled (never a zero wait), 403 refused, 400 otherwise.
+     *
+     * @param id what was reported, echoed back; blank when it has no id of its own (a photo)
+     */
+    protected Response reportResponse(final ModerationCommands.ReportOutcome outcome, final String id) {
+        if (outcome.ok()) {
+            return Response.status(202)
+                    .type(negotiatedType())
+                    .header("Vary", "Accept")
+                    .entity(Map.of("reported", true, "id", id == null ? "" : id,
+                            "response", ModerationCommands.RESPONSE_PROMISE))
+                    .build();
+        }
+        return switch (outcome.code() == null ? "" : outcome.code()) {
+            case ModerationCommands.REFUSED_NOT_FOUND -> error(404, ApiErrors.NOT_FOUND, outcome.message());
+            case ModerationCommands.REFUSED_RATE_LIMITED -> tooManyRequests(ApiErrors.RATE_LIMITED,
+                    outcome.message(), Math.max(1, outcome.retryAfterSeconds()));
+            case ModerationCommands.REFUSED_FORBIDDEN -> error(403, ApiErrors.FORBIDDEN, outcome.message());
+            default -> error(400, ApiErrors.BAD_REQUEST, outcome.message());
+        };
     }
 
     /**
