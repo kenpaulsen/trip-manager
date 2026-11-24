@@ -71,6 +71,7 @@ import org.paulsens.trip.site.ListingScope;
 import org.paulsens.trip.site.SiteContext;
 import org.paulsens.trip.site.SiteUrls;
 import org.paulsens.trip.model.TripEvent;
+import org.paulsens.trip.util.Util;
 
 /**
  * Trips and their itineraries.
@@ -924,13 +925,13 @@ public class TripsResource extends BaseResource {
         }
         final TripPageOptions target = trip.getPage();
         if (options.layout() != null) {
-            target.setLayout(blankToNull(options.layout()));
+            target.setLayout(Util.trimToNull(options.layout()));
         }
         if (options.backgroundUrl() != null) {
-            target.setBackgroundUrl(blankToNull(options.backgroundUrl()));
+            target.setBackgroundUrl(Util.trimToNull(options.backgroundUrl()));
         }
         if (options.backgroundColor() != null) {
-            target.setBackgroundColor(blankToNull(options.backgroundColor()));
+            target.setBackgroundColor(Util.trimToNull(options.backgroundColor()));
         }
         if (options.showTitle() != null) {
             target.setShowTitle(options.showTitle());
@@ -939,7 +940,7 @@ public class TripsResource extends BaseResource {
             target.setShowNav(options.showNav());
         }
         if (options.stylesheetUrl() != null) {
-            target.setStylesheetUrl(blankToNull(options.stylesheetUrl()));
+            target.setStylesheetUrl(Util.trimToNull(options.stylesheetUrl()));
         }
     }
 
@@ -978,8 +979,8 @@ public class TripsResource extends BaseResource {
         // it (a From on another tenant's domain would send as that tenant). Only a CHANGED From is checked: an
         // echo of the stored one is not a payment write, and a From saved under an older, wider rule must not
         // make every PUT that sends it back fail. A move re-checks the carried From (carriedPaymentProblem).
-        final String from = blankToNull(config.mailFrom());
-        if (from != null && !from.equals(blankToNull(storedFrom))) {
+        final String from = Util.trimToNull(config.mailFrom());
+        if (from != null && !from.equals(Util.trimToNull(storedFrom))) {
             final String problem = mailFromProblem(from, orgId);
             if (problem != null) {
                 return problem;
@@ -1028,7 +1029,7 @@ public class TripsResource extends BaseResource {
             return;
         }
         if (config.processorConfigId() != null) {
-            target.setProcessorConfigId(blankToNull(config.processorConfigId()));
+            target.setProcessorConfigId(Util.trimToNull(config.processorConfigId()));
         }
         if (config.feesPaidBy() != null) {
             target.setFeesPaidBy(config.feesPaidBy().isBlank() ? null : FeesPaidBy.valueOf(config.feesPaidBy().trim()));
@@ -1037,19 +1038,19 @@ public class TripsResource extends BaseResource {
             target.setDonationEnabled(config.donationEnabled());
         }
         if (config.donationLabel() != null) {
-            target.setDonationLabel(blankToNull(config.donationLabel()));
+            target.setDonationLabel(Util.trimToNull(config.donationLabel()));
         }
         if (config.confirmationTemplateId() != null) {
-            target.setConfirmationTemplateId(blankToNull(config.confirmationTemplateId()));
+            target.setConfirmationTemplateId(Util.trimToNull(config.confirmationTemplateId()));
         }
         if (config.mailFrom() != null) {
-            target.setMailFrom(blankToNull(config.mailFrom()));
+            target.setMailFrom(Util.trimToNull(config.mailFrom()));
         }
         if (config.replyTo() != null) {
-            target.setReplyTo(blankToNull(config.replyTo()));
+            target.setReplyTo(Util.trimToNull(config.replyTo()));
         }
         if (config.bcc() != null) {
-            target.setBcc(blankToNull(config.bcc()));
+            target.setBcc(Util.trimToNull(config.bcc()));
         }
         if (config.extraTokens() != null) {
             target.setExtraTokens(new java.util.HashMap<>(config.extraTokens()));

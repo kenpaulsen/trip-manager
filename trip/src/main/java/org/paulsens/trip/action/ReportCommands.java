@@ -170,7 +170,8 @@ public class ReportCommands {
         if (!event.hasDetails()) {
             return event.getTitle();
         }
-        return trimmed(event.detail(TripEvent.Detail.FROM)) + ARROW + trimmed(event.detail(TripEvent.Detail.TO));
+        return Util.trimmed(event.detail(TripEvent.Detail.FROM)) + ARROW
+                + Util.trimmed(event.detail(TripEvent.Detail.TO));
     }
 
     /**
@@ -194,11 +195,7 @@ public class ReportCommands {
     }
 
     private static String displayName(final Person person) {
-        return (trimmed(person.getPreferredName()) + " " + trimmed(person.getLast())).trim();
-    }
-
-    private static String trimmed(final String value) {
-        return value == null ? "" : value.trim();
+        return (Util.trimmed(person.getPreferredName()) + " " + Util.trimmed(person.getLast())).trim();
     }
 
     /**
@@ -239,7 +236,7 @@ public class ReportCommands {
     }
 
     private static String keyOf(final RoomingRow row) {
-        return row.isReserved() ? trimmed(row.getAccommodation()) : "";
+        return row.isReserved() ? Util.trimmed(row.getAccommodation()) : "";
     }
 
     /** Unreserved last, then earliest arrival first, so the pages print in the order the trip reaches them. */
@@ -249,7 +246,7 @@ public class ReportCommands {
         }
         final int byStart = START_ORDER.compare(a.getFirstStart(), b.getFirstStart());
         return (byStart != 0) ? byStart
-                : trimmed(a.getAccommodation()).compareToIgnoreCase(trimmed(b.getAccommodation()));
+                : Util.trimmed(a.getAccommodation()).compareToIgnoreCase(Util.trimmed(b.getAccommodation()));
     }
 
     private static ReportCommands.RoomingPage pageFor(final String place, final List<RoomingRow> rows) {
@@ -265,7 +262,7 @@ public class ReportCommands {
             people.add(row.getPersonId());
             first = earlier(first, row.getStart());
             last = later(last, row.getEnd());
-            if (!trimmed(row.getRoom()).equalsIgnoreCase(trimmed(lastRoom))) {
+            if (!Util.trimmed(row.getRoom()).equalsIgnoreCase(Util.trimmed(lastRoom))) {
                 stripe = !stripe;
             }
             lastRoom = row.getRoom();
@@ -283,8 +280,8 @@ public class ReportCommands {
         final ReportCommands.RoomingLine line = new ReportCommands.RoomingLine();
         line.setName(row.getName());
         line.setCell(row.getCell());
-        line.setRoom(trimmed(row.getRoom()));
-        line.setRoomType(trimmed(row.getRoomType()));
+        line.setRoom(Util.trimmed(row.getRoom()));
+        line.setRoomType(Util.trimmed(row.getRoomType()));
         line.setReserved(row.isReserved());
         line.setStripe(stripe);
         line.setDates(stayOf(row.getStart(), row.getEnd()));

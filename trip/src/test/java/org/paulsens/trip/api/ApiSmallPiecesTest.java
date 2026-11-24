@@ -66,13 +66,6 @@ public class ApiSmallPiecesTest {
         Assert.assertNull(BaseResource.parseSex("M"));
     }
 
-    @Test
-    public void blankTextIsStoredAsNullAndTheRestTrimmed() {
-        Assert.assertNull(BaseResource.blankToNull(null));
-        Assert.assertNull(BaseResource.blankToNull("  "));
-        Assert.assertEquals(BaseResource.blankToNull(" a b "), "a b");
-    }
-
     // --- ObjectMapperProvider ---
 
     /** The provider must answer the DAO's configured mapper, not a fresh default one; see its class comment. */

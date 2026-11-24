@@ -79,6 +79,7 @@ import org.paulsens.trip.pay.LodgingPricing;
 import org.paulsens.trip.pay.MoneyMath;
 import org.paulsens.trip.util.EmailAddresses;
 import org.paulsens.trip.util.Html;
+import org.paulsens.trip.util.Util;
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
 
 import static org.paulsens.trip.action.PageFeedback.callbackParam;
@@ -361,7 +362,7 @@ public class LodgingCommands {
 
     /** Whether the form names a contact other than the row's: the pre-filled email must not re-run the org write. */
     private static boolean contactChanged(final Accommodation acc, final AccommodationForm form) {
-        final String submitted = blankToNull(form.getContactEmail());
+        final String submitted = Util.trimToNull(form.getContactEmail());
         if (submitted == null) {
             return false;
         }
@@ -388,17 +389,17 @@ public class LodgingCommands {
     private static void applyForm(final Accommodation acc, final AccommodationForm form) {
         acc.setName(form.getName().trim());
         acc.setDescription(form.getDescription());
-        acc.setEmail(blankToNull(form.getEmail()) == null ? null : form.getEmail().trim().toLowerCase(Locale.ROOT));
-        acc.setPhone(blankToNull(form.getPhone()));
-        acc.setWebsite(blankToNull(form.getWebsite()));
+        acc.setEmail(Util.trimToNull(form.getEmail()) == null ? null : form.getEmail().trim().toLowerCase(Locale.ROOT));
+        acc.setPhone(Util.trimToNull(form.getPhone()));
+        acc.setWebsite(Util.trimToNull(form.getWebsite()));
         acc.setAddress(addressOf(form));
     }
 
     private static Address addressOf(final AccommodationForm form) {
-        final Address address = new Address(blankToNull(form.getStreet()), blankToNull(form.getCity()),
-                blankToNull(form.getState()), blankToNull(form.getZip()));
-        address.setStreet2(blankToNull(form.getStreet2()));
-        address.setCountry(blankToNull(form.getCountry()));
+        final Address address = new Address(Util.trimToNull(form.getStreet()), Util.trimToNull(form.getCity()),
+                Util.trimToNull(form.getState()), Util.trimToNull(form.getZip()));
+        address.setStreet2(Util.trimToNull(form.getStreet2()));
+        address.setCountry(Util.trimToNull(form.getCountry()));
         return address;
     }
 
@@ -748,7 +749,7 @@ public class LodgingCommands {
         }
         room.setRoomTypeId(form.getRoomTypeId());
         room.setRoomNumber(number);
-        room.setFloor(blankToNull(form.getFloor()));
+        room.setFloor(Util.trimToNull(form.getFloor()));
         room.setNotes(form.getNotes());
         room.setAdminNotes(form.getAdminNotes());
         return store(acc) && audited(acc, "Saved room " + number);
@@ -804,7 +805,7 @@ public class LodgingCommands {
         for (int n = from; n <= to && acc.getRooms().size() < MAX_ROOMS; n++) {
             final String number = nullSafe(prefix).trim() + n;
             if (existing.add(number.toLowerCase(Locale.ROOT))) {
-                acc.getRooms().add(Room.builder().roomNumber(number).floor(blankToNull(floor))
+                acc.getRooms().add(Room.builder().roomNumber(number).floor(Util.trimToNull(floor))
                         .roomTypeId(roomTypeId).build());
                 added++;
             }
@@ -1616,7 +1617,7 @@ public class LodgingCommands {
             return refuseReservation(form, acc == null ? Text.get("feedback.lodgingCommands.roomNotHere")
                     : Text.get("feedback.lodgingCommands.roomNotAt", acc.getName()));
         }
-        final String taken = roomProblem(tripId, acc, blankToNull(form.getRoomId()), offer, form.getStart(),
+        final String taken = roomProblem(tripId, acc, Util.trimToNull(form.getRoomId()), offer, form.getStart(),
                 form.getEnd(), null);
         if (taken != null) {
             return refuseReservation(form, taken);
@@ -1634,7 +1635,7 @@ public class LodgingCommands {
         for (final List<Person.Id> group : groups) {
             final Reservation res = Reservation.builder().tripId(tripId).orgId(trip.getOrgId())
                     .offerId(offer.getId()).accommodationId(offer.getAccommodationId()).occupants(group)
-                    .start(form.getStart()).end(form.getEnd()).roomId(blankToNull(form.getRoomId()))
+                    .start(form.getStart()).end(form.getEnd()).roomId(Util.trimToNull(form.getRoomId()))
                     .notes(form.getNotes()).waiveSingleSupplement(form.isWaiveSingleSupplement() ? Boolean.TRUE : null)
                     .createdBy(caller().personId()).created(LocalDateTime.now()).build();
             if (persistReservation(trip, offer, acc, res, null)) {
@@ -1759,7 +1760,7 @@ public class LodgingCommands {
         }
         final Trip trip = tripSource.get().getTripForEdit(tripId);
         final ReservationOffer was = findOffer(tripId, idValue(res.getOfferId()));
-        final ReservationOffer offer = (blankToNull(form.getOfferId()) == null) ? was
+        final ReservationOffer offer = (Util.trimToNull(form.getOfferId()) == null) ? was
                 : findOffer(tripId, form.getOfferId());
         if (offer == null) {
             return refuseEdit(form, was == null ? Text.get("feedback.lodgingCommands.offerOfReservationGone")
@@ -1778,7 +1779,7 @@ public class LodgingCommands {
             return refuseEdit(form, problem);
         }
         final Accommodation acc = findAccommodation(idValue(offer.getAccommodationId()));
-        final String roomId = blankToNull(form.getRoomId());
+        final String roomId = Util.trimToNull(form.getRoomId());
         if (roomId != null && (acc == null || acc.room(roomId) == null)) {
             return refuseEdit(form, RoomAvailability.hotelProblem(
                     findAccommodation(idValue(res.getAccommodationId())), roomId));
@@ -2088,7 +2089,7 @@ public class LodgingCommands {
             return dialogProblem(form::setProblem, problem, null, res.getId().getValue(), form.getRoomId());
         }
         final LocalDateTime changeover = form.getDate().atTime(res.getStart().toLocalTime());
-        final String newRoom = blankToNull(form.getRoomId());
+        final String newRoom = Util.trimToNull(form.getRoomId());
         final Reservation second = Reservation.builder().tripId(tripId).orgId(res.getOrgId())
                 .offerId(res.getOfferId()).accommodationId(res.getAccommodationId())
                 .occupants(res.getOccupants()).start(changeover).end(res.getEnd()).roomId(newRoom)
@@ -2138,7 +2139,7 @@ public class LodgingCommands {
             return Text.get("feedback.lodgingCommands.chooseNightInside",
                     LodgingViews.range(res.getStart(), res.getEnd()));
         }
-        final String newRoom = blankToNull(form.getRoomId());
+        final String newRoom = Util.trimToNull(form.getRoomId());
         if (newRoom != null && (acc == null || acc.room(newRoom) == null)) {
             return Text.get("feedback.lodgingCommands.roomNotHere");
         }
@@ -2317,7 +2318,7 @@ public class LodgingCommands {
         res.setCancelledBy(caller().personId());
         res.setCancelFeeCents(fee);
         res.setCredited(credit);
-        res.setCancelReason(blankToNull(reason));
+        res.setCancelReason(Util.trimToNull(reason));
         try {
             if (!DAO.getInstance().saveReservation(res)) {
                 return refuse(Text.get("feedback.lodgingCommands.cancellationNotSaved"));
@@ -2973,10 +2974,6 @@ public class LodgingCommands {
 
     static String nullSafe(final String value) {
         return (value == null) ? "" : value;
-    }
-
-    static String blankToNull(final String value) {
-        return (value == null || value.isBlank()) ? null : value.trim();
     }
 
     /** Whether this bean's name resolver can be handed to pricing (a seam for tests). */

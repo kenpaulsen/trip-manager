@@ -40,6 +40,7 @@ import org.paulsens.trip.model.TemplateKind;
 import org.paulsens.trip.model.TemplateRecord;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.site.SiteContext;
+import org.paulsens.trip.util.Util;
 
 /**
  * Content-template management, exposed to the template-manager page as {@code #{contentTemplate}}.
@@ -226,7 +227,7 @@ public class TemplateCommands {
      * site-wide page. One place so the page never has to spell the fallback out twice.
      */
     public String orgScope(final String orgIdParam) {
-        final String explicit = blankToNull(orgIdParam);
+        final String explicit = Util.trimToNull(orgIdParam);
         if (explicit != null) {
             return explicit;
         }
@@ -236,7 +237,7 @@ public class TemplateCommands {
 
     /** The scope organization's name, for the page's labels; "" when there is no org scope. */
     public String orgScopeName(final String orgId) {
-        final String scope = blankToNull(orgId);
+        final String scope = Util.trimToNull(orgId);
         final Organization org = (scope == null) ? null : findOrg(scope);
         return org == null ? "" : org.getName();
     }
@@ -255,7 +256,7 @@ public class TemplateCommands {
      * one tenant's copy while believing they were fixing everyone's.
      */
     public List<ContentTemplate> getTemplatesFor(final String kind, final String orgId) {
-        final String scope = blankToNull(orgId);
+        final String scope = Util.trimToNull(orgId);
         final List<ContentTemplate> visible = getTemplates();
         final List<ContentTemplate> scoped = (scope == null) ? sharedOnly(visible) : oneRowPerUseCase(visible, scope);
         final TemplateKind wanted = parseKind(kind);
@@ -332,7 +333,7 @@ public class TemplateCommands {
         if (templateId == null || templateId.isBlank() || language == null) {
             return resolveForOrg(templateId, orgId);
         }
-        final String scope = blankToNull(orgId);
+        final String scope = Util.trimToNull(orgId);
         final Organization org = (scope == null) ? null : findOrg(scope);
         if (org != null) {
             final ContentTemplate own = ownedBy(scope,
@@ -359,7 +360,7 @@ public class TemplateCommands {
 
     /** The org's own copy of {@code templateId}, or null when it has none (or the row is not really its). */
     private ContentTemplate orgCustomizationOf(final String templateId, final String orgId) {
-        final String scope = blankToNull(orgId);
+        final String scope = Util.trimToNull(orgId);
         final Organization org = (scope == null) ? null : findOrg(scope);
         if (org == null) {
             return null;
@@ -418,7 +419,7 @@ public class TemplateCommands {
      * templates for that org (site staff included, so an admin can seed an org's copy for them).
      */
     public boolean mayCustomize(final ContentTemplate stored, final String orgId) {
-        final String scope = blankToNull(orgId);
+        final String scope = Util.trimToNull(orgId);
         if (stored == null || scope == null || stored.isOrgOwned()
                 || !callerSource.get().has(PrivilegeCommands.CONTENT_ADMIN, scope)) {
             return false;
@@ -442,7 +443,7 @@ public class TemplateCommands {
      * @return the copy's id, or "" when nothing was copied; every refusal explains itself with a growl.
      */
     public String customize(final String id, final String orgId) {
-        final String scope = blankToNull(orgId);
+        final String scope = Util.trimToNull(orgId);
         if (id == null || id.isBlank()) {
             return "";
         }
@@ -571,7 +572,7 @@ public class TemplateCommands {
      * is written in. A site offering English alone answers nothing, so its page shows nothing new.
      */
     public List<Language> versionLanguages(final String orgId) {
-        final String scope = blankToNull(orgId);
+        final String scope = Util.trimToNull(orgId);
         final Organization org = (scope == null) ? null : findOrg(scope);
         return config.siteLanguages(org).stream()
                 .filter(language -> language != Language.English)
@@ -642,7 +643,7 @@ public class TemplateCommands {
      * Authorization and the still-referenced guard are {@link #deleteTemplate}'s, unchanged.
      */
     public boolean revertToSiteDefault(final String id, final String orgId) {
-        final String scope = blankToNull(orgId);
+        final String scope = Util.trimToNull(orgId);
         final ContentTemplate stored = (id == null || id.isBlank()) ? null : storedTemplate(id);
         if (stored == null || scope == null || !scope.equals(stored.getOrgId())) {
             return false;
@@ -679,10 +680,6 @@ public class TemplateCommands {
 
     private static String refuseCopy(final String message) {
         return PageFeedback.refuseAction(message);
-    }
-
-    private static String blankToNull(final String value) {
-        return (value == null || value.isBlank()) ? null : value.trim();
     }
 
     /** Whether the caller may see a template at all: everything for site staff, own-org + shared otherwise. */
@@ -1095,7 +1092,7 @@ public class TemplateCommands {
      * caches are the shared layer, and this table has no per-template index to invalidate).
      */
     public Map<String, Integer> usageCounts(final String orgId) {
-        final String scope = blankToNull(orgId);
+        final String scope = Util.trimToNull(orgId);
         final Caller caller = callerSource.get();
         final boolean allowed = scope == null ? caller.has(PrivilegeCommands.CONTENT_ADMIN)
                 : caller.has(PrivilegeCommands.CONTENT_ADMIN, scope);
@@ -1162,7 +1159,7 @@ public class TemplateCommands {
         if ("1".equals(newParam)) {
             return getTemplate("");
         }
-        final String id = blankToNull(editId);
+        final String id = Util.trimToNull(editId);
         final ContentTemplate stored = id == null ? null : storedTemplate(id);
         return mayAuthor(stored) ? getTemplate(id) : null;
     }

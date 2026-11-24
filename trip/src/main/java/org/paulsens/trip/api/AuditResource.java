@@ -19,6 +19,7 @@ import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.AuditPage;
+import org.paulsens.trip.util.Util;
 
 /**
  * Reading the audit trail.
@@ -72,7 +73,7 @@ public class AuditResource extends BaseResource {
             return error(400, ApiErrors.BAD_REQUEST, Text.get("api.audit.beforeInvalid"));
         }
         final AuditPage page = Beans.get(AuditViewCommands.class)
-                .getPage(blankToNull(org), cursor, actor, action, outcome, text,
+                .getPage(Util.trimToNull(org), cursor, actor, action, outcome, text,
                         Math.min(Math.max(limit, 1), MAX_LIMIT));
         return ok(toDto(page));
     }
@@ -87,7 +88,7 @@ public class AuditResource extends BaseResource {
             return error(403, ApiErrors.FORBIDDEN, Text.get("api.audit.accessRequired"));
         }
         return ok(toDto(Beans.get(AuditViewCommands.class)
-                .getRecent(blankToNull(org), Math.min(Math.max(limit, 1), MAX_LIMIT))));
+                .getRecent(Util.trimToNull(org), Math.min(Math.max(limit, 1), MAX_LIMIT))));
     }
 
     /**
@@ -116,7 +117,7 @@ public class AuditResource extends BaseResource {
             return error(400, ApiErrors.BAD_REQUEST, Text.get("api.audit.beforeInvalid"));
         }
         final String csv = Beans.get(AuditViewCommands.class)
-                .toCsv(blankToNull(org), cursor, actor, action, outcome, text);
+                .toCsv(Util.trimToNull(org), cursor, actor, action, outcome, text);
         return Response.ok(csv)
                 .type("text/csv")
                 .header("Vary", "Accept")
@@ -162,6 +163,6 @@ public class AuditResource extends BaseResource {
 
     /** The page's rule, against this request's caller: {@code AuditViewCommands.canView}. */
     private boolean mayRead(final String org) {
-        return AuditViewCommands.canView(privileges().caller(), blankToNull(org));
+        return AuditViewCommands.canView(privileges().caller(), Util.trimToNull(org));
     }
 }

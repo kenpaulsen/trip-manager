@@ -38,6 +38,7 @@ import org.paulsens.trip.model.Person;
 import org.paulsens.trip.security.PasswordPolicy;
 import org.paulsens.trip.security.RememberMeService;
 import org.paulsens.trip.security.TokenService;
+import org.paulsens.trip.util.Util;
 import org.paulsens.trip.web.Sessions;
 
 /**
@@ -308,17 +309,13 @@ public class AuthResource extends BaseResource {
 
     private static void fill(final Person person, final RegisterAccountRequest body, final String email) {
         person.setEmail(email);
-        person.setNickname(trimmed(body.nickname()));
+        person.setNickname(Util.trimToNull(body.nickname()));
         person.setFirst(body.first().trim());
-        person.setMiddle(trimmed(body.middle()));
+        person.setMiddle(Util.trimToNull(body.middle()));
         person.setLast(body.last().trim());
         person.setSex(parseSex(body.sex()));
-        person.setCell(trimmed(body.cell()));
+        person.setCell(Util.trimToNull(body.cell()));
         person.setBirthdate(body.birthdate());
-    }
-
-    private static String trimmed(final String value) {
-        return value == null || value.isBlank() ? null : value.trim();
     }
 
     /**

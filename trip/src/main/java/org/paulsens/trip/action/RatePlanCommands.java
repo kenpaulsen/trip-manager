@@ -28,6 +28,7 @@ import org.paulsens.trip.model.RateSchedule;
 import org.paulsens.trip.model.ReservationOffer;
 import org.paulsens.trip.model.RoomType;
 import org.paulsens.trip.model.Trip;
+import org.paulsens.trip.util.Util;
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
 
 import static org.paulsens.trip.action.PageFeedback.info;
@@ -260,7 +261,7 @@ public class RatePlanCommands {
         plan.setValidFrom(form.getValidFrom());
         plan.setValidUntil(form.getValidUntil());
         OfferSchedules.applyPlanCost(plan, form);
-        plan.setNotes(LodgingCommands.blankToNull(form.getNotes()));
+        plan.setNotes(Util.trimToNull(form.getNotes()));
         plan.setRetired(form.isRetired() ? Boolean.TRUE : null);
     }
 

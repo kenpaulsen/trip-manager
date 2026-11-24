@@ -42,6 +42,7 @@ import org.paulsens.trip.pay.CostExtras;
 import org.paulsens.trip.pay.LodgingPricing;
 import org.paulsens.trip.pay.LodgingPricing.Side;
 import org.paulsens.trip.pay.MoneyMath;
+import org.paulsens.trip.util.Util;
 
 /**
  * The arithmetic behind the Room Invoice, on either {@link Side} of a lodging option: the COST build is what
@@ -152,7 +153,7 @@ final class RoomInvoiceBuilder {
 
     /** {@code "Double room (Pansion)"}: how the refusal names an option, since two hotels may share a name. */
     static String qualifiedName(final ReservationOffer offer, final Accommodation acc) {
-        return trimmed(offer.getName()) + " (" + (acc == null ? UNKNOWN_HOTEL : trimmed(acc.getName())) + ")";
+        return Util.trimmed(offer.getName()) + " (" + (acc == null ? UNKNOWN_HOTEL : Util.trimmed(acc.getName())) + ")";
     }
 
     /** The stay's own hotel, else its option's; the key an operator's filter and a section both use. */
@@ -211,7 +212,7 @@ final class RoomInvoiceBuilder {
 
     private static InvoiceSection sectionFor(final Accommodation acc) {
         final InvoiceSection section = new InvoiceSection();
-        section.setAccommodation(acc == null ? UNKNOWN_HOTEL : trimmed(acc.getName()));
+        section.setAccommodation(acc == null ? UNKNOWN_HOTEL : Util.trimmed(acc.getName()));
         section.setAccommodationId(acc == null ? "" : acc.getId().getValue());
         return section;
     }
@@ -340,10 +341,6 @@ final class RoomInvoiceBuilder {
     private static String roomMixPart(final Map.Entry<String, Integer> entry) {
         return entry.getValue() + (entry.getKey().isEmpty() ? "" : " " + entry.getKey())
                 + (entry.getValue() == 1 ? " room" : " rooms");
-    }
-
-    private static String trimmed(final String value) {
-        return value == null ? "" : value.trim();
     }
 
     // ================================================================== billed vs cost
@@ -559,7 +556,7 @@ final class RoomInvoiceBuilder {
             line.setReservationId(bill.reservationId().getValue());
             line.setPersonId(bill.personId().getValue());
             line.setName(nameOf(bill.personId()));
-            line.setOption(trimmed(offer.getName()));
+            line.setOption(Util.trimmed(offer.getName()));
             line.setFirstNight(nights.get(0));
             line.setDates(stayWindowOf(nights.get(0), nights.get(nights.size() - 1).plusDays(1)));
             line.setNights(bill.nights());
@@ -586,7 +583,7 @@ final class RoomInvoiceBuilder {
             line.setRate("");
             line.setCents(-forgiven);
             line.setAmount(MoneyMath.formatCents(-forgiven));
-            final String reason = trimmed(concession.getReason());
+            final String reason = Util.trimmed(concession.getReason());
             line.setNote(guestNamesOf(res) + ": " + concession.label() + (reason.isEmpty() ? "" : " -- " + reason));
             return line;
         }
@@ -603,7 +600,7 @@ final class RoomInvoiceBuilder {
 
         private String typeName(final String typeId) {
             final RoomType type = acc.roomType(typeId);
-            return type == null ? "" : trimmed(type.getName());
+            return type == null ? "" : Util.trimmed(type.getName());
         }
 
         private String accKey() {
@@ -629,7 +626,7 @@ final class RoomInvoiceBuilder {
             }
             final InvoiceOffer group = new InvoiceOffer();
             group.setOfferId(offer.getId().getValue());
-            group.setName(trimmed(offer.getName()));
+            group.setName(Util.trimmed(offer.getName()));
             group.setPricing(rateOf(schedule));
             group.setRoomMix(roomMixOf(roomsByType.entrySet().stream().collect(Collectors.toMap(
                     Map.Entry::getKey, e -> e.getValue().size())), unplaced()));
@@ -672,7 +669,8 @@ final class RoomInvoiceBuilder {
                     .orElseThrow();
             final InvoiceLine line = new InvoiceLine();
             line.setKind(LineKind.EXTRA);
-            line.setItem(trimmed(extra.getLabel()).isEmpty() ? LineKind.EXTRA.item() : trimmed(extra.getLabel()));
+            line.setItem(Util.trimmed(extra.getLabel()).isEmpty() ? LineKind.EXTRA.item()
+                    : Util.trimmed(extra.getLabel()));
             line.setFirstNight(first);
             line.setDates(stayWindowOf(first, last.plusDays(1)));
             line.setQuantity(quantity);

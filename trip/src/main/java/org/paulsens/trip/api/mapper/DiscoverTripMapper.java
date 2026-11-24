@@ -28,6 +28,7 @@ import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripPicture;
 import org.paulsens.trip.site.SiteUrls;
+import org.paulsens.trip.util.Util;
 
 /**
  * {@code Trip} to its PUBLIC wire shape ({@link DiscoverTripDto}), written by hand and on purpose not a MapStruct
@@ -97,18 +98,18 @@ public final class DiscoverTripMapper {
                 trip.getShortTitle(),
                 dateOf(trip.getStartDate()),
                 dateOf(trip.getEndDate()),
-                blankToNull(trip.getDestination()),
+                Util.trimToNull(trip.getDestination()),
                 IsoCountries.normalizeAll(trip.getCountries()),
                 shownTags.stream().map(TripTags.Tag::id).toList(),
                 shownTags.stream().map(TripTags.Tag::label).toList(),
                 trip.getKind().name(),
                 trip.getLanguageOrDefault().name(),
-                blankToNull(trip.getEstimatedPrice()),
+                Util.trimToNull(trip.getEstimatedPrice()),
                 List.copyOf(pictures),
                 org.getId().getValue(),
                 org.getName(),
-                blankToNull(org.getAbbreviation()),
-                blankToNull(orgLogoUrl),
+                Util.trimToNull(org.getAbbreviation()),
+                Util.trimToNull(orgLogoUrl),
                 detailsUrl,
                 phase.wireName(),
                 phase == TripPageCommands.Phase.NOT_OPEN ? opensOn : null,
@@ -144,7 +145,7 @@ public final class DiscoverTripMapper {
     }
 
     private static MediaItemDto publicPhoto(final MediaCommands media, final MediaItem item) {
-        return narrowed(MediaResource.toDto(media, item), blankToNull(media.photoCaption(item)));
+        return narrowed(MediaResource.toDto(media, item), Util.trimToNull(media.photoCaption(item)));
     }
 
     /** The media API's shape of a photo, minus who took it: the caption for its title, no attribution. */
@@ -206,9 +207,5 @@ public final class DiscoverTripMapper {
 
     private static LocalDate dateOf(final LocalDateTime when) {
         return when == null ? null : when.toLocalDate();
-    }
-
-    private static String blankToNull(final String value) {
-        return (value == null || value.isBlank()) ? null : value.trim();
     }
 }

@@ -6,6 +6,7 @@ import java.io.Serial;
 import java.io.Serializable;
 import lombok.Builder;
 import lombok.Value;
+import org.paulsens.trip.util.Util;
 
 /**
  * Per-channel operational knobs. One nullable {@link #retentionSeconds} replaces a persistence-mode enum.
@@ -136,13 +137,9 @@ public class ChatSettings implements Serializable {
         this.sustainedLimit = sustainedLimit == null ? DEFAULT_SUSTAINED_LIMIT : sustainedLimit;
         this.sustainedWindowSeconds = sustainedWindowSeconds == null
                 ? DEFAULT_SUSTAINED_WINDOW_SECONDS : sustainedWindowSeconds;
-        this.backgroundColor = blankToNull(backgroundColor);
-        this.backgroundImageUrl = this.backgroundColor == null ? blankToNull(backgroundImageUrl) : null;
-    }
-
-    /** Blank and null mean the same thing here — "not set" — and a form posts blank, not null. */
-    private static String blankToNull(final String value) {
-        return (value == null || value.isBlank()) ? null : value.trim();
+        // Blank and null mean the same thing here, "not set", and a form posts blank, not null.
+        this.backgroundColor = Util.trimToNull(backgroundColor);
+        this.backgroundImageUrl = this.backgroundColor == null ? Util.trimToNull(backgroundImageUrl) : null;
     }
 
     public static ChatSettings defaults() {

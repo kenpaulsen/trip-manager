@@ -310,11 +310,6 @@ public abstract class BaseResource {
         return null;
     }
 
-    /** Trimmed text, or null for null and blank: how an optional text field off the wire is stored. */
-    protected static String blankToNull(final String value) {
-        return (value == null || value.isBlank()) ? null : value.trim();
-    }
-
     /** The subject of a person-scoped read or write: {@code ?personId=} when given, else the caller. */
     protected Person.Id subjectOf(final String personIdParam) {
         return (personIdParam == null || personIdParam.isBlank()) ? personId() : Person.Id.from(personIdParam);

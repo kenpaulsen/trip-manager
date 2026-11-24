@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.UUID;
 import lombok.Data;
 import org.paulsens.trip.pay.MoneyMath;
+import org.paulsens.trip.util.Util;
 
 /**
  * One answer a CHOICE or MULTI_CHOICE {@link RegistrationOption} offers. On a trip with priced checkout the
@@ -54,7 +55,7 @@ public final class OptionChoice implements Serializable {
         this.label = (label == null) ? "" : label.trim();
         this.priceCents = Math.max(0L, priceCents);
         this.capacity = (capacity == null || capacity < 0) ? null : capacity;
-        this.attestationText = blankToNull(attestationText);
+        this.attestationText = Util.trimToNull(attestationText);
         this.days = (days == null) ? new ArrayList<>() : new ArrayList<>(days);
         this.enabled = enabled;
     }
@@ -101,7 +102,7 @@ public final class OptionChoice implements Serializable {
     }
 
     public void setAttestationText(final String text) {
-        this.attestationText = blankToNull(text);
+        this.attestationText = Util.trimToNull(text);
     }
 
     /** The {@link #days} as comma-separated text, for the editor's one-line cell. */
@@ -136,9 +137,5 @@ public final class OptionChoice implements Serializable {
             }
         }
         return out;
-    }
-
-    private static String blankToNull(final String text) {
-        return (text == null || text.isBlank()) ? null : text.trim();
     }
 }
