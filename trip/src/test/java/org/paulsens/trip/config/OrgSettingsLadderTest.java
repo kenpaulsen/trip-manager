@@ -56,7 +56,7 @@ public class OrgSettingsLadderTest {
                 "site.donate.text", "site.donate.paypalImage", "site.title", "site.sidebar.title",
                 "home.photos.windowDays", "home.photos.minCount", "home.countdown.soonDays",
                 "chat.reactions.palette", "chat.background.colors", "chat.background.image", "reg.allowEdits",
-                "finance.treasurer.email", "lodging.bills.autoRecompute"),
+                "finance.treasurer.email", "lodging.bills.autoRecompute", "payment.notify.email"),
                 "in page order; a new org-overridable setting is a product decision, so update this list");
         Assert.assertTrue(KnownSettings.SITE_ANALYTICS_ID.isOrgOnly(), "the analytics id is org-explicit");
         for (final SettingDef def : KnownSettings.branding()) {

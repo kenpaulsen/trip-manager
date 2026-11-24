@@ -816,6 +816,24 @@ public class ContentCommandsTest {
     }
 
     @Test
+    public void historyAnswersOnlyToACallerWhoMayEditTheSection() {
+        final ContentCommands admin = as(ADMIN, false);
+        final ContentInstance item = admin.createContent("events", "cc-test-tpl");
+        item.setTitle("history gate");
+        item.getValues().put("msg", "a draft nobody outside the editors has seen");
+        Assert.assertTrue(admin.saveContent(item));
+        final String id = item.getId();
+
+        Assert.assertTrue(as(NOBODY, false).getHistory(id).isEmpty(),
+                "the id rides a postback: old versions must not answer to a caller who could not open the editor");
+        Assert.assertTrue(as(null, false).getHistory(id).isEmpty(), "nor to an anonymous one");
+        Assert.assertEquals(admin.getHistory(id).size(), 1);
+        Assert.assertEquals(as(EVENTS_ONLY, false).getHistory(id).size(), 1,
+                "a section's own editors read its history, as they may restore from it");
+        Assert.assertEquals(as(NOBODY, true).getHistory(id).size(), 1, "a site administrator edits everything");
+    }
+
+    @Test
     public void renderUsesThePinnedVersionWithFallback() {
         final ContentCommands content = as(ADMIN, false);
         final String section = "cc.section-render";

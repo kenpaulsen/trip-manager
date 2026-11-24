@@ -389,7 +389,9 @@ public class WaiverCommands {
         } catch (final ConditionalCheckFailedException ex) {
             return refusal(Result.CONFLICT, Text.get("feedback.shared.savedBySomeoneElse"));
         } catch (final IllegalArgumentException ex) {
-            return refusal(Result.VALIDATION_FAILED, ex.getMessage());
+            // The DAO's row-size refusal: its English sentence and byte counts are the log's, not the caller's.
+            log.warn("Waiver document {} not saved: {}", doc.getId(), ex.getMessage());
+            return refusal(Result.VALIDATION_FAILED, Text.get("feedback.waiverCommands.documentTooLarge"));
         } catch (final IOException ex) {
             log.error("Saving waiver document {} failed", doc.getId(), ex);
             return refusal(Result.STORE_FAILED, Text.get("feedback.waiverCommands.documentNotSaved"));

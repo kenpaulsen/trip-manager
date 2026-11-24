@@ -6,7 +6,9 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.function.Consumer;
 import org.paulsens.trip.model.Config;
+import org.paulsens.trip.util.TestWaits;
 import org.testng.Assert;
+import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest;
@@ -31,6 +33,45 @@ public class JsonRowsTest {
     @Test
     public void aMangledRowReadsAsNull() {
         Assert.assertNull(rows.parse(Config.class, "{ not json"));
+    }
+
+    /**
+     * A row holds names, addresses and money, and the log is read by people the row is not for: a row that does
+     * not parse is logged by type and position only. Jackson's own message is not safe either -- it quotes the
+     * unknown enum constant, the mistyped value and the unrecognized token.
+     */
+    @Test(dataProvider = "unparsableRows")
+    public void aRowThatDoesNotParseIsLoggedWithoutItsContent(final String json, final String failure) {
+        final String out = TestWaits.captureStdout(() -> Assert.assertNull(rows.parse(Config.class, json)));
+        Assert.assertTrue(out.contains("Unable to parse Config record"), "the failure is logged: " + out);
+        Assert.assertTrue(out.contains(failure), "with the kind of failure: " + out);
+        Assert.assertTrue(out.contains("line 1, column"), "and where in the row: " + out);
+        Assert.assertFalse(out.contains("Zagreb"), "but nothing the row holds: " + out);
+    }
+
+    @DataProvider
+    public Object[][] unparsableRows() {
+        return new Object[][] {
+            {"{\"name\":\"n\",\"value\":\"12 Zagreb Street\",\"type\":\"ZagrebType\"}", "InvalidFormatException"},
+            {"{\"name\":\"n\",\"value\":\"12 Zagreb Street\",\"modified\":\"Zagreb o'clock\"}",
+                "InvalidFormatException"},
+            {"{\"name\":\"n\",\"value\":\"12 Zagreb Street\",\"type\":{\"Zagreb\":1}}",
+                "MismatchedInputException"},
+            {"{\"name\":\"n\",\"value\":\"12 Zagreb Street\",\"ZagrebField\":1}",
+                "UnrecognizedPropertyException"},
+            {"{\"name\":\"12 Zagreb Street\",\"value\":Zagreb}", "JsonParseException"},
+        };
+    }
+
+    /** The same on the way out: Jackson's reference chain quotes map keys, and a key can be an address. */
+    @Test
+    public void aValueThatDoesNotSerializeIsLoggedWithoutItsContent() {
+        final Map<String, Object> cyclic = new java.util.HashMap<>();
+        cyclic.put("zagreb@example.com", cyclic);
+        final String out = TestWaits.captureStdout(() -> Assert.assertNull(rows.toJson(cyclic)));
+        Assert.assertTrue(out.contains("Unable to serialize HashMap"), "the failure is logged: " + out);
+        Assert.assertTrue(out.contains("JsonMappingException"), "with the kind of failure: " + out);
+        Assert.assertFalse(out.contains("zagreb"), "but nothing the value holds: " + out);
     }
 
     @Test(expectedExceptions = IllegalArgumentException.class)

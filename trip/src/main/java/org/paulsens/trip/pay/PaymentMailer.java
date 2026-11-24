@@ -219,7 +219,7 @@ public class PaymentMailer {
     }
 
     /** Whose confirmation copy this is: the payment's organization, else its trip's, else nobody's. */
-    static String orgOf(final Payment payment, final Trip trip) {
+    public static String orgOf(final Payment payment, final Trip trip) {
         if (payment.getOrgId() != null && !payment.getOrgId().isBlank()) {
             return payment.getOrgId();
         }

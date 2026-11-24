@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.UUID;
 import lombok.Builder;
 import lombok.Data;
+import org.paulsens.trip.util.Util;
 
 /**
  * One expense on a {@link TripExpenseReport}: what was spent, when, in ONE currency, optionally matched to a
@@ -60,12 +61,12 @@ public final class ExpenseLine implements Serializable {
         this.id = (id == null || id.isBlank()) ? UUID.randomUUID().toString() : id;
         this.date = date;
         this.category = (category == null) ? ExpenseCategory.GENERAL : category;
-        this.description = BudgetLine.trimToNull(description);
+        this.description = Util.trimToNull(description);
         final String code = CurrencyRate.normalizeCode(currency);
         this.currency = (code == null) ? USD : code;
         this.amountMinor = Math.max(0L, amountMinor);
-        this.budgetLineId = BudgetLine.trimToNull(budgetLineId);
-        this.note = BudgetLine.trimToNull(note);
+        this.budgetLineId = Util.trimToNull(budgetLineId);
+        this.note = Util.trimToNull(note);
         this.receiptIds = (receiptIds == null) ? new ArrayList<>() : new ArrayList<>(receiptIds);
         this.paidStatus = (paidStatus == null) ? ExpensePaidStatus.NOT_PAID : paidStatus;
     }

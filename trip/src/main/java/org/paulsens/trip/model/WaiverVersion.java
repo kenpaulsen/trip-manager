@@ -7,6 +7,7 @@ import java.io.Serializable;
 import java.time.LocalDateTime;
 import lombok.Builder;
 import lombok.Value;
+import org.paulsens.trip.util.Util;
 
 /**
  * One published text of a {@link WaiverDocument}. Immutable and append-only: an edit publishes the NEXT number,
@@ -43,6 +44,6 @@ public class WaiverVersion implements Serializable {
         this.sha256 = sha256;
         this.publishedBy = publishedBy;
         this.publishedAt = publishedAt;
-        this.note = (note == null || note.isBlank()) ? null : note.trim();
+        this.note = Util.trimToNull(note);
     }
 }

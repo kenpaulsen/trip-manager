@@ -16,6 +16,7 @@ import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.site.ListingScope;
 import org.paulsens.trip.site.SiteContext;
 import org.paulsens.trip.site.SiteUrls;
+import org.paulsens.trip.util.Util;
 
 /**
  * The request's resolved {@link SiteContext}, exposed to pages as {@code #{site}}.
@@ -270,7 +271,7 @@ public class SiteCommands {
         try {
             final Organization org = lookup.apply(current.orgId()).orElse(null);
             final String own = org == null ? null : new ConfigCommands().getString(KnownSettings.SITE_TITLE, org);
-            return (own == null || own.isBlank()) ? null : own.trim();
+            return Util.trimToNull(own);
         } catch (final RuntimeException ex) {
             log.error("Unable to read the site title of " + current.host(), ex);
             return null;

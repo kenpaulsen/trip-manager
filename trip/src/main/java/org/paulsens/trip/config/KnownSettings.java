@@ -505,8 +505,17 @@ public final class KnownSettings {
             "payment.returnUrl.allowedPrefixes", Config.Type.STRING,
             "https://my.centermirmedjugorje.com,https://www.visitqueenofpeace.com,https://visitqueenofpeace.com");
 
+    /**
+     * The internal copy (a bcc) of every payment mail: the confirmation, the checkout confirmation and the
+     * payment-failed notice. Org-overridable, and read for the PAYMENT's organization
+     * ({@code PaymentCommands.notifyEmail}), never the request's site: a payment is finished wherever the
+     * processor calls back. UNLIKE the treasurer below, an organization does not inherit the site's value
+     * (owner, 2026-11-24): with no address of its own it gets no copy, and the site's value serves only a legacy
+     * payment that has no organization. One address, not a list.
+     */
     public static final SettingDef PAYMENT_NOTIFY_EMAIL = new SettingDef(
-            "payment.notify.email", Config.Type.STRING, "");
+            "payment.notify.email", Config.Type.STRING, "")
+            .withOrgOverride().withEmail();
 
     /**
      * Where a trip's submitted expense report is emailed, with its receipts, when the submitter chooses to

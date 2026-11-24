@@ -14,6 +14,7 @@ import java.util.Map;
 import java.util.UUID;
 import lombok.Builder;
 import lombok.Data;
+import org.paulsens.trip.util.Util;
 
 /**
  * One line of a {@link TripExpenseReport}'s cash-advance worksheet: what was advanced to the submitter (or, for
@@ -61,7 +62,7 @@ public final class AdvanceEntry implements Serializable {
         final String code = CurrencyRate.normalizeCode(currency);
         this.currency = (code == null) ? ExpenseLine.USD : code;
         this.amountMinor = Math.max(0L, amountMinor);
-        this.note = BudgetLine.trimToNull(note);
+        this.note = Util.trimToNull(note);
         this.fields = new LinkedHashMap<>();
         if (fields != null) {
             fields.forEach(this::putField);
@@ -76,8 +77,8 @@ public final class AdvanceEntry implements Serializable {
 
     /** Keeps a field only when both its name and its value say something. */
     private void putField(final String key, final String value) {
-        final String name = BudgetLine.trimToNull(key);
-        final String text = BudgetLine.trimToNull(value);
+        final String name = Util.trimToNull(key);
+        final String text = Util.trimToNull(value);
         if (name != null && text != null) {
             fields.put(name, text);
         }

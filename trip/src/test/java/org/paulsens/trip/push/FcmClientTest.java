@@ -6,8 +6,8 @@ import java.io.IOException;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
-import java.security.KeyPair;
 import java.security.KeyPairGenerator;
+import java.security.NoSuchAlgorithmException;
 import java.security.interfaces.RSAPrivateKey;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -40,11 +40,8 @@ public class FcmClientTest {
     private FcmClient client;
 
     @BeforeClass
-    public static void keys() throws Exception {
-        final KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
-        generator.initialize(2048);
-        final KeyPair pair = generator.generateKeyPair();
-        key = (RSAPrivateKey) pair.getPrivate();
+    public static void keys() {
+        testKey();
     }
 
     /** The service account's {@code private_key} as Firebase writes it. */
@@ -53,8 +50,25 @@ public class FcmClientTest {
                 .encodeToString(privateKey.getEncoded()) + "\n-----END PRIVATE KEY-----\n";
     }
 
-    static RSAPrivateKey testKey() {
+    /**
+     * The suite's one RSA key, made on first use: {@code PushSecretsTest} borrows it, and when that class ran
+     * without this one (alone, or first) nothing had made it yet.
+     */
+    static synchronized RSAPrivateKey testKey() {
+        if (key == null) {
+            key = newKey();
+        }
         return key;
+    }
+
+    private static RSAPrivateKey newKey() {
+        try {
+            final KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
+            generator.initialize(2048);
+            return (RSAPrivateKey) generator.generateKeyPair().getPrivate();
+        } catch (final NoSuchAlgorithmException ex) {
+            throw new IllegalStateException("no RSA key generator", ex);
+        }
     }
 
     @BeforeMethod

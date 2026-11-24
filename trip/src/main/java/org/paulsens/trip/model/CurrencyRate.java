@@ -7,6 +7,7 @@ import java.io.Serializable;
 import java.util.Locale;
 import lombok.Builder;
 import lombok.Data;
+import org.paulsens.trip.util.Util;
 
 /**
  * One foreign currency an expense report uses and its rate to the dollar, typed by the trip administrator the
@@ -37,7 +38,7 @@ public final class CurrencyRate implements Serializable {
             @JsonProperty("note") final String note) {
         this.code = normalizeCode(code);
         this.perUsdMicros = Math.max(0L, perUsdMicros);
-        this.note = BudgetLine.trimToNull(note);
+        this.note = Util.trimToNull(note);
     }
 
     public CurrencyRate() {

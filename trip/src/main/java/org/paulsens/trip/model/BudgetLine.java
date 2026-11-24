@@ -8,6 +8,7 @@ import java.io.Serializable;
 import java.util.UUID;
 import lombok.Builder;
 import lombok.Data;
+import org.paulsens.trip.util.Util;
 
 /**
  * One typed line of a {@link TripBudget}: a SHARED whole-group cost under a {@link BudgetCategory}, or an
@@ -71,11 +72,11 @@ public final class BudgetLine implements Serializable {
             this.category = null;
             this.perNight = perNight;
         }
-        this.name = trimToNull(name);
+        this.name = Util.trimToNull(name);
         this.amountCents = Math.max(0L, amountCents);
-        this.note = trimToNull(note);
-        this.payee = trimToNull(payee);
-        this.percentOf = trimToNull(percentOf);
+        this.note = Util.trimToNull(note);
+        this.payee = Util.trimToNull(payee);
+        this.percentOf = Util.trimToNull(percentOf);
         this.percentBps = (this.percentOf == null) ? 0 : Math.min(MAX_PERCENT_BPS, Math.max(0, percentBps));
         this.offSite = offSite;
     }
@@ -105,13 +106,5 @@ public final class BudgetLine implements Serializable {
     @JsonIgnore
     public boolean isOnSite() {
         return !offSite;
-    }
-
-    static String trimToNull(final String text) {
-        if (text == null) {
-            return null;
-        }
-        final String trimmed = text.trim();
-        return trimmed.isEmpty() ? null : trimmed;
     }
 }

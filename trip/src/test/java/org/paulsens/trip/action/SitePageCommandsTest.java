@@ -477,15 +477,8 @@ public class SitePageCommandsTest {
         assertFalse(pages.helpMenuShown(platformId));
     }
 
-    private void setPlatformDonate(final String url) throws IOException {
-        final Organization platform = dao.getOrganization(Organization.Id.from(FakeData.PLATFORM_ORG_ID), Cached.NO)
-                .orElseThrow();
-        if (url == null) {
-            platform.getSettingsOverrides().remove(KnownSettings.SITE_DONATE_URL.getName());
-        } else {
-            platform.getSettingsOverrides().put(KnownSettings.SITE_DONATE_URL.getName(), url);
-        }
-        assertTrue(dao.saveOrganization(platform));
+    private static void setPlatformDonate(final String url) throws IOException {
+        TenancyFixtures.orgSetting(FakeData.PLATFORM_ORG_ID, KnownSettings.SITE_DONATE_URL, url);
     }
 
     @Test

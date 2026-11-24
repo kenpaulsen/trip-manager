@@ -120,8 +120,15 @@ public class SiteReachTest {
         // the host that reaches each trip).
         final OrgCommands orgs = org.mockito.Mockito.mock(OrgCommands.class);
         org.mockito.Mockito.when(orgs.canViewOrgTrips(FakeData.ACME_ORG_ID)).thenReturn(true);
-        Assert.assertEquals(onSite(SHARED, () -> new TripCommands(() -> orgs)
-                .getTripsForOrg(FakeData.ACME_ORG_ID, 10)).get(0).getId(), FakeData.ACME_TRIP_ID);
+        // Compared with the unbound answer rather than read as row 0: the seed gives Acme several trips, and
+        // which one is first depends on what an earlier class left in the shared store.
+        final TripCommands orgTrips = new TripCommands(() -> orgs);
+        final List<Trip> acmeOnShared = onSite(SHARED, () -> orgTrips.getTripsForOrg(FakeData.ACME_ORG_ID, 10));
+        Assert.assertTrue(acmeOnShared.stream().anyMatch(trip -> FakeData.ACME_TRIP_ID.equals(trip.getId())),
+                "Acme's trip is listed on the shared host: " + acmeOnShared);
+        Assert.assertEquals(acmeOnShared.stream().map(Trip::getId).toList(),
+                orgTrips.getTripsForOrg(FakeData.ACME_ORG_ID, 10).stream().map(Trip::getId).toList(),
+                "the shared host lists exactly what no site at all does: the list is not site-gated");
     }
 
     @Test

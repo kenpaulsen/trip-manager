@@ -7,10 +7,14 @@ import java.util.Set;
 import java.util.function.Supplier;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.i18n.Text;
+import org.paulsens.trip.model.Accommodation;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Reservation;
 import org.paulsens.trip.model.ReservationOffer;
 import org.paulsens.trip.model.Trip;
+
+import static org.paulsens.trip.action.PageFeedback.refuse;
 
 /**
  * Who may do what with lodging, exposed to pages as {@code #{lodgingAccess}}. The gates
@@ -110,6 +114,24 @@ public class LodgingAccessCommands {
             return false;
         }
         return isGlobalLodgingAdmin() || caller().has(PrivilegeCommands.ACCOMMODATION_ADMIN, accId);
+    }
+
+    /**
+     * The accommodation write gate: the stored row, read fresh, for a caller who may edit it; otherwise null,
+     * with the refusal already on the page. The permission is asked FIRST, so a caller who may not edit a
+     * hotel never learns whether it exists; the read comes before any form validation (owner, 2026-11-24).
+     */
+    Accommodation editableAccommodation(final String accId) {
+        if (!canEditAccommodation(accId)) {
+            refuse(Text.get("feedback.lodgingCommands.notYourAccommodation"));
+            return null;
+        }
+        final Accommodation acc =
+                DAO.getInstance().getAccommodation(Accommodation.Id.from(accId.trim()), Cached.NO).orElse(null);
+        if (acc == null) {
+            refuse(Text.get("feedback.lodgingCommands.accommodationGone"));
+        }
+        return acc;
     }
 
     /** May create an accommodation: global admins, or a lodging admin of ANY organization. */

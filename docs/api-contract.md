@@ -663,7 +663,11 @@ onBehalfOf?}`. `onBehalfOf` (2026-10-10) is a family manager acting as a member:
 caller (membership, mute, rate limit, photos, adminship are all theirs) and comes back with `onBehalfOfId` set; every
 client renders the byline "Author on behalf of Member" from the two ids and the page's `displayNames`. Allowed only for
 someone the caller manages who is on the trip's roster; else 403 `ON_BEHALF_NOT_ALLOWED` (drop the stamp and tell the
-sender, the text is not refused). Edits and deletes keep the stamp; reply quotes name the author only. A page carries
+sender, the text is not refused). Edits and deletes keep the stamp; reply quotes name the author only. Since 2026-11-24
+a `body` of only whitespace is refused 400 `MESSAGE_EMPTY` on a send that carries no attachments and on an edit (`PATCH
+messages/{msgId}`), exactly as a missing or empty `body` already was. Since 2026-11-24 a NEW reaction on a removed
+message (`PUT reactions/{msgId}/{emoji}`) is refused 404 `NOT_FOUND`, as for a message that does not exist, while
+`DELETE reactions/{msgId}/{emoji}` still takes one's own reaction back off it. A page carries
 `displayNames` AND `avatars`, both keyed by personId and covering the same people (authors, on-behalf members, quote
 authors, mentions, reactors): `avatars` holds an absolute profile picture URL, and someone with no picture is ABSENT
 rather than mapped to null or "" — a named person with no entry is the signal to draw their initials (and to forget a

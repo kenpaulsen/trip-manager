@@ -49,7 +49,7 @@ public final class OrgSettingsTabs {
                     KnownSettings.SITE_DONATE_URL, KnownSettings.SITE_DONATE_TITLE, KnownSettings.SITE_DONATE_TEXT,
                     KnownSettings.SITE_DONATE_PAYPAL_IMAGE, KnownSettings.SITE_ANALYTICS_ID),
             TRIPS, List.of(KnownSettings.REG_ALLOW_EDITS, KnownSettings.LODGING_AUTO_RECOMPUTE,
-                    KnownSettings.FINANCE_TREASURER_EMAIL),
+                    KnownSettings.FINANCE_TREASURER_EMAIL, KnownSettings.PAYMENT_NOTIFY_EMAIL),
             CHAT, List.of(KnownSettings.CHAT_BACKGROUND_COLORS, KnownSettings.CHAT_BACKGROUND_IMAGE,
                     KnownSettings.CHAT_REACTIONS_PALETTE));
 

@@ -48,7 +48,10 @@ final class PeoplePicker {
         return haystack.contains(lowerNeedle);
     }
 
+    // Null-safe and trimmed: a missing last name once sorted as the word "null", among the N's. Such a person now
+    // sorts by the name they have (the trimmed key starts with it), and someone with no name at all comes first.
     private static String sortKey(final Person person) {
-        return (person.getLast() + " " + person.getPreferredName()).toLowerCase(Locale.ROOT);
+        return (Util.trimmed(person.getLast()) + " " + Util.trimmed(person.getPreferredName())).trim()
+                .toLowerCase(Locale.ROOT);
     }
 }

@@ -12,7 +12,10 @@ public final class PersonNames {
     private PersonNames() {
     }
 
-    /** "Preferred Last", a null or blank part dropped; {@code ""} for a null or nameless person. Never null. */
+    /**
+     * "Preferred Last", each part trimmed and a null or blank part dropped; {@code ""} for a null or nameless
+     * person. Never null.
+     */
     public static String display(final Person person) {
         if (person == null) {
             return "";
@@ -26,7 +29,8 @@ public final class PersonNames {
         return name.isEmpty() ? fallback : name;
     }
 
+    // Trimmed HERE, not only around the join: a padded part ("Ann ", " Jones") used to read "Ann   Jones".
     private static String part(final String value) {
-        return (value == null || value.isBlank()) ? "" : value;
+        return Util.orDefault(Util.trimToNull(value), "");
     }
 }

@@ -49,6 +49,7 @@ import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.site.ListingScope;
 import org.paulsens.trip.site.SiteContext;
 import org.paulsens.trip.util.RichText;
+import org.paulsens.trip.util.Util;
 
 @Slf4j
 @Named("trip")
@@ -558,8 +559,7 @@ public class TripCommands {
      * every write path agrees.
      */
     static void normalizePlace(final Trip trip, final List<TripTags.Tag> offered) {
-        final String destination = trip.getDestination();
-        trip.setDestination(destination == null || destination.isBlank() ? null : destination.trim());
+        trip.setDestination(Util.trimToNull(trip.getDestination()));
         trip.setCountries(IsoCountries.normalizeAll(trip.getCountries()));
         trip.setTags(TripTags.sanitize(trip.getTags(), offered));
     }

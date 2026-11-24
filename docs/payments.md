@@ -301,6 +301,31 @@ ladder WITHOUT the trip's own overlay, so the label names what choosing Inherit 
 choosing Inherit clears (2026-11-13). Every other Inherit choice and placeholder in that dialog (processor, fees,
 donations, template, Reply-To, Bcc) reads the same inherited config, once per render.
 
+**The payment notify address is per organization, with NO site fallback (owner decision 2026-11-24).**
+`payment.notify.email` is the internal copy of every payment mail: the confirmation, the checkout confirmation
+and the payment-failed notice each bcc it, joined to the config's own `bcc`. It is NOT a field of
+`TripPaymentConfig`; it is a setting (`org-admin.md`, "Per-org settings"; the org settings page's Trips & money
+tab, beside the treasurer), validated as ONE address, not a list (owner-confirmed).
+`PaymentCommands.notifyEmail(payment, trip)` resolves it by the owner's rule, which is deliberately NOT the
+settings ladder:
+
+- **A payment that has an organization** (`PaymentMailer.orgOf`: the payment's `orgId`, else its trip's) copies
+  ONLY that organization's own override. An organization that has not set one gets NO internal copy. It never
+  falls back to the site's row: that is a mailbox the organization did not choose, and while it was the fallback
+  one tenant's payer names, amounts and bank failure reasons could be copied to another tenant's office.
+- **The site's row serves ONLY a legacy payment with no organization**, neither on the payment nor on its trip.
+- **An organization id whose row does not answer gets no copy** (blank), for the same reason: never the site's
+  mailbox by default.
+
+It is read for the PAYMENT's organization, never for the site the request is on: a payment is finished wherever
+the processor calls back, and an admin's Finish may run on any host. So do not read it with
+`ConfigCommands.getString(def)` or `getString(def, org)`; both end at the site's row. On the org settings page
+the row therefore means "your organization's copy address; blank = no copy", and on the site Settings page
+"used only for payments with no organization"; the one help text (`labels.setting.payment.notify.email.description`)
+says both. Pinned by `PaymentCommandsTest.aPaymentMailCopiesTheNotifyAddressOfThePaymentsOwnOrganization` (own
+address; none, with the site row set; unknown organization; legacy payment on another organization's host) and,
+for the checkout confirmation, `CheckoutCommandsTest`.
+
 ## The money rules (user-locked; the golden test is `PaymentRecorderTest`)
 
 Lodging bills (`pay/LodgingBiller`, 2026-09) follow these rules too: NEGATIVE `Bill` rows with deterministic

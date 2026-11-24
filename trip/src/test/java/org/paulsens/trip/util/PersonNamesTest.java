@@ -23,6 +23,18 @@ public class PersonNamesTest {
         Assert.assertEquals(PersonNames.display(null), "");
     }
 
+    /** Each part is trimmed before the join, so a padded part cannot put two spaces inside the name. */
+    @Test
+    public void aPaddedPartIsTrimmedBeforeTheJoin() {
+        Assert.assertEquals(PersonNames.display(person(" Ann ", null, "  Jones ")), "Ann Jones");
+        Assert.assertEquals(PersonNames.display(person("Robert", " Bob  ", "Smith\t")), "Bob Smith");
+        Assert.assertEquals(PersonNames.display(person(null, null, "  Jones ")), "Jones");
+        Assert.assertEquals(PersonNames.display(person("\u2003", null, "Jones")), "Jones",
+                "a part of only Unicode spaces is no part");
+        Assert.assertEquals(PersonNames.display(person("Ann", null, "\u0001")), "Ann");
+        Assert.assertEquals(PersonNames.displayOr(person(" ", null, "\u2003"), "id-1"), "id-1");
+    }
+
     @Test
     public void theFallbackStandsInForNobodyAndForNoName() {
         Assert.assertEquals(PersonNames.displayOr(person("Ann", null, "Jones"), "id-1"), "Ann Jones");

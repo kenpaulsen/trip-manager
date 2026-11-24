@@ -101,15 +101,15 @@ public class TripPageCommands {
     }
 
     static String tripIdFor(final ContentInstance instance, final String hostTripId) {
-        final String explicit = instance == null ? null : instance.getValues().get(PROP_TRIP_ID);
-        if (explicit != null && !explicit.isBlank()) {
-            return explicit.trim();
+        final String explicit = Util.trimToNull(instance == null ? null : instance.getValues().get(PROP_TRIP_ID));
+        if (explicit != null) {
+            return explicit;
         }
         final String fromKey = instance == null ? null : OrgPageBootstrap.tripOf(instance.getSection());
         if (fromKey != null) {
             return fromKey;
         }
-        return (hostTripId == null || hostTripId.isBlank()) ? null : hostTripId.trim();
+        return Util.trimToNull(hostTripId);
     }
 
     private static Trip reachableTrip(final String id) {

@@ -11,6 +11,7 @@ import java.util.Comparator;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.Value;
+import org.paulsens.trip.util.Util;
 
 /**
  * One managed media file: a travel guide, a flyer, a rotating home-page image. The bytes live in S3 and are
@@ -102,14 +103,14 @@ public class MediaItem implements Serializable {
             @JsonProperty("hidden") final Boolean hidden,
             @JsonProperty("orgId") final String orgId,
             @JsonProperty("rev") final Integer rev) {
-        this.orgId = (orgId == null || orgId.isBlank()) ? null : orgId.trim();
+        this.orgId = Util.trimToNull(orgId);
         this.id = id;
         this.s3Key = s3Key;
         this.title = title;
         this.description = description;
         this.contentType = contentType;
         this.size = size;
-        this.slot = (slot == null || slot.isBlank()) ? null : slot.trim();
+        this.slot = Util.trimToNull(slot);
         this.position = position;
         this.uploaded = uploaded;
         this.uploadedBy = uploadedBy;

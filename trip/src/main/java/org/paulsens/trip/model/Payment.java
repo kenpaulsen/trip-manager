@@ -14,6 +14,7 @@ import java.util.UUID;
 import lombok.Builder;
 import lombok.Data;
 import lombok.Value;
+import org.paulsens.trip.util.Util;
 
 /**
  * One payment attempt through a processor -- the durable record that makes double-submits, retries,
@@ -210,7 +211,7 @@ public final class Payment implements Serializable {
 
         public OfflineReceipt {
             method = method == null ? null : method.trim().toUpperCase(Locale.ROOT);
-            reference = reference == null || reference.isBlank() ? null : reference.trim();
+            reference = Util.trimToNull(reference);
         }
 
         /** The stored label, byte for byte what {@code captureId} held before the receipt existed: "CHECK 1042". */

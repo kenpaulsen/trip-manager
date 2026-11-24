@@ -6,6 +6,7 @@ import java.util.Map;
 import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Placeholder;
+import org.paulsens.trip.util.Util;
 
 /**
  * One person's card, as a programmatic content type: the board-of-directors row (photo, name, role, contact
@@ -161,8 +162,7 @@ public final class PersonType implements ProgrammaticContentTemplate {
     private static String accountName(final Person person) {
         final String first = person.getPreferredName() == null ? "" : person.getPreferredName();
         final String last = person.getLast() == null ? "" : person.getLast();
-        final String name = (first + " " + last).trim();
-        return name.isEmpty() ? null : name;
+        return Util.trimToNull(first + " " + last);
     }
 
     /** One or two letters for an avatar with no picture: first and last word's initials. */

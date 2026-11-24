@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.UUID;
 import lombok.Builder;
 import lombok.Data;
+import org.paulsens.trip.util.Util;
 
 /**
  * A payment the treasurer recorded against a {@link TripExpenseReport}: how much, how, when, and which of the
@@ -52,11 +53,11 @@ public final class ExpensePayment implements Serializable {
         this.id = (id == null || id.isBlank()) ? UUID.randomUUID().toString() : id;
         this.date = date;
         this.amountCents = amountCents;
-        this.method = BudgetLine.trimToNull(method);
-        this.note = BudgetLine.trimToNull(note);
+        this.method = Util.trimToNull(method);
+        this.note = Util.trimToNull(note);
         this.lineIds = (lineIds == null) ? new ArrayList<>() : new ArrayList<>(lineIds);
         this.recordedById = recordedById;
-        this.recordedBy = BudgetLine.trimToNull(recordedBy);
+        this.recordedBy = Util.trimToNull(recordedBy);
         this.recordedOn = recordedOn;
     }
 

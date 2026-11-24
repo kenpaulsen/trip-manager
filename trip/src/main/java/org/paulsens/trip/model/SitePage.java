@@ -9,6 +9,7 @@ import java.io.Serializable;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import org.paulsens.trip.util.Util;
 
 /**
  * One entry of an organization site's menu ({@link Organization#getSitePages()}): either a PAGE -- an editable
@@ -70,7 +71,7 @@ public record SitePage(String name, String title, String url, String placement,
             @JsonProperty("titles") final Map<String, String> titles) {
         this.name = name;
         this.title = title;
-        this.url = (url == null || url.isBlank()) ? null : url.trim();
+        this.url = Util.trimToNull(url);
         this.placement = placement;
         this.titles = cleaned(titles);
     }

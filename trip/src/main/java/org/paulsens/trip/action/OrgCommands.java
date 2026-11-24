@@ -2779,6 +2779,12 @@ public class OrgCommands {
      * the admin is browsing the shared host or the org's own.
      */
     public String inheritedSetting(final org.paulsens.trip.model.SettingDef def) {
+        if (KnownSettings.PAYMENT_NOTIFY_EMAIL.getName().equals(def.getName())) {
+            // An organization never inherits the site's payment notify address (owner decision 2026-11-24: none
+            // set means no copy), so the placeholder must not show it: that would both promise an inheritance
+            // that does not happen and show the site's mailbox to every organization.
+            return "";
+        }
         return def.isOrgOnly() ? def.getDefaultValue() : new ConfigCommands().siteString(def);
     }
 

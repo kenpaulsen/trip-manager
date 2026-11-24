@@ -6,11 +6,15 @@ import java.util.HashMap;
 import java.util.Map;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
+import org.paulsens.trip.action.ConfigCommands;
 import org.paulsens.trip.action.PassCommands;
 import org.paulsens.trip.action.PersonCommands;
+import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.model.Creds;
 import org.paulsens.trip.model.Person;
 import org.testng.Assert;
+import org.testng.annotations.AfterClass;
+import org.testng.annotations.BeforeClass;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
@@ -25,10 +29,30 @@ public class AuthResourceTest extends ResourceTestSupport {
 
     private static final Person.Id ME = Person.Id.from("auth-me");
 
+    private static final String TOKEN_SWITCH = KnownSettings.API_TOKEN_ENABLED.getName();
+
+    private String storedTokenSwitch;
     private PassCommands passes;
     private AuthResource resource;
     private HttpSession freshSession;
     private Map<String, Object> freshAttributes;
+
+    /**
+     * The bare {@code new AuthResource()} these tests build reads the REAL token switch, which local mode seeds
+     * ON ({@code FakeData.seedLocalSiteSettings}). The feature-off tests passed only when an earlier class had
+     * blanked the row; the class now turns it off itself and puts back exactly what was stored.
+     */
+    @BeforeClass
+    public void turnTheTokenFeatureOff() {
+        final ConfigCommands config = new ConfigCommands();
+        storedTokenSwitch = config.getKnownValues().get(TOKEN_SWITCH);
+        Assert.assertTrue(config.saveKnown(Map.of(TOKEN_SWITCH, "false"), "test"));
+    }
+
+    @AfterClass(alwaysRun = true)
+    public void restoreTheTokenFeature() {
+        Assert.assertTrue(new ConfigCommands().saveKnown(Map.of(TOKEN_SWITCH, storedTokenSwitch), "test"));
+    }
 
     @BeforeMethod
     public void bindBeans() {
@@ -345,7 +369,7 @@ public class AuthResourceTest extends ResourceTestSupport {
         return resource(new AuthResource(new org.paulsens.trip.security.TokenService(tokenConfig())));
     }
 
-    /** The kill switch covers all three endpoints -- and off is the config DEFAULT, which is what this uses. */
+    /** The kill switch covers all three endpoints; off is the declared default, set here by the class itself. */
     @Test
     public void tokenEndpointsAreRefusedWhileTheFeatureIsOff() {
         assertError(resource.token(Map.of("email", "me@example.com", "password", "x")),

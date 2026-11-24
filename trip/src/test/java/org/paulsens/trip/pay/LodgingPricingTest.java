@@ -1,8 +1,12 @@
 package org.paulsens.trip.pay;
 
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import org.paulsens.trip.model.Accommodation;
 import org.paulsens.trip.model.Concession;
@@ -29,6 +33,30 @@ public class LodgingPricingTest {
     private static final Accommodation PANSION = Accommodation.builder().name("Pansion")
             .roomTypes(List.of(RoomType.builder().id("rt-d").name("Double").maxPeople(2).build()))
             .rooms(List.of(Room.builder().id("r-114").roomNumber("114").roomTypeId("rt-d").build())).build();
+
+    /**
+     * The bill note is STORED and a recompute compares it byte for byte, so its dates must not follow the JVM's
+     * default language: a server started in Croatian would write "ruj 21" and rewrite every lodging bill. The suite
+     * runs with an English default, where a formatter that lost its {@code Locale.ENGLISH} prints the same text,
+     * and switching the default here would come after the class has built its formatters. So this asks each
+     * formatter which locale it was built with: without the argument that is the default (en_US here), never the
+     * bare ENGLISH. Every formatter of the class is read, so one added later without the locale fails too.
+     */
+    @Test
+    public void everyBillNoteDateFormatterIsPinnedToEnglish() throws IllegalAccessException {
+        int formatters = 0;
+        for (final Field field : LodgingPricing.class.getDeclaredFields()) {
+            if (field.getType() != DateTimeFormatter.class) {
+                continue;
+            }
+            assertTrue(Modifier.isStatic(field.getModifiers()), field.getName());
+            field.setAccessible(true);
+            assertEquals(((DateTimeFormatter) field.get(null)).getLocale(), Locale.ENGLISH,
+                    field.getName() + " must name Locale.ENGLISH, not inherit the server's language");
+            formatters++;
+        }
+        assertEquals(formatters, 2, "the month-day and the month-day-year formatters of the bill note");
+    }
 
     @Test
     public void nightsAndNightListFollowTheCalendarRule() {

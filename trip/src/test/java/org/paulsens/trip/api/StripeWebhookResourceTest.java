@@ -16,8 +16,10 @@ import org.paulsens.trip.action.AuditCommands;
 import org.paulsens.trip.action.Caller;
 import org.paulsens.trip.action.OrgCommands;
 import org.paulsens.trip.action.PaymentCommands;
+import org.paulsens.trip.action.TenancyFixtures;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.cache.Cached;
+import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.model.FeesPaidBy;
@@ -228,13 +230,21 @@ public class StripeWebhookResourceTest extends ResourceTestSupport {
         final String returned = event(StripeWebhookResource.FAILED,
                 intent("pi_bank", "requires_payment_method", bank.getPaymentId(), "us_bank_account",
                         "The customer's account has insufficient funds."), true);
-        Assert.assertEquals(entity(post(configId(), sign(returned, LIVE_SECRET), returned)).get("status"), "failed");
+        // The payment's organization (CFPW) names the notify address; pinned, because any() also matches null.
+        final String office = "hook-office@example.org";
+        notifyOverride(office);
+        try {
+            Assert.assertEquals(entity(post(configId(), sign(returned, LIVE_SECRET), returned)).get("status"),
+                    "failed");
+        } finally {
+            notifyOverride(null);
+        }
         Assert.assertEquals(DAO.getInstance().getPayment(bank.getPaymentId()).orElseThrow().getStatus(),
                 Payment.Status.FAILED);
         Mockito.verify(mailer).sendPaymentFailed(ArgumentMatchers.argThat(p -> bank.getPaymentId()
                 .equals(p.getPaymentId())), ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
                 ArgumentMatchers.eq("Stripe"), ArgumentMatchers.eq("The customer's account has insufficient funds."),
-                ArgumentMatchers.any(), ArgumentMatchers.any());
+                ArgumentMatchers.eq(office), ArgumentMatchers.any());
         Assert.assertEquals(entity(post(configId(), sign(returned, LIVE_SECRET), returned)).get("status"),
                 "unchanged", "redelivery of the failure changes nothing and mails nobody again");
         Mockito.verify(mailer, Mockito.times(1)).sendPaymentFailed(ArgumentMatchers.any(), ArgumentMatchers.any(),
@@ -349,6 +359,11 @@ public class StripeWebhookResourceTest extends ResourceTestSupport {
 
     private String configId() {
         return config.getId().getValue();
+    }
+
+    /** Sets (or with null clears) CFPW's own payment notify address: the org every payment here carries. */
+    private static void notifyOverride(final String email) throws IOException {
+        TenancyFixtures.orgSetting(FakeData.CFPW_ORG_ID, KnownSettings.PAYMENT_NOTIFY_EMAIL, email);
     }
 
     private Payment created(final String intentId, final boolean sandbox) throws IOException {

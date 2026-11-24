@@ -5,6 +5,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import org.testng.Assert;
 import org.testng.annotations.Test;
@@ -148,6 +150,76 @@ public class ArchitectureTest {
                 + definitions);
         Assert.assertTrue(definitions.stream().allMatch(line -> line.contains("TransactionsCommands.java")),
                 definitions.toString());
+    }
+
+    /** The one file that may spell "trim, then null when blank": the rule's own home. */
+    private static final String TRIM_TO_NULL_HOME = "util/Util.java";
+
+    /** A receiver with nothing done to it, up to its dot: {@code x.}, {@code node.asText().}, {@code a.b().}. */
+    private static final String RECEIVER = "(?:\\w+(?:\\(\\))?\\.)+";
+
+    /**
+     * The spellings {@code Util.trimToNull} replaces, over code with its whitespace collapsed (so a wrapped
+     * ternary is still one match). Each answers the receiver's own {@code trim()} and nothing more: a parse of
+     * the trimmed text ({@code Person.Id.from(x.trim())}), a further call on it ({@code x.trim().toLowerCase()})
+     * and a non-null fallback are other rules and stay legal.
+     */
+    private static final List<Pattern> INLINE_TRIM_TO_NULL = List.of(
+            // (x == null || x.isBlank()) ? null : x.trim()
+            Pattern.compile("is(?:Blank|Empty)\\(\\)\\)? \\? null : " + RECEIVER + "trim\\(\\)(?! ?\\.)"),
+            // !x.isBlank() ? x.trim() : null
+            Pattern.compile("! ?" + RECEIVER + "is(?:Blank|Empty)\\(\\)\\)? \\? " + RECEIVER
+                    + "trim\\(\\) : null"),
+            // if (x == null || x.isBlank()) { return null; } return x.trim();
+            Pattern.compile("is(?:Blank|Empty)\\(\\)\\) \\{ return null; \\} return " + RECEIVER
+                    + "trim\\(\\);"),
+            // t = x.trim(); return t.isEmpty() ? null : t;
+            Pattern.compile("(\\w+) = [^;]*\\.trim\\(\\); return \\1\\.is(?:Blank|Empty)\\(\\) \\? null : \\1;"),
+            // t = x.trim(); if (t.isEmpty()) { return null; } return t;
+            Pattern.compile("(\\w+) = [^;]*\\.trim\\(\\); if \\(\\1\\.is(?:Blank|Empty)\\(\\)\\) \\{ return null; \\} "
+                    + "return \\1;"));
+
+    /**
+     * "Trimmed, or null when nothing is left" has ONE definition ({@code Util.trimToNull}). Inline copies test
+     * blank BEFORE trimming, which answers {@code ""} for text of only control characters, and three reviews in
+     * a row found more of them: a sweep by helper name misses a rule spelled as an expression. One such copy
+     * normalized {@code MediaItem}'s org id while the library lookup it is compared with had moved to the helper.
+     */
+    @Test
+    public void trimToNullHasOneDefinition() throws IOException {
+        final List<String> offenders = new ArrayList<>();
+        for (final Path source : mainSources()) {
+            if (!source.toString().replace('\\', '/').endsWith(TRIM_TO_NULL_HOME)) {
+                offenders.addAll(inlineTrimToNulls(source));
+            }
+        }
+        // The offenders are in the message: TestNG reports two lists of different size by their sizes alone.
+        Assert.assertEquals(offenders, List.of(),
+                "call Util.trimToNull instead of spelling its rule inline: " + offenders);
+    }
+
+    private static List<String> inlineTrimToNulls(final Path source) throws IOException {
+        final List<String> hits = new ArrayList<>();
+        final String code = codeOf(source);
+        for (final Pattern spelling : INLINE_TRIM_TO_NULL) {
+            final Matcher matcher = spelling.matcher(code);
+            while (matcher.find()) {
+                hits.add(source + " " + matcher.group());
+            }
+        }
+        return hits;
+    }
+
+    /** A file's code as ONE line, comment lines dropped and whitespace runs collapsed. */
+    private static String codeOf(final Path source) throws IOException {
+        final StringBuilder code = new StringBuilder();
+        for (final String raw : Files.readAllLines(source)) {
+            final String line = raw.strip();
+            if (!line.startsWith("*") && !line.startsWith("//") && !line.startsWith("/*")) {
+                code.append(line.replaceAll("\\s+", " ")).append(' ');
+            }
+        }
+        return code.toString();
     }
 
     /** Matches CODE lines only: comments may (and do) name the banned things while explaining their absence. */

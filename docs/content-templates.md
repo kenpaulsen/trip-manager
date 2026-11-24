@@ -870,9 +870,11 @@ reads (`getContent`, container resolution in `canEdit`, `titleOf`) are edit-mode
 ## Versioning / undo (unchanged from v1)
 
 Row = current + up to `content.versions.retained` previous versions; saves bump the version with a
-lost-update guard; restore re-saves a snapshot as a NEW version. Deleting a container cascades to its
-children — each via the DAO's surgical `removeOne` (NEVER `invalidate()`: local mode's cache is the
-datastore).
+lost-update guard; restore re-saves a snapshot as a NEW version. Reading the history (`getHistory`) and
+restoring from it both ask `mayEdit` on the instance's section again: the buttons render behind `canEdit`,
+but the id rides the postback, and old versions hold text the page no longer shows anyone. Deleting a container
+cascades to its children — each via the DAO's surgical `removeOne` (NEVER `invalidate()`: local mode's cache
+is the datastore).
 
 ## Bootstrap (production, one-time — scripts in `medjugorje/scripts/`)
 

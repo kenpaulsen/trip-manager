@@ -13,6 +13,7 @@ import lombok.Getter;
 import lombok.Setter;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.content.ContentRenderer;
+import org.paulsens.trip.util.Util;
 
 /**
  * How a CONFERENCE's public page looks (docs/conference.md, "Look and feel"), on {@code Trip.page}. Every field
@@ -62,12 +63,12 @@ public final class TripPageOptions implements Serializable {
             @JsonProperty("showTitle") final Boolean showTitle,
             @JsonProperty("showNav") final Boolean showNav,
             @JsonProperty("stylesheetUrl") final String stylesheetUrl) {
-        this.layout = trim(layout);
-        this.backgroundUrl = trim(backgroundUrl);
-        this.backgroundColor = trim(backgroundColor);
+        this.layout = Util.trimToNull(layout);
+        this.backgroundUrl = Util.trimToNull(backgroundUrl);
+        this.backgroundColor = Util.trimToNull(backgroundColor);
         this.showTitle = showTitle;
         this.showNav = showNav;
-        this.stylesheetUrl = trim(stylesheetUrl);
+        this.stylesheetUrl = Util.trimToNull(stylesheetUrl);
     }
 
     public TripPageOptions() {
@@ -108,7 +109,7 @@ public final class TripPageOptions implements Serializable {
     }
 
     public void setLayoutMode(final String mode) {
-        layout = (mode == null || MODE_ORG.equals(mode)) ? null : trim(mode);
+        layout = (mode == null || MODE_ORG.equals(mode)) ? null : Util.trimToNull(mode);
     }
 
     /**
@@ -183,9 +184,5 @@ public final class TripPageOptions implements Serializable {
             problems.add("The stylesheet must be an http(s) URL.");
         }
         return problems;
-    }
-
-    private static String trim(final String value) {
-        return (value == null || value.isBlank()) ? null : value.trim();
     }
 }

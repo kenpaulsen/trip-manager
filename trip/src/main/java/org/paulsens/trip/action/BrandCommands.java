@@ -1068,7 +1068,7 @@ public class BrandCommands {
     /** Blank means "not set", which for an org-only setting is the compiled default; then blank means null. */
     private static String blankToDefault(final String value, final SettingDef def) {
         final String resolved = (value == null || value.isBlank()) ? def.getDefaultValue() : value;
-        return (resolved == null || resolved.isBlank()) ? null : resolved.trim();
+        return Util.trimToNull(resolved);
     }
 
     /**

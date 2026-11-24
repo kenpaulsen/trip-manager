@@ -9,6 +9,7 @@ import java.util.HashMap;
 import java.util.Map;
 import lombok.Builder;
 import lombok.Data;
+import org.paulsens.trip.util.Util;
 
 /**
  * Payment configuration, embedded on a {@link Trip} ({@code paymentConfig}) AND on an {@link Organization}
@@ -45,14 +46,14 @@ public final class TripPaymentConfig implements Serializable {
             @JsonProperty("replyTo") final String replyTo,
             @JsonProperty("bcc") final String bcc,
             @JsonProperty("extraTokens") final Map<String, String> extraTokens) {
-        this.processorConfigId = trim(processorConfigId);
+        this.processorConfigId = Util.trimToNull(processorConfigId);
         this.feesPaidBy = feesPaidBy;
         this.donationEnabled = donationEnabled;
-        this.donationLabel = trim(donationLabel);
-        this.confirmationTemplateId = trim(confirmationTemplateId);
-        this.mailFrom = trim(mailFrom);
-        this.replyTo = trim(replyTo);
-        this.bcc = trim(bcc);
+        this.donationLabel = Util.trimToNull(donationLabel);
+        this.confirmationTemplateId = Util.trimToNull(confirmationTemplateId);
+        this.mailFrom = Util.trimToNull(mailFrom);
+        this.replyTo = Util.trimToNull(replyTo);
+        this.bcc = Util.trimToNull(bcc);
         this.extraTokens = (extraTokens == null) ? new HashMap<>() : new HashMap<>(extraTokens);
     }
 
@@ -95,9 +96,5 @@ public final class TripPaymentConfig implements Serializable {
 
     private static String firstNonNull(final String preferred, final String fallback) {
         return (preferred == null || preferred.isBlank()) ? fallback : preferred;
-    }
-
-    private static String trim(final String value) {
-        return (value == null || value.isBlank()) ? null : value.trim();
     }
 }

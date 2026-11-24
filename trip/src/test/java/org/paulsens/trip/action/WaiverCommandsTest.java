@@ -8,6 +8,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
@@ -194,6 +196,23 @@ public class WaiverCommandsTest {
         } catch (final software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException expected) {
             assertEquals(stale.getVersion(), 1L, "the version is restored after a lost race");
         }
+    }
+
+    /** The row guard's refusal names byte counts in English: the caller reads the bundle's sentence instead. */
+    @Test
+    public void anOversizedDocumentSaysItsOwnSentenceNotTheStores() throws IOException {
+        final WaiverDocument doc = newDocument("Large " + RandomData.genAlpha(5));
+        final DAO oversized = Mockito.spy(DAO.getInstance());
+        Mockito.doThrow(new IllegalArgumentException("The document 'Large' is too large to store (351204 bytes"
+                + " with every version; max 350000).")).when(oversized).saveWaiverDocument(Mockito.any());
+        final WaiverCommands.Result refused;
+        try (MockedStatic<DAO> statics = Mockito.mockStatic(DAO.class, Mockito.CALLS_REAL_METHODS)) {
+            statics.when(DAO::getInstance).thenReturn(oversized);
+            refused = as(orgAdmin).publishVersion(orgId, doc.getId(), doc.getTitle(), "<p>v2</p>", null);
+        }
+        assertEquals(refused.code(), WaiverCommands.Result.VALIDATION_FAILED, "the code the REST answer maps to 400");
+        assertEquals(refused.message(), "The document is too large to save: shorten its text, or start a new"
+                + " document for the next version.");
     }
 
     // ------------------------------------------------------------------ trip pins

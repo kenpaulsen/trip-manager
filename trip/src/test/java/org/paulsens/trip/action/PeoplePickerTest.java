@@ -50,6 +50,21 @@ public class PeoplePickerTest {
         Assert.assertEquals(PeoplePicker.pick(List.of(zed, nuller), "null", 25), List.of(nuller), "a real name");
     }
 
+    /**
+     * A person with no last name sorts by the name they have, where a reader scanning the list looks for them.
+     * The key once concatenated the null, so "Cy" sorted as "null cy", among the N's.
+     */
+    @Test
+    public void aPersonWithNoLastNameSortsByThePreferredName() {
+        final Person cy = person("Cy", null, null, null);
+        final Person padded = person("Dee", null, "  ", null);
+        final Person nobody = person(null, null, null, null);
+        final Person moe = person("Moe", null, "Moss", null);
+        Assert.assertEquals(PeoplePicker.pick(List.of(zed, moe, padded, cy, ann, nobody, bob), "", 25),
+                List.of(nobody, bob, ann, cy, padded, moe, zed),
+                "adams, Baker, Cy, Dee, Moss, Young; a person with no name at all comes first");
+    }
+
     @Test
     public void theLimitCutsAfterTheSortAndNothingOutsideTheRosterIsEverAnswered() {
         Assert.assertEquals(lastNames(PeoplePicker.pick(roster, "", 2)), List.of("adams", "Baker"));

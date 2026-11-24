@@ -63,6 +63,7 @@ import org.paulsens.trip.pay.MoneyMath;
 import org.paulsens.trip.util.EmailAddresses;
 import org.paulsens.trip.util.Html;
 import org.paulsens.trip.util.PersonNames;
+import org.paulsens.trip.util.Util;
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
 
 import static org.paulsens.trip.action.MoneyForms.cents;
@@ -785,8 +786,8 @@ public class ExpenseCommands {
             return refuseInto(refusal, problem);
         }
         final TripExpenseReport report = reportOrDefault(trip, Cached.NO);
-        report.setSubmittedBy(trimToNull(form.getSubmittedBy()));
-        report.setPaymentInstructions(trimToNull(form.getPaymentInstructions()));
+        report.setSubmittedBy(Util.trimToNull(form.getSubmittedBy()));
+        report.setPaymentInstructions(Util.trimToNull(form.getPaymentInstructions()));
         if (!persist(trip, report, refusal, "saved the details",
                 Text.get("feedback.expenseCommands.reportSaved"))) {
             return false;
@@ -953,12 +954,12 @@ public class ExpenseCommands {
             return false;
         }
         final TripBudget budget = budgetOf(tripId);
-        final String budgetLineId = trimToNull(form.getBudgetLineId());
+        final String budgetLineId = Util.trimToNull(form.getBudgetLineId());
         final ExpenseCategory matched = categoryOf(budget, budgetLineId);
         if (budgetLineId != null && matched == null) {
             return refuseInto(refusal, Text.get("feedback.expenseCommands.budgetLineGone"));
         }
-        final ExpenseCategory category = (trimToNull(form.getCategory()) == null)
+        final ExpenseCategory category = (Util.trimToNull(form.getCategory()) == null)
                 ? ((matched == null) ? ExpenseCategory.GENERAL : matched)
                 : parse(ExpenseCategory.class, form.getCategory());
         final boolean adding = form.getId() == null || form.getId().isBlank();
@@ -999,13 +1000,14 @@ public class ExpenseCommands {
     }
 
     private static String lineProblem(final ExpenseForm form) {
-        if (trimToNull(form.getCategory()) != null && parse(ExpenseCategory.class, form.getCategory()) == null) {
+        if (Util.trimToNull(form.getCategory()) != null && parse(ExpenseCategory.class, form.getCategory()) == null) {
             return Text.get("feedback.expenseCommands.chooseCategory");
         }
-        if (trimToNull(form.getPaidStatus()) != null && parse(ExpensePaidStatus.class, form.getPaidStatus()) == null) {
+        if (Util.trimToNull(form.getPaidStatus()) != null
+                && parse(ExpensePaidStatus.class, form.getPaidStatus()) == null) {
             return Text.get("feedback.expenseCommands.choosePaidStatus");
         }
-        if (trimToNull(form.getDescription()) == null) {
+        if (Util.trimToNull(form.getDescription()) == null) {
             return Text.get("feedback.expenseCommands.needsDescription");
         }
         final String description =
@@ -1245,7 +1247,7 @@ public class ExpenseCommands {
         if (amount != null) {
             return amount;
         }
-        if (trimToNull(form.getMethod()) == null) {
+        if (Util.trimToNull(form.getMethod()) == null) {
             return Text.get("feedback.expenseCommands.enterMethod");
         }
         final String method = tooLong("feedback.moneyForms.methodTooLong", form.getMethod(), MAX_NAME);
@@ -1703,7 +1705,7 @@ public class ExpenseCommands {
     /** The type's "who" answer under its key; nothing for a type that asks none. */
     private static Map<String, String> advanceFields(final AdvanceType type, final AdvanceForm form) {
         final Map<String, String> fields = new HashMap<>();
-        if (type.partyKey() != null && trimToNull(form.getParty()) != null) {
+        if (type.partyKey() != null && Util.trimToNull(form.getParty()) != null) {
             fields.put(type.partyKey(), form.getParty().trim());
         }
         return fields;
@@ -1906,14 +1908,6 @@ public class ExpenseCommands {
 
     private static String nameOr(final String text, final String fallback) {
         return (text == null || text.isBlank()) ? fallback : text;
-    }
-
-    private static String trimToNull(final String text) {
-        if (text == null) {
-            return null;
-        }
-        final String trimmed = text.trim();
-        return trimmed.isEmpty() ? null : trimmed;
     }
 
     Caller caller() {

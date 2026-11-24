@@ -30,7 +30,9 @@ person (identity never changes, the family-acting rule), the traveler is the sub
 
 `org_waivers` is the `PaymentProcessorDAO` shape: the `(orgId, id)` read IS the tenancy check, a per-org
 `PartitionCache`, the `FamilyDAO` conditional put (version 0 creates, any other replaces that exact version, a lost
-race throws with the version restored), and a 350 KB row guard (every version counts toward it). The content
+race throws with the version restored), and a 350 KB row guard (every version counts toward it; `WaiverCommands.store`
+answers it as `VALIDATION_FAILED` with the translated `feedback.waiverCommands.documentTooLarge`, and the
+DAO's own sentence, byte counts included, goes to the log). The content
 template history is NOT reused: it ages old versions out (`content.versions.retained`).
 
 `waiver_acceptances` is WRITE-ONCE and UNCACHED, like the audit table: `attribute_not_exists` on the key, no update

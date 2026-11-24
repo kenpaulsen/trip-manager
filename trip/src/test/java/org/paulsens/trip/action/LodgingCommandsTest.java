@@ -3,6 +3,7 @@ package org.paulsens.trip.action;
 import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.mockito.Mockito;
@@ -635,7 +636,7 @@ public class LodgingCommandsTest {
                 dao -> Mockito.doThrow(StoreFailures.storeDown()).when(dao).saveReservation(Mockito.any()),
                 () -> admin.cancelReservationWithFee(own.getId(), resId, false, null, "test")),
                 "The cancellation could not be saved.");
-        assertTrue(admin.findReservation(own.getId(), resId).isActive(), "nothing was cancelled");
+        assertTrue(admin.findReservation(own.getId(), resId).isActive(), "nothing was canceled");
     }
 
     @Test
@@ -731,6 +732,22 @@ public class LodgingCommandsTest {
                 Long.valueOf(100L), "The dialog's dollar fee, in cents");
         assertFalse(new LodgingCommands(() -> TestCallers.person(ada.getId())).recomputeBills(trip.getId(), null));
         assertFalse(admin.deleteOffer(trip.getId(), offerId), "Reservations reference it");
+    }
+
+    /** Regions that do not parse say a fixed sentence: Jackson's own English never reaches the page. */
+    @Test
+    public void unreadableFloorRegionsNeverShowTheParsersWords() {
+        final String accId = LodgingFixtures.hotel(admin, orgId, "Regions");
+        final String damaged = "The floor plan could not be read: the boxes arrived damaged; reload the page and"
+                + " try again";
+        for (final String json : List.of("not json", "{\"roomId\":\"r\"}", "[1, 2]")) {
+            assertEquals(TestFaces.growlsOf(new HashMap<>(),
+                    () -> assertFalse(admin.saveFloorRegions(accId, "1", json))), List.of(damaged), json);
+        }
+        assertEquals(TestFaces.growlsOf(new HashMap<>(),
+                () -> assertFalse(admin.saveFloorRegions(accId, "1", "[{\"roomId\":\"r\",\"x\":\"a\"}]"))),
+                List.of("The floor plan could not be read: a coordinate is missing"),
+                "our own reasons are bundle text and still name what is wrong");
     }
 
     // ------------------------------------------------------------------ refusals and edges

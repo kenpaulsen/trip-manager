@@ -8,6 +8,7 @@ import java.io.Serializable;
 import java.util.UUID;
 import lombok.Builder;
 import lombok.Data;
+import org.paulsens.trip.util.Util;
 
 /**
  * One lodging line of a {@link TripBudget}: the quantities planned on one of the trip's lodging options
@@ -49,14 +50,14 @@ public final class BudgetLodgingLine implements Serializable {
             @JsonProperty("note") final String note,
             @JsonProperty("offSite") final boolean offSite) {
         this.id = (id == null || id.isBlank()) ? UUID.randomUUID().toString() : id;
-        this.offerId = BudgetLine.trimToNull(offerId);
-        this.label = BudgetLine.trimToNull(label);
+        this.offerId = Util.trimToNull(offerId);
+        this.label = Util.trimToNull(label);
         this.nights = Math.max(0, nights);
         this.people = Math.max(0, people);
         this.rooms = Math.max(0, rooms);
         this.singles = Math.min(Math.max(0, singles), this.people);
-        this.payee = BudgetLine.trimToNull(payee);
-        this.note = BudgetLine.trimToNull(note);
+        this.payee = Util.trimToNull(payee);
+        this.note = Util.trimToNull(note);
         this.offSite = offSite;
     }
 

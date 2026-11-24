@@ -13,6 +13,7 @@ import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.model.Creds;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.model.SettingDef;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.util.TestPeople;
 
@@ -106,6 +107,22 @@ public final class TenancyFixtures {
     /** The organization as the store holds it now, past the cache. */
     public static Organization reread(final Organization org) {
         return DAO.getInstance().getOrganization(org.getId(), Cached.NO).orElseThrow();
+    }
+
+    /**
+     * Sets, or with a null value clears, one organization's own override of a setting, written straight to the
+     * stored row (no validation, so a test can also store what the settings page would refuse).
+     */
+    public static void orgSetting(final String orgId, final SettingDef def, final String valueOrNull)
+            throws IOException {
+        final Organization org = DAO.getInstance().getOrganization(Organization.Id.from(orgId), Cached.NO)
+                .orElseThrow();
+        if (valueOrNull == null) {
+            org.getSettingsOverrides().remove(def.getName());
+        } else {
+            org.getSettingsOverrides().put(def.getName(), valueOrNull);
+        }
+        assertTrue(DAO.getInstance().saveOrganization(org));
     }
 
     public static void addMember(final Organization org, final Person person) {

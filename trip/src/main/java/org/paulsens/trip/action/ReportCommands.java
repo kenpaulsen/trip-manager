@@ -34,6 +34,7 @@ import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripEvent;
 import org.paulsens.trip.pay.LodgingPricing;
 import org.paulsens.trip.pay.MoneyMath;
+import org.paulsens.trip.util.PersonNames;
 import org.paulsens.trip.util.Util;
 
 /**
@@ -184,7 +185,7 @@ public class ReportCommands {
                 .map(ReportCommands::resolve)
                 .flatMap(Optional::stream)
                 .sorted(BY_NAME)
-                .map(ReportCommands::displayName)
+                .map(PersonNames::display)
                 .filter(name -> !name.isEmpty())
                 .collect(Collectors.joining(", "));
     }
@@ -192,10 +193,6 @@ public class ReportCommands {
     /** The {@code Trip.resolveNames} idiom: the DAO's Optional, so a missing person drops out rather than blanks. */
     private static Optional<Person> resolve(final Person.Id id) {
         return DAO.getInstance().getPerson(id, Cached.YES);
-    }
-
-    private static String displayName(final Person person) {
-        return (Util.trimmed(person.getPreferredName()) + " " + Util.trimmed(person.getLast())).trim();
     }
 
     /**

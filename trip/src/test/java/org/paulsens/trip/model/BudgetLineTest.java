@@ -37,6 +37,16 @@ public class BudgetLineTest {
         assertEquals(line.totalCents(10), 0L);
     }
 
+    /** The stored money models share Util.trimToNull: a note of nothing but spaces is no note, however spelled. */
+    @Test
+    public void textOfOnlyUnicodeSpacesOrControlCharactersIsNull() {
+        final BudgetLine line = BudgetLine.builder().name("\u2003Guide\u0001").note("\u2003\u3000").payee("\u0001")
+                .build();
+        assertNull(line.getNote());
+        assertNull(line.getPayee());
+        assertEquals(line.getName(), "\u2003Guide", "text is kept as trim() leaves it");
+    }
+
     @Test
     public void individualLinesDropTheCategoryAndMayBePerNight() {
         final BudgetLine line = BudgetLine.builder().id("l1").kind(BudgetLineKind.INDIVIDUAL)

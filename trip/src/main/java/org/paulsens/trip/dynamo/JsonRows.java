@@ -1,5 +1,7 @@
 package org.paulsens.trip.dynamo;
 
+import com.fasterxml.jackson.core.JsonLocation;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.util.List;
@@ -28,14 +30,28 @@ final class JsonRows {
         this.mapper = mapper;
     }
 
-    /** The stored row as a {@code type}, or {@code null} (logged) when it does not parse. */
+    /**
+     * The stored row as a {@code type}, or {@code null} (logged) when it does not parse.
+     *
+     * <p>The log names the type, the kind of failure and the position in the row, and nothing else. Not the row: it
+     * holds names, addresses and money. Not Jackson's message either, nor the exception (whose stack trace prints
+     * that message): it quotes the offending value ({@code from String "..."}), an unknown field's name and an
+     * unrecognized token, and its reference chain quotes map keys.
+     */
     <T> T parse(final Class<T> type, final String json) {
         try {
             return mapper.readValue(json, type);
         } catch (final IOException ex) {
-            log.error("Unable to parse {} record: {}", type.getSimpleName(), json, ex);
+            log.error("Unable to parse {} record: {} at {}", type.getSimpleName(), ex.getClass().getSimpleName(),
+                    position(ex));
             return null;
         }
+    }
+
+    /** "line 1, column 42": the numbers only, because a location's own text can carry a snippet of the source. */
+    private static String position(final IOException ex) {
+        final JsonLocation at = (ex instanceof JsonProcessingException jackson) ? jackson.getLocation() : null;
+        return (at == null) ? "an unknown position" : "line " + at.getLineNr() + ", column " + at.getColumnNr();
     }
 
     /** One stored row as a {@code type}: {@code null} for a row that is absent or carries no {@code content}. */
@@ -93,14 +109,16 @@ final class JsonRows {
     }
 
     /**
-     * The value as JSON, or {@code null} (logged) when it does not serialize. Only the type is logged: a row's
-     * {@code toString} carries names, addresses and phone numbers.
+     * The value as JSON, or {@code null} (logged) when it does not serialize. Only the two types are logged: a
+     * row's {@code toString} carries names, addresses and phone numbers, and Jackson's message (which the
+     * exception's stack trace would print) quotes the map keys on the way to the failure.
      */
     String toJson(final Object value) {
         try {
             return mapper.writeValueAsString(value);
         } catch (final IOException ex) {
-            log.error("Unable to serialize {}", value == null ? null : value.getClass().getSimpleName(), ex);
+            log.error("Unable to serialize {}: {}", value == null ? null : value.getClass().getSimpleName(),
+                    ex.getClass().getSimpleName());
             return null;
         }
     }

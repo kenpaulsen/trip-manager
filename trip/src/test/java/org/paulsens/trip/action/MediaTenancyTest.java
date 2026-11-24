@@ -111,6 +111,25 @@ public class MediaTenancyTest {
         DAO.getInstance().deleteMedia(item.getId());
     }
 
+    /**
+     * The row and the library lookups (which ask {@code Util.trimToNull(orgId)}) must read an org id by ONE rule.
+     * The row once tested blank before trimming, so an id of only control characters was stored as "" while the
+     * lookup asked for null, and the two halves no longer met.
+     */
+    @Test
+    public void anOrgIdWithNothingInItIsASiteLevelRowByTheSameRuleTheLookupsUse() {
+        for (final String nothing : new String[] {null, "", "   ", "\u0001\u0002", " \u0001 "}) {
+            final MediaItem item = new MediaItem("tenancy-rule", "downloads/rule.jpg", "T", null, "image/jpeg", 1L,
+                    nothing, 0, LocalDateTime.now(), "seed", null, null, nothing);
+            Assert.assertNull(item.getOrgId(), "org id");
+            Assert.assertNull(item.getSlot(), "slot");
+        }
+        final MediaItem kept = new MediaItem("tenancy-rule", "downloads/rule.jpg", "T", null, "image/jpeg", 1L,
+                " homepage ", 0, LocalDateTime.now(), "seed", null, null, " " + FakeData.ACME_ORG_ID + " ");
+        Assert.assertEquals(kept.getOrgId(), FakeData.ACME_ORG_ID);
+        Assert.assertEquals(kept.getSlot(), "homepage");
+    }
+
     @Test
     public void keysAreNamespacedPerOrgAndLeftAloneOnTheSharedSite() throws Exception {
         Assert.assertEquals(MediaCommands.siteKey("background.jpg"), "background.jpg", "shared: as typed");

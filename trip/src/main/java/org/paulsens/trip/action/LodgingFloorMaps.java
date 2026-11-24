@@ -7,6 +7,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.Accommodation;
@@ -27,6 +28,7 @@ import static org.paulsens.trip.action.PageFeedback.warn;
  * keeps them in step, so renaming a floor orphans its plan. That is why moving and removing a plan exist at
  * all -- see {@code docs/lodging.md}, "Floors are free text".
  */
+@Slf4j
 final class LodgingFloorMaps {
     private final LodgingCommands lodging;
     private final MediaCommands media;
@@ -62,15 +64,12 @@ final class LodgingFloorMaps {
     }
 
     public boolean setFloorMap(final String accId, final String floor, final String mediaId) {
-        if (!lodging.canEditAccommodation(accId)) {
-            return refuse(Text.get("feedback.lodgingCommands.notYourAccommodation"));
+        final Accommodation acc = lodging.editableAccommodation(accId);
+        if (acc == null) {
+            return false;
         }
         if (floor == null || floor.isBlank()) {
             return refuse(Text.get("feedback.lodgingFloorMaps.whichFloor"));
-        }
-        final Accommodation acc = lodging.freshAccommodation(accId);
-        if (acc == null) {
-            return refuse(Text.get("feedback.lodgingCommands.accommodationGone"));
         }
         final FloorMap existing = acc.floorMap(floor.trim());
         if (existing == null) {
@@ -91,15 +90,12 @@ final class LodgingFloorMaps {
      * does, and a floor that existed only because a plan named it leaves the floor list with it.
      */
     public boolean removeFloorMap(final String accId, final String floor) {
-        if (!lodging.canEditAccommodation(accId)) {
-            return refuse(Text.get("feedback.lodgingCommands.notYourAccommodation"));
+        final Accommodation acc = lodging.editableAccommodation(accId);
+        if (acc == null) {
+            return false;
         }
         if (floor == null || floor.isBlank()) {
             return refuse(Text.get("feedback.lodgingFloorMaps.whichFloor"));
-        }
-        final Accommodation acc = lodging.freshAccommodation(accId);
-        if (acc == null) {
-            return refuse(Text.get("feedback.lodgingCommands.accommodationGone"));
         }
         final String wanted = floor.trim();
         if (!acc.getFloorMaps().removeIf(map -> wanted.equals(map.getFloor()))) {
@@ -134,8 +130,9 @@ final class LodgingFloorMaps {
      * has, and boxes on the target floor were drawn against the plan this one replaces.
      */
     public boolean moveFloorMap(final String accId, final String from, final String to) {
-        if (!lodging.canEditAccommodation(accId)) {
-            return refuse(Text.get("feedback.lodgingCommands.notYourAccommodation"));
+        final Accommodation acc = lodging.editableAccommodation(accId);
+        if (acc == null) {
+            return false;
         }
         if (from == null || from.isBlank() || to == null || to.isBlank()) {
             return refuse(Text.get("feedback.lodgingFloorMaps.whichTargetFloor"));
@@ -144,10 +141,6 @@ final class LodgingFloorMaps {
         final String target = to.trim();
         if (source.equals(target)) {
             return refuse(Text.get("feedback.lodgingFloorMaps.alreadyOnFloor", target));
-        }
-        final Accommodation acc = lodging.freshAccommodation(accId);
-        if (acc == null) {
-            return refuse(Text.get("feedback.lodgingCommands.accommodationGone"));
         }
         final FloorMap moving = acc.floorMap(source);
         if (moving == null) {
@@ -172,18 +165,24 @@ final class LodgingFloorMaps {
      * listed lose their region (the annotator deleted them). Answers the {@code saved} callback param.
      */
     public boolean saveFloorRegions(final String accId, final String floor, final String json) {
-        if (!lodging.canEditAccommodation(accId)) {
-            return refuse(Text.get("feedback.lodgingCommands.notYourAccommodation"));
+        final Accommodation acc = lodging.editableAccommodation(accId);
+        if (acc == null) {
+            return false;
         }
-        final Accommodation acc = lodging.freshAccommodation(accId);
-        if (acc == null || floor == null) {
+        if (floor == null) {
             return refuse(Text.get("feedback.lodgingCommands.accommodationGone"));
         }
         final Map<String, Room.MapRegion> regions;
         try {
             regions = parseRegions(json);
-        } catch (final IllegalArgumentException | IOException ex) {
+        } catch (final IllegalArgumentException ex) {
+            // Thrown by parseRegions itself, with one of the bundle's "reason" texts: already the reader's words.
             return refuse(Text.get("feedback.lodgingFloorMaps.unreadable", ex.getMessage()));
+        } catch (final IOException ex) {
+            // Jackson's message is English and quotes the input; it belongs in the log, not on the page.
+            log.warn("Unreadable floor regions for accommodation {}, floor {}", accId, floor, ex);
+            return refuse(Text.get("feedback.lodgingFloorMaps.unreadable",
+                    Text.get("feedback.lodgingFloorMaps.reasonDamaged")));
         }
         for (final String roomId : regions.keySet()) {
             final Room room = acc.room(roomId);

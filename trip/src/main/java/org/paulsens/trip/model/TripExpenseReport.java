@@ -10,6 +10,7 @@ import java.util.ArrayList;
 import java.util.List;
 import lombok.Builder;
 import lombok.Data;
+import org.paulsens.trip.util.Util;
 
 /**
  * A trip's expense report: what was actually spent, against the cash advanced for it. ONE row per trip in
@@ -70,11 +71,11 @@ public final class TripExpenseReport implements Serializable {
             @JsonProperty("version") final long version) {
         this.tripId = tripId;
         this.orgId = orgId;
-        this.submittedBy = BudgetLine.trimToNull(submittedBy);
+        this.submittedBy = Util.trimToNull(submittedBy);
         this.submittedById = submittedById;
         this.submittedOn = submittedOn;
-        this.paymentInstructions = BudgetLine.trimToNull(paymentInstructions);
-        this.emailedTo = BudgetLine.trimToNull(emailedTo);
+        this.paymentInstructions = Util.trimToNull(paymentInstructions);
+        this.emailedTo = Util.trimToNull(emailedTo);
         this.emailedOn = emailedOn;
         this.advances = (advances == null) ? new ArrayList<>() : new ArrayList<>(advances);
         this.currencies = (currencies == null) ? new ArrayList<>() : new ArrayList<>(currencies);

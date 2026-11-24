@@ -16,6 +16,7 @@ import org.paulsens.trip.media.QuarterTurn;
 import org.paulsens.trip.model.BadgeImage;
 import org.paulsens.trip.model.MediaItem;
 import org.paulsens.trip.model.Trip;
+import org.paulsens.trip.util.Util;
 import org.primefaces.event.FileUploadEvent;
 import org.primefaces.model.CroppedImage;
 
@@ -369,7 +370,7 @@ public class BadgePhotoCommands extends PhotoUploadBean {
         if (dot > 0) {
             name = name.substring(0, dot);
         }
-        return name.isBlank() ? null : name.trim();
+        return Util.trimToNull(name);
     }
 
     /**

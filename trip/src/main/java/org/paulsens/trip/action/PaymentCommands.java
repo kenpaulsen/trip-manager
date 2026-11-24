@@ -17,6 +17,7 @@ import java.util.function.Supplier;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.cache.Cached;
+import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.site.ListingScope;
 import org.paulsens.trip.dynamo.DAO;
@@ -637,9 +638,9 @@ public class PaymentCommands {
             final TripPaymentConfig effective = orgs.effectivePaymentConfig(trip);
             final boolean mailed = payment.hasCheckout()
                     ? mailerSource.get().sendCheckoutConfirmation(payment, trip, effective, orgName, processorName,
-                            notifyEmail(), current.auditActor())
+                            notifyEmail(payment, trip), current.auditActor())
                     : mailerSource.get().sendConfirmation(payment, trip, effective, orgName, processorName,
-                            notifyEmail(), current.auditActor());
+                            notifyEmail(payment, trip), current.auditActor());
             if (!mailed) {
                 audit.payment(payment, false, "Confirmation email was not sent",
                         current.auditActor());
@@ -821,7 +822,7 @@ public class PaymentCommands {
             final Trip trip = DAO.getInstance().getTrip(payment.getTripId(), Cached.NO).orElse(null);
             final boolean mailed = mailerSource.get().sendPaymentFailed(payment, trip,
                     orgs.effectivePaymentConfig(trip), orgNameOf(payment), displayNameOf(configOf(payment)),
-                    reason, notifyEmail(), current.auditActor());
+                    reason, notifyEmail(payment, trip), current.auditActor());
             if (!mailed) {
                 audit.payment(payment, false, "Payment-failed email was not sent", current.auditActor());
             }
@@ -1252,8 +1253,22 @@ public class PaymentCommands {
                 .map(Organization::getName).orElse("the organization");
     }
 
-    private String notifyEmail() {
-        return new ConfigCommands().getString(org.paulsens.trip.config.KnownSettings.PAYMENT_NOTIFY_EMAIL);
+    /**
+     * The address that gets the internal copy of this payment's mail (owner, 2026-11-24). A payment that has an
+     * organization (its own, else its trip's) copies ONLY that organization's own address, and none when the
+     * organization has not set one: it never falls back to the site's value, which is a mailbox that
+     * organization did not choose. The site's value serves only a legacy payment with no organization at all.
+     * An organization whose row does not answer gets no copy either: the site's mailbox may be another tenant's.
+     * Never the plain ladder read: that answers for the site the request is on, and a webhook or an admin's
+     * Finish on another host is not the payment's.
+     */
+    private String notifyEmail(final Payment payment, final Trip trip) {
+        final String orgId = PaymentMailer.orgOf(payment, trip);
+        if (orgId == null || orgId.isBlank()) {
+            return new ConfigCommands().siteString(KnownSettings.PAYMENT_NOTIFY_EMAIL);
+        }
+        return DAO.getInstance().getOrganization(Organization.Id.from(orgId), Cached.YES)
+                .map(owner -> owner.settingOverride(KnownSettings.PAYMENT_NOTIFY_EMAIL.getName())).orElse("");
     }
 
     /** Allocations from the page's id->text map; null (with a growl) when anything is invalid. */

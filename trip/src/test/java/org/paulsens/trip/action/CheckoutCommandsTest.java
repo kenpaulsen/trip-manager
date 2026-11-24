@@ -8,6 +8,7 @@ import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.cache.Cached;
+import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.model.AgeBand;
@@ -86,7 +87,14 @@ public class CheckoutCommandsTest {
         assertTrue(DAO.getInstance().getRegistrations(trip.getId(), Cached.NO).isEmpty(),
                 "pay-first: nothing is registered while the payment is open");
 
-        assertEquals(flow.payments.completePayment(paymentId, null).getStatus(), "recorded");
+        // The trip's organization names the internal copy of the confirmation (verified below).
+        final String office = "checkout-office@example.org";
+        TenancyFixtures.orgSetting(FakeData.CFPW_ORG_ID, KnownSettings.PAYMENT_NOTIFY_EMAIL, office);
+        try {
+            assertEquals(flow.payments.completePayment(paymentId, null).getStatus(), "recorded");
+        } finally {
+            TenancyFixtures.orgSetting(FakeData.CFPW_ORG_ID, KnownSettings.PAYMENT_NOTIFY_EMAIL, null);
+        }
         final Registration parentReg = registration(trip, parent);
         final Registration childReg = registration(trip, child);
         assertEquals(parentReg.getStatus(), Registration.Status.CONFIRMED);
@@ -108,8 +116,10 @@ public class CheckoutCommandsTest {
         assertEquals(txCmds.getBalance(child.getId()), 0.0, "the bill and the credit cancel out");
         assertEquals(txCmds.getBalance(parent.getId()), 0.0);
         assertNotNull(payment.getCheckout().getFinalizedAt());
+        // The notify address is pinned, not any(): any() also matches null, and a read for the request's site
+        // instead of the payment's organization would pass it too.
         Mockito.verify(mailer).sendCheckoutConfirmation(ArgumentMatchers.any(), ArgumentMatchers.any(),
-                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.eq(office),
                 ArgumentMatchers.any());
         assertTrue(flow.checkout.intentSummary(payment).startsWith("2 people, $220.00, registered"));
 

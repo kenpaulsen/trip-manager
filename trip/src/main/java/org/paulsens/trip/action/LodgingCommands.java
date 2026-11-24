@@ -79,6 +79,7 @@ import org.paulsens.trip.pay.LodgingPricing;
 import org.paulsens.trip.pay.MoneyMath;
 import org.paulsens.trip.util.EmailAddresses;
 import org.paulsens.trip.util.Html;
+import org.paulsens.trip.util.PersonNames;
 import org.paulsens.trip.util.Util;
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
 
@@ -409,12 +410,9 @@ public class LodgingCommands {
 
     /** Retires (or un-retires) an accommodation; there is deliberately no delete. */
     public boolean retireAccommodation(final String accId, final boolean retired) {
-        if (!canEditAccommodation(accId)) {
-            return refuse(Text.get("feedback.lodgingCommands.notYourAccommodation"));
-        }
-        final Accommodation acc = freshAccommodation(accId);
+        final Accommodation acc = editableAccommodation(accId);
         if (acc == null) {
-            return refuse(Text.get("feedback.lodgingCommands.accommodationGone"));
+            return false;
         }
         acc.setRetired(retired ? Boolean.TRUE : null);
         if (!store(acc)) {
@@ -592,18 +590,15 @@ public class LodgingCommands {
     }
 
     public boolean saveRoomType(final String accId, final RoomTypeForm form) {
-        if (!canEditAccommodation(accId)) {
-            return refuse(Text.get("feedback.lodgingCommands.notYourAccommodation"));
+        final Accommodation acc = editableAccommodation(accId);
+        if (acc == null) {
+            return false;
         }
         if (form == null || form.getName() == null || form.getName().isBlank()) {
             return refuse(Text.get("feedback.lodgingCommands.roomTypeNeedsName"));
         }
         if (form.getMaxPeople() < form.getMinPeople()) {
             return refuse(Text.get("feedback.lodgingCommands.maxAtLeastMin"));
-        }
-        final Accommodation acc = freshAccommodation(accId);
-        if (acc == null) {
-            return refuse(Text.get("feedback.lodgingCommands.accommodationGone"));
         }
         RoomType type = acc.roomType(form.getId());
         if (type == null) {
@@ -720,15 +715,12 @@ public class LodgingCommands {
     }
 
     public boolean saveRoom(final String accId, final RoomForm form) {
-        if (!canEditAccommodation(accId)) {
-            return refuse(Text.get("feedback.lodgingCommands.notYourAccommodation"));
+        final Accommodation acc = editableAccommodation(accId);
+        if (acc == null) {
+            return false;
         }
         if (form == null || form.getRoomNumber() == null || form.getRoomNumber().isBlank()) {
             return refuse(Text.get("feedback.lodgingCommands.roomNeedsNumber"));
-        }
-        final Accommodation acc = freshAccommodation(accId);
-        if (acc == null) {
-            return refuse(Text.get("feedback.lodgingCommands.accommodationGone"));
         }
         if (acc.roomType(form.getRoomTypeId()) == null) {
             return refuse(Text.get("feedback.lodgingCommands.chooseRoomType"));
@@ -2883,6 +2875,10 @@ public class LodgingCommands {
         return callerSource.get();
     }
 
+    Accommodation editableAccommodation(final String accId) {
+        return access.editableAccommodation(accId);
+    }
+
     Accommodation freshAccommodation(final String accId) {
         if (accId == null || accId.isBlank()) {
             return null;
@@ -2926,10 +2922,7 @@ public class LodgingCommands {
     }
 
     private static String displayName(final Person person) {
-        final String first = nullSafe(person.getPreferredName()).trim();
-        final String last = nullSafe(person.getLast()).trim();
-        final String name = (first + " " + last).trim();
-        return name.isEmpty() ? person.getId().getValue() : name;
+        return PersonNames.displayOr(person, person.getId().getValue());
     }
 
     private String preferredName(final Person.Id id) {

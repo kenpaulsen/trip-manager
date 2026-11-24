@@ -56,23 +56,19 @@ public class TemplateCommandsTest {
                 .anyMatch(org -> FakeData.ACME_ORG_ID.equals(org.getId().getValue())));
     }
 
+    /** Templates are sharable by id (owner decision 2026-11-24): history answers by id, the LISTING stays scoped. */
     @Test
-    public void historyOfAnotherOrganizationsTemplateIsNotServed() {
+    public void historyAnswersByIdEvenForAnotherOrganizationsTemplate() {
         final TemplateCommands admin = as(true);
         final ContentTemplate owned = new ContentTemplate("tc-history-owned", 0, "Owned", null, "acme wording",
                 List.of(), null, null);
         owned.setOrgId(FakeData.ACME_ORG_ID);
-        final ContentTemplate shared = new ContentTemplate("tc-history-shared", 0, "Shared", null, "shared wording",
-                List.of(), null, null);
         Assert.assertTrue(admin.saveTemplate(owned));
-        Assert.assertTrue(admin.saveTemplate(shared));
 
         final TemplateCommands outsider = as(false);
-        Assert.assertTrue(outsider.getHistory("tc-history-owned").isEmpty(),
-                "the id is a request parameter: an org's history must not answer to a caller outside it");
-        Assert.assertEquals(admin.getHistory("tc-history-owned").size(), 1);
-        Assert.assertEquals(outsider.getHistory("tc-history-shared").size(), 1,
-                "a shared template is visible to everyone the page lists it for");
+        Assert.assertEquals(outsider.getHistory("tc-history-owned").size(), 1);
+        Assert.assertTrue(outsider.getTemplates().stream().noneMatch(t -> "tc-history-owned".equals(t.getId())),
+                "sharable is not discoverable: the listing never shows another organization's template");
     }
 
     private static TemplateCommands as(final boolean siteAdmin) {

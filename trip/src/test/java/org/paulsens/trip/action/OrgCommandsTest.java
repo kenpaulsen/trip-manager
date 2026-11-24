@@ -1,5 +1,6 @@
 package org.paulsens.trip.action;
 
+import java.time.LocalDateTime;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -10,6 +11,7 @@ import org.paulsens.trip.audit.RequestContext;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.model.Config;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.SettingDef;
@@ -2093,6 +2095,16 @@ public class OrgCommandsTest {
         assertEquals(admin().inheritedSetting(KnownSettings.SITE_ANALYTICS_ID),
                 KnownSettings.SITE_ANALYTICS_ID.getDefaultValue(),
                 "an org-only setting inherits the compiled default, never the site's row");
+        final SettingDef notify = KnownSettings.PAYMENT_NOTIFY_EMAIL;
+        assertTrue(new ConfigCommands().save(new Config(notify.getName(), "site-office@example.org",
+                notify.getType(), "test", LocalDateTime.now(), "tester"), "tester"));
+        try {
+            assertEquals(admin().inheritedSetting(notify), "",
+                    "the payment notify address is never inherited, so its placeholder never shows the site's");
+        } finally {
+            assertTrue(new ConfigCommands().save(new Config(notify.getName(), null, notify.getType(), "test",
+                    LocalDateTime.now(), "tester"), "tester"));
+        }
     }
 
     @Test

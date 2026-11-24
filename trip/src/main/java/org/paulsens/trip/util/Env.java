@@ -23,7 +23,7 @@ public final class Env {
     public static String setting(final String sysProp, final String envVar) {
         final String fromProp = System.getProperty(sysProp);
         final String value = (fromProp == null || fromProp.isBlank()) ? System.getenv(envVar) : fromProp;
-        return (value == null || value.isBlank()) ? null : value.trim();
+        return Util.trimToNull(value);
     }
 
     /** {@link #setting(String, String)} for a variable whose property is its name in dots: {@code A_B}, {@code a.b}. */

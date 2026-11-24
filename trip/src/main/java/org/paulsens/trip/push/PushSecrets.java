@@ -16,6 +16,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.dynamo.LocalMode;
 import org.paulsens.trip.security.SecretsManagerReader;
 import org.paulsens.trip.util.Env;
+import org.paulsens.trip.util.Util;
 
 /**
  * The push credentials: ONE Secrets Manager secret ({@code trip/push}) holding the APNs signing key, the
@@ -240,8 +241,7 @@ public final class PushSecrets {
 
     /** Sysprop only, like {@code trip.cache.local.useConfigured}: an env var is too easy to leave set. */
     private static String fileProp() {
-        final String fromProp = System.getProperty(FILE_PROP);
-        return (fromProp == null || fromProp.isBlank()) ? null : fromProp.trim();
+        return Util.trimToNull(System.getProperty(FILE_PROP));
     }
 
     /** Where the JSON comes from: Secrets Manager in AWS, a file on a developer laptop, a fake in tests. */

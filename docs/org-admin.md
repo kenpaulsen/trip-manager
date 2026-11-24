@@ -44,7 +44,7 @@ pattern; absent opens the first):
 | `profile` | Profile | name, abbreviation, contact email, contact name and phone, subdomain + the live-site link and the custom domain (both site-admin only), "Shared sites", and the shared-site Register target (below) |
 | `appearance` | Appearance | palette, dark mode, layout, logo, favicon, background, link preview image, footer; with the uploads and the server-rendered preview ("The Appearance page and its live preview") |
 | `home` | Home page | `home.photos.windowDays`, `home.photos.minCount`, `home.countdown.soonDays`, `site.sidebar.title`, `site.donate.url`, `site.donate.title`, `site.donate.text`, `site.donate.paypalImage`, `site.analytics.id`, and a link to Site Pages |
-| `trips` | Trips & money | `reg.allowEdits`, `lodging.bills.autoRecompute`, `finance.treasurer.email` |
+| `trips` | Trips & money | `reg.allowEdits`, `lodging.bills.autoRecompute`, `finance.treasurer.email`, `payment.notify.email` |
 | `chat` | Chat | `chat.background.colors`, `chat.background.image`, `chat.reactions.palette` (each trip's chat can still override them in its own settings) |
 | `email` | Email | sending domains (site-admin only; the choices are the shared domains plus the org's own custom domain, "Sending domains"), default domain, a link to the org's email templates |
 | `privileges` | Privileges | the allow-list ("The per-org allow-list"), who holds which org-scoped privilege, pointers to where trip roles and Hotel Operators are granted, and for site admins a link (`toOrgPrivs`) to the raw row editor |
@@ -975,7 +975,8 @@ organization's own value then wins on its own site. Three rungs, resolved in ord
 
 Which settings: those `KnownSettings` marks with `.withOrgOverride()` -- `home.photos.windowDays`,
 `home.photos.minCount`, `home.countdown.soonDays`, `reg.allowEdits`, `lodging.bills.autoRecompute`,
-`finance.treasurer.email`, `chat.background.colors`, `chat.background.image`, `chat.reactions.palette` --
+`finance.treasurer.email`, `payment.notify.email`, `chat.background.colors`, `chat.background.image`,
+`chat.reactions.palette` --
 plus two org-explicit kinds (`.withOrgOnly()`): `site.analytics.id` and the org-only **Branding** defs
 (`site.theme.palette`, `site.logo.url`, ...; see "Branding" below). An org host resolves an org-explicit setting
 from the org's override or the compiled default and *never* from the site's row, so the shared site's analytics
@@ -985,6 +986,9 @@ Analytics id as a literal). Either id is a GA4 measurement id (`G-...`): both sa
 not one plain token (`SettingDef.withAnalyticsId`, the screen `SettingDef.analyticsId`), and the page screens a
 hand-written row the same way, rendering no tag at all for one that fails. `KnownSettings.orgOverridable()` is the
 authoritative list; marking a new setting is a product decision (`OrgSettingsLadderTest` pins the set).
+**One exception to "blank means inherit": `payment.notify.email`** (owner, 2026-11-24). Its reader,
+`PaymentCommands.notifyEmail`, takes the organization's own override or nothing, never the site's row, which
+serves only a payment with no organization (`payments.md`, "The payment notify address").
 **`site.org.name` is no longer org-overridable (2026-10-29):** it was editable both as the profile's Name and
 as a setting row, and on an org site the only reader (`WEB-INF/homePage.xhtml`'s upload license line) now
 reads the org's own name (`#{site.orgName}`), like everything else there. A stored override for it is

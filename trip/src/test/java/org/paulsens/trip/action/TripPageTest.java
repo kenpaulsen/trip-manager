@@ -73,6 +73,15 @@ public class TripPageTest {
 
     // ------------------------------------------------------------------ the page key
 
+    /** A host trip id of nothing (blank, or only control characters) names no trip, as an absent one does. */
+    @Test
+    public void aHostTripIdOfNothingNamesNoTrip() {
+        assertEquals(TripPageCommands.tripIdFor(null, " trip-1 "), "trip-1");
+        assertNull(TripPageCommands.tripIdFor(null, "  "));
+        assertNull(TripPageCommands.tripIdFor(null, "\u0001"));
+        assertNull(TripPageCommands.tripIdFor(null, null));
+    }
+
     @Test
     public void aTripPageKeyNamesItsTripAndNothingElse() {
         final String id = UUID.randomUUID().toString();

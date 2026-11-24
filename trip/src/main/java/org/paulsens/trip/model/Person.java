@@ -22,6 +22,7 @@ import lombok.Setter;
 import lombok.Value;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.cache.Cached;
+import org.paulsens.trip.util.Util;
 
 @Data
 public final class Person implements Serializable, Comparable<Person> {
@@ -196,7 +197,7 @@ public final class Person implements Serializable, Comparable<Person> {
 
     /** A name as a sort key: trimmed, or null (sorted last) when blank. */
     private static String sortKey(final String name) {
-        return (name == null || name.isBlank()) ? null : name.trim();
+        return Util.trimToNull(name);
     }
 
     private static String trim(final String str) {

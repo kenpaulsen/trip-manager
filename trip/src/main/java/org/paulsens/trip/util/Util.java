@@ -31,9 +31,21 @@ public final class Util {
         return (value == null || value.isBlank()) ? null : value;
     }
 
-    /** The value trimmed, or null when it is null or blank. */
+    /**
+     * The value trimmed, or null when there is nothing left to keep.
+     *
+     * <p>Trimmed FIRST, then tested with {@code isBlank()}: the two disagree at the edges, and either one alone
+     * lets a kind of nothing through as text. {@code trim()} strips control characters that {@code isBlank()}
+     * does not count as blank (so testing first answered {@code ""}), and {@code isBlank()} counts Unicode spaces
+     * that {@code trim()} keeps (so trimming alone answered the spaces back). Text with something in it comes
+     * back exactly as {@code trim()} leaves it.
+     */
     public static String trimToNull(final String value) {
-        return (value == null || value.isBlank()) ? null : value.trim();
+        if (value == null) {
+            return null;
+        }
+        final String trimmed = value.trim();
+        return trimmed.isBlank() ? null : trimmed;
     }
 
     /** The value trimmed, or {@code ""} for null. */

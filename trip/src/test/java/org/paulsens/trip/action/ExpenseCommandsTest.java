@@ -877,14 +877,7 @@ public class ExpenseCommandsTest {
     // ------------------------------------------------------------------ the treasurer
 
     private void treasurer(final String email) throws IOException {
-        final Organization org = DAO.getInstance().getOrganization(Organization.Id.from(orgId), Cached.NO)
-                .orElseThrow();
-        if (email == null) {
-            org.getSettingsOverrides().remove(KnownSettings.FINANCE_TREASURER_EMAIL.getName());
-        } else {
-            org.getSettingsOverrides().put(KnownSettings.FINANCE_TREASURER_EMAIL.getName(), email);
-        }
-        assertTrue(DAO.getInstance().saveOrganization(org));
+        TenancyFixtures.orgSetting(orgId, KnownSettings.FINANCE_TREASURER_EMAIL, email);
     }
 
     @Test

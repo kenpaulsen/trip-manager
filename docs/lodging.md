@@ -221,7 +221,10 @@ so every existing `#{lodging.can*}` expression still works: `isGlobalLodgingAdmi
 org), `canManageTripLodging(tripId)` (global, or `tripMgr@trip`, or `lodgingAdmin` on the trip's org),
 `canOpenLodgingAdmin` (= `canCreateAccommodation` OR operates at least one hotel), `canAssignRooms(tripId)`
 and `canAssignAt(tripId, accId)` (next paragraph). Editing an accommodation is privilege-based, never a
-field on the row.
+field on the row. Seven writes (retire, save room type, save room, and the four floor-plan writes) open with
+`editableAccommodation(accId)`, the write gate: the permission first ("you do not manage this accommodation",
+so a caller who may not edit never learns whether a hotel exists), then a fresh read ("no longer exists"),
+and only then the form's own validation (owner, 2026-11-24).
 
 **`LodgingAccess`: what one caller may do with one trip's lodging, computed once per request.**
 `LodgingAccessCommands.forTrip(tripId)` answers a `LodgingAccess` (Serializable, scalars and id sets only --

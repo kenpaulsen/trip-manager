@@ -25,6 +25,7 @@ import org.paulsens.trip.model.Language;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.SitePage;
 import org.paulsens.trip.site.SiteContext;
+import org.paulsens.trip.util.Util;
 
 /**
  * Which of the shared site's addresses are HAND-WRITTEN pages (XHTML files of content, as opposed to the
@@ -295,6 +296,6 @@ public final class LegacyPages {
     }
 
     private static String text(final JsonNode node) {
-        return node.isTextual() && !node.asText().isBlank() ? node.asText().trim() : null;
+        return node.isTextual() ? Util.trimToNull(node.asText()) : null;
     }
 }

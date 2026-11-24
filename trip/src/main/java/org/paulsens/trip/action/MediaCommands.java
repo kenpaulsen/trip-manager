@@ -52,6 +52,7 @@ import lombok.Setter;
 import org.paulsens.trip.site.ListingScope;
 import org.paulsens.trip.site.SiteContext;
 import org.paulsens.trip.util.Env;
+import org.paulsens.trip.util.Util;
 
 /**
  * Managed media, exposed to pages as {@code #{media}}.
@@ -585,7 +586,7 @@ public class MediaCommands {
      * a receipt or a hidden item.
      */
     public List<MediaItem> libraryItems(final String orgId, final String contentTypePrefix) {
-        final String owner = normalizeOrg(orgId);
+        final String owner = Util.trimToNull(orgId);
         try {
             return DAO.getInstance().getAllMedia(Cached.YES).stream()
                     .filter(item -> Objects.equals(item.getOrgId(), owner))
@@ -613,7 +614,7 @@ public class MediaCommands {
             return null;
         }
         final MediaItem item = getByKey(key);
-        return item != null && Objects.equals(item.getOrgId(), normalizeOrg(orgId)) ? item : null;
+        return item != null && Objects.equals(item.getOrgId(), Util.trimToNull(orgId)) ? item : null;
     }
 
     /**
@@ -644,7 +645,7 @@ public class MediaCommands {
         if (key == null) {
             return null;
         }
-        final String owner = normalizeOrg(orgId);
+        final String owner = Util.trimToNull(orgId);
         try {
             return DAO.getInstance().getAllMedia(Cached.YES).stream()
                     .filter(item -> key.equals(item.getS3Key()))
@@ -709,11 +710,6 @@ public class MediaCommands {
         return item != null && item.getContentType() != null
                 && item.getContentType().toLowerCase(Locale.ROOT).startsWith("text/css");
     }
-
-    private static String normalizeOrg(final String orgId) {
-        return (orgId == null || orgId.isBlank()) ? null : orgId.trim();
-    }
-
 
     /** @return whether uploads are possible (i.e. a bucket is configured). False locally and in tests. */
     public boolean isUploadEnabled() {

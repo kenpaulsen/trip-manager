@@ -1570,11 +1570,19 @@ public class ContentCommands {
         return applied;
     }
 
-    /** Every retained version of an instance, current first, for the history dialog. */
+    /**
+     * Every retained version of an instance, current first, for the history dialog; nothing for a caller who
+     * may not edit the instance's section. The History button renders behind {@link #canEdit}, but the id
+     * rides the postback, and old versions hold drafts and expired text the page no longer shows anyone:
+     * the rule {@link #restoreContent} applies is asked again here (as {@code TemplateCommands.getHistory}).
+     */
     public List<ContentInstance> getHistory(final String id) {
+        final Caller caller = callerSource.get();
         try {
-            return DAO.getInstance().getContentRecord(id,
-                    Cached.NO).map(ContentRecord::getAllVersions).orElse(List.of());
+            return DAO.getInstance().getContentRecord(id, Cached.NO)
+                    .filter(record -> record.getCurrent() != null
+                            && mayEdit(caller, record.getCurrent().getSection()))
+                    .map(ContentRecord::getAllVersions).orElse(List.of());
         } catch (final RuntimeException ex) {
             log.error("Unable to load content history: " + id, ex);
             return List.of();

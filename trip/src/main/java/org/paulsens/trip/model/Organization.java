@@ -15,6 +15,7 @@ import java.util.UUID;
 import lombok.Builder;
 import lombok.Data;
 import lombok.Value;
+import org.paulsens.trip.util.Util;
 
 /**
  * An organization: the tenancy boundary of the platform. Trips belong to an organization, people are members of
@@ -245,7 +246,7 @@ public final class Organization implements Serializable {
     @JsonIgnore
     public String settingOverride(final String name) {
         final String value = (settingsOverrides == null || name == null) ? null : settingsOverrides.get(name);
-        return (value == null || value.isBlank()) ? null : value.trim();
+        return Util.trimToNull(value);
     }
 
     @JsonIgnore

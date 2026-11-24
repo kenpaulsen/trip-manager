@@ -1,26 +1,35 @@
 package org.paulsens.trip.action;
 
 import java.io.IOException;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.OptionalLong;
+import java.util.UUID;
+import org.mockito.ArgumentCaptor;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
 import org.paulsens.trip.audit.AuditActor;
+import org.paulsens.trip.audit.RequestContext;
 import org.paulsens.trip.cache.Cached;
+import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.FakeData;
+import org.paulsens.trip.model.Config;
+import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Payment;
 import org.paulsens.trip.model.ProcessorType;
 import org.paulsens.trip.model.FeesPaidBy;
 import org.paulsens.trip.model.PaymentProcessorConfig;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.model.SettingDef;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.pay.FakeProcessor;
 import org.paulsens.trip.pay.PaymentMailer;
 import org.paulsens.trip.pay.PaymentProcessor;
 import org.paulsens.trip.pay.PaymentProcessors;
 import org.paulsens.trip.pay.PaymentRecorder;
+import org.paulsens.trip.site.SiteContext;
 import org.paulsens.trip.util.RandomData;
 import org.paulsens.trip.util.TestPeople;
 import org.testng.annotations.BeforeClass;
@@ -908,12 +917,20 @@ public class PaymentCommandsTest {
                 "a card decline is retryable, never terminal");
         commands.noteFailure("no-such-payment", "x");
 
-        assertTrue(commands.failFromWebhook(failing, "the bank returned the debit"));
+        // The notify address is pinned, not any(): any() also matches null, and the office that was told the
+        // payment arrived must hear that it bounced.
+        final String office = "bounced-office@example.org";
+        notifyOverride(FakeData.CFPW_ORG_ID, office);
+        try {
+            assertTrue(commands.failFromWebhook(failing, "the bank returned the debit"));
+        } finally {
+            notifyOverride(FakeData.CFPW_ORG_ID, null);
+        }
         assertEquals(DAO.getInstance().getPayment(failing).orElseThrow().getStatus(), Payment.Status.FAILED);
         Mockito.verify(mailer).sendPaymentFailed(ArgumentMatchers.argThat(p -> failing.equals(p.getPaymentId())),
                 ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.eq("CFPW"),
                 ArgumentMatchers.eq("Test Processor"), ArgumentMatchers.eq("the bank returned the debit"),
-                ArgumentMatchers.any(), ArgumentMatchers.any());
+                ArgumentMatchers.eq(office), ArgumentMatchers.any());
         assertFalse(commands.failFromWebhook(failing, "again"), "FAILED is terminal");
         assertFalse(commands.failFromWebhook("no-such-payment", "x"));
 
@@ -1173,6 +1190,117 @@ public class PaymentCommandsTest {
         assertEquals(DAO.getInstance().getPayment(paymentId).orElseThrow().getStatus(), Payment.Status.CANCELLED);
         assertFalse(admin.abandon(paymentId), "only CREATED can be abandoned");
         assertFalse(admin.getOpenPayments().stream().anyMatch(p -> p.getPaymentId().equals(paymentId)));
+    }
+
+    // ------------------------------------------------------------------ the notify address is per organization
+
+    @Test
+    public void aPaymentMailCopiesTheNotifyAddressOfThePaymentsOwnOrganization() throws IOException {
+        final String cfpwOffice = "cfpw-office@example.org";
+        final String acmeOffice = "acme-office@example.org";
+        final String siteOffice = "site-office@example.org";
+        final Person payer = savedPerson();
+        try {
+            notifyOverride(FakeData.CFPW_ORG_ID, cfpwOffice);
+
+            // The confirmation, from the return page: CFPW's payment copies CFPW's own address.
+            final PaymentCommands commands = commandsFor(payer, false);
+            final String paid = commands.startPayment(trip(), Map.of(payer.getId().getValue(), "10"), null,
+                    false, "http://localhost/pay").getPaymentId();
+            assertEquals(commands.completePayment(paid, null).getStatus(), "recorded");
+            Mockito.verify(mailer).sendConfirmation(ArgumentMatchers.argThat(p -> paid.equals(p.getPaymentId())),
+                    ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
+                    ArgumentMatchers.eq(cfpwOffice), ArgumentMatchers.any());
+
+            // The payment-failed notice, with ANOTHER organization's site as the request's: the payment's
+            // organization decides, not the host the webhook (or an admin's Finish) arrived on.
+            final String failing = commands.startPayment(trip(), Map.of(payer.getId().getValue(), "10"), null,
+                    false, "http://localhost/pay").getPaymentId();
+            final SiteContext acmeSite = SiteContext.org(Organization.Id.from(FakeData.ACME_ORG_ID), "acme",
+                    "acme.unitetrip.com");
+            notifyOverride(FakeData.ACME_ORG_ID, acmeOffice);
+            assertTrue(ScopedValue.where(RequestContext.SCOPE, RequestContext.of(null, null, acmeSite))
+                    .call(() -> commands.failFromWebhook(failing, "returned")));
+            assertEquals(failedNotifyOf(failing), cfpwOffice, "CFPW's payment, whatever site the request is on");
+
+            // Another organization's payment never copies CFPW's address: its own when it has one...
+            assertEquals(failedNotifyOf(failFromWebhook(commands, acmePayment(payer))), acmeOffice);
+            // ...and with none of its own there is NO internal copy, even while the site holds an address
+            // (owner, 2026-11-24): the site's mailbox is not one this organization chose.
+            notifyOverride(FakeData.ACME_ORG_ID, null);
+            siteNotify(siteOffice);
+            assertEquals(failedNotifyOf(failFromWebhook(commands, acmePayment(payer))), "");
+            // Nor for a payment naming an organization whose row does not answer: nobody's mailbox by default.
+            assertEquals(failedNotifyOf(failFromWebhook(commands,
+                    createdPayment(payer, FakeData.ACME_TRIP_ID, UUID.randomUUID().toString()))), "");
+
+            // The site's address serves only a legacy payment with no organization, on the payment or on its
+            // trip. Finished on Acme's host with Acme's own address set: the request's site decides nothing.
+            notifyOverride(FakeData.ACME_ORG_ID, acmeOffice);
+            final String legacy = createdPayment(payer, tripWithNoOrganization(), null);
+            assertTrue(ScopedValue.where(RequestContext.SCOPE, RequestContext.of(null, null, acmeSite))
+                    .call(() -> commands.failFromWebhook(legacy, "returned")));
+            assertEquals(failedNotifyOf(legacy), siteOffice);
+            siteNotify(null);
+            assertEquals(failedNotifyOf(failFromWebhook(commands,
+                    createdPayment(payer, tripWithNoOrganization(), null))), "");
+        } finally {
+            siteNotify(null);
+            notifyOverride(FakeData.CFPW_ORG_ID, null);
+            notifyOverride(FakeData.ACME_ORG_ID, null);
+        }
+    }
+
+    /** Sets (or with null clears) an organization's own payment notify address. */
+    private static void notifyOverride(final String orgId, final String email) throws IOException {
+        TenancyFixtures.orgSetting(orgId, KnownSettings.PAYMENT_NOTIFY_EMAIL, email);
+    }
+
+    /** Writes (or with null clears) the SITE's payment notify address. */
+    private static void siteNotify(final String email) {
+        final SettingDef def = KnownSettings.PAYMENT_NOTIFY_EMAIL;
+        assertTrue(new ConfigCommands().save(new Config(def.getName(), email, def.getType(), "test",
+                LocalDateTime.now(), "tester"), "tester"));
+    }
+
+    /** A CREATED payment of Acme's, on Acme's trip: what a bank debit looks like while it settles. */
+    private static String acmePayment(final Person payer) throws IOException {
+        return createdPayment(payer, FakeData.ACME_TRIP_ID, FakeData.ACME_ORG_ID);
+    }
+
+    /** A CREATED payment on this trip, naming this organization (null: a legacy row that names none). */
+    private static String createdPayment(final Person payer, final String tripId, final String orgId)
+            throws IOException {
+        final Payment payment = Payment.builder()
+                .tripId(tripId).orgId(orgId).payerId(payer.getId())
+                .processorConfigId(FakeData.ACME_PROCESSOR_ID).processorType(ProcessorType.FAKE)
+                .allocations(List.of(new Payment.Allocation(payer.getId(), 5000L)))
+                .feesPaidBy(FeesPaidBy.ORGANIZATION).totalChargedCents(5000L)
+                .orderRef("acme-" + RandomData.genAlpha(8)).createdAt(LocalDateTime.now())
+                .build();
+        DAO.getInstance().createPayment(payment);
+        return payment.getPaymentId();
+    }
+
+    /** The id of a saved trip that belongs to no organization, as trips did before organizations existed. */
+    private static String tripWithNoOrganization() throws IOException {
+        final Trip legacy = Trip.builder().id(UUID.randomUUID().toString()).title("Legacy").build();
+        assertTrue(DAO.getInstance().saveTrip(legacy));
+        return legacy.getId();
+    }
+
+    private static String failFromWebhook(final PaymentCommands commands, final String paymentId) {
+        assertTrue(commands.failFromWebhook(paymentId, "returned"));
+        return paymentId;
+    }
+
+    /** The notify address {@code failFromWebhook} handed the payment-failed mail for one payment. */
+    private String failedNotifyOf(final String paymentId) {
+        final ArgumentCaptor<String> notify = ArgumentCaptor.forClass(String.class);
+        Mockito.verify(mailer).sendPaymentFailed(ArgumentMatchers.argThat(p -> paymentId.equals(p.getPaymentId())),
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any(), notify.capture(), ArgumentMatchers.any());
+        return notify.getValue();
     }
 
     // ------------------------------------------------------------------ helpers
