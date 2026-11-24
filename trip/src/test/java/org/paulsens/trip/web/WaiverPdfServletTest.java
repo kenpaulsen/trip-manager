@@ -14,6 +14,7 @@ import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
 import org.paulsens.trip.action.Caller;
 import org.paulsens.trip.action.PrivilegeCommands;
+import org.paulsens.trip.action.TestCallers;
 import org.paulsens.trip.action.WaiverHtml;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.dynamo.DAO;
@@ -33,7 +34,6 @@ import static org.testng.Assert.assertTrue;
 
 /** The signed-copy download: the bytes and headers for a reader, login for nobody, 404 for anyone else. */
 public class WaiverPdfServletTest {
-    private static final Person.Id ADMIN = Person.Id.from("waiver-pdf-admin");
     private static final String BODY = "<h2>Waiver</h2><p>I accept.</p><ul><li>One</li></ul>";
 
     private HttpServletRequest req;
@@ -77,8 +77,7 @@ public class WaiverPdfServletTest {
         resp = captured.response();
         out = captured.body();
         status = captured.status();
-        caller = new Caller(ADMIN, true, new AuditActor("admin@example.com", ADMIN.getValue()),
-                new PrivilegeCommands());
+        caller = TestCallers.siteAdmin();
         Mockito.when(req.getContextPath()).thenReturn("");
         Mockito.when(req.getRequestURI()).thenReturn("/waivers/signed");
         Mockito.when(req.getParameter("trip")).thenReturn(tripId);
@@ -110,7 +109,7 @@ public class WaiverPdfServletTest {
         caller = new Caller(Person.Id.newInstance(), false, AuditActor.system(), new PrivilegeCommands());
         servlet.doGet(req, resp);
         assertEquals(status.get(), 404, "a stranger learns nothing");
-        caller = new Caller(ADMIN, true, AuditActor.system(), new PrivilegeCommands());
+        caller = TestCallers.siteAdmin();
         for (final String version : new String[] {"x", null, "2"}) {
             status.set(200);
             Mockito.when(req.getParameter("version")).thenReturn(version);

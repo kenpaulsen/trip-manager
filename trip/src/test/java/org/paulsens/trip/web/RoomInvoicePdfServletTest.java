@@ -8,7 +8,6 @@ import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.mockito.Mockito;
@@ -35,6 +34,8 @@ import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
+
+import static org.paulsens.trip.util.TestPeople.savedPerson;
 
 /**
  * The Room Invoice PDF download: who gets the file, who is sent to login, who is refused, and the headers that
@@ -260,14 +261,6 @@ public class RoomInvoicePdfServletTest {
 
     private static String text(final byte[] pdf) throws IOException {
         return String.join("", PdfText.pages(pdf));
-    }
-
-    private static Person savedPerson(final String first) throws IOException {
-        final Person person = Person.builder().first(first).last(RandomData.genAlpha(8))
-                .email(first.toLowerCase(Locale.ROOT) + "." + RandomData.genAlpha(8).toLowerCase(Locale.ROOT)
-                        + "@example.com").build();
-        Assert.assertTrue(DAO.getInstance().savePerson(person));
-        return person;
     }
 
     private static String offerAt(final LodgingCommands admin, final String tripId, final String accId,

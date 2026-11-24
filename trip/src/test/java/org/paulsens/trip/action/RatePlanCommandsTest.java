@@ -35,6 +35,7 @@ import org.paulsens.trip.util.RandomData;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
+import static org.paulsens.trip.action.LodgingFixtures.savedGuest;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotEquals;
@@ -89,7 +90,7 @@ public class RatePlanCommandsTest {
     @Test
     public void anOperatorStatesTheCostAndEveryReaderSeesTheSameRow() throws IOException {
         final String accId = hotel();
-        final Person keeper = savedPerson("Kep");
+        final Person keeper = savedGuest("Kep");
         LodgingFixtures.makeOperator(keeper, accId);
         final RatePlanCommands asKeeper = new RatePlanCommands(() -> TestCallers.person(keeper.getId()));
         assertTrue(asKeeper.canEditCost(accId));
@@ -140,7 +141,7 @@ public class RatePlanCommandsTest {
 
         // A stranger reads nothing and writes nothing; an operator of ANOTHER hotel reads the table (they may
         // open the lodging page) but not the trips' names.
-        final Person nobody = savedPerson("Nob");
+        final Person nobody = savedGuest("Nob");
         final RatePlanCommands stranger = new RatePlanCommands(() -> TestCallers.person(nobody.getId()));
         assertTrue(stranger.rows(accId).isEmpty());
         assertFalse(stranger.savePlan(costEdit));
@@ -158,7 +159,7 @@ public class RatePlanCommandsTest {
     @Test
     public void aLodgingAdminWhoDoesNotOperateTheHotelReadsItsPlansButEditsNothing() throws IOException {
         final String accId = hotel();
-        final Person keeper = savedPerson("Opr");
+        final Person keeper = savedGuest("Opr");
         LodgingFixtures.makeOperator(keeper, accId);
         final RatePlanCommands asKeeper = new RatePlanCommands(() -> TestCallers.person(keeper.getId()));
         final RatePlanForm costOnly = asKeeper.planFormFor(accId, null);
@@ -171,7 +172,7 @@ public class RatePlanCommandsTest {
         assertTrue(asKeeper.savePlan(costOnly), costOnly.getProblem());
         final String planId = costOnly.getPlanId();
 
-        final Person reader = savedPerson("Rdr");
+        final Person reader = savedGuest("Rdr");
         final OrgCommands orgs = new OrgCommands(TestCallers::siteAdmin);
         assertTrue(orgs.addMember(orgId, reader.getId()));
         assertTrue(orgs.grantOrgPrivilege(orgId, reader.getId(), PrivilegeCommands.LODGING_ADMIN));
@@ -255,7 +256,7 @@ public class RatePlanCommandsTest {
     @Test
     public void attachCopiesThePlansCostAndTheLinkedOptionOwnsItsPrice() throws IOException {
         final String accId = hotel();
-        final Person guest = savedPerson("Gue");
+        final Person guest = savedGuest("Gue");
         final Trip trip = trip("Fan-out trip", guest);
         final String planId = costedPlan(accId, "Season rate", 50.0);
 
@@ -405,7 +406,7 @@ public class RatePlanCommandsTest {
     @Test
     public void attachWithPriceFieldsAndTheSamePlanTwice() throws IOException {
         final String accId = hotel();
-        final Person guest = savedPerson("Twi");
+        final Person guest = savedGuest("Twi");
         final Trip trip = trip("Twice trip", guest);
         final String planId = costedPlan(accId, "Twice rate", 50.0);
 
@@ -480,8 +481,8 @@ public class RatePlanCommandsTest {
     @Test
     public void aSavePrunesALinkThatNoOptionFollowsAnyMore() throws IOException {
         final String accId = hotel();
-        final Trip kept = trip("Kept trip", savedPerson("Kpt"));
-        final Trip stale = trip("Stale trip", savedPerson("Stl"));
+        final Trip kept = trip("Kept trip", savedGuest("Kpt"));
+        final Trip stale = trip("Stale trip", savedGuest("Stl"));
         final String planId = costedPlan(accId, "Prune rate", 40.0);
         assertTrue(plans.attach(kept.getId(), accId, planId));
         assertTrue(plans.attach(stale.getId(), accId, planId));
@@ -519,8 +520,8 @@ public class RatePlanCommandsTest {
     @Test
     public void unlinkAllForgetsATripOnEveryPlanItsOptionsFollowed() throws IOException {
         final String accId = hotel();
-        final Trip doomed = trip("Doomed trip", savedPerson("Dmd"));
-        final Trip other = trip("Other trip", savedPerson("Oth"));
+        final Trip doomed = trip("Doomed trip", savedGuest("Dmd"));
+        final Trip other = trip("Other trip", savedGuest("Oth"));
         final String planId = costedPlan(accId, "Shared rate", 40.0);
         assertTrue(plans.attach(doomed.getId(), accId, planId));
         assertTrue(plans.attach(other.getId(), accId, planId));
@@ -540,7 +541,7 @@ public class RatePlanCommandsTest {
     public void attachableExcludesRetiredAndNonCoveringPlansButKeepsAttachedOnes() throws IOException {
         final String accId = hotel();
         final String otherHotel = hotel();
-        final Trip trip = trip("Menu trip", savedPerson("Mnu"));
+        final Trip trip = trip("Menu trip", savedGuest("Mnu"));
         final String covering = costedPlan(accId, "Covering", 40.0);
         final String open = planWithDates(accId, "Open dates", null, null);
         final String tooShort = planWithDates(accId, "Ends early", SEASON_START, LocalDate.of(2027, 9, 23));
@@ -579,7 +580,7 @@ public class RatePlanCommandsTest {
 
         // The operator of the OTHER hotel reads this hotel's table (they may open the lodging page) but may
         // name neither the price nor the trip.
-        final Person keeper = savedPerson("Kpr");
+        final Person keeper = savedGuest("Kpr");
         LodgingFixtures.makeOperator(keeper, otherHotel);
         final RatePlanCommands asKeeper = new RatePlanCommands(() -> TestCallers.person(keeper.getId()));
         final RatePlanRow seen = asKeeper.rows(accId).stream().filter(r -> covering.equals(r.getId())).findFirst()
@@ -637,7 +638,7 @@ public class RatePlanCommandsTest {
     @Test
     public void attachRollsTheLinkBackWhenTheOptionIsRefused() throws IOException {
         final String accId = hotel();
-        final Trip trip = trip("Rollback trip", savedPerson("Rlb"));
+        final Trip trip = trip("Rollback trip", savedGuest("Rlb"));
         final String tripleType = typeId(accId, 1);
         final String planId = costedPlan(accId, "Triple rate", 40.0);
         assertTrue(admin.deleteRoomType(accId, tripleType), "no room is a Triple, so the type may go");
@@ -677,8 +678,8 @@ public class RatePlanCommandsTest {
     @Test
     public void planWritesLostToAnotherWriterAreRefused() throws IOException {
         final String accId = hotel();
-        final Trip trip = trip("Linked trip", savedPerson("Lnk"));
-        final Trip other = trip("Other trip", savedPerson("Otr"));
+        final Trip trip = trip("Linked trip", savedGuest("Lnk"));
+        final Trip other = trip("Other trip", savedGuest("Otr"));
         final String planId = costedPlan(accId, "Contested rate", 40.0);
         assertTrue(plans.attach(trip.getId(), accId, planId));
         final RatePlan before = plan(accId, planId);
@@ -716,7 +717,7 @@ public class RatePlanCommandsTest {
     @Test
     public void anOptionSaveLostDuringTheFanOutIsReportedNotRetried() throws IOException {
         final String accId = hotel();
-        final Trip trip = trip("Raced trip", savedPerson("Rcd"));
+        final Trip trip = trip("Raced trip", savedGuest("Rcd"));
         final String planId = costedPlan(accId, "Raced rate", 40.0);
         assertTrue(plans.attach(trip.getId(), accId, planId));
         final ReservationOffer offer = linkedOffer(trip, planId);
@@ -747,7 +748,7 @@ public class RatePlanCommandsTest {
     @Test
     public void anOptionOutlivesItsDeletedPlan() throws IOException {
         final String accId = hotel();
-        final Trip trip = trip("Orphan trip", savedPerson("Orp"));
+        final Trip trip = trip("Orphan trip", savedGuest("Orp"));
         final String planId = costedPlan(accId, "Short-lived rate", 40.0);
         assertTrue(plans.attach(trip.getId(), accId, planId));
         final ReservationOffer offer = linkedOffer(trip, planId);
@@ -873,14 +874,5 @@ public class RatePlanCommandsTest {
             ids.add(choice.getPlanId());
         }
         return ids;
-    }
-
-    private static Person savedPerson(final String first) throws IOException {
-        final Person person = Person.builder().first(first).last(RandomData.genAlpha(8))
-                .email(first.toLowerCase(java.util.Locale.ROOT) + "." + RandomData.genAlpha(8)
-                        .toLowerCase(java.util.Locale.ROOT) + "@example.com")
-                .birthdate(LocalDate.of(1990, 5, 5)).build();
-        assertTrue(DAO.getInstance().savePerson(person));
-        return person;
     }
 }

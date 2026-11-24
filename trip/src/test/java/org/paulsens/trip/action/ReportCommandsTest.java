@@ -5,7 +5,6 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
 import org.paulsens.trip.action.LodgingViews.OfferCostForm;
@@ -20,6 +19,8 @@ import org.paulsens.trip.util.RandomData;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
+
+import static org.paulsens.trip.util.TestPeople.savedPerson;
 
 /**
  * The Ground Transportation report's rows: which events it takes, the order it puts them in, what a leg written
@@ -342,14 +343,6 @@ public class ReportCommandsTest {
 
     private static final LocalDateTime CHECK_IN = LocalDateTime.of(2027, 11, 2, 15, 0);
     private static final LocalDateTime CHECK_OUT = LocalDateTime.of(2027, 11, 5, 10, 0);
-
-    private static Person savedPerson(final String first) throws IOException {
-        final Person person = Person.builder().first(first).last(RandomData.genAlpha(8))
-                .email(first.toLowerCase(Locale.ROOT) + "." + RandomData.genAlpha(8).toLowerCase(Locale.ROOT)
-                        + "@example.com").build();
-        Assert.assertTrue(DAO.getInstance().savePerson(person));
-        return person;
-    }
 
     private static String offerAt(final LodgingCommands admin, final String tripId, final String accId,
             final String name, final boolean costed) {

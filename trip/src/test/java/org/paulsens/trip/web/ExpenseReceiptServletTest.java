@@ -13,6 +13,7 @@ import org.mockito.Mockito;
 import org.paulsens.trip.action.Caller;
 import org.paulsens.trip.action.ExpenseReceipts;
 import org.paulsens.trip.action.PrivilegeCommands;
+import org.paulsens.trip.action.TestCallers;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
@@ -30,7 +31,6 @@ import static org.testng.Assert.assertTrue;
 
 /** The receipt servlet's answers: login, 404, 403, and the bytes with headers that keep them private. */
 public class ExpenseReceiptServletTest {
-    private static final Person.Id ADMIN = Person.Id.from("receipt-servlet-admin");
     private static final byte[] PDF = "%PDF-1.4\n%%EOF\n".getBytes(StandardCharsets.US_ASCII);
 
     private HttpServletRequest req;
@@ -55,13 +55,9 @@ public class ExpenseReceiptServletTest {
                 .startDate(LocalDateTime.of(2026, 9, 20, 8, 0)).people(new ArrayList<>()).build();
         assertTrue(DAO.getInstance().saveTrip(trip));
         tripId = trip.getId();
-        final ExpenseReceipts receipts = new ExpenseReceipts(ExpenseReceiptServletTest::admin);
+        final ExpenseReceipts receipts = new ExpenseReceipts(TestCallers::siteAdmin);
         pdfId = receipts.store(tripId, null, PDF, "Cash advance \"slip\".pdf").mediaId();
         photoId = receipts.store(tripId, null, PhotoFixtures.jpeg(1200, 800), "bus.jpg").mediaId();
-    }
-
-    private static Caller admin() {
-        return new Caller(ADMIN, true, new AuditActor("admin@example.com", ADMIN.getValue()), new PrivilegeCommands());
     }
 
     @BeforeMethod
@@ -71,7 +67,7 @@ public class ExpenseReceiptServletTest {
         resp = captured.response();
         out = captured.body();
         status = captured.status();
-        caller = admin();
+        caller = TestCallers.siteAdmin();
         Mockito.when(req.getContextPath()).thenReturn("");
     }
 

@@ -16,6 +16,7 @@ import org.paulsens.trip.action.LodgingViews;
 import org.paulsens.trip.action.OrgCommands;
 import org.paulsens.trip.action.PersonCommands;
 import org.paulsens.trip.action.RatePlanViews;
+import org.paulsens.trip.action.TestCallers;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.model.Organization;
@@ -28,6 +29,7 @@ import org.testng.annotations.BeforeClass;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
+import static org.paulsens.trip.util.TestPeople.savedPerson;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotEquals;
@@ -58,11 +60,11 @@ public class LodgingResourceTest extends ResourceTestSupport {
     public void seed() throws IOException {
         FakeData.initFakeData();
         FakeData.addFakeData();
-        final OrgCommands orgs = new OrgCommands(LodgingResourceTest::siteAdmin);
+        final OrgCommands orgs = new OrgCommands(TestCallers::siteAdmin);
         final Organization org = orgs.createOrganization("Api lodging " + RandomData.genAlpha(6), "ALG", null);
         assertNotNull(org);
         orgId = org.getId().getValue();
-        admin = savedPerson("Admin");
+        admin = savedPerson("Sitewide");
         ada = savedPerson("Ada");
         bob = savedPerson("Bob");
         cy = savedPerson("Cy");
@@ -141,7 +143,7 @@ public class LodgingResourceTest extends ResourceTestSupport {
         assertOk(resource.addOperator(a[0], CSRF_OK, Map.of("personId", keeper.getId().getValue())));
         final String resId = reservationId(resource.createReservations(own.getId(), CSRF_OK,
                 Map.of("offerId", a[1], "personIds", List.of(guest.getId().getValue()))));
-        final LodgingCommands lodging = new LodgingCommands(LodgingResourceTest::siteAdmin);
+        final LodgingCommands lodging = new LodgingCommands(TestCallers::siteAdmin);
         final Map<String, Object> cost = new HashMap<>();
         cost.put("costPricingModel", "PER_PERSON");
         cost.put("costNightlyPrice", 45);
@@ -227,7 +229,7 @@ public class LodgingResourceTest extends ResourceTestSupport {
         final String[] a = offerAtNewHotel(own.getId(), "Plan Pansion", "Standalone");
         final String[] b = offerAtNewHotel(own.getId(), "Plan Berulia", "Elsewhere");
         assertOk(resource.addOperator(a[0], CSRF_OK, Map.of("personId", keeper.getId().getValue())));
-        final LodgingCommands lodging = new LodgingCommands(LodgingResourceTest::siteAdmin);
+        final LodgingCommands lodging = new LodgingCommands(TestCallers::siteAdmin);
         final String typeId = lodging.roomTypeRows(a[0]).get(0).getId();
 
         signedInAs(keeper.getId());
@@ -345,7 +347,7 @@ public class LodgingResourceTest extends ResourceTestSupport {
                 Map.of("offerId", a[1], "personIds", List.of(guestA.getId().getValue()))));
         final String atB = reservationId(resource.createReservations(own.getId(), CSRF_OK,
                 Map.of("offerId", b[1], "personIds", List.of(guestB.getId().getValue()))));
-        final LodgingCommands lodging = new LodgingCommands(LodgingResourceTest::siteAdmin);
+        final LodgingCommands lodging = new LodgingCommands(TestCallers::siteAdmin);
         final String roomA = lodging.roomRows(a[0]).get(0).getId();
         final String roomB = lodging.roomRows(b[0]).get(0).getId();
 
@@ -527,7 +529,7 @@ public class LodgingResourceTest extends ResourceTestSupport {
     }
 
     private String accommodationOf(final String offerId) {
-        final LodgingCommands lodging = new LodgingCommands(LodgingResourceTest::siteAdmin);
+        final LodgingCommands lodging = new LodgingCommands(TestCallers::siteAdmin);
         return lodging.findOffer(trip.getId(), offerId).getAccommodationId().getValue();
     }
 
@@ -588,7 +590,7 @@ public class LodgingResourceTest extends ResourceTestSupport {
 
         final String room101 = (String) roomIds.get("101");
         assertOk(resource.assignRoom(trip.getId(), resId, CSRF_OK, Map.of("roomId", room101)));
-        final LodgingCommands lodging = new LodgingCommands(LodgingResourceTest::siteAdmin);
+        final LodgingCommands lodging = new LodgingCommands(TestCallers::siteAdmin);
         assertEquals(lodging.findReservation(trip.getId(), resId).getRoomId(), room101);
         // A third guest on the SAME option over-fills the Double: refused unless forced, then cleared again.
         final Response overflow = resource.createReservations(trip.getId(), CSRF_OK, Map.of("offerId", offerId,
@@ -648,19 +650,5 @@ public class LodgingResourceTest extends ResourceTestSupport {
         body.put("roomTypes", types);
         body.put("rooms", rooms);
         return body;
-    }
-
-    /** The action package's test caller is package-private; a site admin is a two-line Caller anyway. */
-    private static org.paulsens.trip.action.Caller siteAdmin() {
-        return new org.paulsens.trip.action.Caller(Person.Id.from("api-site-admin"), true,
-                new org.paulsens.trip.audit.AuditActor("site-admin@example.com", "api-site-admin"),
-                new org.paulsens.trip.action.PrivilegeCommands());
-    }
-
-    private static Person savedPerson(final String first) throws IOException {
-        final Person person = Person.builder().first(first).last(RandomData.genAlpha(8))
-                .email(first.toLowerCase() + "." + RandomData.genAlpha(8).toLowerCase() + "@example.com").build();
-        assertTrue(DAO.getInstance().savePerson(person));
-        return person;
     }
 }

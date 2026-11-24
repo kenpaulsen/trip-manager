@@ -13,6 +13,7 @@ import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
 import org.paulsens.trip.action.Caller;
 import org.paulsens.trip.action.PrivilegeCommands;
+import org.paulsens.trip.action.TestCallers;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.FakeData;
@@ -27,8 +28,6 @@ import static org.testng.Assert.assertTrue;
 
 /** The two PDF downloads: the bytes and headers for a reader, login for nobody, 404 for anyone else. */
 public class TripMoneyPdfServletTest {
-    private static final Person.Id ADMIN = Person.Id.from("money-pdf-admin");
-
     private HttpServletRequest req;
     private HttpServletResponse resp;
     private ByteArrayOutputStream out;
@@ -58,8 +57,7 @@ public class TripMoneyPdfServletTest {
         resp = captured.response();
         out = captured.body();
         status = captured.status();
-        caller = new Caller(ADMIN, true, new AuditActor("admin@example.com", ADMIN.getValue()),
-                new PrivilegeCommands());
+        caller = TestCallers.siteAdmin();
         Mockito.when(req.getContextPath()).thenReturn("");
         Mockito.when(req.getParameter("trip")).thenReturn(tripId);
     }
@@ -108,7 +106,7 @@ public class TripMoneyPdfServletTest {
         caller = new Caller(Person.Id.newInstance(), false, AuditActor.system(), new PrivilegeCommands());
         get("/reports/budget");
         assertEquals(status.get(), 404, "a stranger learns nothing, not even that the trip exists");
-        caller = new Caller(ADMIN, true, AuditActor.system(), new PrivilegeCommands());
+        caller = TestCallers.siteAdmin();
         Mockito.when(req.getParameter("trip")).thenReturn(UUID.randomUUID().toString());
         status.set(200);
         get("/reports/expense-report");

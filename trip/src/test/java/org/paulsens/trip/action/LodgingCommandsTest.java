@@ -43,6 +43,7 @@ import org.paulsens.trip.util.RandomData;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
+import static org.paulsens.trip.action.LodgingFixtures.savedGuest;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotEquals;
@@ -74,9 +75,9 @@ public class LodgingCommandsTest {
         final Organization org = orgs.createOrganization("Lodging " + RandomData.genAlpha(8), "LDG", null);
         assertNotNull(org);
         orgId = org.getId().getValue();
-        ada = savedPerson("Ada");
-        bob = savedPerson("Bob");
-        cy = savedPerson("Cy");
+        ada = savedGuest("Ada");
+        bob = savedGuest("Bob");
+        cy = savedGuest("Cy");
         // A canonical UUID: trip-scoped privilege rows refuse any other shape of scope id.
         trip = Trip.builder().id(java.util.UUID.randomUUID().toString()).title("Lodging trip")
                 .startDate(CHECK_IN).endDate(CHECK_OUT.plusDays(2))
@@ -101,7 +102,7 @@ public class LodgingCommandsTest {
         assertTrue(admin.isGlobalLodgingAdmin());
         assertTrue(admin.canOpenLodgingAdmin());
 
-        final Person orgAdmin = savedPerson("Org");
+        final Person orgAdmin = savedGuest("Org");
         final OrgCommands orgs = new OrgCommands(TestCallers::siteAdmin);
         assertTrue(orgs.addMember(orgId, orgAdmin.getId()));
         assertTrue(orgs.grantOrgPrivilege(orgId, orgAdmin.getId(), PrivilegeCommands.LODGING_ADMIN));
@@ -114,7 +115,7 @@ public class LodgingCommandsTest {
         assertTrue(DAO.getInstance().saveTrip(elsewhere));
         assertFalse(scoped.canManageTripLodging(elsewhere.getId()), "...but not another org's trip");
 
-        final Person manager = savedPerson("Mgr");
+        final Person manager = savedGuest("Mgr");
         final PrivilegeCommands priv = new PrivilegeCommands();
         assertTrue(priv.savePrivilege(priv.getOrCreate(PrivilegeCommands.TRIP_MGR, trip.getId(), "mgr")
                 .withNewPerson(manager.getId())));
@@ -489,9 +490,9 @@ public class LodgingCommandsTest {
 
     @Test
     public void reservationsJoinTheEventBillAndTheBoardAssignsWithACapacityWarning() throws IOException {
-        final Person one = savedPerson("Amara");
-        final Person two = savedPerson("Bruno");
-        final Person three = savedPerson("Cleo");
+        final Person one = savedGuest("Amara");
+        final Person two = savedGuest("Bruno");
+        final Person three = savedGuest("Cleo");
         final Trip own = ownTrip("Reservations trip", one, two, three);
         final Stay stay = stay(true, own);
         final String offerId = stay.offer().getId().getValue();
@@ -599,7 +600,7 @@ public class LodgingCommandsTest {
     /** A put that fails tells the page a fixed sentence: never the store's own words, never a row id. */
     @Test
     public void aFailedPutSaysItsOwnSentenceAndNothingOfTheStores() throws IOException {
-        final Person guest = savedPerson("Gus");
+        final Person guest = savedGuest("Gus");
         final Trip own = ownTrip("Failed puts trip", guest);
         final Stay stay = stay(true, own);
         final String offerId = stay.offer().getId().getValue();
@@ -936,14 +937,6 @@ public class LodgingCommandsTest {
         return form;
     }
 
-    private static Person savedPerson(final String first) throws IOException {
-        final Person person = Person.builder().first(first).last(RandomData.genAlpha(8))
-                .email(first.toLowerCase() + "." + RandomData.genAlpha(8).toLowerCase() + "@example.com")
-                .birthdate(java.time.LocalDate.of(1990, 5, 5)).build();
-        assertTrue(DAO.getInstance().savePerson(person));
-        return person;
-    }
-
     // ------------------------------------------------------------------ 2026-09-07 round: options and the board
 
     /** An option sells several room types, names itself after them, and keeps its default stay inside its dates. */
@@ -1015,7 +1008,7 @@ public class LodgingCommandsTest {
     /** Editing an option's price recomputes the bills of its reservations (no Recompute press needed). */
     @Test
     public void editingAnOptionRecomputesItsReservationsBills() throws IOException {
-        final Person guest = savedPerson("Dara");
+        final Person guest = savedGuest("Dara");
         final Trip own = ownTrip("Option recompute trip", guest);
         final Stay stay = stay(true, own);
         final ReservationForm res = admin.reservationFormFor(own.getId(), null);
@@ -1043,7 +1036,7 @@ public class LodgingCommandsTest {
      */
     @Test
     public void twoStaysForOnePersonAreTwoCardsPlacedSeparately() throws IOException {
-        final Person guest = savedPerson("Esme");
+        final Person guest = savedGuest("Esme");
         final Trip own = ownTrip("Two stays trip", guest);
         final Stay stay = stay(true, own);
         final OfferForm widen = admin.offerFormFor(own.getId(), stay.offer().getId().getValue());
@@ -1087,7 +1080,7 @@ public class LodgingCommandsTest {
     /** Toggling the single-supplement waiver on a solo reservation changes the bill, placed or not. */
     @Test
     public void waivingTheSupplementChangesTheBillEitherWay() throws IOException {
-        final Person guest = savedPerson("Faye");
+        final Person guest = savedGuest("Faye");
         final Trip own = ownTrip("Supplement trip", guest);
         final Stay stay = stay(false);
         final OfferForm single = admin.offerFormFor(own.getId(), null);
@@ -1137,15 +1130,15 @@ public class LodgingCommandsTest {
     @Test
     public void aHotelOperatorRoomsPeopleAtTheirHotelAndNothingElse() throws IOException {
         // Its own trip: this test houses somebody, and the shared trip's rooming list is asserted elsewhere.
-        final Person guest = savedPerson("Guest");
-        final Person mate = savedPerson("Mate");
+        final Person guest = savedGuest("Guest");
+        final Person mate = savedGuest("Mate");
         final Trip hotelTrip = Trip.builder().id(java.util.UUID.randomUUID().toString()).title("Hotel mgr trip")
                 .startDate(CHECK_IN).endDate(CHECK_OUT.plusDays(2))
                 .people(new ArrayList<>(List.of(guest.getId(), mate.getId()))).build();
         hotelTrip.setOrgId(orgId);
         assertTrue(DAO.getInstance().saveTrip(hotelTrip));
         final Stay stay = stay(true, hotelTrip);
-        final Person hotelier = savedPerson("Hotelier");
+        final Person hotelier = savedGuest("Hotelier");
         LodgingFixtures.makeOperator(hotelier, stay.accId());
         final LodgingCommands hotel = new LodgingCommands(() -> TestCallers.person(hotelier.getId()));
 
@@ -1212,8 +1205,8 @@ public class LodgingCommandsTest {
      */
     @Test
     public void aHotelOperatorIsRefusedAtTheTripsOtherHotel() throws IOException {
-        final Person guest = savedPerson("Gia");
-        final Person other = savedPerson("Hal");
+        final Person guest = savedGuest("Gia");
+        final Person other = savedGuest("Hal");
         final Trip twoHotels = ownTrip("Two hotels", guest, other);
         final Stay a = stay(true, twoHotels);
         final Stay b = stay(true, twoHotels);
@@ -1221,7 +1214,7 @@ public class LodgingCommandsTest {
         assertEquals(admin.createReservations(twoHotels.getId(), form(twoHotels, b, other, CHECK_IN, CHECK_OUT)), 1);
         final String atA = admin.activeReservationsFor(twoHotels.getId(), guest.getId()).get(0).getId().getValue();
         final String atB = admin.activeReservationsFor(twoHotels.getId(), other.getId()).get(0).getId().getValue();
-        final Person keeper = savedPerson("Ines");
+        final Person keeper = savedGuest("Ines");
         LodgingFixtures.makeOperator(keeper, a.accId());
         final LodgingCommands operator = new LodgingCommands(() -> TestCallers.person(keeper.getId()));
 
@@ -1253,17 +1246,17 @@ public class LodgingCommandsTest {
      */
     @Test
     public void anotherTripInTheRoomIsNamedToInternalsAndOperatorsOnly() throws IOException {
-        final Person mine = savedPerson("Yara");
-        final Person theirs = savedPerson("Zed");
+        final Person mine = savedGuest("Yara");
+        final Person theirs = savedGuest("Zed");
         final Trip ours = ownTrip("Ours as well", mine);
         final Trip other = ownTrip("Their named trip", theirs);
         final Stay stay = stay(true, ours);
         reserveIntoRoom(other, stay, theirs, stay.r101());
-        final Person manager = savedPerson("Mgr");
+        final Person manager = savedGuest("Mgr");
         final PrivilegeCommands priv = new PrivilegeCommands();
         assertTrue(priv.savePrivilege(priv.getOrCreate(PrivilegeCommands.TRIP_MGR, ours.getId(), "mgr")
                 .withNewPerson(manager.getId())));
-        final Person keeper = savedPerson("Kai");
+        final Person keeper = savedGuest("Kai");
         LodgingFixtures.makeOperator(keeper, stay.accId());
         final LodgingCommands tripMgr = new LodgingCommands(() -> TestCallers.person(manager.getId()));
         final LodgingCommands operator = new LodgingCommands(() -> TestCallers.person(keeper.getId()));
@@ -1305,7 +1298,7 @@ public class LodgingCommandsTest {
      */
     @Test
     public void aLateArriversItineraryIsOrderedByTheDatesItShows() throws IOException {
-        final Person rey = savedPerson("Rey");
+        final Person rey = savedGuest("Rey");
         final Trip own = Trip.builder().id(java.util.UUID.randomUUID().toString()).title("Late arriver trip")
                 .startDate(CHECK_IN).endDate(CHECK_OUT.plusDays(2))
                 .people(new ArrayList<>(List.of(rey.getId()))).build();
@@ -1346,7 +1339,7 @@ public class LodgingCommandsTest {
     public void theRoomingListEscapesTheQuestionLabelAsWellAsTheAnswer() throws IOException {
         // The rooming list page renders this cell unescaped (for the <b> and <br /> built here), so the
         // label a trip editor typed must not be able to carry markup of its own.
-        final Person pat = savedPerson("Pat");
+        final Person pat = savedGuest("Pat");
         final Trip own = Trip.builder().id(java.util.UUID.randomUUID().toString()).title("Escaping trip")
                 .startDate(CHECK_IN).endDate(CHECK_OUT.plusDays(2))
                 .people(new ArrayList<>(List.of(pat.getId())))
@@ -1375,8 +1368,8 @@ public class LodgingCommandsTest {
     public void aRoomTellsYouWhoIsInItAndWhatTheyAskedFor() throws IOException {
         // Its OWN trip and people: this test houses somebody, and the shared trip's rooming list and bills
         // are asserted elsewhere (fixture side effects here are load-bearing).
-        final Person pat = savedPerson("Pat");
-        final Person quinn = savedPerson("Quinn");
+        final Person pat = savedGuest("Pat");
+        final Person quinn = savedGuest("Quinn");
         final Trip own = Trip.builder().id(java.util.UUID.randomUUID().toString()).title("Room dialog trip")
                 .startDate(CHECK_IN).endDate(CHECK_OUT.plusDays(2))
                 .people(new ArrayList<>(List.of(pat.getId(), quinn.getId())))
@@ -1444,7 +1437,7 @@ public class LodgingCommandsTest {
      */
     @Test
     public void theBoardIsTheHotelsNotOneOptions() throws IOException {
-        final Person guest = savedPerson("Gita");
+        final Person guest = savedGuest("Gita");
         final Trip own = ownTrip("Board trip", guest);
         final Stay stay = stay(true, own);
         final OfferForm second = admin.offerFormFor(own.getId(), null);
@@ -1480,7 +1473,7 @@ public class LodgingCommandsTest {
         // A placement names the option explicitly, and its stay follows that option. Somebody with no
         // stay yet, because an EXTRA stay deliberately starts with a blank range (the dates they already
         // hold are the ones it cannot have).
-        final Person newcomer = savedPerson("Hana");
+        final Person newcomer = savedGuest("Hana");
         final Trip roster = DAO.getInstance().getTrip(own.getId(), Cached.NO).orElseThrow();
         roster.getPeople().add(newcomer.getId());
         assertTrue(DAO.getInstance().saveTrip(roster));
@@ -1551,7 +1544,7 @@ public class LodgingCommandsTest {
      */
     @Test
     public void twoStaysOfOnePersonMayNotShareANight() throws IOException {
-        final Person guest = savedPerson("Ilse");
+        final Person guest = savedGuest("Ilse");
         final Trip own = ownTrip("Overlap trip", guest);
         final Stay stay = stay(true, own);
         final OfferForm widen = admin.offerFormFor(own.getId(), stay.offer().getId().getValue());
@@ -1584,7 +1577,7 @@ public class LodgingCommandsTest {
     /** The placement dialog for a second stay: it says what they hold and offers no dates of its own. */
     @Test
     public void placingASecondStayStartsWithBlankDatesAndSaysWhy() throws IOException {
-        final Person guest = savedPerson("Jules");
+        final Person guest = savedGuest("Jules");
         final Trip own = ownTrip("Second stay trip", guest);
         final Stay stay = stay(true, own);
         final PlacementForm first = admin.placementFormFor(own.getId(), stay.accId(), guest.getId().getValue(),
@@ -1604,7 +1597,7 @@ public class LodgingCommandsTest {
     /** The board numbers a person's cards, so two cards for one name never read as a duplicate. */
     @Test
     public void theBoardSaysWhichStayEachCardIs() throws IOException {
-        final Person guest = savedPerson("Kirra");
+        final Person guest = savedGuest("Kirra");
         final Trip own = ownTrip("Stay count trip", guest);
         final Stay stay = stay(true, own);
         final OfferForm widen = admin.offerFormFor(own.getId(), stay.offer().getId().getValue());
@@ -1628,8 +1621,8 @@ public class LodgingCommandsTest {
     /** A shared reservation is two people to move, so it is two cards, not one named after whoever sorts first. */
     @Test
     public void aSharedReservationPutsBothOccupantsOnTheBoard() throws IOException {
-        final Person one = savedPerson("Lior");
-        final Person two = savedPerson("Maya");
+        final Person one = savedGuest("Lior");
+        final Person two = savedGuest("Maya");
         final Trip own = ownTrip("Shared trip", one, two);
         final Stay stay = stay(true, own);
         final ReservationForm shared = admin.reservationFormFor(own.getId(), null);
@@ -1649,7 +1642,7 @@ public class LodgingCommandsTest {
     /** Rooming, not pricing: same option, same people, same nights, two rooms. */
     @Test
     public void switchingRoomsMidStayMakesTwoStaysOfOne() throws IOException {
-        final Person guest = savedPerson("Nadia");
+        final Person guest = savedGuest("Nadia");
         final Trip own = ownTrip("Split trip", guest);
         final Stay stay = stay(true, own);
         final Reservation res = placed(own, stay, guest);
@@ -1681,7 +1674,7 @@ public class LodgingCommandsTest {
 
     @Test
     public void aSplitRefusesADateOutsideTheStayOrASecondRoomThatIsBlocked() throws IOException {
-        final Person guest = savedPerson("Omar");
+        final Person guest = savedGuest("Omar");
         final Trip own = ownTrip("Split refusal trip", guest);
         final Stay stay = stay(true, own);
         final Reservation res = placed(own, stay, guest);
@@ -1711,8 +1704,8 @@ public class LodgingCommandsTest {
     /** The hotel's own operator may move somebody between rooms: it changes where they sleep, not what they pay. */
     @Test
     public void aHotelOperatorMaySwitchRoomsButNotMintAStay() throws IOException {
-        final Person guest = savedPerson("Pia");
-        final Person keeper = savedPerson("Quinn");
+        final Person guest = savedGuest("Pia");
+        final Person keeper = savedGuest("Quinn");
         final Trip own = ownTrip("Manager split trip", guest);
         final Stay stay = stay(true, own);
         final Reservation res = placed(own, stay, guest);
@@ -1740,7 +1733,7 @@ public class LodgingCommandsTest {
 
     @Test
     public void aBlockedRoomRefusesEveryWayOfPuttingSomebodyInIt() throws IOException {
-        final Person guest = savedPerson("Rhea");
+        final Person guest = savedGuest("Rhea");
         final Trip own = ownTrip("Blocked trip", guest);
         final Stay stay = stay(true, own);
         blockRoom(stay.accId(), stay.r101(), CHECK_IN.toLocalDate(), CHECK_OUT.toLocalDate());
@@ -1774,7 +1767,7 @@ public class LodgingCommandsTest {
 
     @Test
     public void theBoardShowsABlockedRoomAndTheDialogLetsItBeLifted() throws IOException {
-        final Person guest = savedPerson("Silas");
+        final Person guest = savedGuest("Silas");
         final Trip own = ownTrip("Block board trip", guest);
         final Stay stay = stay(true, own);
         blockRoom(stay.accId(), stay.r101(), CHECK_IN.toLocalDate(), CHECK_OUT.toLocalDate());
@@ -1805,7 +1798,7 @@ public class LodgingCommandsTest {
     /** A room both blocked and slept in reads as over: somebody has to move, which is the same urgency. */
     @Test
     public void aRoomBothBlockedAndSleptInReadsAsAClash() throws IOException {
-        final Person guest = savedPerson("Tova");
+        final Person guest = savedGuest("Tova");
         final Trip own = ownTrip("Clash board trip", guest);
         final Stay stay = stay(true, own);
         final Reservation res = placed(own, stay, guest);
@@ -1820,8 +1813,8 @@ public class LodgingCommandsTest {
      */
     @Test
     public void anotherTripsGuestsFillTheRoomWithoutBeingNamed() throws IOException {
-        final Person mine = savedPerson("Uma");
-        final Person theirs = savedPerson("Viktor");
+        final Person mine = savedGuest("Uma");
+        final Person theirs = savedGuest("Viktor");
         final Trip ours = ownTrip("Ours", mine);
         final Trip other = ownTrip("Theirs", theirs);
         final Stay stay = stay(true, ours);
@@ -1863,7 +1856,7 @@ public class LodgingCommandsTest {
         assertTrue(admin.assignRoom(ours.getId(), res.getId().getValue(), stay.r101(), false, null, null)
                 .isAssigned());
         assertEquals(admin.roomBoard(ours.getId(), stay.accId(), null, null).getRooms().get(0).getCount(), 2);
-        final Person third = savedPerson("Wren");
+        final Person third = savedGuest("Wren");
         final Trip roster = DAO.getInstance().getTrip(ours.getId(), Cached.NO).orElseThrow();
         roster.getPeople().add(third.getId());
         assertTrue(DAO.getInstance().saveTrip(roster));
@@ -1883,7 +1876,7 @@ public class LodgingCommandsTest {
      */
     @Test
     public void aLeaveAndReturnIsTwoItineraryRowsInDateOrder() throws IOException {
-        final Person guest = savedPerson("Xan");
+        final Person guest = savedGuest("Xan");
         final Trip own = ownTrip("Return trip", guest);
         final Stay stay = stay(true, own);
         final OfferForm widen = admin.offerFormFor(own.getId(), stay.offer().getId().getValue());
@@ -1927,7 +1920,7 @@ public class LodgingCommandsTest {
      */
     @Test
     public void anUnpricedOptionTakesNoStaysUntilItIsPricedAndKeepsItsPriceWhileTheyStand() throws IOException {
-        final Person guest = savedPerson("Uma");
+        final Person guest = savedGuest("Uma");
         final Trip own = ownTrip("Unpriced trip", guest);
         final Stay hotel = stay(false);
         final OfferForm form = admin.offerFormFor(own.getId(), null);
@@ -1986,7 +1979,7 @@ public class LodgingCommandsTest {
      */
     @Test
     public void savingAnOptionRecordsTheTripOnTheHotelAndDeletingTheLastOneForgetsIt() throws IOException {
-        final Trip own = ownTrip("Hotel record trip", savedPerson("Rec"));
+        final Trip own = ownTrip("Hotel record trip", savedGuest("Rec"));
         final Stay stay = stay(true, own);
         assertEquals(admin.findAccommodation(stay.accId()).getTripIds(), List.of(own.getId()));
 
@@ -2017,7 +2010,7 @@ public class LodgingCommandsTest {
      */
     @Test
     public void aCostEditLeavesTheBillsAloneWhereAPriceEditRecomputesThem() throws IOException {
-        final Person guest = savedPerson("Vero");
+        final Person guest = savedGuest("Vero");
         final Trip own = ownTrip("Cost edit trip", guest);
         final Stay stay = stay(true, own);
         assertEquals(admin.createReservations(own.getId(), form(own, stay, guest, CHECK_IN, CHECK_OUT)), 1);
@@ -2103,13 +2096,13 @@ public class LodgingCommandsTest {
      */
     @Test
     public void onlyTheTripSetsAnOptionsCostNeverTheOperator() throws IOException {
-        final Person guest = savedPerson("Wes");
+        final Person guest = savedGuest("Wes");
         final Trip own = ownTrip("Operator cost trip", guest);
         final Stay a = stay(true, own);
         final Stay b = stay(true, own);
         assertEquals(admin.createReservations(own.getId(), form(own, a, guest, CHECK_IN, CHECK_OUT)), 1);
         final Reservation res = reservationOf(own, guest, a.offer().getId().getValue());
-        final Person keeper = savedPerson("Xin");
+        final Person keeper = savedGuest("Xin");
         LodgingFixtures.makeOperator(keeper, a.accId());
         final LodgingCommands operator = new LodgingCommands(() -> TestCallers.person(keeper.getId()));
         assertTrue(operator.canSetCost(own.getId(), a.accId()), "a stay's cost discount at their hotel");
@@ -2160,7 +2153,7 @@ public class LodgingCommandsTest {
      */
     @Test
     public void concessionsShrinkTheBillOnThePriceSideAndNothingOnTheCostSide() throws IOException {
-        final Person guest = savedPerson("Yul");
+        final Person guest = savedGuest("Yul");
         final Trip own = ownTrip("Concession trip", guest);
         final Stay stay = stay(true, own);
         assertEquals(admin.createReservations(own.getId(), form(own, stay, guest, CHECK_IN, CHECK_OUT)), 1);
@@ -2265,7 +2258,7 @@ public class LodgingCommandsTest {
         assertNotNull(admin.concessionFormFor(own.getId(), "gone", "PRICE").getProblem());
 
         // Gates per side: the hotel's operator records the cost side alone; a stranger neither.
-        final Person keeper = savedPerson("Zoe");
+        final Person keeper = savedGuest("Zoe");
         LodgingFixtures.makeOperator(keeper, stay.accId());
         final LodgingCommands operator = new LodgingCommands(() -> TestCallers.person(keeper.getId()));
         final ConcessionForm theirs = operator.concessionFormFor(own.getId(), resId, "COST");
@@ -2297,10 +2290,10 @@ public class LodgingCommandsTest {
      */
     @Test
     public void aRoomPricedUnderOneOptionRefusesASecondOptionEveryWay() throws IOException {
-        final Person first = savedPerson("Ines");
-        final Person second = savedPerson("Jon");
-        final Person third = savedPerson("Kai");
-        final Person fourth = savedPerson("Lea");
+        final Person first = savedGuest("Ines");
+        final Person second = savedGuest("Jon");
+        final Person third = savedGuest("Kai");
+        final Person fourth = savedGuest("Lea");
         final Trip own = ownTrip("One option per room", first, second, third, fourth);
         final Stay stay = stay(true, own);
         final ReservationOffer other = otherOption(own, stay, "PER_PERSON", 70.0);
@@ -2396,7 +2389,7 @@ public class LodgingCommandsTest {
     /** Editing a reservation may move it to another option: validated like a new stay; bills and the event follow. */
     @Test
     public void editingAReservationMayChangeItsLodgingOption() throws IOException {
-        final Person guest = savedPerson("Mira");
+        final Person guest = savedGuest("Mira");
         final Trip own = ownTrip("Option switch", guest);
         final Stay stay = stay(true, own);
         final ReservationOffer single = otherOption(own, stay, "PER_PERSON", 70.0);

@@ -1,6 +1,7 @@
 package org.paulsens.trip.action;
 
 import java.io.IOException;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -18,6 +19,7 @@ import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.ReservationOffer;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.util.RandomData;
+import org.paulsens.trip.util.TestPeople;
 import org.testng.Assert;
 
 /**
@@ -38,6 +40,15 @@ public final class LodgingFixtures {
     /** The next value of the shared counter, for a test that builds a hotel form of its own. */
     public static int next() {
         return SEQ.incrementAndGet();
+    }
+
+    /**
+     * A saved adult (born 1990-05-05) with this first name. The lodging board prints a guest's age at check-in,
+     * so the lodging tests' people have a birthdate; {@code TestPeople.savedPerson} leaves it null.
+     */
+    public static Person savedGuest(final String first) {
+        return TestPeople.save(Person.builder().first(first).last(RandomData.genAlpha(8))
+                .email(TestPeople.address(first)).birthdate(LocalDate.of(1990, 5, 5)).build());
     }
 
     /**

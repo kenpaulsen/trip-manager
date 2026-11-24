@@ -17,6 +17,7 @@ import org.paulsens.trip.util.RandomData;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
+import static org.paulsens.trip.util.TestPeople.savedPerson;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotNull;
@@ -193,13 +194,5 @@ public class LodgingAccessCommandsTest {
 
     private Trip tripWith(final String title, final Person person) throws IOException {
         return LodgingFixtures.rosterTrip(orgId, title, CHECK_IN, CHECK_OUT, person);
-    }
-
-    private static Person savedPerson(final String first) throws IOException {
-        final Person person = Person.builder().first(first).last(RandomData.genAlpha(8))
-                .email(first.toLowerCase(java.util.Locale.ROOT) + "." + RandomData.genAlpha(8)
-                        .toLowerCase(java.util.Locale.ROOT) + "@example.com").build();
-        assertTrue(DAO.getInstance().savePerson(person));
-        return person;
     }
 }

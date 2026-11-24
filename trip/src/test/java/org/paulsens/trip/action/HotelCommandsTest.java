@@ -18,7 +18,6 @@ import org.paulsens.trip.action.LodgingViews.DayRoom;
 import org.paulsens.trip.action.LodgingViews.HotelCalendar;
 import org.paulsens.trip.action.LodgingViews.OfferForm;
 import org.paulsens.trip.action.LodgingViews.ReservationForm;
-import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
@@ -30,6 +29,7 @@ import org.primefaces.model.ScheduleEvent;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
+import static org.paulsens.trip.action.LodgingFixtures.savedGuest;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotNull;
@@ -137,8 +137,8 @@ public class HotelCommandsTest {
     @Test
     public void theCalendarCountsEveryTripStayingAtTheHotel() throws IOException {
         final String accId = hotelWithRooms();
-        final Person ours = savedPerson("Ida");
-        final Person theirs = savedPerson("Jon");
+        final Person ours = savedGuest("Ida");
+        final Person theirs = savedGuest("Jon");
         final Trip mine = tripWith("Our trip", ours);
         final Trip other = tripWith("Their trip", theirs);
         reserveInto(mine, accId, ours, roomId(accId, 0));
@@ -162,7 +162,7 @@ public class HotelCommandsTest {
     @Test
     public void aBlockedNightCountsAgainstTheHotelAndAClashIsFlagged() throws IOException {
         final String accId = hotelWithRooms();
-        final Person guest = savedPerson("Kai");
+        final Person guest = savedGuest("Kai");
         final Trip trip = tripWith("Clash trip", guest);
         reserveInto(trip, accId, guest, roomId(accId, 0));
         final BlockForm form = new BlockForm();
@@ -180,7 +180,7 @@ public class HotelCommandsTest {
     @Test
     public void anUnplacedStayCountsItsPeopleButNoRoom() throws IOException {
         final String accId = hotelWithRooms();
-        final Person guest = savedPerson("Lux");
+        final Person guest = savedGuest("Lux");
         final Trip trip = tripWith("Unplaced trip", guest);
         reserveInto(trip, accId, guest, null);
         final DayCell night = dayOf(hotel.calendar(accId, MONTH), LocalDate.of(2027, 9, 22));
@@ -193,7 +193,7 @@ public class HotelCommandsTest {
     @Test
     public void theDayDetailNamesTripsNotGuests() throws IOException {
         final String accId = hotelWithRooms();
-        final Person guest = savedPerson("Mira");
+        final Person guest = savedGuest("Mira");
         final Trip trip = tripWith("Named trip", guest);
         reserveInto(trip, accId, guest, roomId(accId, 0));
 
@@ -208,7 +208,7 @@ public class HotelCommandsTest {
         assertTrue(mine.toString().indexOf("Mira") < 0, "no guest name reaches the hotel's view");
 
         // The hotel's own operator, who is on no trip: whose trip it is (the 2026-10-25 naming rule), never who.
-        final Person keeper = savedPerson("Nils");
+        final Person keeper = savedGuest("Nils");
         assertTrue(new PrivilegeCommands().savePrivilege(new PrivilegeCommands()
                 .getOrCreate(PrivilegeCommands.ACCOMMODATION_ADMIN, accId, "hotel staff")
                 .withNewPerson(keeper.getId())));
@@ -221,7 +221,7 @@ public class HotelCommandsTest {
 
         // A lodging admin of some OTHER organization reads the calendar but is neither internal on the trip
         // nor this hotel's operator: the hotel is shared, the guest list and the trip's identity are not.
-        final Person elsewhere = savedPerson("Odd");
+        final Person elsewhere = savedGuest("Odd");
         final OrgCommands orgs = new OrgCommands(TestCallers::siteAdmin);
         final Organization otherOrg = orgs.createOrganization("Elsewhere " + RandomData.genAlpha(6), "ELS", null);
         assertNotNull(otherOrg);
@@ -241,13 +241,13 @@ public class HotelCommandsTest {
     @Test
     public void theTripsTabNamesTripsAndGuestsForTheHotelsOperatorsAlone() throws IOException {
         final String accId = hotelWithRooms();
-        final Person ours = savedPerson("Olga");
-        final Person theirs = savedPerson("Piet");
+        final Person ours = savedGuest("Olga");
+        final Person theirs = savedGuest("Piet");
         final Trip mine = tripWith("Rows trip", ours);
         final Trip other = tripWith("Rows other", theirs);
         reserveInto(mine, accId, ours, roomId(accId, 0));
         reserveInto(other, accId, theirs, null);
-        final Person keeper = savedPerson("Quin");
+        final Person keeper = savedGuest("Quin");
         assertTrue(new PrivilegeCommands().savePrivilege(new PrivilegeCommands()
                 .getOrCreate(PrivilegeCommands.ACCOMMODATION_ADMIN, accId, "hotel staff")
                 .withNewPerson(keeper.getId())));
@@ -348,7 +348,7 @@ public class HotelCommandsTest {
     @Test
     public void theScheduleCarriesADayPillAndABlockPill() throws IOException {
         final String accId = hotelWithRooms();
-        final Person guest = savedPerson("Otto");
+        final Person guest = savedGuest("Otto");
         final Trip trip = tripWith("Schedule trip", guest);
         reserveInto(trip, accId, guest, roomId(accId, 0));
         final BlockForm form = new BlockForm();
@@ -444,15 +444,6 @@ public class HotelCommandsTest {
         assertEquals(admin.createReservations(trip.getId(), res), 1);
     }
 
-    private static Person savedPerson(final String first) throws IOException {
-        final Person person = Person.builder().first(first).last(RandomData.genAlpha(8))
-                .email(first.toLowerCase(java.util.Locale.ROOT) + "." + RandomData.genAlpha(8)
-                        .toLowerCase(java.util.Locale.ROOT) + "@example.com")
-                .birthdate(LocalDate.of(1990, 5, 5)).build();
-        assertTrue(DAO.getInstance().savePerson(person));
-        return person;
-    }
-
     private static DayCell dayOf(final HotelCalendar calendar, final LocalDate date) {
         return calendar.getDays().stream().filter(d -> d.getDate().equals(date)).findFirst().orElseThrow();
     }
@@ -529,7 +520,7 @@ public class HotelCommandsTest {
     @Test
     public void aTripWithOnlyAnOptionAtTheHotelIsListedWithNoStays() throws IOException {
         final String accId = hotelWithRooms();
-        final Person nobody = savedPerson("Opt");
+        final Person nobody = savedGuest("Opt");
         final Trip planned = tripWith("Planned trip", nobody);
         final OfferForm offerForm = new OfferForm();
         offerForm.setName("Early option");
@@ -559,7 +550,7 @@ public class HotelCommandsTest {
         assertEquals(withStay.get(0).getOptions().size(), 2);
 
         // A trip recorded on the hotel whose options here are all gone is not listed.
-        final Trip gone = tripWith("Gone trip", savedPerson("Gon"));
+        final Trip gone = tripWith("Gone trip", savedGuest("Gon"));
         offerForm.setName("Short-lived option");
         assertTrue(admin.saveOffer(gone.getId(), offerForm));
         final ReservationOffer shortLived = admin.getOffers(gone.getId()).get(0);
