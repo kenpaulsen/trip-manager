@@ -1,12 +1,9 @@
 package org.paulsens.trip.action;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.util.HexFormat;
 import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.paulsens.trip.security.Digests;
 
 /**
  * The text handling a waiver document needs: the longest body a publish reads, the body's hash, and a plain-text
@@ -48,12 +45,7 @@ public final class WaiverHtml {
 
     /** Lower-case hex SHA-256 of the body's UTF-8 bytes. */
     public static String sha256(final String html) {
-        try {
-            final MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            return HexFormat.of().formatHex(digest.digest((html == null ? "" : html).getBytes(StandardCharsets.UTF_8)));
-        } catch (final NoSuchAlgorithmException ex) {
-            throw new IllegalStateException("SHA-256 is a required JDK algorithm", ex);
-        }
+        return Digests.sha256Hex(html == null ? "" : html);
     }
 
     /**

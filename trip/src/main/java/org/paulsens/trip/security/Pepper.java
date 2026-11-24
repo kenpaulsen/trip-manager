@@ -3,7 +3,6 @@ package org.paulsens.trip.security;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -93,11 +92,7 @@ public final class Pepper {
     byte[] preHash(final String password, final int version) {
         final byte[] raw = password.getBytes(StandardCharsets.UTF_8);
         if (version == NO_PEPPER) {
-            try {
-                return Base64.getEncoder().encode(MessageDigest.getInstance("SHA-256").digest(raw));
-            } catch (final java.security.NoSuchAlgorithmException ex) {
-                throw new IllegalStateException("SHA-256 unavailable", ex); // unreachable on any JVM
-            }
+            return Base64.getEncoder().encode(Digests.sha256(raw));
         }
         final byte[] key = keysByVersion.get(version);
         if (key == null) {

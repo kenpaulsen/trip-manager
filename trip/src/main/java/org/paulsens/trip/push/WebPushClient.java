@@ -7,11 +7,11 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.KeyPair;
-import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.security.Digests;
 
 /**
  * Standard Web Push (RFC 8030) to each browser's push service: RFC 8291 {@code aes128gcm} content, RFC
@@ -130,12 +130,7 @@ public final class WebPushClient implements PushGateway {
      * is neither short enough nor URL-safe, so the header carries a digest of it. Same tag → same topic.
      */
     static String topicOf(final String tag) {
-        try {
-            final byte[] digest = MessageDigest.getInstance("SHA-256").digest(tag.getBytes(StandardCharsets.UTF_8));
-            return EcKeys.encodeUrl(digest).substring(0, 32);
-        } catch (final GeneralSecurityException ex) {
-            throw new IllegalStateException("SHA-256 is mandatory in every JRE", ex);
-        }
+        return EcKeys.encodeUrl(Digests.sha256(tag)).substring(0, 32);
     }
 
     private static byte[] randomSalt() {

@@ -7,12 +7,9 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonValue;
 import java.io.Serial;
 import java.io.Serializable;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.util.HexFormat;
 import java.util.Locale;
 import lombok.Value;
+import org.paulsens.trip.security.Digests;
 
 /**
  * One registered push target inside a person's {@link PushPrefs} row: an APNs device token, an FCM
@@ -151,22 +148,13 @@ public class PushDevice implements Serializable {
 
     /** The listing id of an FCM token: the last 8 hex characters of its SHA-256 (the token itself is a credential). */
     public static String androidTokenId(final String token) {
-        final String digest = sha256Hex(token);
+        final String digest = Digests.sha256Hex(token);
         return digest.substring(digest.length() - 8);
     }
 
     /** The listing id a web endpoint maps to, so an unsubscribe by endpoint and a remove by id agree. */
     public static String endpointId(final String endpoint) {
-        return sha256Hex(endpoint).substring(0, 16);
-    }
-
-    private static String sha256Hex(final String value) {
-        try {
-            final byte[] digest = MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8));
-            return HexFormat.of().formatHex(digest);
-        } catch (final NoSuchAlgorithmException ex) {
-            throw new IllegalStateException("SHA-256 is mandatory in every JRE", ex);
-        }
+        return Digests.sha256Hex(endpoint).substring(0, 16);
     }
 
     /** iOS and Android: a device the app registers and the badge rides to. */

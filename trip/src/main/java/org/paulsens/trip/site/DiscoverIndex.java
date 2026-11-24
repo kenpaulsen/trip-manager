@@ -1,8 +1,5 @@
 package org.paulsens.trip.site;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -30,6 +27,7 @@ import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Language;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Trip;
+import org.paulsens.trip.security.Digests;
 
 /**
  * Everything Discover may list (medjugorje#155), already in its public shape: an in-JVM snapshot of the trips
@@ -351,11 +349,6 @@ public final class DiscoverIndex {
 
     /** A short, stable digest of some text: the part of an {@code ETag} that follows what a response says. */
     static String fingerprintOf(final String text) {
-        try {
-            final byte[] digest = MessageDigest.getInstance("SHA-256").digest(text.getBytes(StandardCharsets.UTF_8));
-            return HexFormat.of().formatHex(digest, 0, 8);
-        } catch (final NoSuchAlgorithmException ex) {
-            throw new IllegalStateException("SHA-256 is required of every Java runtime", ex);
-        }
+        return HexFormat.of().formatHex(Digests.sha256(text), 0, 8);
     }
 }

@@ -4,8 +4,12 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Base64;
+import java.util.HexFormat;
 
-/** The one hash the auth flows share: SHA-256 as base64, for values checked but never stored in the clear. */
+/**
+ * SHA-256, the one way: the base64 form the auth flows share (values checked but never stored in the clear),
+ * and the raw and hex forms behind device ids, push topics, ETags and a signed document's fingerprint.
+ */
 public final class Digests {
 
     private Digests() {
@@ -15,11 +19,28 @@ public final class Digests {
         return digestBase64("SHA-256", value);
     }
 
-    // Package-private so the impossible-on-a-real-JDK catch is still exercisable by a test.
+    /** The 32 digest bytes of the value's UTF-8 bytes. */
+    public static byte[] sha256(final String value) {
+        return sha256(value.getBytes(StandardCharsets.UTF_8));
+    }
+
+    public static byte[] sha256(final byte[] bytes) {
+        return digest("SHA-256", bytes);
+    }
+
+    /** Lower-case hex, 64 characters. */
+    public static String sha256Hex(final String value) {
+        return HexFormat.of().formatHex(sha256(value));
+    }
+
     static String digestBase64(final String algorithm, final String value) {
+        return Base64.getEncoder().encodeToString(digest(algorithm, value.getBytes(StandardCharsets.UTF_8)));
+    }
+
+    // Takes the algorithm so the impossible-on-a-real-JDK catch is still exercisable by a test.
+    private static byte[] digest(final String algorithm, final byte[] bytes) {
         try {
-            final MessageDigest digest = MessageDigest.getInstance(algorithm);
-            return Base64.getEncoder().encodeToString(digest.digest(value.getBytes(StandardCharsets.UTF_8)));
+            return MessageDigest.getInstance(algorithm).digest(bytes);
         } catch (final NoSuchAlgorithmException ex) {
             throw new IllegalStateException(algorithm + " is a required JDK algorithm", ex);
         }
