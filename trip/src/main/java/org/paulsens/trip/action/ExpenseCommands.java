@@ -574,8 +574,8 @@ public class ExpenseCommands {
 
     /** The receipt dialog's list: a line's receipts, or the report-level ones when {@code lineId} is blank. */
     public List<ReceiptRow> receiptRowsFor(final String tripId, final String lineId) {
-        final Trip trip = gate.knownTrip(tripId);
-        if (trip == null || !canViewExpenses(tripId)) {
+        final Trip trip = gate.viewableTrip(tripId);
+        if (trip == null) {
             return new ArrayList<>();
         }
         final TripExpenseReport report = reportOrDefault(trip, Cached.YES);
@@ -591,8 +591,8 @@ public class ExpenseCommands {
         if (lineId == null || lineId.isBlank()) {
             return Text.get("feedback.expenseCommands.reportReceipts");
         }
-        final Trip trip = gate.knownTrip(tripId);
-        final ExpenseLine line = (trip == null || !canViewExpenses(tripId)) ? null
+        final Trip trip = gate.viewableTrip(tripId);
+        final ExpenseLine line = (trip == null) ? null
                 : reportOrDefault(trip, Cached.YES).line(lineId);
         return (line == null) ? Text.get("common.receipts")
                 : Text.get("feedback.expenseCommands.receiptsOf", nameOr(line.getDescription(), unnamedExpense()));
@@ -601,8 +601,8 @@ public class ExpenseCommands {
     /** The header fields as a form. */
     public HeaderForm headerFormFor(final String tripId) {
         final HeaderForm form = new HeaderForm();
-        final Trip trip = gate.knownTrip(tripId);
-        if (trip == null || !canViewExpenses(tripId)) {
+        final Trip trip = gate.viewableTrip(tripId);
+        if (trip == null) {
             return form;
         }
         final TripExpenseReport report = reportOrDefault(trip, Cached.YES);
@@ -618,8 +618,8 @@ public class ExpenseCommands {
 
     /** The expense dialog's form for an existing line; a fresh form when the line is gone. */
     public ExpenseForm lineFormFor(final String tripId, final String lineId) {
-        final Trip trip = gate.knownTrip(tripId);
-        final ExpenseLine line = (trip == null || !canViewExpenses(tripId)) ? null
+        final Trip trip = gate.viewableTrip(tripId);
+        final ExpenseLine line = (trip == null) ? null
                 : reportOrDefault(trip, Cached.YES).line(lineId);
         return (line == null) ? newLineForm() : formOf(line);
     }
@@ -641,8 +641,8 @@ public class ExpenseCommands {
     /** Every expense as a form (the REST GET). */
     public List<ExpenseForm> lineFormsFor(final String tripId) {
         final List<ExpenseForm> forms = new ArrayList<>();
-        final Trip trip = gate.knownTrip(tripId);
-        if (trip == null || !canViewExpenses(tripId)) {
+        final Trip trip = gate.viewableTrip(tripId);
+        if (trip == null) {
             return forms;
         }
         for (final ExpenseLine line : reportOrDefault(trip, Cached.YES).getLines()) {
@@ -658,8 +658,8 @@ public class ExpenseCommands {
 
     /** The currency dialog's form for a currency the report has; a fresh form when it is gone. */
     public CurrencyForm currencyFormFor(final String tripId, final String code) {
-        final Trip trip = gate.knownTrip(tripId);
-        final CurrencyRate rate = (trip == null || !canViewExpenses(tripId)) ? null
+        final Trip trip = gate.viewableTrip(tripId);
+        final CurrencyRate rate = (trip == null) ? null
                 : reportOrDefault(trip, Cached.YES).currency(code);
         if (rate == null) {
             return newCurrencyForm();
@@ -679,8 +679,8 @@ public class ExpenseCommands {
     /** Every currency as a form (the REST GET). */
     public List<CurrencyForm> currencyFormsFor(final String tripId) {
         final List<CurrencyForm> forms = new ArrayList<>();
-        final Trip trip = gate.knownTrip(tripId);
-        if (trip == null || !canViewExpenses(tripId)) {
+        final Trip trip = gate.viewableTrip(tripId);
+        if (trip == null) {
             return forms;
         }
         for (final CurrencyRate rate : reportOrDefault(trip, Cached.YES).getCurrencies()) {
@@ -693,8 +693,8 @@ public class ExpenseCommands {
     public List<Choice> currencyChoices(final String tripId) {
         final List<Choice> choices = new ArrayList<>();
         choices.add(choice(ExpenseLine.USD, "USD"));
-        final Trip trip = gate.knownTrip(tripId);
-        if (trip != null && canViewExpenses(tripId)) {
+        final Trip trip = gate.viewableTrip(tripId);
+        if (trip != null) {
             for (final CurrencyRate rate : reportOrDefault(trip, Cached.YES).getCurrencies()) {
                 choices.add(choice(rate.getCode(), rate.getCode()));
             }
@@ -1125,8 +1125,8 @@ public class ExpenseCommands {
 
     /** The payment dialog's form for a recorded payment; a fresh form when it is gone. */
     public PaymentForm paymentFormFor(final String tripId, final String paymentId) {
-        final Trip trip = gate.knownTrip(tripId);
-        final ExpensePayment payment = (trip == null || !canViewExpenses(tripId)) ? null
+        final Trip trip = gate.viewableTrip(tripId);
+        final ExpensePayment payment = (trip == null) ? null
                 : reportOrDefault(trip, Cached.YES).payment(paymentId);
         return (payment == null) ? newPaymentForm() : paymentForm(payment);
     }
@@ -1145,8 +1145,8 @@ public class ExpenseCommands {
     /** Every payment as a form (the REST GET). */
     public List<PaymentForm> paymentFormsFor(final String tripId) {
         final List<PaymentForm> forms = new ArrayList<>();
-        final Trip trip = gate.knownTrip(tripId);
-        if (trip == null || !canViewExpenses(tripId)) {
+        final Trip trip = gate.viewableTrip(tripId);
+        if (trip == null) {
             return forms;
         }
         for (final ExpensePayment payment : reportOrDefault(trip, Cached.YES).getPayments()) {
@@ -1161,8 +1161,8 @@ public class ExpenseCommands {
      */
     public List<Choice> unpaidLineChoices(final String tripId, final String paymentId) {
         final List<Choice> choices = new ArrayList<>();
-        final Trip trip = gate.knownTrip(tripId);
-        if (trip == null || !canViewExpenses(tripId)) {
+        final Trip trip = gate.viewableTrip(tripId);
+        if (trip == null) {
             return choices;
         }
         final TripExpenseReport report = reportOrDefault(trip, Cached.YES);
@@ -1181,7 +1181,7 @@ public class ExpenseCommands {
 
     /** The checklist just changed: the amount becomes what the ticked expenses add up to (still editable). */
     public void prefillAmount(final String tripId, final PaymentForm form) {
-        final Trip trip = (form == null || !canViewExpenses(tripId)) ? null : gate.knownTrip(tripId);
+        final Trip trip = (form == null) ? null : gate.viewableTrip(tripId);
         if (trip != null) {
             form.setAmount(dollars(ExpenseMath.linesUsd(reportOrDefault(trip, Cached.YES), form.getLineIds())));
         }
@@ -1306,7 +1306,7 @@ public class ExpenseCommands {
 
     /** Whether the report can be emailed: a reader of it, on a trip whose organization has a treasurer. */
     public boolean hasTreasurer(final String tripId) {
-        final Trip trip = canViewExpenses(tripId) ? gate.knownTrip(tripId) : null;
+        final Trip trip = gate.viewableTrip(tripId);
         return trip != null && treasurerEmail(trip) != null;
     }
 
@@ -1573,8 +1573,8 @@ public class ExpenseCommands {
     /** The trip's participants for the picker, "Last, Preferred", sorted; value = the person id. */
     public List<Choice> participantChoices(final String tripId) {
         final List<Choice> choices = new ArrayList<>();
-        final Trip trip = gate.knownTrip(tripId);
-        if (trip == null || !canViewExpenses(tripId)) {
+        final Trip trip = gate.viewableTrip(tripId);
+        if (trip == null) {
             return choices;
         }
         for (final Person.Id id : trip.getPeople()) {
@@ -1602,8 +1602,8 @@ public class ExpenseCommands {
 
     /** The entry with this id as a form; a blank form when there is none or the caller may not view. */
     public AdvanceForm advanceFormFor(final String tripId, final String advanceId) {
-        final Trip trip = gate.knownTrip(tripId);
-        if (trip == null || !canViewExpenses(tripId)) {
+        final Trip trip = gate.viewableTrip(tripId);
+        if (trip == null) {
             return new AdvanceForm();
         }
         final AdvanceEntry entry = reportOrDefault(trip, Cached.YES).advance(advanceId);
@@ -1628,8 +1628,8 @@ public class ExpenseCommands {
     /** Every worksheet entry as a form (the REST GET). */
     public List<AdvanceForm> advanceFormsFor(final String tripId) {
         final List<AdvanceForm> forms = new ArrayList<>();
-        final Trip trip = gate.knownTrip(tripId);
-        if (trip == null || !canViewExpenses(tripId)) {
+        final Trip trip = gate.viewableTrip(tripId);
+        if (trip == null) {
             return forms;
         }
         for (final AdvanceEntry entry : reportOrDefault(trip, Cached.YES).getAdvances()) {

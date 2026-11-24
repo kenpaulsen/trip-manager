@@ -394,8 +394,8 @@ public class BudgetCommands {
     /** The inputs dialog's form: the stored inputs, else the pre-filled defaults. */
     public InputsForm inputsFormFor(final String tripId) {
         final InputsForm form = new InputsForm();
-        final Trip trip = knownTrip(tripId);
-        if (trip == null || !canViewBudget(tripId)) {
+        final Trip trip = gate.viewableTrip(tripId);
+        if (trip == null) {
             return form;
         }
         final TripBudget budget = budgetOrDefault(trip, Cached.YES);
@@ -416,8 +416,8 @@ public class BudgetCommands {
 
     /** The line dialog's form for an existing line; a fresh SHARED form when the line is gone. */
     public LineForm lineFormFor(final String tripId, final String lineId) {
-        final Trip trip = knownTrip(tripId);
-        final BudgetLine line = (trip == null || !canViewBudget(tripId)) ? null
+        final Trip trip = gate.viewableTrip(tripId);
+        final BudgetLine line = (trip == null) ? null
                 : budgetOrDefault(trip, Cached.YES).line(lineId);
         return (line == null) ? newLineForm(null, null) : formOf(line);
     }
@@ -443,8 +443,8 @@ public class BudgetCommands {
     /** Every typed line as a form (the REST GET). */
     public List<LineForm> lineFormsFor(final String tripId) {
         final List<LineForm> forms = new ArrayList<>();
-        final Trip trip = knownTrip(tripId);
-        if (trip == null || !canViewBudget(tripId)) {
+        final Trip trip = gate.viewableTrip(tripId);
+        if (trip == null) {
             return forms;
         }
         for (final BudgetLine line : budgetOrDefault(trip, Cached.YES).getLines()) {
@@ -465,9 +465,9 @@ public class BudgetCommands {
      */
     public List<Choice> percentChoices(final String tripId, final String kind, final String lineId) {
         final List<Choice> choices = new ArrayList<>();
-        final Trip trip = knownTrip(tripId);
+        final Trip trip = gate.viewableTrip(tripId);
         final BudgetLineKind wanted = parse(BudgetLineKind.class, kind);
-        if (trip == null || wanted == null || !canViewBudget(tripId)) {
+        if (trip == null || wanted == null) {
             return choices;
         }
         for (final BudgetLine line : budgetOrDefault(trip, Cached.YES).getLines()) {
@@ -612,8 +612,8 @@ public class BudgetCommands {
     /** A fresh lodging-line form: people from the budget (else the roster), nights from the trip dates. */
     public LodgingLineForm newLodgingForm(final String tripId) {
         final LodgingLineForm form = new LodgingLineForm();
-        final Trip trip = knownTrip(tripId);
-        if (trip == null || !canViewBudget(tripId)) {
+        final Trip trip = gate.viewableTrip(tripId);
+        if (trip == null) {
             return form;
         }
         final TripBudget budget = budgetOrDefault(trip, Cached.YES);
@@ -624,8 +624,8 @@ public class BudgetCommands {
 
     /** The lodging dialog's form for an existing line; a fresh form when the line is gone. */
     public LodgingLineForm lodgingFormFor(final String tripId, final String lineId) {
-        final Trip trip = knownTrip(tripId);
-        final BudgetLodgingLine line = (trip == null || !canViewBudget(tripId)) ? null
+        final Trip trip = gate.viewableTrip(tripId);
+        final BudgetLodgingLine line = (trip == null) ? null
                 : budgetOrDefault(trip, Cached.YES).lodgingLine(lineId);
         if (line == null) {
             return newLodgingForm(tripId);
@@ -652,8 +652,8 @@ public class BudgetCommands {
     /** Every lodging line as a form (the REST GET). */
     public List<LodgingLineForm> lodgingFormsFor(final String tripId) {
         final List<LodgingLineForm> forms = new ArrayList<>();
-        final Trip trip = knownTrip(tripId);
-        if (trip == null || !canViewBudget(tripId)) {
+        final Trip trip = gate.viewableTrip(tripId);
+        if (trip == null) {
             return forms;
         }
         for (final BudgetLodgingLine line : budgetOrDefault(trip, Cached.YES).getLodging()) {

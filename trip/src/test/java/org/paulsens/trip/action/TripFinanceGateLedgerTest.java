@@ -62,6 +62,21 @@ public class TripFinanceGateLedgerTest {
         Assert.assertEquals(ledger.tripAndOrgBalances(padded).tripId(), trip.getId());
     }
 
+    /** The budget's and the expense report's reads: the trip for whoever may view it, null for everyone else. */
+    @Test
+    public void theViewableTripIsTheTripBehindTheViewGate() throws IOException {
+        final Trip trip = storedTrip(Person.Id.newInstance());
+        Assert.assertEquals(gateFor(PrivilegeCommands.TRIP_FIN_VIEW, trip).viewableTrip(trip.getId()).getId(),
+                trip.getId());
+        Assert.assertEquals(gateFor(PrivilegeCommands.TRIP_MGR, trip).viewableTrip(trip.getId()).getId(),
+                trip.getId(), "an editor reads what they edit");
+        final TripFinanceGate stranger = TripFinanceGate.forCaller(() -> TestCallers.person(Person.Id.newInstance()));
+        Assert.assertNull(stranger.viewableTrip(trip.getId()));
+        final TripFinanceGate siteAdmin = TripFinanceGate.forCaller(TenancyFixtures::siteAdminCaller);
+        Assert.assertNull(siteAdmin.viewableTrip(UUID.randomUUID().toString()), "unknown trip");
+        Assert.assertNull(siteAdmin.viewableTrip(null));
+    }
+
     @Test
     public void theReminderGateAndTheLodgingReportsAskTheSameTest() throws IOException {
         final Trip trip = storedTrip(Person.Id.newInstance());

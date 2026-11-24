@@ -189,6 +189,15 @@ public final class TripFinanceGate {
     }
 
     /**
+     * The trip, for a caller who may read its planning money ({@link #canView}); null for anyone else and for an
+     * unknown trip. The budget's and the expense report's read methods each spelled the pair themselves, in
+     * either order; both halves only read, so the order never mattered and one spelling cannot forget a half.
+     */
+    Trip viewableTrip(final String tripId) {
+        return canView(tripId) ? knownTrip(tripId) : null;
+    }
+
+    /**
      * May open the trip's MONEY pages: a site admin, the trip's finance viewers ({@code tripFinView@trip}), or a
      * finance viewer of the organization that owns the trip ({@code viewFinances@org}). Not the editors: see the
      * class comment. False for nobody signed in and for a trip that is unknown or that this site does not serve,
