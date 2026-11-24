@@ -1,5 +1,7 @@
 package org.paulsens.trip.dynamo;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import java.time.Instant;
@@ -343,6 +345,40 @@ public class ChatDAOTest {
         dao.forceAllocator(base - 1);
         Assert.assertTrue(dao.saveMessage(draft("hopeless"), channel, null).isEmpty());
         Assert.assertEquals(nudges.size(), afterOccupiers, "a write that exhausted its retries must not nudge");
+    }
+
+    /**
+     * A delete, an edit and a photo removal each rewrite the message row. When the changed message cannot be
+     * serialized none of them may write. The delete alone lacked the check: it went on to put the row with a
+     * null content, cache a null body and tell every client the message had changed.
+     */
+    @Test
+    public void aRewriteThatCannotBeSerializedWritesNothingAndAnnouncesNothing() {
+        final ChatMessage saved = dao.saveMessage(draft("keep me"), channel, null).orElseThrow();
+        final ChatDAO broken = new ChatDAO(unserializing(), persistence, cache);
+        final String mutations = CacheKeys.chatMutationsVersionKey(channel.getId().getValue());
+
+        Assert.assertTrue(broken.tombstoneMessage(channel.getId(), saved.getId(), "admin").isEmpty());
+        Assert.assertTrue(broken.editMessage(channel.getId(), saved.getId(), "changed").isEmpty());
+
+        Assert.assertTrue(cache.getValue(mutations).isEmpty(), "nothing changed, so nothing is announced");
+        Assert.assertEquals(dao.getMessage(channel.getId(), saved.getId()).orElseThrow().getBody(), "keep me");
+        // Past the cache, straight from the store: the row still holds the message it held.
+        final ChatDAO cold = new ChatDAO(
+                new ObjectMapper().registerModule(new JavaTimeModule()), persistence, new InMemoryCacheClient());
+        final ChatMessage stored = cold.getMessage(channel.getId(), saved.getId()).orElseThrow();
+        Assert.assertEquals(stored.getBody(), "keep me");
+        Assert.assertFalse(stored.isDeleted());
+    }
+
+    /** A mapper that reads rows but cannot write one: the shape of a model or Jackson regression. */
+    private static ObjectMapper unserializing() {
+        return new ObjectMapper() {
+            @Override
+            public String writeValueAsString(final Object value) throws JsonProcessingException {
+                throw new JsonMappingException(null, "cannot serialize");
+            }
+        }.registerModule(new JavaTimeModule());
     }
 
     private ChatMessage draft(final String body) {

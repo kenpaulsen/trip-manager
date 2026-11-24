@@ -356,17 +356,11 @@ public class ChatDAO {
             log.error("Chat message could not find a free key after {} attempts: {}", MAX_WRITE_RETRIES, message);
             return Optional.empty();
         }
-        final Map<String, AttributeValue> item = new HashMap<>();
-        item.put(ATTR_CHANNEL_ID, persistence.toStrAttr(message.getChannelId().getValue()));
-        item.put(ATTR_MSG_ID, persistence.toStrAttr(message.getId().getValue()));
         final String json = rows.toJson(message);
         if (json == null) {
             return Optional.empty();
         }
-        item.put(ATTR_CONTENT, persistence.toStrAttr(json));
-        if (message.getExpiresAt() != null) {
-            item.put(ATTR_EXPIRES_AT, AttributeValue.builder().n(Long.toString(message.getExpiresAt())).build());
-        }
+        final Map<String, AttributeValue> item = messageItem(message, json);
         try {
             final boolean saved = persistence.putItem(b -> b.tableName(MESSAGES_TABLE)
                             .item(item)
@@ -519,31 +513,7 @@ public class ChatDAO {
     protected Optional<ChatMessage> tombstoneMessage(
             final ChatChannel.Id channelId, final ChatMessage.Id msgId, final String deletedBy) {
         final Optional<ChatMessage> existing = getMessage(channelId, msgId);
-        return existing.isEmpty() ? Optional.empty() : writeTombstone(existing.get(), deletedBy);
-    }
-
-    private Optional<ChatMessage> writeTombstone(
-            final ChatMessage original, final String deletedBy) {
-        final ChatMessage tombstoned = original.withDeleted(deletedBy);
-        final String json = rows.toJson(tombstoned);
-        final Map<String, AttributeValue> item = new HashMap<>();
-        item.put(ATTR_CHANNEL_ID, persistence.toStrAttr(tombstoned.getChannelId().getValue()));
-        item.put(ATTR_MSG_ID, persistence.toStrAttr(tombstoned.getId().getValue()));
-        item.put(ATTR_CONTENT, persistence.toStrAttr(json));
-        if (tombstoned.getExpiresAt() != null) {
-            item.put(ATTR_EXPIRES_AT,
-                    AttributeValue.builder().n(Long.toString(tombstoned.getExpiresAt())).build());
-        }
-        final boolean saved = persistence.putItem(b -> b.tableName(MESSAGES_TABLE).item(item))
-                .sdkHttpResponse().isSuccessful();
-        return saved ? cacheTombstone(tombstoned, json) : Optional.empty();
-    }
-
-    private Optional<ChatMessage> cacheTombstone(
-            final ChatMessage tombstoned, final String json) {
-        cacheClient.putHashField(CacheKeys.chatBodyKey(tombstoned.getChannelId().getValue()),
-                tombstoned.getId().getValue(), json);
-        return announceMutation(tombstoned);
+        return existing.isEmpty() ? Optional.empty() : rewriteMessage(existing.get().withDeleted(deletedBy));
     }
 
     /**
@@ -560,7 +530,7 @@ public class ChatDAO {
             return Optional.empty();
         }
         final List<ChatAttachment> replaced = tombstoneOne(existing.get().getAttachments(), s3Key, deletedBy);
-        return replaced == null ? Optional.empty() : writeAttachments(existing.get(), replaced);
+        return replaced == null ? Optional.empty() : rewriteMessage(existing.get().withAttachments(replaced));
     }
 
     /**
@@ -616,7 +586,7 @@ public class ChatDAO {
             // Already so: nothing to write, and no mutation to announce.
             return existing;
         }
-        return writeAttachments(existing.get(), out);
+        return rewriteMessage(existing.get().withAttachments(out));
     }
 
     /**
@@ -660,26 +630,6 @@ public class ChatDAO {
         return matched ? out : null;
     }
 
-    private Optional<ChatMessage> writeAttachments(
-            final ChatMessage original, final List<ChatAttachment> replaced) {
-        final ChatMessage updated = original.withAttachments(replaced);
-        final String json = rows.toJson(updated);
-        if (json == null) {
-            return Optional.empty();
-        }
-        final Map<String, AttributeValue> item = new HashMap<>();
-        item.put(ATTR_CHANNEL_ID, persistence.toStrAttr(updated.getChannelId().getValue()));
-        item.put(ATTR_MSG_ID, persistence.toStrAttr(updated.getId().getValue()));
-        item.put(ATTR_CONTENT, persistence.toStrAttr(json));
-        if (updated.getExpiresAt() != null) {
-            item.put(ATTR_EXPIRES_AT,
-                    AttributeValue.builder().n(Long.toString(updated.getExpiresAt())).build());
-        }
-        final boolean saved = persistence.putItem(b -> b.tableName(MESSAGES_TABLE).item(item))
-                .sdkHttpResponse().isSuccessful();
-        return saved ? cacheEdit(updated, json) : Optional.empty();
-    }
-
     /**
      * Replaces a message body in place, stamping {@code editedAt}. Author and window checks live in the action
      * layer; this is the write.
@@ -691,33 +641,41 @@ public class ChatDAO {
             final ChatChannel.Id channelId, final ChatMessage.Id msgId, final String newBody) {
         final Optional<ChatMessage> existing = getMessage(channelId, msgId);
         return existing.isEmpty() || existing.get().isDeleted()
-                ? Optional.empty() : writeEdit(existing.get(), newBody);
+                ? Optional.empty() : rewriteMessage(existing.get().withBody(newBody));
     }
 
-    private Optional<ChatMessage> writeEdit(
-            final ChatMessage original, final String newBody) {
-        final ChatMessage edited = original.withBody(newBody);
-        final String json = rows.toJson(edited);
+    /**
+     * The one write behind every change to an already-sent message (delete, edit, a photo removed, hidden or
+     * rotated): an unconditional put of the whole row, then the cached body, then the announcement. A message
+     * that will not serialize writes nothing and announces nothing. The check lives here because the delete
+     * once lacked it and went on to put the row with a null content.
+     */
+    private Optional<ChatMessage> rewriteMessage(final ChatMessage changed) {
+        final String json = rows.toJson(changed);
         if (json == null) {
             return Optional.empty();
         }
-        final Map<String, AttributeValue> item = new HashMap<>();
-        item.put(ATTR_CHANNEL_ID, persistence.toStrAttr(edited.getChannelId().getValue()));
-        item.put(ATTR_MSG_ID, persistence.toStrAttr(edited.getId().getValue()));
-        item.put(ATTR_CONTENT, persistence.toStrAttr(json));
-        if (edited.getExpiresAt() != null) {
-            item.put(ATTR_EXPIRES_AT,
-                    AttributeValue.builder().n(Long.toString(edited.getExpiresAt())).build());
-        }
+        final Map<String, AttributeValue> item = messageItem(changed, json);
         final boolean saved = persistence.putItem(b -> b.tableName(MESSAGES_TABLE).item(item))
                 .sdkHttpResponse().isSuccessful();
-        return saved ? cacheEdit(edited, json) : Optional.empty();
+        if (!saved) {
+            return Optional.empty();
+        }
+        cacheClient.putHashField(CacheKeys.chatBodyKey(changed.getChannelId().getValue()),
+                changed.getId().getValue(), json);
+        return announceMutation(changed);
     }
 
-    private Optional<ChatMessage> cacheEdit(final ChatMessage edited, final String json) {
-        cacheClient.putHashField(CacheKeys.chatBodyKey(edited.getChannelId().getValue()),
-                edited.getId().getValue(), json);
-        return announceMutation(edited);
+    /** A message's row: its key, its JSON and, when the channel's retention sets one, the TTL attribute. */
+    private Map<String, AttributeValue> messageItem(final ChatMessage message, final String json) {
+        final Map<String, AttributeValue> item = new HashMap<>();
+        item.put(ATTR_CHANNEL_ID, persistence.toStrAttr(message.getChannelId().getValue()));
+        item.put(ATTR_MSG_ID, persistence.toStrAttr(message.getId().getValue()));
+        item.put(ATTR_CONTENT, persistence.toStrAttr(json));
+        if (message.getExpiresAt() != null) {
+            item.put(ATTR_EXPIRES_AT, AttributeValue.builder().n(Long.toString(message.getExpiresAt())).build());
+        }
+        return item;
     }
 
     /**
