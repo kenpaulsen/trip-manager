@@ -61,6 +61,7 @@ import org.paulsens.trip.pay.BudgetMath;
 import org.paulsens.trip.pay.ExpenseMath;
 import org.paulsens.trip.pay.MoneyMath;
 import org.paulsens.trip.util.EmailAddresses;
+import org.paulsens.trip.util.PersonNames;
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
 
 import static org.paulsens.trip.action.MoneyForms.cents;
@@ -308,8 +309,7 @@ public class ExpenseCommands {
         if (person == null) {
             return Text.forLocale(locale, "feedback.expenseCommands.unknownPerson");
         }
-        return nameOr(trimToNull((nameOr(person.getPreferredName(), "") + " " + nameOr(person.getLast(), "")).trim()),
-                Text.forLocale(locale, "feedback.expenseCommands.unnamedPerson"));
+        return PersonNames.displayOr(person, Text.forLocale(locale, "feedback.expenseCommands.unnamedPerson"));
     }
 
     /**
@@ -1851,11 +1851,7 @@ public class ExpenseCommands {
         if (id == null) {
             return null;
         }
-        final Person person = DAO.getInstance().getPerson(id, Cached.YES).orElse(null);
-        if (person == null) {
-            return null;
-        }
-        return trimToNull((nameOr(person.getPreferredName(), "") + " " + nameOr(person.getLast(), "")).trim());
+        return PersonNames.displayOr(DAO.getInstance().getPerson(id, Cached.YES).orElse(null), null);
     }
 
     private static String orgName(final Trip trip) {

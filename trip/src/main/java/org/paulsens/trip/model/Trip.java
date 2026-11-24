@@ -27,6 +27,7 @@ import org.paulsens.trip.audit.RequestContext;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.i18n.Formats;
 import org.paulsens.trip.cache.Cached;
+import org.paulsens.trip.util.PersonNames;
 
 @Data
 @Builder
@@ -432,7 +433,9 @@ public final class Trip implements Serializable {
         return ids.stream()
                 .map(id -> DAO.getInstance().getPerson(id, Cached.YES).orElse(null))
                 .filter(Objects::nonNull)
-                .map(person -> person.getPreferredName() + " " + person.getLast())
+                .map(PersonNames::display)
+                // A person with no name on file adds nothing, rather than an empty slot between two commas.
+                .filter(name -> !name.isEmpty())
                 .collect(Collectors.joining(", "));
     }
 

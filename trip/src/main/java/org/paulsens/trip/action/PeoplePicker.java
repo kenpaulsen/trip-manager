@@ -5,6 +5,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.util.Util;
 
 /**
  * What a people autocomplete answers from a roster its bean has ALREADY scoped: the content dialog's person
@@ -39,8 +40,11 @@ final class PeoplePicker {
         if (lowerNeedle.isEmpty()) {
             return true;
         }
-        final String haystack = (person.getPreferredName() + " " + person.getFirst() + " "
-                + person.getLast() + " " + person.getEmail()).toLowerCase(Locale.ROOT);
+        // Joined null-safe: a missing last name or email once put the word "null" into the text, so typing
+        // "null" (or "nul") found everyone without one.
+        final String haystack = String.join(" ", Util.orDefault(person.getPreferredName(), ""),
+                Util.orDefault(person.getFirst(), ""), Util.orDefault(person.getLast(), ""),
+                Util.orDefault(person.getEmail(), "")).toLowerCase(Locale.ROOT);
         return haystack.contains(lowerNeedle);
     }
 

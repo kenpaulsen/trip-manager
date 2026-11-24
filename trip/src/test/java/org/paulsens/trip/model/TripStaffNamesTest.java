@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.util.List;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.util.TestPeople;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
@@ -50,6 +51,17 @@ public class TripStaffNamesTest {
         final Trip trip = Trip.builder().title("ghosts").build();
         trip.setFacilitatorIds(List.of(ann.getId(), Person.Id.newInstance()));
         Assert.assertEquals(trip.getFacilitators(), "Ann Alpha");
+    }
+
+    /** The join once read "Ann null" for a person with no last name, and "null null" for one with no name. */
+    @Test
+    public void aMissingNamePartIsLeftOutNotSpelledNull() {
+        final Person ann = TestPeople.save(Person.builder().first("Ann").build());
+        final Person nameless = TestPeople.save(Person.builder().build());
+        final Person bob = savedPerson("Bob", "Beta");
+        final Trip trip = Trip.builder().title("partial names").build();
+        trip.setFacilitatorIds(List.of(ann.getId(), nameless.getId(), bob.getId()));
+        Assert.assertEquals(trip.getFacilitators(), "Ann, Bob Beta");
     }
 
     @Test

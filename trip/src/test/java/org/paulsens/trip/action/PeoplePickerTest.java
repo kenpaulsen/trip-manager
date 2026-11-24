@@ -39,6 +39,17 @@ public class PeoplePickerTest {
         Assert.assertTrue(PeoplePicker.pick(roster, "nobody", 25).isEmpty());
     }
 
+    /** A missing name or email is no text at all: it once joined in as the word "null". */
+    @Test
+    public void aMissingNameOrEmailIsNotSearchableAsTheWordNull() {
+        final Person bare = person("Cy", null, null, null);
+        final List<Person> withBare = List.of(zed, bare);
+        Assert.assertTrue(PeoplePicker.pick(withBare, "null", 25).isEmpty());
+        Assert.assertEquals(PeoplePicker.pick(withBare, "cy", 25), List.of(bare), "still found by the name it has");
+        final Person nuller = person("Ada", null, "Nullman", null);
+        Assert.assertEquals(PeoplePicker.pick(List.of(zed, nuller), "null", 25), List.of(nuller), "a real name");
+    }
+
     @Test
     public void theLimitCutsAfterTheSortAndNothingOutsideTheRosterIsEverAnswered() {
         Assert.assertEquals(lastNames(PeoplePicker.pick(roster, "", 2)), List.of("adams", "Baker"));
