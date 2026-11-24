@@ -14,7 +14,6 @@ import org.paulsens.trip.action.ChatPhotos;
 import org.paulsens.trip.action.ConfigCommands;
 import org.paulsens.trip.action.IsoCountries;
 import org.paulsens.trip.action.MediaCommands;
-import org.paulsens.trip.action.TripCommands;
 import org.paulsens.trip.action.TripPageCommands;
 import org.paulsens.trip.action.TripPictureCommands;
 import org.paulsens.trip.action.TripTags;
@@ -103,7 +102,7 @@ public final class DiscoverTripMapper {
                 shownTags.stream().map(TripTags.Tag::id).toList(),
                 shownTags.stream().map(TripTags.Tag::label).toList(),
                 trip.getKind().name(),
-                TripCommands.languageOf(trip).name(),
+                trip.getLanguageOrDefault().name(),
                 blankToNull(trip.getEstimatedPrice()),
                 List.copyOf(pictures),
                 org.getId().getValue(),

@@ -15,8 +15,10 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.RequestContext;
 import org.paulsens.trip.cache.Cached;
@@ -377,8 +379,10 @@ public class SitePageCommands {
         if (cleanTitle == null) {
             return false;
         }
-        return change(orgId, name, (pages, index) -> applyDetails(pages, index, cleanTitle, titles, url, placement),
-                "updated");
+        final Set<String> offered = otherLanguages(orgId).stream().map(Language::getTag)
+                .collect(Collectors.toSet());
+        return change(orgId, name,
+                (pages, index) -> applyDetails(pages, index, cleanTitle, titles, offered, url, placement), "updated");
     }
 
     /**
@@ -479,8 +483,13 @@ public class SitePageCommands {
         boolean apply(List<SitePage> pages, int index);
     }
 
+    /**
+     * The dialog's changes on one entry. Its titles replace those of the languages the dialog showed
+     * ({@code offered}); a title for a language the site does not offer yet (a starter's, seeded in every starter
+     * language) is kept, so the entry still reads translated when the site adds that language (review, 2026-11-24).
+     */
     private static boolean applyDetails(final List<SitePage> pages, final int index, final String title,
-            final Map<String, String> titles, final String url, final String placement) {
+            final Map<String, String> titles, final Set<String> offered, final String url, final String placement) {
         final SitePage page = pages.get(index);
         final String target = page.isLink() ? ContentRenderer.requireLinkUrl(url) : null;
         if (page.isLink() && (target.isEmpty() || target.startsWith("#"))) {
@@ -488,8 +497,20 @@ public class SitePageCommands {
                     Text.get("feedback.sitePageCommands.linkShape"));
         }
         final SitePage changed = page.withDetails(title, target, Placement.from(placement));
-        pages.set(index, titles == null ? changed : changed.withTitles(titles));
+        pages.set(index, titles == null ? changed : changed.withTitles(keptAlongside(page.titles(), titles, offered)));
         return true;
+    }
+
+    /** The dialog's titles, plus the stored ones for languages it did not show. */
+    private static Map<String, String> keptAlongside(final Map<String, String> stored,
+            final Map<String, String> shown, final Set<String> offered) {
+        final Map<String, String> out = new LinkedHashMap<>(shown);
+        for (final Map.Entry<String, String> title : stored.entrySet()) {
+            if (!offered.contains(title.getKey())) {
+                out.putIfAbsent(title.getKey(), title.getValue());
+            }
+        }
+        return out;
     }
 
     /** Swaps the entry with its neighbor in the same menu; at either end of that menu it stays put (a success). */

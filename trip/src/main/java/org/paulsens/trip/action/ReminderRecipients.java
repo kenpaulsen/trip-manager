@@ -266,7 +266,7 @@ public final class ReminderRecipients {
         final Map<String, String> facts = new LinkedHashMap<>();
         final String base = baseUrl.apply(trip);
         final String id = trip.getId();
-        final Locale locale = TripCommands.languageOf(trip).getLocale();
+        final Locale locale = trip.getLanguageOrDefault().getLocale();
         final LocalDate start = (trip.getStartDate() == null) ? null : trip.getStartDate().toLocalDate();
         final LocalDate end = (trip.getEndDate() == null) ? null : trip.getEndDate().toLocalDate();
         facts.put(ReminderText.TRIP_TITLE, trip.getTitle());

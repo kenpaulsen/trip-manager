@@ -1426,7 +1426,7 @@ public class TripCommands {
     public List<Trip> getPublicTrips(final String language) {
         final Language wanted = parseLanguage(language);
         return publicPilgrimages().stream()
-                .filter(trip -> languageOf(trip) == wanted)
+                .filter(trip -> trip.getLanguageOrDefault() == wanted)
                 .toList();
     }
 
@@ -1443,7 +1443,7 @@ public class TripCommands {
      *  drives which language sections the landing page renders, so a new language appears automatically. */
     public List<Language> getPublicTripLanguages() {
         final Set<Language> present = publicPilgrimages().stream()
-                .map(TripCommands::languageOf)
+                .map(Trip::getLanguageOrDefault)
                 .collect(Collectors.toSet());
         return Arrays.stream(Language.values()).filter(present::contains).toList();
     }
@@ -1481,7 +1481,7 @@ public class TripCommands {
         final int max = parsePositive(values.get("maxCount"), Integer.MAX_VALUE);
         return publicTripsAnywhere().stream()
                 .filter(trip -> scope.shows(trip.getOrgId()))
-                .filter(trip -> anyLanguage || languageOf(trip) == wanted)
+                .filter(trip -> anyLanguage || trip.getLanguageOrDefault() == wanted)
                 .filter(trip -> !cfpwOnly || trip.isCfpw())
                 .filter(trip -> !trip.isConference())
                 .limit(max)
@@ -1525,7 +1525,7 @@ public class TripCommands {
             // "Next" of a language is one that has not started by the server's calendar; the start-day
             // trip is carried by the soon-window below, so it never hides the language's real next card.
             if (notStartedBy(trip, today)) {
-                nextPerLanguage.putIfAbsent(languageOf(trip), trip);
+                nextPerLanguage.putIfAbsent(trip.getLanguageOrDefault(), trip);
             }
         }
         return upcoming.stream()
@@ -1721,14 +1721,6 @@ public class TripCommands {
 
     private static boolean isConferenceKind(final String kind) {
         return kind != null && TripKind.CONFERENCE.name().equalsIgnoreCase(kind.trim());
-    }
-
-    /**
-     * The language a trip is listed under: its own, and English for a trip that stored none (the site default),
-     * so no trip drops out of every language section. Public because the apps' listings fold the same way.
-     */
-    public static Language languageOf(final Trip trip) {
-        return trip.getLanguageOrDefault();
     }
 
     /** A stored or requested language name, English for none or one this build does not know. */

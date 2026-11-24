@@ -57,7 +57,7 @@ public class SitePageCommandsTest {
         assertEquals(pages.pageOf(orgId, "board"), new SitePage("board", "Board of Directors", null, "ABOUT",
                 Map.of("es", "Junta directiva", "hr", "Upravni odbor")), "with its menu titles in each language");
         assertEquals(pages.pageOf(orgId, "about").where(), Placement.ABOUT);
-        assertEquals(pages.pageOf(orgId, "about").titleIn("hr"), "O nama");
+        assertEquals(pages.pageOf(orgId, "about").titleIn("hr"), "Tko smo mi");
         assertNotNull(org.getSitePagesSeededAt(), "the org row records the seeding");
         assertEquals(content("about", org).size(), 1, "each starter page starts with its starter content");
         final List<ContentInstance> board = content("board", org);
@@ -88,8 +88,8 @@ public class SitePageCommandsTest {
 
         final SitePage about = pages.pageOf(orgId, "about");
         assertEquals(about.title(), "Quiénes somos", "the entry's own title is in the site's default language");
-        assertEquals(about.titles(), Map.of("en", "About Us", "hr", "O nama"), "English is one of the others");
-        assertEquals(pages.titlesEdit(orgId, about), Map.of("en", "About Us", "hr", "O nama"),
+        assertEquals(about.titles(), Map.of("en", "About Us", "hr", "Tko smo mi"), "English is one of the others");
+        assertEquals(pages.titlesEdit(orgId, about), Map.of("en", "About Us", "hr", "Tko smo mi"),
                 "every title is one the dialog shows");
         assertEquals(pages.pageOf(orgId, "board").title(), "Junta directiva");
 
@@ -331,6 +331,17 @@ public class SitePageCommandsTest {
         assertTrue(pages.saveDialog(orgId, "link", null, "Give", Map.of("es", "Donar"), "https://example.org/",
                 "HELP"));
         assertEquals(pages.pagesIn(orgId, "HELP").get(1).titleIn("es"), "Donar");
+
+        // A title for a language the site does not offer yet (a starter's) survives a dialog save, so the entry
+        // still reads translated once the site adds the language (review, 2026-11-24).
+        assertTrue(new OrgCommands(SitePageCommandsTest::siteAdminCaller).saveOrgSettings(orgId,
+                Map.of(KnownSettings.SITE_LANGUAGES.getName(), "en,es")));
+        assertTrue(pages.saveDialog(orgId, "edit", "mission", "Mission", Map.of("es", "Misión"), null, "HELP"));
+        assertEquals(pages.pageOf(orgId, "mission").titles(), Map.of("es", "Misión", "hr", "Naša misija"),
+                "the Croatian title the dialog did not show is kept");
+        assertTrue(pages.saveDialog(orgId, "edit", "mission", "Mission", Map.of("es", " "), null, "HELP"));
+        assertEquals(pages.pageOf(orgId, "mission").titles(), Map.of("hr", "Naša misija"),
+                "an offered language's title is still cleared by the dialog");
     }
 
     @Test

@@ -202,8 +202,8 @@ public class OrgPageBootstrapTest {
         Assert.assertSame(OrgPageBootstrap.starterPages(), starters, "read once");
         Assert.assertEquals(OrgPageBootstrap.readStarterPages(), starters);
         final OrgPageBootstrap.StarterPage board = starters.get(1);
-        Assert.assertEquals(board.entry().title(), "Board of Directors");
-        Assert.assertFalse(board.entry().isLink());
+        Assert.assertEquals(board.entry(Language.English).title(), "Board of Directors");
+        Assert.assertFalse(board.entry(Language.English).isLink());
         final List<ContentInstance> rows = OrgPageBootstrap.starterRows(ORG, board, id -> 3);
         Assert.assertEquals(rows.size(), 2);
         Assert.assertEquals(rows.get(0).getSection(), OrgPageBootstrap.pageKey(ORG, "board"));
@@ -223,23 +223,22 @@ public class OrgPageBootstrapTest {
     @Test
     public void eachStarterPageShipsItsMenuTitleInSpanishAndCroatian() {
         for (final OrgPageBootstrap.StarterPage starter : OrgPageBootstrap.starterPages()) {
-            Assert.assertEquals(starter.entry().titles().keySet(), Set.of("es", "hr"), starter.name());
-            Assert.assertEquals(starter.entry().titleIn("en"), starter.title(), "English is the entry's own title");
-            for (final String title : starter.entry().titles().values()) {
+            Assert.assertEquals(starter.entry(Language.English).titles().keySet(), Set.of("es", "hr"), starter.name());
+            Assert.assertEquals(starter.entry(Language.English).titleIn("en"), starter.title(),
+                    "English is the entry's own title");
+            for (final String title : starter.entry(Language.English).titles().values()) {
                 Assert.assertFalse(title.contains("\u2014"), title);
             }
         }
         final List<OrgPageBootstrap.StarterPage> starters = OrgPageBootstrap.starterPages();
-        Assert.assertEquals(starters.get(0).entry().titleIn("es"), "Quiénes somos");
-        Assert.assertEquals(starters.get(0).entry().titleIn("hr"), "O nama");
-        Assert.assertEquals(starters.get(1).entry().titleIn("es"), "Junta directiva");
-        Assert.assertEquals(starters.get(1).entry().titleIn("hr"), "Upravni odbor");
+        Assert.assertEquals(starters.get(0).entry(Language.English).titleIn("es"), "Quiénes somos");
+        Assert.assertEquals(starters.get(0).entry(Language.English).titleIn("hr"), "Tko smo mi");
+        Assert.assertEquals(starters.get(1).entry(Language.English).titleIn("es"), "Junta directiva");
+        Assert.assertEquals(starters.get(1).entry(Language.English).titleIn("hr"), "Upravni odbor");
 
         final SitePage croatianFirst = starters.get(1).entry(Language.Croatian);
         Assert.assertEquals(croatianFirst.title(), "Upravni odbor", "the site's default language is the own title");
         Assert.assertEquals(croatianFirst.titles(), Map.of("en", "Board of Directors", "es", "Junta directiva"));
-        Assert.assertEquals(starters.get(1).entry(Language.English), starters.get(1).entry());
-        Assert.assertEquals(starters.get(1).entry(null), starters.get(1).entry(), "no default reads English");
     }
 
     @Test

@@ -887,7 +887,7 @@ public class WaiverCommands {
         // and the two attestations (made again here, WaiverPdf) then match the text that was signed.
         try {
             return WaiverPdf.render(trip, org == null ? null : org.getName(), text, row,
-                    TripCommands.languageOf(trip).getLocale());
+                    trip.getLanguageOrDefault().getLocale());
         } catch (final IOException ex) {
             log.error("Rendering the signed copy of {} v{} for {} failed", waiverId, version, subject, ex);
             return null;

@@ -318,16 +318,12 @@ public final class OrgPageBootstrap {
     public record StarterPage(String name, String title, String placement, Map<String, String> titles,
             List<StarterRow> rows) {
 
-        /** The page's menu entry on an English-first site. */
-        public SitePage entry() {
-            return entry(Language.English);
-        }
-
         /**
          * The page's menu entry on a site whose default language is {@code siteDefault}. A {@link SitePage}'s
          * {@code title} is in the site's DEFAULT language and its {@code titles} in the others (the Site Pages
          * dialog edits only those, and a save keeps only those), so on a Spanish-first site the Spanish title is
-         * the entry's own and English joins the other languages. A default with no starter title keeps English.
+         * the entry's own and English joins the other languages. A default with no starter title keeps English. (The
+         * marketing site's seed passes English.)
          */
         public SitePage entry(final Language siteDefault) {
             final Map<String, String> all = new LinkedHashMap<>();
@@ -335,8 +331,7 @@ public final class OrgPageBootstrap {
             if (titles != null) {
                 all.putAll(titles);
             }
-            final String own = siteDefault == null || !all.containsKey(siteDefault.getTag())
-                    ? Language.English.getTag() : siteDefault.getTag();
+            final String own = all.containsKey(siteDefault.getTag()) ? siteDefault.getTag() : Language.English.getTag();
             final String ownTitle = all.remove(own);
             return new SitePage(name, ownTitle, null, placement, all);
         }

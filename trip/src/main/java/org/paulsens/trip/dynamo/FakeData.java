@@ -808,7 +808,7 @@ public final class FakeData {
                         .forEach(FakeData::saveContent);
             }
             platform.setSitePages(MarketingPageBootstrap.sitePages().stream()
-                    .map(OrgPageBootstrap.StarterPage::entry).toList());
+                    .map(page -> page.entry(Language.English)).toList());
             platform.setSitePagesSeededAt(LocalDateTime.now());
             if (!DAO.getInstance().saveOrganization(platform)) {
                 throw new IllegalStateException("Fake org seed: could not save the platform org's Site Pages");

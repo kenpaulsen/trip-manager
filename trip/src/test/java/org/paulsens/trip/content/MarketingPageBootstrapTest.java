@@ -11,6 +11,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.ContentTemplate;
+import org.paulsens.trip.model.Language;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Placeholder;
 import org.paulsens.trip.model.SitePage;
@@ -135,8 +136,8 @@ public class MarketingPageBootstrapTest {
         Assert.assertSame(MarketingPageBootstrap.sitePages(), pages, "read once");
         for (final OrgPageBootstrap.StarterPage page : pages) {
             Assert.assertTrue(OrgPageBootstrap.isPageName(page.name()), page.name());
-            Assert.assertEquals(page.entry().where(), SitePage.Placement.ABOUT, page.name());
-            Assert.assertFalse(page.entry().isLink());
+            Assert.assertEquals(page.entry(Language.English).where(), SitePage.Placement.ABOUT, page.name());
+            Assert.assertFalse(page.entry(Language.English).isLink());
             final List<ContentInstance> rows = OrgPageBootstrap.starterRows(PLATFORM, page, id -> 2);
             final List<ContentInstance> top = rows.stream()
                     .filter(row -> row.getSection().equals(OrgPageBootstrap.pageKey(PLATFORM, page.name()))).toList();
