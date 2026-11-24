@@ -2,13 +2,8 @@ package org.paulsens.trip.action;
 
 import java.io.IOException;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.ThreadLocalRandom;
-import org.paulsens.trip.action.LodgingViews.AccommodationForm;
-import org.paulsens.trip.action.LodgingViews.OfferForm;
-import org.paulsens.trip.action.LodgingViews.RoomTypeForm;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
@@ -182,52 +177,22 @@ public class LodgingAccessCommandsTest {
     // ------------------------------------------------------------------ fixtures
 
     private String hotel() {
-        final AccommodationForm form = new AccommodationForm();
-        final String tag = RandomData.genAlpha(8);
-        form.setName("Access hotel " + tag);
-        form.setEmail(tag.toLowerCase(java.util.Locale.ROOT) + "@access.example");
-        // Discovery compares phone DIGITS only, so the random part must be digits or every fixture is a duplicate.
-        form.setPhone("+1 503 " + (1_000_000 + ThreadLocalRandom.current().nextInt(9_000_000)));
-        form.setStreet(tag + " Way");
-        form.setCity("Portland");
-        final String accId = admin.saveAccommodation(form, orgId);
-        assertTrue(accId != null && !accId.isBlank(), "the hotel fixture was refused as a duplicate");
-        final RoomTypeForm type = new RoomTypeForm();
-        type.setName("Double");
-        type.setMinPeople(1);
-        type.setMaxPeople(2);
-        assertTrue(admin.saveRoomType(accId, type));
-        return accId;
+        return LodgingFixtures.hotel(admin, orgId, "Access hotel");
     }
 
     private void offerAt(final Trip trip, final String accId) {
-        final OfferForm offerForm = new OfferForm();
-        offerForm.setName("Room " + RandomData.genAlpha(4));
-        offerForm.setAccommodationId(accId);
-        offerForm.setRoomTypeIds(new ArrayList<>(List.of(admin.roomTypeRows(accId).get(0).getId())));
-        offerForm.setTripEventId(OfferForm.NEW_EVENT);
-        offerForm.setPricingModel("PER_ROOM");
-        offerForm.setNightlyPrice(100.0);
-        offerForm.setDefaultStart(CHECK_IN);
-        offerForm.setDefaultEnd(CHECK_OUT);
-        assertTrue(admin.saveOffer(trip.getId(), offerForm));
+        LodgingFixtures.saveOffer(admin, trip.getId(),
+                LodgingFixtures.offerForm(admin, accId, "Room " + RandomData.genAlpha(4), CHECK_IN, CHECK_OUT));
     }
 
     private static Person operatorOf(final String accId) throws IOException {
         final Person keeper = savedPerson("Keeper");
-        final PrivilegeCommands priv = new PrivilegeCommands();
-        assertTrue(priv.savePrivilege(priv.getOrCreate(PrivilegeCommands.ACCOMMODATION_ADMIN, accId,
-                PrivilegeCommands.ACCOMMODATION_ROLE_NAME).withNewPerson(keeper.getId())));
+        LodgingFixtures.makeOperator(keeper, accId);
         return keeper;
     }
 
     private Trip tripWith(final String title, final Person person) throws IOException {
-        final Trip trip = Trip.builder().id(java.util.UUID.randomUUID().toString()).title(title)
-                .startDate(CHECK_IN).endDate(CHECK_OUT.plusDays(2))
-                .people(new ArrayList<>(List.of(person.getId()))).build();
-        trip.setOrgId(orgId);
-        assertTrue(DAO.getInstance().saveTrip(trip));
-        return trip;
+        return LodgingFixtures.rosterTrip(orgId, title, CHECK_IN, CHECK_OUT, person);
     }
 
     private static Person savedPerson(final String first) throws IOException {

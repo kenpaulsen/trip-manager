@@ -7,13 +7,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicInteger;
-import org.paulsens.trip.action.LodgingViews.AccommodationForm;
+import org.paulsens.trip.action.LodgingFixtures.RecordingAudit;
 import org.paulsens.trip.action.LodgingViews.CostExtraForm;
 import org.paulsens.trip.action.LodgingViews.OfferForm;
 import org.paulsens.trip.action.LodgingViews.OfferRow;
 import org.paulsens.trip.action.LodgingViews.ReservationForm;
-import org.paulsens.trip.action.LodgingViews.RoomTypeForm;
 import org.paulsens.trip.action.RatePlanViews.AttachForm;
 import org.paulsens.trip.action.RatePlanViews.PlanChoice;
 import org.paulsens.trip.action.RatePlanViews.RatePlanForm;
@@ -54,7 +52,6 @@ public class RatePlanCommandsTest {
     private static final LocalDateTime CHECK_OUT = LocalDateTime.of(2027, 9, 24, 10, 0);
     private static final LocalDate SEASON_START = LocalDate.of(2027, 9, 1);
     private static final LocalDate SEASON_END = LocalDate.of(2027, 10, 31);
-    private static final AtomicInteger SEQ = new AtomicInteger();
 
     private final LodgingCommands admin = new LodgingCommands(TestCallers::siteAdmin);
     private final RatePlanCommands plans = new RatePlanCommands(TestCallers::siteAdmin);
@@ -77,7 +74,7 @@ public class RatePlanCommandsTest {
     public void anOperatorStatesTheCostAndEveryReaderSeesTheSameRow() throws IOException {
         final String accId = hotel();
         final Person keeper = savedPerson("Kep");
-        makeOperator(keeper, accId);
+        LodgingFixtures.makeOperator(keeper, accId);
         final RatePlanCommands asKeeper = new RatePlanCommands(() -> TestCallers.person(keeper.getId()));
         assertTrue(asKeeper.canEditCost(accId));
 
@@ -146,7 +143,7 @@ public class RatePlanCommandsTest {
     public void aLodgingAdminWhoDoesNotOperateTheHotelReadsItsPlansButEditsNothing() throws IOException {
         final String accId = hotel();
         final Person keeper = savedPerson("Opr");
-        makeOperator(keeper, accId);
+        LodgingFixtures.makeOperator(keeper, accId);
         final RatePlanCommands asKeeper = new RatePlanCommands(() -> TestCallers.person(keeper.getId()));
         final RatePlanForm costOnly = asKeeper.planFormFor(accId, null);
         costOnly.setName("Operator rate");
@@ -320,17 +317,17 @@ public class RatePlanCommandsTest {
         assertEquals(afterCost.getNightlyPriceCents(), 7000L, "the plan never carries a price to push");
         assertEquals(afterCost.getRatePlanVersion(), plan(accId, planId).getVersion(), "current, no drift");
         assertEquals(biller.billedByPerson(stay), Map.of(guest.getId(), 3 * 7000L), "a plan save bills nobody");
-        assertFalse(audit.recomputed(), "a plan save never recomputes: no bill reads the cost side: " + audit.lines);
-        assertTrue(audit.lines.stream().anyMatch(line -> line.startsWith("Rate plan 'Season rate' pushed to 1")),
-                audit.lines.toString());
+        assertFalse(audit.recomputed(), "a plan save never recomputes: no bill reads the cost side: " + audit.lines());
+        assertTrue(audit.lines().stream().anyMatch(line -> line.startsWith("Rate plan 'Season rate' pushed to 1")),
+                audit.lines().toString());
 
         // Price edit on the OPTION: its bill is recomputed; the cost stays the plan's.
-        audit.lines.clear();
+        audit.lines().clear();
         final OfferForm raise = admin.offerFormFor(trip.getId(), offer.getId().getValue());
         raise.setNightlyPrice(100.0);
         raise.setMinNights(2);
-        assertTrue(auditedLodging(audit).saveOffer(trip.getId(), raise));
-        assertTrue(audit.recomputed(), "the option's own price edit recomputes: " + audit.lines);
+        assertTrue(LodgingFixtures.auditedLodging(audit).saveOffer(trip.getId(), raise));
+        assertTrue(audit.recomputed(), "the option's own price edit recomputes: " + audit.lines());
         final ReservationOffer raised = admin.findOffer(trip.getId(), offer.getId().getValue());
         assertEquals(raised.getNightlyPriceCents(), 10000L);
         assertEquals(raised.getMinNights(), 2);
@@ -567,7 +564,7 @@ public class RatePlanCommandsTest {
         // The operator of the OTHER hotel reads this hotel's table (they may open the lodging page) but may
         // name neither the price nor the trip.
         final Person keeper = savedPerson("Kpr");
-        makeOperator(keeper, otherHotel);
+        LodgingFixtures.makeOperator(keeper, otherHotel);
         final RatePlanCommands asKeeper = new RatePlanCommands(() -> TestCallers.person(keeper.getId()));
         final RatePlanRow seen = asKeeper.rows(accId).stream().filter(r -> covering.equals(r.getId())).findFirst()
                 .orElseThrow();
@@ -771,27 +768,10 @@ public class RatePlanCommandsTest {
      * hotels of one test sort in creation order (the attach menu is by hotel name).
      */
     private String hotel() {
-        final AccommodationForm form = new AccommodationForm();
-        final String tag = RandomData.genAlpha(8) + SEQ.incrementAndGet();
-        form.setName("Plan hotel " + String.format("%05d", SEQ.incrementAndGet()) + " " + tag);
-        form.setEmail(tag.toLowerCase(java.util.Locale.ROOT) + "@plans.example");
-        // Discovery compares phones by their DIGITS: a counter alone collided with HotelCommandsTest's fixtures
-        // in the same JVM, so the number carries the clock too.
-        form.setPhone("+1 971 " + SEQ.incrementAndGet() + " " + (System.nanoTime() % 1_000_000L));
-        form.setStreet("Rate " + SEQ.incrementAndGet() + " " + tag + " Ave");
-        form.setCity("Portland");
-        final String accId = admin.saveAccommodation(form, orgId);
-        assertTrue(accId != null && !accId.isBlank(), "the hotel fixture was refused as a duplicate");
-        final RoomTypeForm dbl = new RoomTypeForm();
-        dbl.setName("Double");
-        dbl.setMinPeople(1);
-        dbl.setMaxPeople(2);
-        assertTrue(admin.saveRoomType(accId, dbl));
-        final RoomTypeForm triple = new RoomTypeForm();
-        triple.setName("Triple");
-        triple.setMinPeople(2);
-        triple.setMaxPeople(3);
-        assertTrue(admin.saveRoomType(accId, triple));
+        final String accId = LodgingFixtures.saveHotel(admin, orgId,
+                LodgingFixtures.hotelForm("Plan hotel " + String.format("%05d", LodgingFixtures.next())));
+        LodgingFixtures.roomType(admin, accId, "Double", 1, 2);
+        LodgingFixtures.roomType(admin, accId, "Triple", 2, 3);
         assertEquals(admin.bulkAddRooms(accId, "", 101, 102, "1", typeId(accId, 0)), 2);
         return accId;
     }
@@ -824,33 +804,9 @@ public class RatePlanCommandsTest {
         return form.getPlanId();
     }
 
-    /** Records every lodging audit line, so a test can say what was NOT audited (a recompute, say). */
-    private static final class RecordingAudit extends AuditCommands {
-        private final List<String> lines = new ArrayList<>();
-
-        @Override
-        public String lodging(final String targetType, final String targetId, final String orgId, final String msg,
-                final org.paulsens.trip.audit.AuditActor who) {
-            lines.add(msg);
-            return super.lodging(targetType, targetId, orgId, msg, who);
-        }
-
-        boolean recomputed() {
-            return lines.stream().anyMatch(line -> line.contains("recomputed"));
-        }
-    }
-
-    /** A site-admin lodging bean whose audit trail the test can read. */
-    private static LodgingCommands auditedLodging(final RecordingAudit audit) {
-        return new LodgingCommands(TestCallers::siteAdmin,
-                () -> new TripCommands(() -> new OrgCommands(TestCallers::siteAdmin)), TransactionsCommands::new,
-                () -> new OrgCommands(TestCallers::siteAdmin), PrivilegeCommands::new, () -> audit,
-                MediaCommands::new);
-    }
-
     /** A site-admin plan bean whose fan-out (and whatever it makes the lodging bean do) the test can read. */
     private static RatePlanCommands auditedPlans(final RecordingAudit audit) {
-        return new RatePlanCommands(TestCallers::siteAdmin, () -> auditedLodging(audit),
+        return new RatePlanCommands(TestCallers::siteAdmin, () -> LodgingFixtures.auditedLodging(audit),
                 () -> new TripCommands(() -> new OrgCommands(TestCallers::siteAdmin)), () -> audit);
     }
 
@@ -859,12 +815,7 @@ public class RatePlanCommandsTest {
     }
 
     private Trip trip(final String title, final Person person) throws IOException {
-        final Trip trip = Trip.builder().id(UUID.randomUUID().toString()).title(title)
-                .startDate(CHECK_IN).endDate(CHECK_OUT.plusDays(2))
-                .people(new ArrayList<>(List.of(person.getId()))).build();
-        trip.setOrgId(orgId);
-        assertTrue(DAO.getInstance().saveTrip(trip));
-        return trip;
+        return LodgingFixtures.rosterTrip(orgId, title, CHECK_IN, CHECK_OUT, person);
     }
 
     private ReservationOffer linkedOffer(final Trip trip, final String planId) {
@@ -906,13 +857,6 @@ public class RatePlanCommandsTest {
             ids.add(choice.getPlanId());
         }
         return ids;
-    }
-
-    /** Grants {@code accommodationAdmin} on the hotel: the Hotel Operator role. */
-    private static void makeOperator(final Person who, final String accId) {
-        final PrivilegeCommands priv = new PrivilegeCommands();
-        assertTrue(priv.savePrivilege(priv.getOrCreate(PrivilegeCommands.ACCOMMODATION_ADMIN, accId,
-                PrivilegeCommands.ACCOMMODATION_ROLE_NAME).withNewPerson(who.getId())));
     }
 
     private static Person savedPerson(final String first) throws IOException {

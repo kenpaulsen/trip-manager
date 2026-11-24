@@ -17,11 +17,9 @@ import org.apache.pdfbox.text.PDFTextStripper;
 import org.mockito.Mockito;
 import org.paulsens.trip.action.Caller;
 import org.paulsens.trip.action.LodgingCommands;
+import org.paulsens.trip.action.LodgingFixtures;
 import org.paulsens.trip.action.LodgingViews;
-import org.paulsens.trip.action.LodgingViews.AccommodationForm;
 import org.paulsens.trip.action.LodgingViews.OfferForm;
-import org.paulsens.trip.action.LodgingViews.ReservationForm;
-import org.paulsens.trip.action.LodgingViews.RoomTypeForm;
 import org.paulsens.trip.action.OrgCommands;
 import org.paulsens.trip.action.PersonCommands;
 import org.paulsens.trip.action.PrivilegeCommands;
@@ -166,8 +164,8 @@ public class RoomInvoicePdfServletTest {
                 .people(new ArrayList<>(List.of(guestA.getId(), guestB.getId()))).build();
         trip.setOrgId(org.getId().getValue());
         Assert.assertTrue(DAO.getInstance().saveTrip(trip));
-        final String hotelA = hotel(admin, org.getId().getValue(), "Alpha House");
-        final String hotelB = hotel(admin, org.getId().getValue(), "Bravo Inn");
+        final String hotelA = LodgingFixtures.hotel(admin, org.getId().getValue(), "Alpha House");
+        final String hotelB = LodgingFixtures.hotel(admin, org.getId().getValue(), "Bravo Inn");
         reserve(admin, trip.getId(), offerAt(admin, trip.getId(), hotelA, true), guestA);
         final String offerB = offerAt(admin, trip.getId(), hotelB, false);
         reserve(admin, trip.getId(), offerB, guestB);
@@ -289,52 +287,18 @@ public class RoomInvoicePdfServletTest {
         return person;
     }
 
-    private static String hotel(final LodgingCommands admin, final String orgId, final String name) {
-        final AccommodationForm form = new AccommodationForm();
-        final String tag = RandomData.genAlpha(8);
-        form.setName(name + " " + tag);
-        form.setEmail(tag.toLowerCase(Locale.ROOT) + "@invoice.example");
-        // Discovery compares phone DIGITS only, so the random part must be digits.
-        form.setPhone("+1 503 " + (1_000_000 + java.util.concurrent.ThreadLocalRandom.current().nextInt(9_000_000)));
-        form.setStreet(tag + " Way");
-        form.setCity("Portland");
-        final String accId = admin.saveAccommodation(form, orgId);
-        Assert.assertTrue(accId != null && !accId.isBlank(), "the hotel fixture was refused");
-        final RoomTypeForm type = new RoomTypeForm();
-        type.setName("Double");
-        type.setMinPeople(1);
-        type.setMaxPeople(2);
-        Assert.assertTrue(admin.saveRoomType(accId, type));
-        return accId;
-    }
-
     private static String offerAt(final LodgingCommands admin, final String tripId, final String accId,
             final boolean costed) {
-        final OfferForm form = new OfferForm();
-        form.setName("Room at " + RandomData.genAlpha(4));
-        form.setAccommodationId(accId);
-        form.setRoomTypeIds(new ArrayList<>(List.of(admin.roomTypeRows(accId).get(0).getId())));
-        form.setTripEventId(OfferForm.NEW_EVENT);
-        form.setPricingModel("PER_ROOM");
-        form.setNightlyPrice(100.0);
+        final OfferForm form = LodgingFixtures.offerForm(admin, accId, "Room at " + RandomData.genAlpha(4),
+                CHECK_IN, CHECK_OUT);
         form.setCostKnown(costed);
         form.setCostNightlyPrice(90.0);
-        form.setDefaultStart(CHECK_IN);
-        form.setDefaultEnd(CHECK_OUT);
-        Assert.assertTrue(admin.saveOffer(tripId, form));
-        return DAO.getInstance().getReservationOffers(tripId, Cached.NO).stream()
-                .filter(offer -> accId.equals(offer.getAccommodationId().getValue()))
-                .findFirst().orElseThrow().getId().getValue();
+        return LodgingFixtures.saveOffer(admin, tripId, form).getId().getValue();
     }
 
     private static void reserve(final LodgingCommands admin, final String tripId, final String offerId,
             final Person who) {
-        final ReservationForm form = new ReservationForm();
-        form.setOfferId(offerId);
-        form.setPersonIds(List.of(who.getId().getValue()));
-        form.setStart(CHECK_IN);
-        form.setEnd(CHECK_OUT);
-        Assert.assertEquals(admin.createReservations(tripId, form), 1, "the stay fixture was refused");
+        LodgingFixtures.reserve(admin, tripId, offerId, who, CHECK_IN, CHECK_OUT);
     }
 
     /** Uninjected, the servlet asks CDI for the beans; the test JVM has no container, so that is what fails. */

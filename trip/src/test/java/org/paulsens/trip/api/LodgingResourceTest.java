@@ -11,6 +11,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import org.paulsens.trip.action.LodgingCommands;
+import org.paulsens.trip.action.LodgingFixtures;
 import org.paulsens.trip.action.LodgingViews;
 import org.paulsens.trip.action.OrgCommands;
 import org.paulsens.trip.action.PersonCommands;
@@ -604,8 +605,8 @@ public class LodgingResourceTest extends ResourceTestSupport {
         final Map<String, Object> body = new HashMap<>();
         body.put("name", name + " " + RandomData.genAlpha(5));
         body.put("email", RandomData.genAlpha(8).toLowerCase() + "@example.com");
-        body.put("phone", "+387 36 " + (System.nanoTime() % 1_000_000L));
-        body.put("street", "Podbrdo " + (System.nanoTime() % 100_000L));
+        body.put("phone", LodgingFixtures.phone());
+        body.put("street", "Podbrdo " + LodgingFixtures.next() + " " + RandomData.genAlpha(5));
         body.put("city", "Medjugorje");
         body.put("country", "Bosnia and Herzegovina");
         body.put("orgId", orgId);

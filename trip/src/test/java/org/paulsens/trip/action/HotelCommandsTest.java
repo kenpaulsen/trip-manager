@@ -8,8 +8,6 @@ import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
-import org.paulsens.trip.action.LodgingViews.AccommodationForm;
 import org.paulsens.trip.action.LodgingViews.BlockForm;
 import org.paulsens.trip.action.LodgingViews.BlockRow;
 import org.paulsens.trip.action.LodgingViews.ConcessionForm;
@@ -19,7 +17,6 @@ import org.paulsens.trip.action.LodgingViews.DayRoom;
 import org.paulsens.trip.action.LodgingViews.HotelCalendar;
 import org.paulsens.trip.action.LodgingViews.OfferForm;
 import org.paulsens.trip.action.LodgingViews.ReservationForm;
-import org.paulsens.trip.action.LodgingViews.RoomTypeForm;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.model.Organization;
@@ -406,29 +403,8 @@ public class HotelCommandsTest {
 
     // ------------------------------------------------------------------ fixtures
 
-    /**
-     * Counts fixtures so every hotel's discoverable details differ. Duplicate detection compares name,
-     * email, phone and street, and a hotel it thinks is a duplicate is REFUSED: a hash of a random tag
-     * collided across a full-suite run, which showed up as a blank id three calls later.
-     */
-    private static final java.util.concurrent.atomic.AtomicInteger SEQ =
-            new java.util.concurrent.atomic.AtomicInteger();
-
     private String hotelWithRooms() {
-        final AccommodationForm form = new AccommodationForm();
-        final String tag = RandomData.genAlpha(8) + SEQ.incrementAndGet();
-        form.setName("Hotel " + tag);
-        form.setEmail(tag.toLowerCase(java.util.Locale.ROOT) + "@hotel.example");
-        form.setPhone("+1 503 " + SEQ.incrementAndGet() + " " + RandomData.genAlpha(4));
-        form.setStreet(SEQ.incrementAndGet() + " " + tag + " St");
-        form.setCity("Portland");
-        final String accId = admin.saveAccommodation(form, orgId);
-        assertTrue(accId != null && !accId.isBlank(), "the hotel fixture was refused as a duplicate");
-        final RoomTypeForm type = new RoomTypeForm();
-        type.setName("Double");
-        type.setMinPeople(1);
-        type.setMaxPeople(2);
-        assertTrue(admin.saveRoomType(accId, type));
+        final String accId = LodgingFixtures.hotel(admin, orgId, "Hotel");
         final String typeId = admin.roomTypeRows(accId).get(0).getId();
         assertEquals(admin.bulkAddRooms(accId, "", 101, 102, "1", typeId), 2);
         return accId;
@@ -439,27 +415,12 @@ public class HotelCommandsTest {
     }
 
     private Trip tripWith(final String title, final Person person) throws IOException {
-        final Trip trip = Trip.builder().id(UUID.randomUUID().toString()).title(title)
-                .startDate(CHECK_IN).endDate(CHECK_OUT.plusDays(2))
-                .people(new ArrayList<>(List.of(person.getId()))).build();
-        trip.setOrgId(orgId);
-        assertTrue(DAO.getInstance().saveTrip(trip));
-        return trip;
+        return LodgingFixtures.rosterTrip(orgId, title, CHECK_IN, CHECK_OUT, person);
     }
 
     private void reserveInto(final Trip trip, final String accId, final Person person, final String roomId) {
-        final OfferForm offerForm = new OfferForm();
-        offerForm.setName("Room " + RandomData.genAlpha(4));
-        offerForm.setAccommodationId(accId);
-        offerForm.setRoomTypeIds(new ArrayList<>(List.of(admin.roomTypeRows(accId).get(0).getId())));
-        offerForm.setTripEventId(OfferForm.NEW_EVENT);
-        offerForm.setPricingModel("PER_ROOM");
-        offerForm.setNightlyPrice(100.0);
-        offerForm.setDefaultStart(CHECK_IN);
-        offerForm.setDefaultEnd(CHECK_OUT);
-        assertTrue(admin.saveOffer(trip.getId(), offerForm));
-        final ReservationOffer offer = admin.getOffers(trip.getId()).stream()
-                .filter(o -> o.getName().equals(offerForm.getName())).findFirst().orElseThrow();
+        final ReservationOffer offer = LodgingFixtures.saveOffer(admin, trip.getId(),
+                LodgingFixtures.offerForm(admin, accId, "Room " + RandomData.genAlpha(4), CHECK_IN, CHECK_OUT));
         final ReservationForm res = admin.reservationFormFor(trip.getId(), null);
         res.setOfferId(offer.getId().getValue());
         res.setPersonIds(List.of(person.getId().getValue()));

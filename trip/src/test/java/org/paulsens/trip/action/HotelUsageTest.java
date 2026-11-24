@@ -5,7 +5,6 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicInteger;
 import org.paulsens.trip.action.LodgingViews.AccommodationForm;
 import org.paulsens.trip.cache.CacheClient;
 import org.paulsens.trip.cache.CacheKeys;
@@ -35,7 +34,6 @@ import static org.testng.Assert.assertTrue;
 public class HotelUsageTest {
     private static final LocalDateTime CHECK_IN = LocalDateTime.of(2027, 9, 21, 15, 0);
     private static final LocalDateTime CHECK_OUT = LocalDateTime.of(2027, 9, 26, 10, 0);
-    private static final AtomicInteger SEQ = new AtomicInteger();
 
     private final LodgingCommands admin = new LodgingCommands(TestCallers::siteAdmin);
     private final OrgCommands orgs = new OrgCommands(TestCallers::siteAdmin);
@@ -213,21 +211,15 @@ public class HotelUsageTest {
 
     /** A fresh hotel used by {@code orgId}, with or without a contact (who is created into that org). */
     private Accommodation hotel(final boolean withContact) {
-        final AccommodationForm form = new AccommodationForm();
-        final String tag = RandomData.genAlpha(8) + SEQ.incrementAndGet();
-        form.setName("Usage hotel " + tag);
-        form.setEmail(tag.toLowerCase(Locale.ROOT) + "@usage.example");
-        // Discovery compares phones by their DIGITS: the number carries the clock so no two fixtures collide.
-        form.setPhone("+1 458 " + SEQ.incrementAndGet() + " " + (System.nanoTime() % 1_000_000L));
-        form.setStreet("Use " + SEQ.incrementAndGet() + " " + tag + " Ave");
+        final AccommodationForm form = LodgingFixtures.hotelForm("Usage hotel");
         form.setCity("Eugene");
         if (withContact) {
+            final String tag = RandomData.genAlpha(8) + LodgingFixtures.next();
             form.setContactEmail("desk." + tag.toLowerCase(Locale.ROOT) + "@usage.example");
             form.setContactFirst("Desk");
             form.setContactLast(tag);
         }
-        final String accId = admin.saveAccommodation(form, orgId);
-        assertTrue(accId != null && !accId.isBlank(), "the hotel fixture was refused as a duplicate");
+        final String accId = LodgingFixtures.saveHotel(admin, orgId, form);
         final Accommodation acc = admin.findAccommodation(accId);
         assertNotNull(acc);
         return acc;
@@ -239,7 +231,7 @@ public class HotelUsageTest {
 
     /** A saved trip of the organization; {@code null} or blank for a trip that belongs to none. */
     private static Trip trip(final String tripOrgId) throws IOException {
-        final Trip trip = Trip.builder().id(UUID.randomUUID().toString()).title("Usage trip " + SEQ.incrementAndGet())
+        final Trip trip = Trip.builder().id(UUID.randomUUID().toString()).title("Usage trip " + LodgingFixtures.next())
                 .startDate(CHECK_IN).endDate(CHECK_OUT).build();
         trip.setOrgId(tripOrgId);
         assertTrue(DAO.getInstance().saveTrip(trip));

@@ -5,7 +5,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicInteger;
+import org.paulsens.trip.action.LodgingFixtures.RecordingAudit;
 import org.paulsens.trip.action.LodgingViews.AccommodationForm;
 import org.paulsens.trip.action.LodgingViews.AssignOutcome;
 import org.paulsens.trip.action.LodgingViews.CancelPreview;
@@ -367,11 +367,7 @@ public class LodgingCommandsTest {
 
     private Stay stay(final boolean withOffer, final Trip onTrip) {
         final String accId = admin.saveAccommodation(accommodationForm("Stay " + RandomData.genAlpha(6)), orgId);
-        final RoomTypeForm dbl = new RoomTypeForm();
-        dbl.setName("Double");
-        dbl.setMinPeople(1);
-        dbl.setMaxPeople(2);
-        assertTrue(admin.saveRoomType(accId, dbl));
+        LodgingFixtures.roomType(admin, accId, "Double", 1, 2);
         final String typeId = admin.roomTypeRows(accId).get(0).getId();
         assertEquals(admin.bulkAddRooms(accId, "", 101, 102, "1", typeId), 2);
         final String r101 = admin.roomRows(accId).get(0).getId();
@@ -379,21 +375,13 @@ public class LodgingCommandsTest {
         if (!withOffer) {
             return new Stay(accId, typeId, r101, r102, null, null);
         }
-        final OfferForm offerForm = new OfferForm();
-        offerForm.setName("Double room " + RandomData.genAlpha(4));
-        offerForm.setAccommodationId(accId);
-        offerForm.setRoomTypeIds(new ArrayList<>(List.of(typeId)));
-        offerForm.setTripEventId(OfferForm.NEW_EVENT);
-        offerForm.setPricingModel("PER_ROOM");
+        final OfferForm offerForm = LodgingFixtures.offerForm(admin, accId, "Double room " + RandomData.genAlpha(4),
+                CHECK_IN, CHECK_OUT);
         offerForm.setNightlyPrice(120.0);
-        offerForm.setDefaultStart(CHECK_IN);
-        offerForm.setDefaultEnd(CHECK_OUT);
         offerForm.setCancelFeeKind("PERCENT");
         offerForm.setCancelFeeAmount(10.0);
         offerForm.setPolicyHtml("<p>No refunds after Sep 1</p>");
-        assertTrue(admin.saveOffer(onTrip.getId(), offerForm));
-        final ReservationOffer offer = admin.getOffers(onTrip.getId()).stream()
-                .filter(o -> o.getName().equals(offerForm.getName())).findFirst().orElseThrow();
+        final ReservationOffer offer = LodgingFixtures.saveOffer(admin, onTrip.getId(), offerForm);
         return new Stay(accId, typeId, r101, r102, offer, offer.getTripEventId());
     }
 
@@ -876,30 +864,19 @@ public class LodgingCommandsTest {
      * test that books somebody on the fixture dates has to book somebody nobody else is booking.
      */
     private Trip ownTrip(final String title, final Person... people) throws IOException {
-        final List<Person.Id> ids = new ArrayList<>();
-        for (final Person person : people) {
-            ids.add(person.getId());
-        }
-        final Trip own = Trip.builder().id(java.util.UUID.randomUUID().toString()).title(title)
-                .startDate(CHECK_IN).endDate(CHECK_OUT.plusDays(2)).people(ids).build();
-        own.setOrgId(orgId);
-        assertTrue(DAO.getInstance().saveTrip(own));
-        return own;
+        return LodgingFixtures.rosterTrip(orgId, title, CHECK_IN, CHECK_OUT, people);
     }
 
     // ------------------------------------------------------------------ helpers
 
-    /** Counts fixtures so each hotel's discoverable details differ; nanoTime modulo collided across a run. */
-    private static final AtomicInteger FIXTURE_SEQ = new AtomicInteger();
-
     private static AccommodationForm accommodationForm(final String name) {
         final AccommodationForm form = new AccommodationForm();
-        final int seq = FIXTURE_SEQ.incrementAndGet();
+        final int seq = LodgingFixtures.next();
         form.setName(name);
         form.setEmail(name.replace(' ', '.').toLowerCase() + "@example.com");
         // Unique phone, street and website per hotel: discovery would otherwise flag a fixture as a
         // duplicate of an earlier one and refuse the create, failing whichever test happened to collide.
-        form.setPhone("+387 36 " + seq + RandomData.genAlpha(4).toLowerCase().hashCode());
+        form.setPhone(LodgingFixtures.phone());
         form.setWebsite("https://" + name.replace(' ', '-').toLowerCase() + "-" + seq + ".example");
         form.setStreet("Podbrdo " + seq + " " + RandomData.genAlpha(5));
         form.setCity("Medjugorje");
@@ -1118,7 +1095,7 @@ public class LodgingCommandsTest {
         assertTrue(DAO.getInstance().saveTrip(hotelTrip));
         final Stay stay = stay(true, hotelTrip);
         final Person hotelier = savedPerson("Hotelier");
-        makeOperator(hotelier, stay.accId());
+        LodgingFixtures.makeOperator(hotelier, stay.accId());
         final LodgingCommands hotel = new LodgingCommands(() -> TestCallers.person(hotelier.getId()));
 
         assertTrue(hotel.canAssignRooms(hotelTrip.getId()), "their hotel has a lodging option on the trip");
@@ -1194,7 +1171,7 @@ public class LodgingCommandsTest {
         final String atA = admin.activeReservationsFor(twoHotels.getId(), guest.getId()).get(0).getId().getValue();
         final String atB = admin.activeReservationsFor(twoHotels.getId(), other.getId()).get(0).getId().getValue();
         final Person keeper = savedPerson("Ines");
-        makeOperator(keeper, a.accId());
+        LodgingFixtures.makeOperator(keeper, a.accId());
         final LodgingCommands operator = new LodgingCommands(() -> TestCallers.person(keeper.getId()));
 
         assertTrue(operator.canAssignAt(twoHotels.getId(), a.accId()));
@@ -1236,7 +1213,7 @@ public class LodgingCommandsTest {
         assertTrue(priv.savePrivilege(priv.getOrCreate(PrivilegeCommands.TRIP_MGR, ours.getId(), "mgr")
                 .withNewPerson(manager.getId())));
         final Person keeper = savedPerson("Kai");
-        makeOperator(keeper, stay.accId());
+        LodgingFixtures.makeOperator(keeper, stay.accId());
         final LodgingCommands tripMgr = new LodgingCommands(() -> TestCallers.person(manager.getId()));
         final LodgingCommands operator = new LodgingCommands(() -> TestCallers.person(keeper.getId()));
 
@@ -1256,18 +1233,11 @@ public class LodgingCommandsTest {
 
     /** A lodging option on {@code onTrip} at the stay's hotel, and {@code who} reserved on it into the room. */
     private void reserveIntoRoom(final Trip onTrip, final Stay stay, final Person who, final String roomId) {
-        final OfferForm offerForm = new OfferForm();
-        offerForm.setName("Their room " + RandomData.genAlpha(4));
-        offerForm.setAccommodationId(stay.accId());
+        final OfferForm offerForm = LodgingFixtures.offerForm(admin, stay.accId(),
+                "Their room " + RandomData.genAlpha(4), CHECK_IN, CHECK_OUT);
         offerForm.setRoomTypeIds(new ArrayList<>(List.of(stay.typeId())));
-        offerForm.setTripEventId(OfferForm.NEW_EVENT);
-        offerForm.setPricingModel("PER_ROOM");
         offerForm.setNightlyPrice(90.0);
-        offerForm.setDefaultStart(CHECK_IN);
-        offerForm.setDefaultEnd(CHECK_OUT);
-        assertTrue(admin.saveOffer(onTrip.getId(), offerForm));
-        final ReservationOffer offer = admin.getOffers(onTrip.getId()).stream()
-                .filter(o -> o.getName().equals(offerForm.getName())).findFirst().orElseThrow();
+        final ReservationOffer offer = LodgingFixtures.saveOffer(admin, onTrip.getId(), offerForm);
         final ReservationForm res = admin.reservationFormFor(onTrip.getId(), null);
         res.setOfferId(offer.getId().getValue());
         res.setPersonIds(List.of(who.getId().getValue()));
@@ -1275,13 +1245,6 @@ public class LodgingCommandsTest {
         res.setEnd(CHECK_OUT);
         res.setRoomId(roomId);
         assertEquals(admin.createReservations(onTrip.getId(), res), 1);
-    }
-
-    /** Grants {@code accommodationAdmin} on the hotel: the Hotel Operator role. */
-    private static void makeOperator(final Person who, final String accId) {
-        final PrivilegeCommands priv = new PrivilegeCommands();
-        assertTrue(priv.savePrivilege(priv.getOrCreate(PrivilegeCommands.ACCOMMODATION_ADMIN, accId,
-                PrivilegeCommands.ACCOMMODATION_ROLE_NAME).withNewPerson(who.getId())));
     }
 
     /**
@@ -1711,7 +1674,7 @@ public class LodgingCommandsTest {
         final Reservation res = admin.activeReservationsFor(own.getId(), guest.getId()).get(0);
         assertTrue(admin.assignRoom(own.getId(), res.getId().getValue(), stay.r101(), false, null, null)
                 .isAssigned());
-        makeOperator(keeper, stay.accId());
+        LodgingFixtures.makeOperator(keeper, stay.accId());
 
         final LodgingCommands staff = new LodgingCommands(() -> TestCallers.person(keeper.getId()));
         final SplitForm form = staff.splitFormFor(own.getId(), res.getId().getValue());
@@ -2009,30 +1972,6 @@ public class LodgingCommandsTest {
                 "the organization's use is history and stays");
     }
 
-    /** Records every lodging audit line, so a test can say what was NOT audited (a recompute, say). */
-    private static final class RecordingAudit extends AuditCommands {
-        private final List<String> lines = new ArrayList<>();
-
-        @Override
-        public String lodging(final String targetType, final String targetId, final String orgId, final String msg,
-                final org.paulsens.trip.audit.AuditActor who) {
-            lines.add(msg);
-            return super.lodging(targetType, targetId, orgId, msg, who);
-        }
-
-        boolean recomputed() {
-            return lines.stream().anyMatch(line -> line.contains("recomputed"));
-        }
-    }
-
-    /** A site-admin bean whose audit trail the test can read. */
-    private static LodgingCommands auditedAdmin(final RecordingAudit audit) {
-        return new LodgingCommands(TestCallers::siteAdmin,
-                () -> new TripCommands(() -> new OrgCommands(TestCallers::siteAdmin)), TransactionsCommands::new,
-                () -> new OrgCommands(TestCallers::siteAdmin), PrivilegeCommands::new, () -> audit,
-                MediaCommands::new);
-    }
-
     /**
      * The hotel's cost is not the participant's price: stating or changing it leaves the ledger alone and runs
      * no recompute, where a price change recomputes every stay on the option.
@@ -2050,7 +1989,7 @@ public class LodgingCommandsTest {
                 .getTransaction(guest.getId(), LodgingBiller.billTxId(res.getId(), guest.getId()), Cached.NO)
                 .orElseThrow();
         final RecordingAudit audit = new RecordingAudit();
-        final LodgingCommands audited = auditedAdmin(audit);
+        final LodgingCommands audited = LodgingFixtures.auditedLodging(audit);
 
         final OfferForm cost = audited.offerFormFor(own.getId(), stay.offer().getId().getValue());
         assertFalse(cost.isCostKnown(), "a fresh option has no stated cost");
@@ -2077,8 +2016,8 @@ public class LodgingCommandsTest {
                 .getTransaction(guest.getId(), LodgingBiller.billTxId(res.getId(), guest.getId()), Cached.NO)
                 .orElseThrow();
         assertEquals(after.getNote(), before.getNote());
-        assertFalse(audit.recomputed(), "no recompute ran: " + audit.lines);
-        assertTrue(audit.lines.stream().anyMatch(line -> line.startsWith("Saved lodging option")));
+        assertFalse(audit.recomputed(), "no recompute ran: " + audit.lines());
+        assertTrue(audit.lines().stream().anyMatch(line -> line.startsWith("Saved lodging option")));
         final OfferForm back = admin.offerFormFor(own.getId(), stay.offer().getId().getValue());
         assertTrue(back.isCostKnown());
         assertEquals(back.getCostNightlyPrice(), 50.0);
@@ -2089,11 +2028,11 @@ public class LodgingCommandsTest {
         assertEquals(admin.offerRows(own.getId()).get(0).getCostExtras(),
                 List.of("+$1.50/night per person (City tax)", "Coupon: -$20.00 once"), "the extras sit under the rate");
 
-        audit.lines.clear();
+        audit.lines().clear();
         back.setNightlyPrice(100.0);
         assertTrue(audited.saveOffer(own.getId(), back));
         assertEquals(biller.billedByPerson(res), Map.of(guest.getId(), 3 * 10000L), "a price edit recomputes");
-        assertTrue(audit.recomputed(), audit.lines.toString());
+        assertTrue(audit.recomputed(), audit.lines().toString());
 
         // Garbage on either side is refused with the reason on the form.
         back.setCostNightlyPrice(-1.0);
@@ -2132,7 +2071,7 @@ public class LodgingCommandsTest {
         assertEquals(admin.createReservations(own.getId(), form(own, a, guest, CHECK_IN, CHECK_OUT)), 1);
         final Reservation res = reservationOf(own, guest, a.offer().getId().getValue());
         final Person keeper = savedPerson("Xin");
-        makeOperator(keeper, a.accId());
+        LodgingFixtures.makeOperator(keeper, a.accId());
         final LodgingCommands operator = new LodgingCommands(() -> TestCallers.person(keeper.getId()));
         assertTrue(operator.canSetCost(own.getId(), a.accId()), "a stay's cost discount at their hotel");
         assertFalse(operator.canSetCost(own.getId(), b.accId()));
@@ -2288,7 +2227,7 @@ public class LodgingCommandsTest {
 
         // Gates per side: the hotel's operator records the cost side alone; a stranger neither.
         final Person keeper = savedPerson("Zoe");
-        makeOperator(keeper, stay.accId());
+        LodgingFixtures.makeOperator(keeper, stay.accId());
         final LodgingCommands operator = new LodgingCommands(() -> TestCallers.person(keeper.getId()));
         final ConcessionForm theirs = operator.concessionFormFor(own.getId(), resId, "COST");
         assertNull(theirs.getProblem());
@@ -2424,7 +2363,7 @@ public class LodgingCommandsTest {
         final ReservationOffer single = otherOption(own, stay, "PER_PERSON", 70.0);
         assertNotEquals(single.getTripEventId(), stay.eventId(), "the fixture's two options track two events");
         final RecordingAudit audit = new RecordingAudit();
-        final LodgingCommands audited = auditedAdmin(audit);
+        final LodgingCommands audited = LodgingFixtures.auditedLodging(audit);
         final ReservationForm create = form(own, stay, guest, CHECK_IN, CHECK_OUT);
         create.setRoomId(stay.r101());
         assertEquals(admin.createReservations(own.getId(), create), 1);
@@ -2445,8 +2384,8 @@ public class LodgingCommandsTest {
                 "joined the new option's event");
         assertFalse(after.getTripEvent(stay.eventId()).getParticipants().contains(guest.getId()),
                 "and left the old one's, which no other stay of hers keeps her on");
-        assertTrue(audit.lines.stream().anyMatch(line -> line.startsWith("Changed option from '"
-                + stay.offer().getName() + "' to '" + single.getName() + "'")), String.join("\n", audit.lines));
+        assertTrue(audit.lines().stream().anyMatch(line -> line.startsWith("Changed option from '"
+                + stay.offer().getName() + "' to '" + single.getName() + "'")), String.join("\n", audit.lines()));
 
         final ReservationOffer narrow = otherOption(own, stay, "PER_ROOM", 50.0);
         final OfferForm shrink = admin.offerFormFor(own.getId(), narrow.getId().getValue());
