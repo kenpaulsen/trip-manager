@@ -1,7 +1,9 @@
 package org.paulsens.trip.action;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import org.paulsens.trip.audit.RequestContext;
 import org.paulsens.trip.content.ReminderDefaults;
 import org.testng.annotations.Test;
 
@@ -48,6 +50,27 @@ public class ReminderTextTest {
             assertNotNull(samples.get(token.getName()), token.getName());
         }
         assertEquals(samples.size(), ReminderText.TOKENS.size());
+    }
+
+    /** The editor's token help was English sentences in the class: a Spanish or Croatian facilitator read English. */
+    @Test
+    public void tokenHelpIsReadInTheReadersLanguage() {
+        for (final ReminderText.Token token : ReminderText.TOKENS) {
+            final String english = token.getHelp();
+            assertFalse(english.startsWith("???"), token.getName() + " has no English help");
+            for (final String reader : List.of("es", "hr")) {
+                final String help = helpFor(reader, token);
+                assertFalse(help.isBlank() || help.startsWith("???"), token.getName() + " in " + reader);
+                assertFalse(help.equals(english), token.getName() + " is still English for " + reader);
+            }
+        }
+        assertEquals(ReminderText.TOKENS.get(0).getHelp(), "The first name of the person receiving the message.");
+        assertEquals(helpFor("es", ReminderText.TOKENS.get(0)), "El nombre de la persona que recibe el mensaje.");
+    }
+
+    private static String helpFor(final String tag, final ReminderText.Token token) {
+        return ScopedValue.where(RequestContext.SCOPE, RequestContext.system().withLocale(Locale.forLanguageTag(tag)))
+                .call(token::getHelp);
     }
 
     @Test

@@ -5,6 +5,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.paulsens.trip.i18n.Text;
 
 /**
  * The wording side of a trip reminder: the {@code {{token}}} vocabulary a facilitator may use, the check that a
@@ -19,25 +20,27 @@ import java.util.Set;
  */
 public final class ReminderText {
     /**
-     * One token a message may contain, with the help text the editor shows beside it. A class, not a record: a
-     * page's EL reads a record's components only, so a computed property such as {@link #getMarkup} would not
-     * resolve there.
+     * One token a message may contain, with the help the editor shows beside it, held as its message key so the
+     * page reads it in the reader's language (it was an English sentence here until 2026-11). The mail merge's
+     * {@link MergeText.Field} is one of these with a kind. A class, not a record: a page's EL reads a record's
+     * components only, so a computed property such as {@link #getMarkup} would not resolve there.
      */
-    public static final class Token {
+    public static class Token {
         private final String name;
-        private final String help;
+        private final String helpKey;
 
-        Token(final String name, final String help) {
+        Token(final String name, final String helpKey) {
             this.name = name;
-            this.help = help;
+            this.helpKey = helpKey;
         }
 
         public String getName() {
             return name;
         }
 
+        /** The help in the language of the request in progress. */
         public String getHelp() {
-            return help;
+            return Text.get(helpKey);
         }
 
         /** The token as it is typed: {@code {{name}}}. */
@@ -62,23 +65,26 @@ public final class ReminderText {
     public static final String ITINERARY_LINK = "itineraryLink";
     public static final String PROFILE_LINK = "profileLink";
 
-    /** The whole vocabulary, in the order the editor lists it. */
+    /**
+     * The whole vocabulary, in the order the editor lists it. Help that says the same thing as the mail merge's
+     * reads the merge's key (one key per meaning, docs/i18n.md); the rest is worded for a scheduled message.
+     */
     public static final List<Token> TOKENS = List.of(
-            new Token(FIRST_NAME, "The first name of the person receiving the message."),
-            new Token(TRAVELER_NAME, "The traveler the message is about (a family manager may receive it for them)."),
-            new Token(TRIP_TITLE, "The trip's title."),
-            new Token(TRIP_DATES, "The trip's start and end dates."),
-            new Token(DAYS_UNTIL, "Days from the send date until the trip starts."),
-            new Token(BALANCE_DUE, "What the traveler still owes on this trip."),
-            new Token(BALANCE_DUE_ON, "The trip's balance due date."),
-            new Token(DOCUMENT_LIST, "The documents the traveler has not signed."),
-            new Token(PASSPORT_ISSUE, "What is wrong with the traveler's passport on file."),
-            new Token(ORG_NAME, "Your organization's name."),
-            new Token(TRIP_LINK, "Web address of the trip page."),
-            new Token(PAYMENT_LINK, "Web address of the trip's payment page."),
-            new Token(DOCUMENTS_LINK, "Web address where the traveler signs the trip's documents."),
-            new Token(ITINERARY_LINK, "Web address of the trip's itinerary."),
-            new Token(PROFILE_LINK, "Web address of the traveler's profile, where a passport is entered."));
+            new Token(FIRST_NAME, "feedback.reminderText.helpFirstName"),
+            new Token(TRAVELER_NAME, "feedback.reminderText.helpTravelerName"),
+            new Token(TRIP_TITLE, "feedback.mergeText.helpTripTitle"),
+            new Token(TRIP_DATES, "feedback.mergeText.helpTripDates"),
+            new Token(DAYS_UNTIL, "feedback.reminderText.helpDaysUntil"),
+            new Token(BALANCE_DUE, "feedback.reminderText.helpBalanceDue"),
+            new Token(BALANCE_DUE_ON, "feedback.mergeText.helpBalanceDueOn"),
+            new Token(DOCUMENT_LIST, "feedback.reminderText.helpDocumentList"),
+            new Token(PASSPORT_ISSUE, "feedback.reminderText.helpPassportIssue"),
+            new Token(ORG_NAME, "feedback.reminderText.helpOrgName"),
+            new Token(TRIP_LINK, "feedback.mergeText.helpTripLink"),
+            new Token(PAYMENT_LINK, "feedback.mergeText.helpPaymentLink"),
+            new Token(DOCUMENTS_LINK, "feedback.reminderText.helpDocumentsLink"),
+            new Token(ITINERARY_LINK, "feedback.mergeText.helpItineraryLink"),
+            new Token(PROFILE_LINK, "feedback.reminderText.helpProfileLink"));
 
     private static final Set<String> NAMES = namesOf(TOKENS);
 

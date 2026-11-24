@@ -54,37 +54,19 @@ public final class MergeText {
     }
 
     /**
-     * One field the author may type, with the help the page shows beside it (held as its message key). A
-     * class, not a record, for the reason {@link ReminderText.Token} gives: a page's EL reads only a record's
-     * components.
+     * One field the author may type: a reminder's {@link ReminderText.Token} (name, help key, markup) plus the
+     * {@link Kind} that says what it needs and who may use it.
      */
-    public static final class Field {
-        private final String name;
-        private final String helpKey;
+    public static final class Field extends ReminderText.Token {
         private final Kind kind;
 
         Field(final String name, final Kind kind, final String helpKey) {
-            this.name = name;
+            super(name, helpKey);
             this.kind = kind;
-            this.helpKey = helpKey;
-        }
-
-        public String getName() {
-            return name;
-        }
-
-        /** The help in the language of the request in progress. */
-        public String getHelp() {
-            return Text.get(helpKey);
         }
 
         public Kind getKind() {
             return kind;
-        }
-
-        /** The field as it is typed: {@code {{name}}}. */
-        public String getMarkup() {
-            return "{{" + name + "}}";
         }
     }
 
