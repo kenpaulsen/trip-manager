@@ -1,9 +1,5 @@
 package org.paulsens.trip.web;
 
-import jakarta.servlet.http.HttpServlet;
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
-import java.io.IOException;
 import java.util.Optional;
 import org.paulsens.trip.action.LodgingUploadCommands;
 import org.paulsens.trip.api.Beans;
@@ -14,7 +10,7 @@ import org.paulsens.trip.api.Beans;
  * 404s, exactly like the badge-photo servlet. Public-by-URL on purpose (the CDN is), and uploads never come
  * through here -- they ride the shared JSF dialog into {@link LodgingUploadCommands}.
  */
-public class LodgingPhotoServlet extends HttpServlet {
+public class LodgingPhotoServlet extends LocalKeyServlet {
 
     private transient LodgingUploadCommands uploads;
 
@@ -23,26 +19,13 @@ public class LodgingPhotoServlet extends HttpServlet {
     }
 
     @Override
-    protected void doGet(final HttpServletRequest req, final HttpServletResponse resp) throws IOException {
-        final String path = req.getPathInfo();
-        if (path == null || path.contains("..")) {
-            resp.sendError(404);
-            return;
-        }
-        final String key = path.startsWith("/") ? path.substring(1) : path;
-        if (!key.startsWith("lodging/")) {
-            resp.sendError(404);
-            return;
-        }
-        final Optional<byte[]> bytes = photos().localGet(key);
-        if (bytes.isEmpty()) {
-            resp.sendError(404);
-            return;
-        }
-        resp.setContentType("image/jpeg");
-        resp.setContentLength(bytes.get().length);
-        resp.setHeader("Cache-Control", "private, max-age=3600");
-        resp.getOutputStream().write(bytes.get());
+    protected String contentTypeOf(final String key) {
+        return key.startsWith("lodging/") ? "image/jpeg" : null;
+    }
+
+    @Override
+    protected Optional<byte[]> localGet(final String key) {
+        return photos().localGet(key);
     }
 
     private LodgingUploadCommands photos() {

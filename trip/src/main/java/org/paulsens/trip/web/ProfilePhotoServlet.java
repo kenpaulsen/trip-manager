@@ -1,6 +1,5 @@
 package org.paulsens.trip.web;
 
-import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
@@ -27,7 +26,7 @@ import org.paulsens.trip.model.Person;
  *     staged the upload, because a preview is pre-publication content nobody else should be able to pull.</li>
  * </ul>
  */
-public class ProfilePhotoServlet extends HttpServlet {
+public class ProfilePhotoServlet extends LocalKeyServlet {
 
     static final String PREVIEW_PATH = "/preview/";
 
@@ -45,25 +44,21 @@ public class ProfilePhotoServlet extends HttpServlet {
     @Override
     protected void doGet(final HttpServletRequest req, final HttpServletResponse resp) throws IOException {
         final String path = req.getPathInfo();
-        if (path == null || path.contains("..")) {
-            resp.sendError(404);
-            return;
-        }
-        if (path.startsWith(PREVIEW_PATH)) {
+        if (path != null && !path.contains("..") && path.startsWith(PREVIEW_PATH)) {
             servePreview(req, resp, path.substring(PREVIEW_PATH.length()));
             return;
         }
-        final String key = path.startsWith("/") ? path.substring(1) : path;
-        if (!key.startsWith("profilePics/")) {
-            resp.sendError(404);
-            return;
-        }
-        final Optional<byte[]> bytes = photos().localGet(key);
-        if (bytes.isEmpty()) {
-            resp.sendError(404);
-            return;
-        }
-        serve(resp, bytes.get(), "image/jpeg", "private, max-age=3600");
+        super.doGet(req, resp);
+    }
+
+    @Override
+    protected String contentTypeOf(final String key) {
+        return key.startsWith("profilePics/") ? "image/jpeg" : null;
+    }
+
+    @Override
+    protected Optional<byte[]> localGet(final String key) {
+        return photos().localGet(key);
     }
 
     private void servePreview(final HttpServletRequest req, final HttpServletResponse resp,
@@ -81,15 +76,7 @@ public class ProfilePhotoServlet extends HttpServlet {
         // Background-removal cutouts are RGBA PNGs (the alpha IS the result); everything else is JPEG.
         final String type = ProfilePhotoCommands.BG_PURPOSE.equals(pending.get().purpose())
                 ? "image/png" : "image/jpeg";
-        serve(resp, pending.get().previewJpeg(), type, "private, no-store");
-    }
-
-    private static void serve(final HttpServletResponse resp, final byte[] bytes, final String contentType,
-            final String cacheControl) throws IOException {
-        resp.setContentType(contentType);
-        resp.setContentLength(bytes.length);
-        resp.setHeader("Cache-Control", cacheControl);
-        resp.getOutputStream().write(bytes);
+        write(resp, pending.get().previewJpeg(), type, "private, no-store");
     }
 
     private PendingUploads pendingUploads() {

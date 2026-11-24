@@ -1,9 +1,5 @@
 package org.paulsens.trip.web;
 
-import jakarta.servlet.http.HttpServlet;
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
-import java.io.IOException;
 import java.util.Optional;
 import org.paulsens.trip.action.BrandingPhotos;
 import org.paulsens.trip.api.Beans;
@@ -16,7 +12,7 @@ import org.paulsens.trip.api.Beans;
  * must behave the same way. Uploads do NOT come through here — they ride the shared JSF dialog's multipart
  * form into {@code BrandingUploadCommands} — so there is no POST, no CSRF header, and no multipart-config.
  */
-public class BrandingPhotoServlet extends HttpServlet {
+public class BrandingPhotoServlet extends LocalKeyServlet {
 
     private transient BrandingPhotos brandingPhotos;
 
@@ -24,25 +20,15 @@ public class BrandingPhotoServlet extends HttpServlet {
         this.brandingPhotos = brandingPhotos;
     }
 
+    // The parse is the whole validation: only a well-formed branding key of a known role can name bytes.
     @Override
-    protected void doGet(final HttpServletRequest req, final HttpServletResponse resp) throws IOException {
-        final String path = req.getPathInfo();
-        if (path == null || path.contains("..")) {
-            resp.sendError(404);
-            return;
-        }
-        final String key = path.startsWith("/") ? path.substring(1) : path;
-        // The parse is the whole validation: only a well-formed branding key of a known role can name bytes.
-        final String contentType = BrandingPhotos.contentTypeOf(key);
-        final Optional<byte[]> bytes = (contentType == null) ? Optional.empty() : photos().localGet(key);
-        if (bytes.isEmpty()) {
-            resp.sendError(404);
-            return;
-        }
-        resp.setContentType(contentType);
-        resp.setContentLength(bytes.get().length);
-        resp.setHeader("Cache-Control", "private, max-age=3600");
-        resp.getOutputStream().write(bytes.get());
+    protected String contentTypeOf(final String key) {
+        return BrandingPhotos.contentTypeOf(key);
+    }
+
+    @Override
+    protected Optional<byte[]> localGet(final String key) {
+        return photos().localGet(key);
     }
 
     private BrandingPhotos photos() {

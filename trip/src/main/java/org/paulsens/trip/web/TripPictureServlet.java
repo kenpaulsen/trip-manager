@@ -1,9 +1,5 @@
 package org.paulsens.trip.web;
 
-import jakarta.servlet.http.HttpServlet;
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
-import java.io.IOException;
 import java.util.Optional;
 import org.paulsens.trip.action.TripPictureCommands;
 import org.paulsens.trip.api.Beans;
@@ -15,7 +11,7 @@ import org.paulsens.trip.api.Beans;
  * must behave like production. Uploads do NOT come through here: they ride the shared JSF dialog's multipart form
  * into {@code TripPictureCommands}, or the REST edge's raw body, so there is no POST and no multipart-config.
  */
-public class TripPictureServlet extends HttpServlet {
+public class TripPictureServlet extends LocalKeyServlet {
 
     private transient TripPictureCommands tripPictures;
 
@@ -24,28 +20,20 @@ public class TripPictureServlet extends HttpServlet {
     }
 
     @Override
-    protected void doGet(final HttpServletRequest req, final HttpServletResponse resp) throws IOException {
-        final String path = req.getPathInfo();
-        if (path == null || path.contains("..")) {
-            resp.sendError(404);
-            return;
-        }
-        final String key = path.startsWith("/") ? path.substring(1) : path;
-        if (!key.startsWith(TripPictureCommands.PREFIX)) {
-            resp.sendError(404);
-            return;
-        }
-        final Optional<byte[]> bytes = pictures().localGet(key);
-        if (bytes.isEmpty()) {
-            resp.sendError(404);
-            return;
-        }
-        resp.setContentType("image/jpeg");
-        resp.setContentLength(bytes.get().length);
-        // public, unlike the badge and lodging servlets' private: a trip picture is a cover anonymous visitors
-        // see (Discover, the listing), and the production CDN caches it shared, which local mode mirrors.
-        resp.setHeader("Cache-Control", "public, max-age=3600");
-        resp.getOutputStream().write(bytes.get());
+    protected String contentTypeOf(final String key) {
+        return key.startsWith(TripPictureCommands.PREFIX) ? "image/jpeg" : null;
+    }
+
+    @Override
+    protected Optional<byte[]> localGet(final String key) {
+        return pictures().localGet(key);
+    }
+
+    // public, unlike the badge and lodging servlets' private: a trip picture is a cover anonymous visitors
+    // see (Discover, the listing), and the production CDN caches it shared, which local mode mirrors.
+    @Override
+    protected String cacheControl() {
+        return PUBLIC_HOUR;
     }
 
     private TripPictureCommands pictures() {

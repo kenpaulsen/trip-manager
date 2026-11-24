@@ -1,9 +1,5 @@
 package org.paulsens.trip.web;
 
-import jakarta.servlet.http.HttpServlet;
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
-import java.io.IOException;
 import java.util.Optional;
 import org.paulsens.trip.action.BadgePhotoCommands;
 import org.paulsens.trip.api.Beans;
@@ -15,7 +11,7 @@ import org.paulsens.trip.api.Beans;
  * behave like production. Uploads do NOT come through here — they ride the shared JSF dialog's multipart
  * form into {@code BadgePhotoCommands} — so there is no POST, no CSRF header, and no multipart-config.
  */
-public class BadgePhotoServlet extends HttpServlet {
+public class BadgePhotoServlet extends LocalKeyServlet {
 
     private transient BadgePhotoCommands badgePhotos;
 
@@ -24,26 +20,13 @@ public class BadgePhotoServlet extends HttpServlet {
     }
 
     @Override
-    protected void doGet(final HttpServletRequest req, final HttpServletResponse resp) throws IOException {
-        final String path = req.getPathInfo();
-        if (path == null || path.contains("..")) {
-            resp.sendError(404);
-            return;
-        }
-        final String key = path.startsWith("/") ? path.substring(1) : path;
-        if (!key.startsWith("badgeImages/")) {
-            resp.sendError(404);
-            return;
-        }
-        final Optional<byte[]> bytes = photos().localGet(key);
-        if (bytes.isEmpty()) {
-            resp.sendError(404);
-            return;
-        }
-        resp.setContentType("image/jpeg");
-        resp.setContentLength(bytes.get().length);
-        resp.setHeader("Cache-Control", "private, max-age=3600");
-        resp.getOutputStream().write(bytes.get());
+    protected String contentTypeOf(final String key) {
+        return key.startsWith("badgeImages/") ? "image/jpeg" : null;
+    }
+
+    @Override
+    protected Optional<byte[]> localGet(final String key) {
+        return photos().localGet(key);
     }
 
     private BadgePhotoCommands photos() {

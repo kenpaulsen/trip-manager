@@ -1,9 +1,5 @@
 package org.paulsens.trip.web;
 
-import jakarta.servlet.http.HttpServlet;
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
-import java.io.IOException;
 import java.util.Optional;
 import org.paulsens.trip.action.AlbumLibrary;
 import org.paulsens.trip.api.Beans;
@@ -14,7 +10,7 @@ import org.paulsens.trip.api.Beans;
  * CDN serves these keys and this path 404s, exactly like the trip stylesheet servlet. Public by URL on purpose: a
  * library picture is what public pages show.
  */
-public class AlbumLibraryServlet extends HttpServlet {
+public class AlbumLibraryServlet extends LocalKeyServlet {
 
     private transient AlbumLibrary library;
 
@@ -22,23 +18,21 @@ public class AlbumLibraryServlet extends HttpServlet {
         this.library = library;
     }
 
+    // The key's shape is the whole validation, and the library checks it: only one of our own keys can name any
+    // bytes at all, so every key is asked for.
     @Override
-    protected void doGet(final HttpServletRequest req, final HttpServletResponse resp) throws IOException {
-        final String path = req.getPathInfo();
-        if (path == null || path.contains("..")) {
-            resp.sendError(404);
-            return;
-        }
-        // The key's shape is the whole validation: only one of our own keys can name any bytes at all.
-        final Optional<byte[]> bytes = store().localGet(path.startsWith("/") ? path.substring(1) : path);
-        if (bytes.isEmpty()) {
-            resp.sendError(404);
-            return;
-        }
-        resp.setContentType("image/jpeg");
-        resp.setContentLength(bytes.get().length);
-        resp.setHeader("Cache-Control", "public, max-age=3600");
-        resp.getOutputStream().write(bytes.get());
+    protected String contentTypeOf(final String key) {
+        return "image/jpeg";
+    }
+
+    @Override
+    protected Optional<byte[]> localGet(final String key) {
+        return store().localGet(key);
+    }
+
+    @Override
+    protected String cacheControl() {
+        return PUBLIC_HOUR;
     }
 
     private AlbumLibrary store() {
