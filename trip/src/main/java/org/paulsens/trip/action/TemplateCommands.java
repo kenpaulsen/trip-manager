@@ -822,10 +822,17 @@ public class TemplateCommands {
         }
     }
 
-    /** Every retained version, current first, for the history dialog. */
+    /**
+     * Every retained version, current first, for the history dialog; nothing for a template the caller may not
+     * see. The id arrives as a request parameter, so the listing's {@link #visible} filter has to be asked
+     * again here: without it another organization's wording was one edited parameter away.
+     */
     public List<ContentTemplate> getHistory(final String id) {
+        final Caller caller = callerSource.get();
         try {
-            return DAO.getInstance().getTemplateRecord(id, Cached.NO).map(TemplateRecord::getAllVersions)
+            return DAO.getInstance().getTemplateRecord(id, Cached.NO)
+                    .filter(record -> record.getCurrent() != null && visible(caller, record.getCurrent()))
+                    .map(TemplateRecord::getAllVersions)
                     .orElse(List.of());
         } catch (final RuntimeException ex) {
             log.error("Unable to load template history: " + id, ex);
