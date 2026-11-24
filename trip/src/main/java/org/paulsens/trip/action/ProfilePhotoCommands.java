@@ -6,8 +6,6 @@ import jakarta.inject.Named;
 import java.util.Locale;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
-import org.paulsens.trip.audit.Audit;
-import org.paulsens.trip.audit.AuditEventBuilder;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.media.BackgroundRemover;
@@ -16,8 +14,6 @@ import org.paulsens.trip.media.PhotoProcessor;
 import org.paulsens.trip.media.PhotoRejectedException;
 import org.paulsens.trip.media.QuarterTurn;
 import org.paulsens.trip.media.RotationGuard;
-import org.paulsens.trip.model.AuditAction;
-import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.util.ScopeUtil;
 import org.primefaces.model.CroppedImage;
@@ -456,10 +452,8 @@ public class ProfilePhotoCommands extends PhotoUploadBean {
     }
 
     private void audit(final Caller who, final String what, final Person subject, final int slot) {
-        Audit.builder(AuditAction.MEDIA, AuditOutcome.SUCCESS)
-                .actor(who.auditActor())
-                .target(AuditEventBuilder.TARGET_MEDIA, "profilePics/" + subject.getId().getValue())
-                .message(what + " (slot " + slot + ") for " + subject.getPreferredName())
-                .log();
+        // No owning organization: a Person is global, so the record stays with the site it was made on.
+        AuditCommands.media("profilePics/" + subject.getId().getValue(), null,
+                what + " (slot " + slot + ") for " + subject.getPreferredName(), who.auditActor());
     }
 }

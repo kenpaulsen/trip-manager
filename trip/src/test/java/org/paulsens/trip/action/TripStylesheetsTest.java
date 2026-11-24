@@ -21,6 +21,7 @@ import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.MediaItem;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripPageOptions;
+import org.paulsens.trip.util.TestWaits;
 import org.primefaces.extensions.event.CompleteEvent;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.BeforeMethod;
@@ -153,6 +154,15 @@ public class TripStylesheetsTest {
         assertNull(TripStylesheets.check("x".repeat(120 * 1024)), "a 120 KB imported sheet fits");
         assertNotNull(TripStylesheets.check(".a{}\u0007"), "a control character is refused");
         assertNotNull(TripStylesheets.check("x".repeat(TripStylesheets.MAX_BYTES + 1)));
+    }
+
+    /** A stylesheet is its organization's file, so its record lands in that organization's trail. */
+    @Test
+    public void aStylesheetChangeIsAuditedUnderItsOrganization() {
+        final String out = TestWaits.captureStdout(
+                () -> assertNotNull(sheets.create(ORG, "Audited " + UUID.randomUUID(), ".a{}")));
+        assertTrue(out.lines().anyMatch(line -> line.contains("Created stylesheet org/" + ORG + "/stylesheets/")
+                && line.endsWith(" | org=" + ORG)), out);
     }
 
     @Test

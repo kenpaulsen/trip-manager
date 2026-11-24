@@ -24,6 +24,7 @@ import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripPicture;
+import org.paulsens.trip.util.TestWaits;
 import org.primefaces.event.FileUploadEvent;
 import org.primefaces.model.ResponsiveOption;
 import org.primefaces.model.file.UploadedFile;
@@ -202,6 +203,15 @@ public class TripPictureCommandsTest {
 
     private TripPictureCommands.PictureResult addOne(final String alt) {
         return bean.add(caller, TRIP_ID, PhotoFixtures.jpeg(2400, 1800), null, alt);
+    }
+
+    /** A trip's picture is its organization's record, whichever site the manager uploaded it from. */
+    @Test
+    public void aPictureChangeIsAuditedUnderTheTripsOrganization() {
+        trip().setOrgId("org-of-the-trip");
+        final String out = TestWaits.captureStdout(() -> addOne("Pilgrims at the cross"));
+        Assert.assertTrue(out.lines().anyMatch(line -> line.contains("Trip picture added for trip " + TRIP_ID)
+                && line.endsWith(" | org=org-of-the-trip")), out);
     }
 
     private static FileUploadEvent uploadOf(final byte[] bytes) {

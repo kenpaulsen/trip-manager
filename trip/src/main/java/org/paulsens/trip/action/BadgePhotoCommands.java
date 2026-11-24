@@ -7,16 +7,12 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
-import org.paulsens.trip.audit.Audit;
-import org.paulsens.trip.audit.AuditEventBuilder;
 import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.media.LocalObjectStore;
 import org.paulsens.trip.media.PendingUploads;
 import org.paulsens.trip.media.PhotoProcessor;
 import org.paulsens.trip.media.PhotoRejectedException;
 import org.paulsens.trip.media.QuarterTurn;
-import org.paulsens.trip.model.AuditAction;
-import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.BadgeImage;
 import org.paulsens.trip.model.MediaItem;
 import org.paulsens.trip.model.Trip;
@@ -468,10 +464,7 @@ public class BadgePhotoCommands extends PhotoUploadBean {
     }
 
     private void audit(final String what, final Trip trip, final String key) {
-        Audit.builder(AuditAction.MEDIA, AuditOutcome.SUCCESS)
-                .actor(caller().auditActor())
-                .target(AuditEventBuilder.TARGET_MEDIA, key)
-                .message(what + " for trip " + trip.getId() + " (" + trip.getTitle() + ")")
-                .log();
+        AuditCommands.media(key, trip.getOrgId(), what + " for trip " + trip.getId() + " (" + trip.getTitle() + ")",
+                caller().auditActor());
     }
 }

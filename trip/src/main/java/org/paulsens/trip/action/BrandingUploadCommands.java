@@ -8,15 +8,11 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
-import org.paulsens.trip.audit.Audit;
-import org.paulsens.trip.audit.AuditEventBuilder;
 import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.media.PendingUploads;
 import org.paulsens.trip.media.PhotoProcessor;
 import org.paulsens.trip.media.PhotoRejectedException;
 import org.paulsens.trip.media.QuarterTurn;
-import org.paulsens.trip.model.AuditAction;
-import org.paulsens.trip.model.AuditOutcome;
 import org.primefaces.model.CroppedImage;
 
 /**
@@ -327,10 +323,7 @@ public class BrandingUploadCommands extends PhotoUploadBean {
     }
 
     private void audit(final String orgId, final BrandingRole role, final String key, final String what) {
-        Audit.builder(AuditAction.MEDIA, AuditOutcome.SUCCESS)
-                .actor(caller().auditActor())
-                .target(AuditEventBuilder.TARGET_MEDIA, key)
-                .message("Organization " + orgId + " " + role.getKey() + " image " + what)
-                .log();
+        AuditCommands.media(key, orgId, "Organization " + orgId + " " + role.getKey() + " image " + what,
+                caller().auditActor());
     }
 }

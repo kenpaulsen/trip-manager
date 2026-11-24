@@ -20,12 +20,8 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Pattern;
 import lombok.extern.slf4j.Slf4j;
-import org.paulsens.trip.audit.Audit;
 import org.paulsens.trip.i18n.Text;
-import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.audit.AuditActor;
-import org.paulsens.trip.audit.AuditEventBuilder;
-import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.content.CssClassScan;
 import org.paulsens.trip.content.OrgPageBootstrap;
@@ -231,7 +227,7 @@ public class TripStylesheets {
             return null;
         }
         MediaEvents.fire(MediaEvents.Change.ADDED, key);
-        audit(key, "Created stylesheet " + key + " (" + bytes.length + " bytes)");
+        AuditCommands.media(key, owner, "Created stylesheet " + key + " (" + bytes.length + " bytes)", null);
         return item;
     }
 
@@ -288,8 +284,8 @@ public class TripStylesheets {
         if (media.isUploadEnabled()) {
             media.invalidateCdn(List.of("/" + item.getS3Key()));
         }
-        audit(item.getS3Key(), "Saved stylesheet " + item.getS3Key() + " rev " + rewritten.getRev()
-                + " (" + bytes.length + " bytes)");
+        AuditCommands.media(item.getS3Key(), item.getOrgId(), "Saved stylesheet " + item.getS3Key() + " rev "
+                + rewritten.getRev() + " (" + bytes.length + " bytes)", null);
         return true;
     }
 
@@ -305,7 +301,8 @@ public class TripStylesheets {
         if (!record(item.withTitle(title.trim()), Text.get("feedback.tripStylesheets.notRenamed"))) {
             return false;
         }
-        audit(item.getS3Key(), "Renamed stylesheet " + item.getS3Key() + " to '" + title.trim() + "'");
+        AuditCommands.media(item.getS3Key(), item.getOrgId(),
+                "Renamed stylesheet " + item.getS3Key() + " to '" + title.trim() + "'", null);
         return true;
     }
 
@@ -512,14 +509,6 @@ public class TripStylesheets {
     private static String actorEmail() {
         final AuditActor actor = AuditActor.current();
         return actor == null || actor.email() == null ? "unknown" : actor.email();
-    }
-
-    private static void audit(final String key, final String message) {
-        Audit.builder(AuditAction.MEDIA, AuditOutcome.SUCCESS)
-                .actor(AuditActor.current())
-                .target(AuditEventBuilder.TARGET_MEDIA, key)
-                .message(message)
-                .log();
     }
 
     // ------------------------------------------------------------------ classes on the page
