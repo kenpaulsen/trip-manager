@@ -13,6 +13,7 @@ import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.util.RandomData;
 import org.testng.annotations.Test;
 
+import static org.paulsens.trip.util.TestPeople.unique;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotNull;
@@ -376,10 +377,6 @@ public class MailAddressCommandsTest {
                 DOMAINS.get(0), "else the first the dropdown offers, never a phantom selection");
         assertEquals(mailAddr.composerDomain("a@example.org", null, List.of()), "");
         assertEquals(mailAddr.composerDomain(null, null, null), "");
-    }
-
-    private static String unique() {
-        return RandomData.genAlpha(10);
     }
 
     private static List<String> sesIsDown() {

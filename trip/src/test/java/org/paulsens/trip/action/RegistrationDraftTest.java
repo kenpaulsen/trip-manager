@@ -16,7 +16,6 @@ import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Registration;
 import org.paulsens.trip.model.RegistrationDraft;
 import org.paulsens.trip.model.Trip;
-import org.paulsens.trip.util.RandomData;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 

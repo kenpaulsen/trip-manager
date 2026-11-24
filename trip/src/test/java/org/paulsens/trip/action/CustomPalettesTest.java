@@ -17,12 +17,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import org.paulsens.trip.config.KnownSettings;
-import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.CustomPalette;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.theme.ThemeColorMath;
-import org.paulsens.trip.util.RandomData;
 import org.paulsens.trip.web.FakeSessions;
 import org.testng.annotations.Test;
 
@@ -35,7 +33,6 @@ import org.testng.annotations.Test;
 public class CustomPalettesTest {
 
     private static final ObjectMapper JSON = new ObjectMapper();
-    private final DAO dao = DAO.getInstance();
 
     @Test
     public void aStockCloneCarriesItsExactColors() throws Exception {

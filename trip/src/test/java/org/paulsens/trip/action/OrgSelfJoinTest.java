@@ -3,7 +3,6 @@ package org.paulsens.trip.action;
 import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.UUID;
-import org.mockito.Mockito;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.audit.RequestContext;
 import org.paulsens.trip.dynamo.DAO;
@@ -12,7 +11,6 @@ import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.site.SiteContext;
-import org.paulsens.trip.util.RandomData;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 

@@ -25,6 +25,8 @@ import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
+import static org.paulsens.trip.action.TenancyFixtures.reread;
+
 /**
  * The org-aware "How to pay" page: the one decision both pay pages redirect on, whose page a request is for on
  * each kind of site, the starter text of an empty page, and who may edit it (the existing content rule).
@@ -46,10 +48,6 @@ public class PayPageCommandsTest {
 
     private static SiteContext siteOf(final Organization org) {
         return SiteContext.org(org.getId(), "site", "site.example.test");
-    }
-
-    private static Organization reread(final Organization org) {
-        return DAO.getInstance().getOrganization(org.getId(), Cached.NO).orElseThrow();
     }
 
     private static Trip payable(final Trip trip) throws IOException {

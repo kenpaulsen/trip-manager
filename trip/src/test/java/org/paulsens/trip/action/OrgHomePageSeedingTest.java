@@ -15,6 +15,8 @@ import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
+import static org.paulsens.trip.action.TenancyFixtures.reread;
+
 /**
  * An organization's default home page appears exactly once: on the subdomain's first assignment (or the
  * first dashboard visit of an org slugged before seeding existed), and never again -- an org that empties
@@ -44,10 +46,6 @@ public class OrgHomePageSeedingTest {
 
     private static List<ContentInstance> page(final Organization org) {
         return DAO.getInstance().getContentForSection(OrgPageBootstrap.pageKey(org.getId()), Cached.NO);
-    }
-
-    private static Organization reread(final Organization org) {
-        return DAO.getInstance().getOrganization(org.getId(), Cached.NO).orElseThrow();
     }
 
     @Test
