@@ -24,13 +24,15 @@ import org.paulsens.trip.model.Transaction;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripBudget;
 import org.paulsens.trip.model.TripEvent;
-import org.paulsens.trip.util.RandomData;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
+import static org.paulsens.trip.action.TenancyFixtures.orgWithAdmin;
+import static org.paulsens.trip.action.TestCallers.grantsNothing;
+import static org.paulsens.trip.util.TestPeople.savedPerson;
+import static org.paulsens.trip.util.TestPeople.unique;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
-import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertTrue;
 
 /**
@@ -490,23 +492,6 @@ public class TripDeleteCommandsTest {
         }
     }
 
-    private Organization orgWithAdmin(final Person orgAdmin) {
-        final OrgCommands admin = new OrgCommands(TripDeleteCommandsTest::siteAdminCaller);
-        final Organization org = admin.createOrganization("Del " + unique(), null, null);
-        assertNotNull(org);
-        assertTrue(admin.setOrgAdmin(org.getId().getValue(), orgAdmin.getId(), true));
-        return dao.getOrganization(org.getId(), Cached.NO).orElseThrow();
-    }
-
-    private Person savedPerson() throws IOException {
-        final Person person = Person.builder()
-                .first(RandomData.genAlpha(6)).last(RandomData.genAlpha(8))
-                .email("del." + unique() + "@example.com")
-                .build();
-        assertTrue(dao.savePerson(person));
-        return person;
-    }
-
     private void bindTxToTrip(final Person payer, final Transaction tx, final String tripId) {
         assertTrue(dao.saveBinding(payer.getId().getValue() + "," + tx.getTxId(),
                 BindingType.TRANSACTION, tripId, BindingType.TRIP, true));
@@ -520,8 +505,8 @@ public class TripDeleteCommandsTest {
     private TripDeleteCommands siteAdmin(final BadgePhotoCommands badges) {
         lastPictures = pictureMock();
         final TripPictureCommands pictures = lastPictures;
-        return new TripDeleteCommands(TripDeleteCommandsTest::siteAdminCaller,
-                () -> new OrgCommands(TripDeleteCommandsTest::siteAdminCaller), () -> badges, () -> pictures);
+        return new TripDeleteCommands(TestCallers::siteAdminHoldingNothing,
+                () -> new OrgCommands(TestCallers::siteAdminHoldingNothing), () -> badges, () -> pictures);
     }
 
     /** A non-admin caller, optionally holding the trip's Editor Admin ({@code tripMgr}) privilege. */
@@ -532,11 +517,6 @@ public class TripDeleteCommandsTest {
                 new AuditActor(person.getEmail(), person.getId().getValue()), privileges);
         return new TripDeleteCommands(() -> caller, () -> new OrgCommands(() -> caller),
                 TripDeleteCommandsTest::badgeMock, TripDeleteCommandsTest::pictureMock);
-    }
-
-    private static Caller siteAdminCaller() {
-        return new Caller(Person.Id.from("site-admin"), true,
-                new AuditActor("admin@test", "admin"), grantsNothing());
     }
 
     /** The trip-picture cascade of the last {@link #siteAdmin(BadgePhotoCommands)} deleter, for verification. */
@@ -552,15 +532,5 @@ public class TripDeleteCommandsTest {
         final BadgePhotoCommands badges = Mockito.mock(BadgePhotoCommands.class);
         Mockito.when(badges.deleteAllForTrip(Mockito.any())).thenReturn(0);
         return badges;
-    }
-
-    private static PrivilegeCommands grantsNothing() {
-        final PrivilegeCommands none = Mockito.mock(PrivilegeCommands.class);
-        Mockito.when(none.check(Mockito.any(), Mockito.any(), Mockito.any())).thenReturn(false);
-        return none;
-    }
-
-    private static String unique() {
-        return RandomData.genAlpha(10);
     }
 }

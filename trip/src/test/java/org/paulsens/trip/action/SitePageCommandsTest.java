@@ -1,5 +1,9 @@
 package org.paulsens.trip.action;
 
+import static org.paulsens.trip.action.TenancyFixtures.orgWithAdmin;
+import static org.paulsens.trip.action.TenancyFixtures.reread;
+import static org.paulsens.trip.action.TestCallers.grantsNothing;
+import static org.paulsens.trip.util.TestPeople.savedPerson;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotNull;
@@ -81,7 +85,7 @@ public class SitePageCommandsTest {
         final Person orgAdmin = savedPerson();
         final Organization unhosted = orgWithAdmin(orgAdmin);
         final String orgId = unhosted.getId().getValue();
-        assertTrue(new OrgCommands(SitePageCommandsTest::siteAdminCaller).saveOrgSettings(orgId,
+        assertTrue(new OrgCommands(TestCallers::siteAdminHoldingNothing).saveOrgSettings(orgId,
                 Map.of(KnownSettings.SITE_LANGUAGES.getName(), "es,en,hr")));
         host(unhosted);
         final SitePageCommands pages = commandsFor(orgAdmin);
@@ -300,7 +304,7 @@ public class SitePageCommandsTest {
         final SitePageCommands pages = commandsFor(orgAdmin);
         assertEquals(pages.otherLanguages(orgId), List.of(), "a one-language site has no other titles");
         assertEquals(pages.titlesEdit(orgId, null), Map.of());
-        assertTrue(new OrgCommands(SitePageCommandsTest::siteAdminCaller).saveOrgSettings(orgId,
+        assertTrue(new OrgCommands(TestCallers::siteAdminHoldingNothing).saveOrgSettings(orgId,
                 Map.of(KnownSettings.SITE_LANGUAGES.getName(), "en,es,hr")));
         assertEquals(pages.otherLanguages(orgId), List.of(Language.Spanish, Language.Croatian));
         assertEquals(pages.titlesEdit(orgId, null), Map.of("es", "", "hr", ""), "a new entry's empty fields");
@@ -334,7 +338,7 @@ public class SitePageCommandsTest {
 
         // A title for a language the site does not offer yet (a starter's) survives a dialog save, so the entry
         // still reads translated once the site adds the language (review, 2026-11-24).
-        assertTrue(new OrgCommands(SitePageCommandsTest::siteAdminCaller).saveOrgSettings(orgId,
+        assertTrue(new OrgCommands(TestCallers::siteAdminHoldingNothing).saveOrgSettings(orgId,
                 Map.of(KnownSettings.SITE_LANGUAGES.getName(), "en,es")));
         assertTrue(pages.saveDialog(orgId, "edit", "mission", "Mission", Map.of("es", "Misión"), null, "HELP"));
         assertEquals(pages.pageOf(orgId, "mission").titles(), Map.of("es", "Misión", "hr", "Naša misija"),
@@ -494,20 +498,20 @@ public class SitePageCommandsTest {
         final HttpServletRequest request = Mockito.mock(HttpServletRequest.class);
         Mockito.when(request.getServerName()).thenReturn("localhost");
         Mockito.when(request.getServerPort()).thenReturn(8080);
-        RequestFacesContext.install(request);
+        installFaces(request);
         try {
             assertEquals(onSite(SiteContext.shared("localhost"),
                     () -> pages.viewUrl(orgId, pages.pageOf(orgId, "mission"))),
                     "http://" + org.getSlug() + ".localhost:8080/page.jsf?name=mission");
         } finally {
-            RequestFacesContext.clear();
+            TestFaces.clear();
         }
     }
 
     @Test
     public void anUnknownPageAnswers404() throws Exception {
         siteAdmin().answerNotFound(); // off a JSF request: nothing to answer
-        final FacesContext ctx = RequestFacesContext.install(Mockito.mock(HttpServletRequest.class));
+        final FacesContext ctx = installFaces(Mockito.mock(HttpServletRequest.class));
         try {
             siteAdmin().answerNotFound();
             Mockito.verify(ctx.getExternalContext()).responseSendError(404, null);
@@ -516,7 +520,7 @@ public class SitePageCommandsTest {
             siteAdmin().answerNotFound();
             Mockito.verify(ctx.getExternalContext(), Mockito.times(1)).responseSendError(404, null);
         } finally {
-            RequestFacesContext.clear();
+            TestFaces.clear();
         }
     }
 
@@ -591,21 +595,10 @@ public class SitePageCommandsTest {
         return ScopedValue.where(RequestContext.SCOPE, RequestContext.of(null, null, site)).call(body);
     }
 
-    private Organization reread(final Organization org) {
-        return dao.getOrganization(org.getId(), Cached.NO).orElseThrow();
-    }
-
-    private Organization orgWithAdmin(final Person orgAdmin) {
-        final OrgCommands admin = new OrgCommands(SitePageCommandsTest::siteAdminCaller);
-        final Organization org = admin.createOrganization("Pages " + RandomData.genAlpha(10), null, null);
-        assertTrue(admin.setOrgAdmin(org.getId().getValue(), orgAdmin.getId(), true));
-        return reread(org);
-    }
-
     /** Gives {@code org} a subdomain the way a site admin does, which seeds its starter pages. */
     private Organization host(final Organization org) {
         final String slug = "pages" + RandomData.genAlpha(10).toLowerCase();
-        assertTrue(new OrgCommands(SitePageCommandsTest::siteAdminCaller).saveOrgEdits(org.getId().getValue(),
+        assertTrue(new OrgCommands(TestCallers::siteAdminHoldingNothing).saveOrgEdits(org.getId().getValue(),
                 org.getName(), null, null, null, null, slug));
         return reread(org);
     }
@@ -622,46 +615,19 @@ public class SitePageCommandsTest {
         return reread(stored);
     }
 
-    private Person savedPerson() throws IOException {
-        final Person person = Person.builder().first(RandomData.genAlpha(6)).last(RandomData.genAlpha(8))
-                .email("pages." + RandomData.genAlpha(12).toLowerCase() + "@example.com").build();
-        assertTrue(dao.savePerson(person));
-        return person;
-    }
-
     private static SitePageCommands commandsFor(final Person person) {
-        return new SitePageCommands(() -> new Caller(person.getId(), false,
-                new AuditActor(person.getEmail(), person.getId().getValue()), grantsNothing()));
+        return new SitePageCommands(() -> TestCallers.holdingNothing(person));
     }
 
     private static SitePageCommands siteAdmin() {
-        return new SitePageCommands(SitePageCommandsTest::siteAdminCaller);
+        return new SitePageCommands(TestCallers::siteAdminHoldingNothing);
     }
 
-    private static Caller siteAdminCaller() {
-        return new Caller(Person.Id.from("admin-pages"), true, new AuditActor("admin@test", "admin"),
-                grantsNothing());
-    }
-
-    private static PrivilegeCommands grantsNothing() {
-        final PrivilegeCommands none = Mockito.mock(PrivilegeCommands.class);
-        Mockito.when(none.check(Mockito.any(), Mockito.any(), Mockito.any())).thenReturn(false);
-        return none;
-    }
-
-    /** {@code FacesContext.setCurrentInstance} is protected, so reach it from a subclass. */
-    private abstract static class RequestFacesContext extends FacesContext {
-        static FacesContext install(final HttpServletRequest request) {
-            final ExternalContext external = Mockito.mock(ExternalContext.class);
-            Mockito.when(external.getRequest()).thenReturn(request);
-            final FacesContext ctx = Mockito.mock(FacesContext.class);
-            Mockito.when(ctx.getExternalContext()).thenReturn(external);
-            FacesContext.setCurrentInstance(ctx);
-            return ctx;
-        }
-
-        static void clear() {
-            FacesContext.setCurrentInstance(null);
-        }
+    private static FacesContext installFaces(final HttpServletRequest request) {
+        final ExternalContext external = Mockito.mock(ExternalContext.class);
+        Mockito.when(external.getRequest()).thenReturn(request);
+        final FacesContext ctx = Mockito.mock(FacesContext.class);
+        Mockito.when(ctx.getExternalContext()).thenReturn(external);
+        return TestFaces.install(ctx);
     }
 }

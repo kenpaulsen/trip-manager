@@ -6,7 +6,6 @@ import java.util.UUID;
 import org.mockito.Mockito;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.audit.RequestContext;
-import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.dynamo.FakeData;
@@ -17,6 +16,10 @@ import org.paulsens.trip.util.RandomData;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
+import static org.paulsens.trip.action.TenancyFixtures.reload;
+import static org.paulsens.trip.action.TestCallers.grantsNothing;
+import static org.paulsens.trip.util.TestPeople.savedPerson;
+import static org.paulsens.trip.util.TestPeople.unique;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotNull;
@@ -160,15 +163,6 @@ public class OrgSelfJoinTest {
         return org;
     }
 
-    private Person savedPerson() throws IOException {
-        final Person person = Person.builder()
-                .first(RandomData.genAlpha(6)).last(RandomData.genAlpha(8))
-                .email("join." + unique() + "@example.com")
-                .build();
-        assertTrue(dao.savePerson(person));
-        return person;
-    }
-
     private Trip savedTrip(final String orgId) throws IOException {
         final Trip trip = Trip.builder().id(UUID.randomUUID().toString()).title("Join Trip")
                 .startDate(LocalDateTime.now().plusDays(30)).endDate(LocalDateTime.now().plusDays(40))
@@ -178,10 +172,6 @@ public class OrgSelfJoinTest {
         return trip;
     }
 
-    private Person reload(final Person person) {
-        return dao.getPerson(person.getId(), Cached.NO).orElseThrow();
-    }
-
     private static OrgCommands commandsFor(final Person person) {
         return new OrgCommands(() -> callerFor(person));
     }
@@ -189,15 +179,5 @@ public class OrgSelfJoinTest {
     private static Caller callerFor(final Person person) {
         return new Caller(person.getId(), false,
                 new AuditActor(person.getEmail(), person.getId().getValue()), grantsNothing());
-    }
-
-    private static PrivilegeCommands grantsNothing() {
-        final PrivilegeCommands none = Mockito.mock(PrivilegeCommands.class);
-        Mockito.when(none.check(Mockito.any(), Mockito.any(), Mockito.any())).thenReturn(false);
-        return none;
-    }
-
-    private static String unique() {
-        return RandomData.genAlpha(10);
     }
 }

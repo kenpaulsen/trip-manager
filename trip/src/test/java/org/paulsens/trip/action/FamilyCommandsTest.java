@@ -16,6 +16,8 @@ import org.paulsens.trip.util.RandomData;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
+import static org.paulsens.trip.action.TenancyFixtures.reload;
+import static org.paulsens.trip.action.TestCallers.grantsNothing;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotNull;
@@ -614,10 +616,6 @@ public class FamilyCommandsTest {
         return owner;
     }
 
-    private Person reload(final Person person) {
-        return dao.getPerson(person.getId(), Cached.NO).orElseThrow();
-    }
-
     /** An org-scoped people admin can link within their org, and NEVER across the tenancy line. */
     @org.testng.annotations.Test
     public void orgScopedPeopleAdminLinksOnlyInsideTheirOrg() {
@@ -700,12 +698,6 @@ public class FamilyCommandsTest {
     private java.util.function.Supplier<Caller> callerOf(final Person person, final boolean siteAdmin) {
         return () -> new Caller(person.getId(), siteAdmin,
                 new AuditActor(person.getEmail(), person.getId().getValue()), grantsNothing());
-    }
-
-    private static PrivilegeCommands grantsNothing() {
-        final PrivilegeCommands none = Mockito.mock(PrivilegeCommands.class);
-        Mockito.when(none.check(Mockito.any(), Mockito.any(), Mockito.any())).thenReturn(false);
-        return none;
     }
 
     private static String unique() {

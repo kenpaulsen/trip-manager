@@ -2,7 +2,6 @@ package org.paulsens.trip.action;
 
 import java.io.IOException;
 import java.time.LocalDate;
-import org.mockito.Mockito;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Family;
@@ -12,12 +11,13 @@ import org.paulsens.trip.util.RandomData;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
+import static org.paulsens.trip.action.TenancyFixtures.reload;
+import static org.paulsens.trip.action.TestCallers.grantsNothing;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
-import org.paulsens.trip.cache.Cached;
 
 /**
  * Email identity around family members: the profile page's on-blur conflict lookup, and the display-only
@@ -178,20 +178,10 @@ public class ContactEmailAndConflictTest {
         return person;
     }
 
-    private Person reload(final Person person) {
-        return dao.getPerson(person.getId(), Cached.NO).orElseThrow();
-    }
-
     private FamilyCommands familyFor(final Person person) {
         return new FamilyCommands(new ConfigCommands(), new AuditCommands(),
                 () -> new Caller(person.getId(), false,
                         new AuditActor(person.getEmail(), person.getId().getValue()), grantsNothing()));
-    }
-
-    private static PrivilegeCommands grantsNothing() {
-        final PrivilegeCommands none = Mockito.mock(PrivilegeCommands.class);
-        Mockito.when(none.check(Mockito.any(), Mockito.any(), Mockito.any())).thenReturn(false);
-        return none;
     }
 
     private String unique() {

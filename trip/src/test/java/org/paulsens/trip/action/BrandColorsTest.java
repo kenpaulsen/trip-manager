@@ -1,5 +1,7 @@
 package org.paulsens.trip.action;
 
+import static org.paulsens.trip.action.TenancyFixtures.orgWithAdmin;
+import static org.paulsens.trip.util.TestPeople.savedPerson;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNull;
@@ -8,14 +10,11 @@ import static org.testng.Assert.assertTrue;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
-import org.mockito.Mockito;
-import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.BrandColor;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
-import org.paulsens.trip.util.RandomData;
 import org.testng.annotations.Test;
 
 /**
@@ -150,37 +149,7 @@ public class BrandColorsTest {
         return dao.getOrganization(Organization.Id.from(orgId), Cached.NO).orElseThrow();
     }
 
-    private Organization orgWithAdmin(final Person orgAdmin) {
-        final OrgCommands siteAdmin = new OrgCommands(BrandColorsTest::siteAdminCaller);
-        final Organization org = siteAdmin.createOrganization("Brand " + RandomData.genAlpha(10), null, null);
-        assertTrue(siteAdmin.setOrgAdmin(org.getId().getValue(), orgAdmin.getId(), true));
-        return reread(org.getId().getValue());
-    }
-
-    private Person savedPerson() throws IOException {
-        final Person person = Person.builder().first(RandomData.genAlpha(6)).last(RandomData.genAlpha(8))
-                .email("brand." + RandomData.genAlpha(12).toLowerCase() + "@example.com").build();
-        assertTrue(dao.savePerson(person));
-        return person;
-    }
-
     private static BrandColors commandsFor(final Person person) {
-        return new BrandColors(() -> callerOf(person));
-    }
-
-    private static Caller callerOf(final Person person) {
-        return new Caller(person.getId(), false, new AuditActor(person.getEmail(), person.getId().getValue()),
-                grantsNothing());
-    }
-
-    private static Caller siteAdminCaller() {
-        return new Caller(Person.Id.from("admin-brand"), true, new AuditActor("admin@test", "admin"),
-                grantsNothing());
-    }
-
-    private static PrivilegeCommands grantsNothing() {
-        final PrivilegeCommands none = Mockito.mock(PrivilegeCommands.class);
-        Mockito.when(none.check(Mockito.any(), Mockito.any(), Mockito.any())).thenReturn(false);
-        return none;
+        return new BrandColors(() -> TestCallers.holdingNothing(person));
     }
 }

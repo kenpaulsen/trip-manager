@@ -3,7 +3,6 @@ package org.paulsens.trip.action;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
-import org.mockito.Mockito;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
@@ -13,6 +12,8 @@ import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.util.RandomData;
 import org.testng.annotations.Test;
 
+import static org.paulsens.trip.action.TenancyFixtures.orgWithAdmin;
+import static org.paulsens.trip.action.TestCallers.grantsNothing;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotNull;
@@ -224,13 +225,6 @@ public class PeopleSearchOrgTest {
         return person;
     }
 
-    private Organization orgWithAdmin(final Person orgAdmin) {
-        final Organization org = admin().createOrganization("Pso " + RandomData.genAlpha(10), null, null);
-        assertNotNull(org);
-        assertTrue(admin().setOrgAdmin(org.getId().getValue(), orgAdmin.getId(), true));
-        return dao.getOrganization(org.getId(), Cached.NO).orElseThrow();
-    }
-
     private OrgCommands admin() {
         return new OrgCommands(() -> new Caller(Person.Id.from("admin-" + RandomData.genAlpha(8)), true,
                 new AuditActor("admin@test", "admin"), grantsNothing()));
@@ -244,12 +238,6 @@ public class PeopleSearchOrgTest {
     private OrgCommands realPrivs(final Person person) {
         return new OrgCommands(() -> new Caller(person.getId(), false,
                 new AuditActor(person.getEmail(), person.getId().getValue()), new PrivilegeCommands()));
-    }
-
-    private static PrivilegeCommands grantsNothing() {
-        final PrivilegeCommands none = Mockito.mock(PrivilegeCommands.class);
-        Mockito.when(none.check(Mockito.any(), Mockito.any(), Mockito.any())).thenReturn(false);
-        return none;
     }
 
     @Test

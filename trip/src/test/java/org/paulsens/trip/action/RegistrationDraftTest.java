@@ -20,6 +20,7 @@ import org.paulsens.trip.util.RandomData;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
+import static org.paulsens.trip.action.TestCallers.grantsNothing;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotSame;
@@ -353,12 +354,6 @@ public class RegistrationDraftTest {
     private RegistrationCommands commandsFor(final Person person) {
         return new RegistrationCommands(() -> new Caller(person.getId(), false,
                 new AuditActor(person.getEmail(), person.getId().getValue()), grantsNothing()));
-    }
-
-    private static PrivilegeCommands grantsNothing() {
-        final PrivilegeCommands none = Mockito.mock(PrivilegeCommands.class);
-        Mockito.when(none.check(Mockito.any(), Mockito.any(), Mockito.any())).thenReturn(false);
-        return none;
     }
 
     private Person savedPerson() {

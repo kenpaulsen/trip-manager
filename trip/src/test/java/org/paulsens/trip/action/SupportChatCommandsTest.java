@@ -17,6 +17,7 @@ import org.paulsens.trip.util.RandomData;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
+import static org.paulsens.trip.action.TestCallers.grantsNothing;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotNull;
@@ -488,11 +489,5 @@ public class SupportChatCommandsTest {
         Mockito.when(limiter.check(Mockito.any(), Mockito.any(), Mockito.any()))
                 .thenReturn(ChatRateLimiter.Decision.allow());
         return limiter;
-    }
-
-    private static PrivilegeCommands grantsNothing() {
-        final PrivilegeCommands none = Mockito.mock(PrivilegeCommands.class);
-        Mockito.when(none.check(Mockito.any(), Mockito.any(), Mockito.any())).thenReturn(false);
-        return none;
     }
 }

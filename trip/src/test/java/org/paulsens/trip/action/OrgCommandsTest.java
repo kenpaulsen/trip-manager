@@ -19,6 +19,10 @@ import org.paulsens.trip.util.RandomData;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
+import static org.paulsens.trip.action.TenancyFixtures.orgWithAdmin;
+import static org.paulsens.trip.action.TenancyFixtures.reload;
+import static org.paulsens.trip.action.TestCallers.grantsNothing;
+import static org.paulsens.trip.util.TestPeople.savedPerson;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotNull;
@@ -1623,14 +1627,6 @@ public class OrgCommandsTest {
 
     // ------------------------------------------------------------------ helpers
 
-    /** A fresh org whose only admin (and member) is the given person -- the standard tenant fixture. */
-    private Organization orgWithAdmin(final Person orgAdmin) {
-        final Organization org = admin().createOrganization("Acme " + unique(), null, null);
-        assertNotNull(org);
-        assertTrue(admin().setOrgAdmin(org.getId().getValue(), orgAdmin.getId(), true));
-        return dao.getOrganization(org.getId(), Cached.NO).orElseThrow();
-    }
-
     /** The family path's membership write: only into orgs the anchor is in, idempotent, nothing for junk. */
     @org.testng.annotations.Test
     public void aCreatedFamilyMemberJoinsOnlyWhereTheAnchorBelongs() throws IOException {
@@ -1648,19 +1644,6 @@ public class OrgCommandsTest {
         assertFalse(asAnchor.addCreatedFamilyMember("no-such-org", child.getId(), anchor));
         assertFalse(asAnchor.addCreatedFamilyMember(orgId, null, anchor));
         assertFalse(asAnchor.addCreatedFamilyMember(orgId, child.getId(), null));
-    }
-
-    private Person savedPerson() throws IOException {
-        final Person person = Person.builder()
-                .first(RandomData.genAlpha(6)).last(RandomData.genAlpha(8))
-                .email("org." + unique() + "@example.com")
-                .build();
-        assertTrue(dao.savePerson(person));
-        return person;
-    }
-
-    private Person reload(final Person person) {
-        return dao.getPerson(person.getId(), Cached.NO).orElseThrow();
     }
 
     private OrgCommands commandsFor(final Person person) {
@@ -1708,12 +1691,6 @@ public class OrgCommandsTest {
 
     private OrgCommands anonymous() {
         return new OrgCommands(() -> new Caller(null, false, AuditActor.system(), grantsNothing()));
-    }
-
-    private static PrivilegeCommands grantsNothing() {
-        final PrivilegeCommands none = Mockito.mock(PrivilegeCommands.class);
-        Mockito.when(none.check(Mockito.any(), Mockito.any(), Mockito.any())).thenReturn(false);
-        return none;
     }
 
     // ------------------------------------------------------------------ lodging contacts

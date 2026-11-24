@@ -1,5 +1,8 @@
 package org.paulsens.trip.action;
 
+import static org.paulsens.trip.action.TenancyFixtures.orgWithAdmin;
+import static org.paulsens.trip.action.TenancyFixtures.reread;
+import static org.paulsens.trip.util.TestPeople.savedPerson;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotEquals;
@@ -9,14 +12,10 @@ import static org.testng.Assert.assertTrue;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpSession;
-import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
-import org.mockito.Mockito;
-import org.paulsens.trip.audit.AuditActor;
-import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.CustomPalette;
@@ -152,7 +151,7 @@ public class CustomPalettesTest {
         final Organization org = orgWithAdmin(admin);
         final String orgId = org.getId().getValue();
         final CustomPalettes palettes = commandsFor(admin);
-        final OrgCommands orgs = new OrgCommands(() -> callerOf(admin));
+        final OrgCommands orgs = new OrgCommands(() -> TestCallers.holdingNothing(admin));
         final String id = create(palettes, orgId, "orange");
         final String setting = KnownSettings.SITE_THEME_PALETTE.getName();
 
@@ -364,41 +363,7 @@ public class CustomPalettesTest {
                 .filter(f -> f.input().equals(input)).findFirst().orElseThrow().label();
     }
 
-    private Organization reread(final Organization org) {
-        return dao.getOrganization(org.getId(), Cached.NO).orElseThrow();
-    }
-
-    private Organization orgWithAdmin(final Person orgAdmin) {
-        final OrgCommands siteAdmin = new OrgCommands(CustomPalettesTest::siteAdminCaller);
-        final Organization org = siteAdmin.createOrganization("Palettes " + RandomData.genAlpha(10), null, null);
-        assertTrue(siteAdmin.setOrgAdmin(org.getId().getValue(), orgAdmin.getId(), true));
-        return reread(org);
-    }
-
-    private Person savedPerson() throws IOException {
-        final Person person = Person.builder().first(RandomData.genAlpha(6)).last(RandomData.genAlpha(8))
-                .email("palettes." + RandomData.genAlpha(12).toLowerCase() + "@example.com").build();
-        assertTrue(dao.savePerson(person));
-        return person;
-    }
-
     private static CustomPalettes commandsFor(final Person person) {
-        return new CustomPalettes(() -> callerOf(person));
-    }
-
-    private static Caller callerOf(final Person person) {
-        return new Caller(person.getId(), false, new AuditActor(person.getEmail(), person.getId().getValue()),
-                grantsNothing());
-    }
-
-    private static Caller siteAdminCaller() {
-        return new Caller(Person.Id.from("admin-palettes"), true, new AuditActor("admin@test", "admin"),
-                grantsNothing());
-    }
-
-    private static PrivilegeCommands grantsNothing() {
-        final PrivilegeCommands none = Mockito.mock(PrivilegeCommands.class);
-        Mockito.when(none.check(Mockito.any(), Mockito.any(), Mockito.any())).thenReturn(false);
-        return none;
+        return new CustomPalettes(() -> TestCallers.holdingNothing(person));
     }
 }
