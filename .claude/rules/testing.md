@@ -39,3 +39,9 @@ paths:
   with its reason.
 - New tests go in `trip/src/test/java/`; useful harnesses: `dynamo/DynamoLocal` (real DynamoDB engine),
   `cache/LocalRedisCluster`, `api/ResourceTestSupport`.
+- Shared fixtures, public so any package can use them; reach for these before writing a private helper:
+  `util/TestPeople` (saved people; refuses an `admin*`/`user*` tag, a local-mode sign-in persona's address),
+  `util/TestWaits` (`awaitTrue`, `captureStdout`), `action/TestCallers` (site admin, plain person, scoped grant),
+  `action/LodgingFixtures` (hotels, offers, `savedGuest`; ONE JVM-wide counter, because hotel discovery refuses
+  a duplicate detail), `action/TestMail` (accepting mail mock), `action/ChatTrips` (a saved chat trip),
+  `web/CapturedResponse` (servlet status and body), `web/FakeSessions` (map-backed `HttpSession`).

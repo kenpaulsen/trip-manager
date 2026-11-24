@@ -70,5 +70,11 @@ expenses (`getClasses()` is the authoritative list) +
 - The caller names the actor; beans never guess: `MailCommands.send` and `DeployCommands.start` have no
   actor-less form, `AuditActor.system()` is timer work. A `Caller` (request-scoped privilege cache) never
   crosses an async boundary; an `AuditActor` may. Do not make one implement the other.
+- Shared helpers, so a new endpoint does not grow its own: `JsonBody` reads a `Map<String, Object>` body (a null
+  body has no fields; an unreadable date is an `IllegalArgumentException`, a 400); `BaseResource.requireTrip` /
+  `requireSubject` are the 404s and `requireReadableTrip` the 404-THEN-403 trip gate; `tooManyRequests` is every 429
+  (with `Retry-After`); `parseSex` reads a sex by name; `ChatResource.requireTripIdOf` is the channel-id 400. The
+  `require*` helpers THROW a `WebApplicationException`, and `ChatResource.feed()` catches every `RuntimeException`
+  as a 500: inside it, answer the `Response` (`tripIdOf`), never call a helper that throws.
 - Redirect allow-lists: a prefix must end at a URL boundary (`/`, `?`, `#`, end), else
   `https://good.example.evil.example` passes. Test the real function, never a copy of its rule.

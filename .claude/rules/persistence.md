@@ -47,6 +47,11 @@ paths:
   and one `SEND#reminderId#date#personId` row per send, CLAIMED write-once (the claim that sends a reminder at most
   once), then rewritten only with its outcome and by account deletion's scrub of a name and address; uncached,
   deleted with the trip) -- `docs/reminders.md`.
+- Row plumbing is shared, never re-spelled in a DAO: `JsonRows` is the one JSON row codec (`parse`, `parseAll`,
+  `scanAll` for a consistent table scan, `get`/`tryGet` point reads).
+- `Persistence.queryPartition(table, pkName, pk)` is the one whole-partition query; it follows pagination.
+- `VersionedWrites.conditionalPut` is the one optimistic-version put, and `requireFits` its row-size guard, which
+  counts UTF-8 BYTES (DynamoDB's 400 KB limit is bytes, not chars).
 - **Caching** (`org.paulsens.trip.cache`) -- full architecture doc: `docs/caching.md` (read it before
   touching any cache or DAO read path). All caching goes through the `CacheClient` abstraction --
   `ValkeyCacheClient` (production, shared across instances; TWO connections: foreground queue 5000,
