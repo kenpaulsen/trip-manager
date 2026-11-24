@@ -1,7 +1,5 @@
 package org.paulsens.trip.web;
 
-import jakarta.servlet.ServletOutputStream;
-import jakarta.servlet.WriteListener;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
@@ -16,7 +14,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
-import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
 import org.paulsens.trip.action.Caller;
 import org.paulsens.trip.action.LodgingCommands;
@@ -67,37 +64,16 @@ public class RoomInvoicePdfServletTest {
     @BeforeMethod
     public void setUp() throws IOException {
         req = Mockito.mock(HttpServletRequest.class);
-        resp = Mockito.mock(HttpServletResponse.class);
-        out = new ByteArrayOutputStream();
-        status = new AtomicInteger(200);
+        final CapturedResponse captured = CapturedResponse.capture();
+        resp = captured.response();
+        out = captured.body();
+        status = captured.status();
         servlet = new RoomInvoicePdfServlet();
         final Trip trip = Trip.builder().id(TRIP_ID).title("Spring Trip").build();
         servlet.setSources(id -> TRIP_ID.equals(id) ? trip : Trip.builder().build(),
                 (id, access, finance) -> new ReportCommands.RoomInvoice());
         Mockito.when(req.getRequestURI()).thenReturn("/reports/room-invoice");
         Mockito.when(req.getContextPath()).thenReturn("");
-        final ServletOutputStream sink = new ServletOutputStream() {
-            @Override
-            public boolean isReady() {
-                return true;
-            }
-
-            @Override
-            public void setWriteListener(final WriteListener listener) {
-            }
-
-            @Override
-            public void write(final int b) {
-                out.write(b);
-            }
-        };
-        Mockito.when(resp.getOutputStream()).thenReturn(sink);
-        Mockito.doAnswer(call -> recordStatus(call.getArgument(0))).when(resp).sendError(ArgumentMatchers.anyInt());
-    }
-
-    private Object recordStatus(final int code) {
-        status.set(code);
-        return null;
     }
 
     private void signedIn(final String personId, final String role, final String tripId) {

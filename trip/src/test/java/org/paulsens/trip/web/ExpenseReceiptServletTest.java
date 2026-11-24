@@ -1,7 +1,5 @@
 package org.paulsens.trip.web;
 
-import jakarta.servlet.ServletOutputStream;
-import jakarta.servlet.WriteListener;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.ByteArrayOutputStream;
@@ -11,7 +9,6 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
-import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
 import org.paulsens.trip.action.Caller;
 import org.paulsens.trip.action.ExpenseReceipts;
@@ -70,33 +67,12 @@ public class ExpenseReceiptServletTest {
     @BeforeMethod
     public void setUp() throws IOException {
         req = Mockito.mock(HttpServletRequest.class);
-        resp = Mockito.mock(HttpServletResponse.class);
-        out = new ByteArrayOutputStream();
-        status = new AtomicInteger(200);
+        final CapturedResponse captured = CapturedResponse.capture();
+        resp = captured.response();
+        out = captured.body();
+        status = captured.status();
         caller = admin();
         Mockito.when(req.getContextPath()).thenReturn("");
-        final ServletOutputStream sink = new ServletOutputStream() {
-            @Override
-            public boolean isReady() {
-                return true;
-            }
-
-            @Override
-            public void setWriteListener(final WriteListener listener) {
-            }
-
-            @Override
-            public void write(final int b) {
-                out.write(b);
-            }
-        };
-        Mockito.when(resp.getOutputStream()).thenReturn(sink);
-        Mockito.doAnswer(call -> recordStatus(call.getArgument(0))).when(resp).sendError(ArgumentMatchers.anyInt());
-    }
-
-    private Object recordStatus(final int code) {
-        status.set(code);
-        return null;
     }
 
     private void get(final String pathInfo) throws IOException {

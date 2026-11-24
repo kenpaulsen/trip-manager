@@ -1,7 +1,5 @@
 package org.paulsens.trip.web;
 
-import jakarta.servlet.ServletOutputStream;
-import jakarta.servlet.WriteListener;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.ByteArrayOutputStream;
@@ -75,9 +73,10 @@ public class WaiverPdfServletTest {
     @BeforeMethod
     public void setUp() throws IOException {
         req = Mockito.mock(HttpServletRequest.class);
-        resp = Mockito.mock(HttpServletResponse.class);
-        out = new ByteArrayOutputStream();
-        status = new AtomicInteger(200);
+        final CapturedResponse captured = CapturedResponse.capture();
+        resp = captured.response();
+        out = captured.body();
+        status = captured.status();
         caller = new Caller(ADMIN, true, new AuditActor("admin@example.com", ADMIN.getValue()),
                 new PrivilegeCommands());
         Mockito.when(req.getContextPath()).thenReturn("");
@@ -86,28 +85,6 @@ public class WaiverPdfServletTest {
         Mockito.when(req.getParameter("person")).thenReturn(kid.getValue());
         Mockito.when(req.getParameter("waiver")).thenReturn(waiverId);
         Mockito.when(req.getParameter("version")).thenReturn("1");
-        final ServletOutputStream sink = new ServletOutputStream() {
-            @Override
-            public boolean isReady() {
-                return true;
-            }
-
-            @Override
-            public void setWriteListener(final WriteListener listener) {
-            }
-
-            @Override
-            public void write(final int b) {
-                out.write(b);
-            }
-        };
-        Mockito.when(resp.getOutputStream()).thenReturn(sink);
-        Mockito.doAnswer(call -> recordStatus(call.getArgument(0))).when(resp).sendError(ArgumentMatchers.anyInt());
-    }
-
-    private Object recordStatus(final int code) {
-        status.set(code);
-        return null;
     }
 
     @Test

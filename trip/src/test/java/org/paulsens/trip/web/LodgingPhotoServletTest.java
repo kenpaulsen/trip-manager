@@ -1,11 +1,7 @@
 package org.paulsens.trip.web;
 
-import jakarta.servlet.ServletOutputStream;
 import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
-import java.io.ByteArrayOutputStream;
 import java.util.Optional;
-import java.util.concurrent.atomic.AtomicInteger;
 import org.mockito.Mockito;
 import org.paulsens.trip.action.LodgingUploadCommands;
 import org.testng.Assert;
@@ -33,29 +29,11 @@ public class LodgingPhotoServletTest {
     private static int status(final LodgingPhotoServlet servlet, final String path) throws Exception {
         final HttpServletRequest req = Mockito.mock(HttpServletRequest.class);
         Mockito.when(req.getPathInfo()).thenReturn(path);
-        final HttpServletResponse resp = Mockito.mock(HttpServletResponse.class);
-        final ByteArrayOutputStream body = new ByteArrayOutputStream();
-        final AtomicInteger status = new AtomicInteger(200);
-        Mockito.doAnswer(call -> status.getAndSet(call.getArgument(0))).when(resp).sendError(Mockito.anyInt());
-        Mockito.when(resp.getOutputStream()).thenReturn(new ServletOutputStream() {
-            @Override
-            public boolean isReady() {
-                return true;
-            }
-
-            @Override
-            public void setWriteListener(final jakarta.servlet.WriteListener listener) {
-            }
-
-            @Override
-            public void write(final int b) {
-                body.write(b);
-            }
-        });
-        servlet.doGet(req, resp);
-        if (status.get() == 200) {
-            Assert.assertEquals(body.size(), 3);
+        final CapturedResponse captured = CapturedResponse.capture();
+        servlet.doGet(req, captured.response());
+        if (captured.status().get() == 200) {
+            Assert.assertEquals(captured.body().size(), 3);
         }
-        return status.get();
+        return captured.status().get();
     }
 }

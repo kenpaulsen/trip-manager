@@ -2,8 +2,6 @@ package org.paulsens.trip.web;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import jakarta.servlet.ServletOutputStream;
-import jakarta.servlet.WriteListener;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.Part;
@@ -51,22 +49,7 @@ public class MediaUploadServletTest {
             }
         };
         servlet.setMedia(media);
-        final ServletOutputStream sink = new ServletOutputStream() {
-            @Override
-            public boolean isReady() {
-                return true;
-            }
-
-            @Override
-            public void setWriteListener(final WriteListener listener) {
-            }
-
-            @Override
-            public void write(final int b) {
-                out.write(b);
-            }
-        };
-        Mockito.when(resp.getOutputStream()).thenReturn(sink);
+        Mockito.when(resp.getOutputStream()).thenReturn(CapturedResponse.streamInto(out));
         Mockito.doAnswer(call -> status.getAndSet(call.getArgument(0)))
                 .when(resp).setStatus(ArgumentMatchers.anyInt());
         Mockito.when(req.getHeader(MediaUploadServlet.CSRF_HEADER)).thenReturn("1");

@@ -1,7 +1,5 @@
 package org.paulsens.trip.web;
 
-import jakarta.servlet.ServletOutputStream;
-import jakarta.servlet.WriteListener;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.ByteArrayOutputStream;
@@ -40,32 +38,14 @@ public class TicketQrServletTest {
     @BeforeMethod
     public void setUp() throws IOException {
         req = Mockito.mock(HttpServletRequest.class);
-        resp = Mockito.mock(HttpServletResponse.class);
-        out = new ByteArrayOutputStream();
-        status = new AtomicInteger(200);
+        final CapturedResponse captured = CapturedResponse.capture();
+        resp = captured.response();
+        out = captured.body();
+        status = captured.status();
         checkin = Mockito.mock(CheckinCommands.class);
         trip = Trip.builder().id(TRIP_ID).title("Conf").build();
         servlet = new TicketQrServlet();
         servlet.setCheckin(checkin, id -> TRIP_ID.equals(id) ? Optional.of(trip) : Optional.empty());
-
-        final ServletOutputStream sink = new ServletOutputStream() {
-            @Override
-            public boolean isReady() {
-                return true;
-            }
-
-            @Override
-            public void setWriteListener(final WriteListener listener) {
-            }
-
-            @Override
-            public void write(final int b) {
-                out.write(b);
-            }
-        };
-        Mockito.when(resp.getOutputStream()).thenReturn(sink);
-        Mockito.doAnswer(call -> status.getAndSet(call.getArgument(0)))
-                .when(resp).sendError(ArgumentMatchers.anyInt());
     }
 
     private void request(final String tripParam, final String codeParam) {

@@ -1,7 +1,5 @@
 package org.paulsens.trip.web;
 
-import jakarta.servlet.ServletOutputStream;
-import jakarta.servlet.WriteListener;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.ByteArrayOutputStream;
@@ -48,7 +46,7 @@ public class SiteCheckServletTest {
             final HttpServletRequest request = request(code);
             final HttpServletResponse response = Mockito.mock(HttpServletResponse.class);
             final ByteArrayOutputStream body = new ByteArrayOutputStream();
-            Mockito.when(response.getOutputStream()).thenReturn(streamInto(body));
+            Mockito.when(response.getOutputStream()).thenReturn(CapturedResponse.streamInto(body));
             new SiteCheckServlet().doGet(request, response);
             Mockito.verify(response).setStatus(HttpServletResponse.SC_OK);
             Mockito.verify(response).setContentType("text/plain");
@@ -66,24 +64,5 @@ public class SiteCheckServletTest {
         final HttpServletRequest request = Mockito.mock(HttpServletRequest.class);
         Mockito.when(request.getParameter("code")).thenReturn(code);
         return request;
-    }
-
-    private static ServletOutputStream streamInto(final ByteArrayOutputStream body) {
-        return new ServletOutputStream() {
-            @Override
-            public boolean isReady() {
-                return true;
-            }
-
-            @Override
-            public void setWriteListener(final WriteListener listener) {
-                // Blocking writes only.
-            }
-
-            @Override
-            public void write(final int b) {
-                body.write(b);
-            }
-        };
     }
 }
