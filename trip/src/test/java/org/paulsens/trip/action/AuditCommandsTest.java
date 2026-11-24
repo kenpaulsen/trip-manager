@@ -236,6 +236,43 @@ public class AuditCommandsTest {
         Assert.assertNotNull(audit.transactionDeleted(null, null, null));
     }
 
+    /**
+     * A ledger record is targeted at the PERSON, row id or not: the audit page finds "everything about this
+     * traveler" through the target's email and id, and an event holds one target. Only a record with nobody
+     * to name falls back to the transaction.
+     */
+    @Test
+    public void aLedgerRecordIsTargetedAtThePersonAndFallsBackToTheRow() {
+        final Person payee = person("Pat", null, "Payee", "pat@example.com");
+        final Transaction tx = new Transaction("tx-77", payee.getId(), null,
+                Transaction.Type.Tx, Transaction.TransactionType.Payment, null, 40f, "cat", "Deposit");
+
+        final String saved = lineFor(captureStdout(() -> audit.transaction(payee, tx)), "recorded $40.0");
+        Assert.assertTrue(saved.contains("target=person:pat@example.com"), saved);
+        final String deleted = lineFor(captureStdout(() -> audit.transactionDeleted(payee, tx)), "deleted $40.0");
+        Assert.assertTrue(deleted.contains("target=person:pat@example.com"), deleted);
+
+        final String nobody = lineFor(captureStdout(() -> audit.transaction(null, tx)), "recorded $40.0");
+        Assert.assertTrue(nobody.contains("target=transaction:tx-77"), nobody);
+        final String gone = lineFor(captureStdout(() -> audit.transactionDeleted(null, tx)), "deleted $40.0");
+        Assert.assertTrue(gone.contains("target=transaction:tx-77"), gone);
+    }
+
+    /** A file's record belongs to the organization that owns the file, not to the site it was changed from. */
+    @Test
+    public void aMediaRecordIsFiledUnderTheOwningOrganization() {
+        final org.paulsens.trip.audit.AuditActor who = new org.paulsens.trip.audit.AuditActor("a@x.com", "a");
+        final String owned = lineFor(captureStdout(
+                () -> AuditCommands.media("trips/t1/a.jpg", "org-of-the-file", "Trip picture added", who)), "a.jpg");
+        Assert.assertTrue(owned.contains("| MEDIA | Trip picture added"), owned);
+        Assert.assertTrue(owned.contains("target=media:trips/t1/a.jpg"), owned);
+        Assert.assertTrue(owned.endsWith(" | org=org-of-the-file"), owned);
+
+        final String unowned = lineFor(captureStdout(
+                () -> AuditCommands.media("profilePics/p1", null, "Profile picture stored", null)), "profilePics");
+        Assert.assertFalse(unowned.contains("org="), "nobody's file stamps nothing off a request: " + unowned);
+    }
+
     /** The group record is targeted at the TRANSACTION: unlike every other one here it is about no person. */
     @Test
     public void deletingAWholeGroupIsRecordedAgainstTheTransaction() {

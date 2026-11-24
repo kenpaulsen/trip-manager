@@ -234,6 +234,24 @@ public class AuditCommands {
         return msg;
     }
 
+    /**
+     * A stored file changed: uploaded, replaced, rotated, described, moved or deleted.
+     *
+     * @param orgId the organization that OWNS the file (its trip's, the branded organization, a stylesheet's
+     *              owner), so the record lands in that organization's trail whichever site the request came
+     *              in on; null for a file no organization owns (a person's picture, a global accommodation's
+     *              photo), which leaves the site of the request in charge.
+     */
+    public static String media(final String key, final String orgId, final String msg, final AuditActor who) {
+        Audit.builder(AuditAction.MEDIA, AuditOutcome.SUCCESS)
+                .actor(who == null ? AuditActor.current() : who)
+                .target(AuditEventBuilder.TARGET_MEDIA, key)
+                .org(orgId)
+                .message(msg)
+                .log();
+        return msg;
+    }
+
     /** A trip budget change: its inputs, a line or a lodging line saved, moved or deleted. Targets the trip. */
     public String budget(final String tripId, final String orgId, final String msg) {
         return budget(tripId, orgId, msg, AuditActor.current());
@@ -401,23 +419,7 @@ public class AuditCommands {
 
     /** @see #transaction(Person, Transaction) */
     public String transaction(final Person target, final Transaction tx, final AuditActor who) {
-        final AuditActor actor = (who == null) ? AuditActor.current() : who;
-        final String msg = describeActor(actor) + " recorded $" + amountOf(tx) + " (" + noteOf(tx) + ") for "
-                + describe(target);
-        // The ROW's org, not the site's: a ledger row belongs to its trip's organization, and an admin can
-        // record one from the shared host (docs/payments.md, "site reach").
-        final AuditEventBuilder builder = Audit.builder(AuditAction.TRANSACTION, AuditOutcome.SUCCESS)
-                .actor(actor)
-                .targetPerson(target)
-                .org(tx == null ? null : tx.getOrgId())
-                .message(msg);
-        if (tx != null && tx.getTxId() != null) {
-            builder.target(AuditEventBuilder.TARGET_TRANSACTION, tx.getTxId());
-            // Keep the person too: "what happened to this traveller's account" is the usual question.
-            builder.targetPerson(target);
-        }
-        builder.log();
-        return msg;
+        return ledgerEvent(target, tx, who, "recorded");
     }
 
     /**
@@ -435,19 +437,32 @@ public class AuditCommands {
 
     /** @see #transactionDeleted(Person, Transaction) */
     public String transactionDeleted(final Person target, final Transaction tx, final AuditActor who) {
+        return ledgerEvent(target, tx, who, "deleted");
+    }
+
+    /**
+     * One ledger row's record, targeted at the PERSON whose account it is. An event holds ONE target, and the
+     * trail is searched by person ({@code AuditQuery.matches} looks at the target's email and id), so the person
+     * wins; the row is described by the message. Both callers used to set the TRANSACTION target and then
+     * overwrite it with the person while their comments claimed both were kept. The transaction id is the
+     * target only when there is no person to name.
+     */
+    private static String ledgerEvent(
+            final Person target, final Transaction tx, final AuditActor who, final String verb) {
         final AuditActor actor = (who == null) ? AuditActor.current() : who;
-        final String msg = describeActor(actor) + " deleted $" + amountOf(tx) + " (" + noteOf(tx) + ") for "
+        final String msg = describeActor(actor) + " " + verb + " $" + amountOf(tx) + " (" + noteOf(tx) + ") for "
                 + describe(target);
-        // Same target shape as #transaction: the transaction id, then the person, who is what the trail is
-        // usually searched by.
+        // The ROW's org, not the site's: a ledger row belongs to its trip's organization, and an admin can
+        // record one from the shared host (docs/payments.md, "site reach").
         final AuditEventBuilder builder = Audit.builder(AuditAction.TRANSACTION, AuditOutcome.SUCCESS)
                 .actor(actor)
                 .org(tx == null ? null : tx.getOrgId())
                 .message(msg);
-        if (tx != null && tx.getTxId() != null) {
+        if (target != null) {
+            builder.targetPerson(target);
+        } else if (tx != null && tx.getTxId() != null) {
             builder.target(AuditEventBuilder.TARGET_TRANSACTION, tx.getTxId());
         }
-        builder.targetPerson(target);
         builder.log();
         return msg;
     }
