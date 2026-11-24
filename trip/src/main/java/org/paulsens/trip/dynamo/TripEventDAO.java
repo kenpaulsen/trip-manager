@@ -23,6 +23,7 @@ public class TripEventDAO {
     private static final String TRIP_EVENT_TABLE = "trip_events";
 
     private final ObjectMapper mapper;
+    private final JsonRows rows;
     private final Persistence persistence;
     private final CacheClient cacheClient;
     private final PointCache<TripEvent> cache;
@@ -33,14 +34,15 @@ public class TripEventDAO {
 
     protected TripEventDAO(final ObjectMapper mapper, final Persistence persistence, final CacheClient cacheClient) {
         this.mapper = mapper;
+        this.rows = new JsonRows(mapper);
         this.persistence = persistence;
         this.cacheClient = cacheClient;
         this.cache = PointCache.<TripEvent>builder()
                 .cache(cacheClient)
                 .keyPrefix(CacheKeys.TRIP_EVENT_PREFIX)
                 .softRevalidate(CacheSupport.softRevalidateEnabled(cacheClient))
-                .serializer(this::toJson)
-                .deserializer(this::parseTripEvent)
+                .serializer(value -> rows.toJson(value))
+                .deserializer(json -> rows.parse(TripEvent.class, json))
                 .build();
     }
 
@@ -124,24 +126,6 @@ public class TripEventDAO {
             log.error("TripEvent (" + teId + ") is missing content!!");
             return null;
         }
-        return parseTripEvent(content.s());
-    }
-
-    private TripEvent parseTripEvent(final String json) {
-        try {
-            return mapper.readValue(json, TripEvent.class);
-        } catch (final IOException ex) {
-            log.error("Unable to parse TripEvent record: " + json, ex);
-            return null;
-        }
-    }
-
-    private String toJson(final TripEvent te) {
-        try {
-            return mapper.writeValueAsString(te);
-        } catch (final IOException ex) {
-            log.error("Unable to serialize trip event: " + te.getId(), ex);
-            return null;
-        }
+        return rows.parse(TripEvent.class, content.s());
     }
 }

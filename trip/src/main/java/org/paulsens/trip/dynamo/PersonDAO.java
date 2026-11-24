@@ -11,7 +11,6 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.StructuredTaskScope;
-import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.cache.CacheClient;
 import org.paulsens.trip.cache.CacheKeys;
 import org.paulsens.trip.cache.CacheSupport;
@@ -26,7 +25,6 @@ import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
  * front of a Dynamo point read), by email (cached hash in front of the {@code email-index} GSI), or by search
  * ({@link SearchIndex} over the {@link PersonMatch} tokens: name and cell-digit suffixes, whole email and cell).
  */
-@Slf4j
 public class PersonDAO {
     private static final String ID = "id";
     private static final String CONTENT = "content";
@@ -39,6 +37,7 @@ public class PersonDAO {
     private static final int RESOLVE_LOADS = 16;
 
     private final ObjectMapper mapper;
+    private final JsonRows rows;
     private final Persistence persistence;
     private final CacheClient cacheClient;
     private final PointCache<Person> cache;
@@ -50,14 +49,15 @@ public class PersonDAO {
 
     protected PersonDAO(final ObjectMapper mapper, final Persistence persistence, final CacheClient cacheClient) {
         this.mapper = mapper;
+        this.rows = new JsonRows(mapper);
         this.persistence = persistence;
         this.cacheClient = cacheClient;
         this.cache = PointCache.<Person>builder()
                 .cache(cacheClient)
                 .keyPrefix(CacheKeys.PERSON_PREFIX)
                 .softRevalidate(CacheSupport.softRevalidateEnabled(cacheClient))
-                .serializer(this::toJson)
-                .deserializer(this::parsePerson)
+                .serializer(value -> rows.toJson(value))
+                .deserializer(json -> rows.parse(Person.class, json))
                 .build();
         this.searchIndex = SearchIndex.builder()
                 .cache(cacheClient)
@@ -76,25 +76,17 @@ public class PersonDAO {
             map.put(EMAIL_ATTR, AttributeValue.builder().s(email).build());
         }
         // The previous version drives the search-index / email-lookup diff (removing stale tokens and mappings).
-        try {
-            final Person prev = cache.get(person.getId().getValue(), this::loadPersonById).orElse(null);
-            final boolean saved = persistence.putItem(b -> b.tableName(PERSON_TABLE).item(map))
-                    .sdkHttpResponse().isSuccessful();
-            return saved && updateCachesForPerson(prev, person);
-        } catch (final RuntimeException ex) {
-            throw ex;
-        }
+        final Person prev = cache.get(person.getId().getValue(), this::loadPersonById).orElse(null);
+        final boolean saved = persistence.putItem(b -> b.tableName(PERSON_TABLE).item(map))
+                .sdkHttpResponse().isSuccessful();
+        return saved && updateCachesForPerson(prev, person);
     }
 
     protected Optional<Person> getPerson(final Person.Id id) {
         if (id == null) {
             return Optional.empty();
         }
-        try {
-            return cache.get(id.getValue(), this::loadPersonById);
-        } catch (final RuntimeException ex) {
-            throw ex;
-        }
+        return cache.get(id.getValue(), this::loadPersonById);
     }
 
     protected Person getPersonByEmail(final String email) {
@@ -293,24 +285,6 @@ public class PersonDAO {
     }
 
     private Person toPerson(final AttributeValue content) {
-        return (content == null) ? null : parsePerson(content.s());
-    }
-
-    private Person parsePerson(final String json) {
-        try {
-            return mapper.readValue(json, Person.class);
-        } catch (final IOException ex) {
-            log.error("Unable to parse person record: " + json, ex);
-            return null;
-        }
-    }
-
-    private String toJson(final Person person) {
-        try {
-            return mapper.writeValueAsString(person);
-        } catch (final IOException ex) {
-            log.error("Unable to serialize person: " + person.getId(), ex);
-            return null;
-        }
+        return (content == null) ? null : rows.parse(Person.class, content.s());
     }
 }

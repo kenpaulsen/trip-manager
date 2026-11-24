@@ -29,6 +29,7 @@ public class RegistrationDAO {
     private static final String REGISTRATION_TABLE = "registrations";
 
     private final ObjectMapper mapper;
+    private final JsonRows rows;
     private final Persistence persistence;
     private final CacheClient cacheClient;
     private final PartitionCache<Person.Id, Registration> cache;
@@ -40,6 +41,7 @@ public class RegistrationDAO {
     protected RegistrationDAO(final ObjectMapper mapper, final Persistence persistence,
             final CacheClient cacheClient) {
         this.mapper = mapper;
+        this.rows = new JsonRows(mapper);
         this.persistence = persistence;
         this.cacheClient = cacheClient;
         this.cache = PartitionCache.<Person.Id, Registration>builder()
@@ -48,8 +50,8 @@ public class RegistrationDAO {
                 .softRevalidate(CacheSupport.softRevalidateEnabled(cacheClient))
                 .idGetter(Registration::getUserId)
                 .idFormatter(Person.Id::getValue)
-                .serializer(this::toJson)
-                .deserializer(this::parseRegistration)
+                .serializer(value -> rows.toJson(value))
+                .deserializer(json -> rows.parse(Registration.class, json))
                 // The old per-JVM cache was a skip-list map keyed by user id, so that was the caller-visible order.
                 .order(Comparator.comparing(Registration::getUserId))
                 .build();
@@ -78,19 +80,11 @@ public class RegistrationDAO {
     }
 
     protected List<Registration> getRegistrations(final String tripId) {
-        try {
-            return cache.getAll(tripId, () -> loadTripRegData(tripId));
-        } catch (final RuntimeException ex) {
-            throw ex;
-        }
+        return cache.getAll(tripId, () -> loadTripRegData(tripId));
     }
 
     protected Optional<Registration> getRegistration(final String tripId, final Person.Id userId) {
-        try {
-            return cache.getOne(tripId, userId, () -> loadTripRegData(tripId));
-        } catch (final RuntimeException ex) {
-            throw ex;
-        }
+        return cache.getOne(tripId, userId, () -> loadTripRegData(tripId));
     }
 
     /**
@@ -158,24 +152,6 @@ public class RegistrationDAO {
     }
 
     private Registration toRegistration(final AttributeValue content) {
-        return (content == null) ? null : parseRegistration(content.s());
-    }
-
-    private Registration parseRegistration(final String json) {
-        try {
-            return mapper.readValue(json, Registration.class);
-        } catch (final IOException ex) {
-            log.error("Unable to parse registration record: " + json, ex);
-            return null;
-        }
-    }
-
-    private String toJson(final Registration reg) {
-        try {
-            return mapper.writeValueAsString(reg);
-        } catch (final IOException ex) {
-            log.error("Unable to serialize registration: " + reg.getTripId() + "/" + reg.getUserId(), ex);
-            return null;
-        }
+        return (content == null) ? null : rows.parse(Registration.class, content.s());
     }
 }

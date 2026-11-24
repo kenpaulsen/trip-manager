@@ -46,6 +46,7 @@ public class TripDAO {
     private static final long NO_END_DATE = Long.MAX_VALUE / 2;
 
     private final ObjectMapper mapper;
+    private final JsonRows rows;
     private final Persistence persistence;
     private final TripEventDAO tripEventDao;
     private final CacheClient cacheClient;
@@ -65,6 +66,7 @@ public class TripDAO {
             final TripEventDAO tripEventDao,
             final CacheClient cacheClient) {
         this.mapper = mapper;
+        this.rows = new JsonRows(mapper);
         this.persistence = persistence;
         this.tripEventDao = tripEventDao;
         this.cacheClient = cacheClient;
@@ -72,8 +74,8 @@ public class TripDAO {
                 .cache(cacheClient)
                 .keyPrefix(CacheKeys.TRIP_PREFIX)
                 .softRevalidate(CacheSupport.softRevalidateEnabled(cacheClient))
-                .serializer(this::toJson)
-                .deserializer(this::parseTrip)
+                .serializer(value -> rows.toJson(value))
+                .deserializer(json -> rows.parse(Trip.class, json))
                 .build();
         this.index = TripIndex.builder()
                 .cache(cacheClient)
@@ -115,40 +117,22 @@ public class TripDAO {
         if ((id == null) || id.isEmpty()) {
             return Optional.empty();
         }
-        try {
-            return cache.get(id, this::loadTripById);
-        } catch (final RuntimeException ex) {
-            throw ex;
-        }
+        return cache.get(id, this::loadTripById);
     }
 
     /** Active trips (endDate at/after {@code cutoff}), in display order. */
     protected List<Trip> getActiveTrips(final LocalDateTime cutoff) {
-        try {
-            return
-                    resolveTrips(index.activeTripIds(toEpochMillis(cutoff), 0), true);
-        } catch (final RuntimeException ex) {
-            throw ex;
-        }
+        return resolveTrips(index.activeTripIds(toEpochMillis(cutoff), 0), true);
     }
 
     /** Up to {@code limit} most-recent inactive trips (endDate before {@code cutoff}), newest first. */
     protected List<Trip> getInactiveTrips(final LocalDateTime cutoff, final int limit) {
-        try {
-            return
-                    resolveTrips(index.inactiveTripIds(toEpochMillis(cutoff), limit), false);
-        } catch (final RuntimeException ex) {
-            throw ex;
-        }
+        return resolveTrips(index.inactiveTripIds(toEpochMillis(cutoff), limit), false);
     }
 
     /** The {@code limit} most-recently-ending trips (admin pickers), in display order; non-positive = no cap. */
     protected List<Trip> getRecentTrips(final int limit) {
-        try {
-            return resolveTrips(index.allTripIds(limit), true);
-        } catch (final RuntimeException ex) {
-            throw ex;
-        }
+        return resolveTrips(index.allTripIds(limit), true);
     }
 
     /** Trips the user is a member of, in display order. */
@@ -156,12 +140,7 @@ public class TripDAO {
         if (userId == null) {
             return List.of();
         }
-        try {
-            return
-                    resolveTrips(index.tripIdsForUser(userId.getValue(), 0), true);
-        } catch (final RuntimeException ex) {
-            throw ex;
-        }
+        return resolveTrips(index.tripIdsForUser(userId.getValue(), 0), true);
     }
 
     /**
@@ -227,24 +206,6 @@ public class TripDAO {
     }
 
     private Trip toTrip(final AttributeValue content) {
-        return (content == null) ? null : parseTrip(content.s());
-    }
-
-    private Trip parseTrip(final String json) {
-        try {
-            return mapper.readValue(json, Trip.class);
-        } catch (final IOException ex) {
-            log.error("Unable to parse trip record: " + json, ex);
-            return null;
-        }
-    }
-
-    private String toJson(final Trip trip) {
-        try {
-            return mapper.writeValueAsString(trip);
-        } catch (final IOException ex) {
-            log.error("Unable to serialize trip: " + trip.getId(), ex);
-            return null;
-        }
+        return (content == null) ? null : rows.parse(Trip.class, content.s());
     }
 }

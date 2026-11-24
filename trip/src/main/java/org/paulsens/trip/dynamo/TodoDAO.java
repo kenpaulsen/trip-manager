@@ -30,6 +30,7 @@ public class TodoDAO {
     private static final String TRIP_ID = "tripId";
 
     private final ObjectMapper mapper;
+    private final JsonRows rows;
     private final Persistence persistence;
     private final CacheClient cacheClient;
     private final PartitionCache<DataId, TodoItem> cache;
@@ -40,6 +41,7 @@ public class TodoDAO {
 
     protected TodoDAO(final ObjectMapper mapper, final Persistence persistence, final CacheClient cacheClient) {
         this.mapper = mapper;
+        this.rows = new JsonRows(mapper);
         this.persistence = persistence;
         this.cacheClient = cacheClient;
         this.cache = PartitionCache.<DataId, TodoItem>builder()
@@ -48,8 +50,8 @@ public class TodoDAO {
                 .softRevalidate(CacheSupport.softRevalidateEnabled(cacheClient))
                 .idGetter(TodoItem::getDataId)
                 .idFormatter(DataId::getValue)
-                .serializer(this::toJson)
-                .deserializer(this::parseTodoItem)
+                .serializer(value -> rows.toJson(value))
+                .deserializer(json -> rows.parse(TodoItem.class, json))
                 // The old per-JVM cache was a skip-list map keyed by data id, so that was the caller-visible order.
                 .order(Comparator.comparing(TodoItem::getDataId))
                 .build();
@@ -78,19 +80,11 @@ public class TodoDAO {
     }
 
     protected List<TodoItem> getTodoItems(final String tripId) {
-        try {
-            return cache.getAll(tripId, () -> loadTodoItems(tripId));
-        } catch (final RuntimeException ex) {
-            throw ex;
-        }
+        return cache.getAll(tripId, () -> loadTodoItems(tripId));
     }
 
     protected Optional<TodoItem> getTodoItem(final String tripId, final DataId pdvId) {
-        try {
-            return cache.getOne(tripId, pdvId, () -> loadTodoItems(tripId));
-        } catch (final RuntimeException ex) {
-            throw ex;
-        }
+        return cache.getOne(tripId, pdvId, () -> loadTodoItems(tripId));
     }
 
     /**
@@ -140,24 +134,6 @@ public class TodoDAO {
     }
 
     private TodoItem toTodoItem(final AttributeValue content) {
-        return (content == null) ? null : parseTodoItem(content.s());
-    }
-
-    private TodoItem parseTodoItem(final String json) {
-        try {
-            return mapper.readValue(json, TodoItem.class);
-        } catch (final IOException ex) {
-            log.error("Unable to parse Todo Item record: " + json, ex);
-            return null;
-        }
-    }
-
-    private String toJson(final TodoItem todo) {
-        try {
-            return mapper.writeValueAsString(todo);
-        } catch (final IOException ex) {
-            log.error("Unable to serialize todo item: " + todo.getDataId(), ex);
-            return null;
-        }
+        return (content == null) ? null : rows.parse(TodoItem.class, content.s());
     }
 }

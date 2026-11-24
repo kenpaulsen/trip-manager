@@ -64,26 +64,18 @@ public class CredentialsDAO {
                         && !Boolean.parseBoolean(viewMap.getOrDefault(CREDS_ADMIN_VIEW, false).toString()))) {
             return null;
         }
-        try {
-            final GetItemResponse item =
-                    persistence.getItem(b -> b.key(getCredQueryKey(email)).tableName(PASS_TABLE).build());
-            return item.hasItem() ? credsFromResponse(item) : null;
-        } catch (final RuntimeException ex) {
-            throw ex;
-        }
+        final GetItemResponse item =
+                persistence.getItem(b -> b.key(getCredQueryKey(email)).tableName(PASS_TABLE).build());
+        return item.hasItem() ? credsFromResponse(item) : null;
     }
 
     protected Creds getCredsByEmailAndPass(final String email, final String pass) {
         if ((email == null) || email.isEmpty() || (pass == null) || pass.isEmpty()) {
             return null;
         }
-        try {
-            final GetItemResponse item =
-                    persistence.getItem(b -> b.key(getCredQueryKey(email)).tableName(PASS_TABLE).build());
-            return validateCreds(item, email, pass);
-        } catch (final RuntimeException ex) {
-            throw ex;
-        }
+        final GetItemResponse item =
+                persistence.getItem(b -> b.key(getCredQueryKey(email)).tableName(PASS_TABLE).build());
+        return validateCreds(item, email, pass);
     }
 
     private Map<String, AttributeValue> getCredQueryKey(final String email) {
@@ -114,15 +106,10 @@ public class CredentialsDAO {
         if ((email == null) || email.isEmpty()) {
             return null;
         }
-        try {
-            final GetItemResponse item =
-                    persistence.getItem(b -> b.key(getCredQueryKey(email)).tableName(PASS_TABLE).build());
-            final Creds creds = item.hasItem() ? credsFromResponse(item) : null;
-            return
-                    (creds == null || creds.getUserId().equals(id)) ? creds : null;
-        } catch (final RuntimeException ex) {
-            throw ex;
-        }
+        final GetItemResponse item =
+                persistence.getItem(b -> b.key(getCredQueryKey(email)).tableName(PASS_TABLE).build());
+        final Creds creds = item.hasItem() ? credsFromResponse(item) : null;
+        return (creds == null || creds.getUserId().equals(id)) ? creds : null;
     }
 
     /**
@@ -227,13 +214,8 @@ public class CredentialsDAO {
     private Boolean removeCredsInternal(final String email) {
         log.info("Removing Credentials for user ({}).", email);
         final Map<String, AttributeValue> primaryKey = getCredQueryKey(email);
-        try {
-            return
-                    persistence.deleteItem(b -> b.tableName(PASS_TABLE).key(primaryKey))
-                            .sdkHttpResponse().isSuccessful();
-        } catch (final RuntimeException ex) {
-            throw ex;
-        }
+        return persistence.deleteItem(b -> b.tableName(PASS_TABLE).key(primaryKey))
+                .sdkHttpResponse().isSuccessful();
     }
 
     // Turns a password into what should be written: an existing hash envelope passes through untouched (so

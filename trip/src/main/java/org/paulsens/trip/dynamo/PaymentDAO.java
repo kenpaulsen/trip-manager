@@ -6,7 +6,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.model.Payment;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
@@ -21,7 +20,6 @@ import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedExce
  * told to expect. A lost race throws {@link ConditionalCheckFailedException} -- the caller re-reads and
  * discovers the other writer already advanced the payment (the concurrent return-page retry case).
  */
-@Slf4j
 public class PaymentDAO {
     /** Package-visible so {@link InMemoryPersistence} can register the table for local mode. */
     static final String PAYMENTS_TABLE = "payments";
@@ -30,10 +28,12 @@ public class PaymentDAO {
     private static final String CONTENT = "content";
 
     private final ObjectMapper mapper;
+    private final JsonRows rows;
     private final Persistence persistence;
 
     protected PaymentDAO(final ObjectMapper mapper, final Persistence persistence) {
         this.mapper = mapper;
+        this.rows = new JsonRows(mapper);
         this.persistence = persistence;
     }
 
@@ -82,7 +82,7 @@ public class PaymentDAO {
         if (content == null) {
             return Optional.empty();
         }
-        final Payment payment = parsePayment(content.s());
+        final Payment payment = rows.parse(Payment.class, content.s());
         return (payment == null) ? Optional.empty() : Optional.of(new Stored(payment, content.s()));
     }
 
@@ -113,7 +113,7 @@ public class PaymentDAO {
                 .stream()
                 .map(item -> item.get(CONTENT))
                 .filter(content -> content != null)
-                .map(content -> parsePayment(content.s()))
+                .map(content -> rows.parse(Payment.class, content.s()))
                 .filter(payment -> payment != null)
                 .toList();
     }
@@ -124,14 +124,5 @@ public class PaymentDAO {
         map.put(STATUS_ATTR, AttributeValue.builder().s(payment.getStatus().name()).build());
         map.put(CONTENT, AttributeValue.builder().s(mapper.writeValueAsString(payment)).build());
         return map;
-    }
-
-    private Payment parsePayment(final String json) {
-        try {
-            return mapper.readValue(json, Payment.class);
-        } catch (final IOException ex) {
-            log.error("Unable to parse payment record: " + json, ex);
-            return null;
-        }
     }
 }

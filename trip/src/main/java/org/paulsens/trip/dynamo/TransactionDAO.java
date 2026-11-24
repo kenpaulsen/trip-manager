@@ -26,6 +26,7 @@ public class TransactionDAO {
     private static final String USER_ID = "userId";
 
     private final ObjectMapper mapper;
+    private final JsonRows rows;
     private final Persistence persistence;
     private final CacheClient cacheClient;
     private final PartitionCache<String, Transaction> cache;
@@ -37,6 +38,7 @@ public class TransactionDAO {
     protected TransactionDAO(final ObjectMapper mapper, final Persistence persistence,
             final CacheClient cacheClient) {
         this.mapper = mapper;
+        this.rows = new JsonRows(mapper);
         this.persistence = persistence;
         this.cacheClient = cacheClient;
         this.cache = PartitionCache.<String, Transaction>builder()
@@ -45,29 +47,20 @@ public class TransactionDAO {
                 .softRevalidate(CacheSupport.softRevalidateEnabled(cacheClient))
                 .idGetter(Transaction::getTxId)
                 .idFormatter(txId -> txId)
-                .serializer(this::toJson)
-                .deserializer(this::parseTransaction)
+                .serializer(value -> rows.toJson(value))
+                .deserializer(json -> rows.parse(Transaction.class, json))
                 .order(Comparator.comparing(Transaction::getTxId))
                 .build();
     }
 
     protected List<Transaction> getTransactions(final Person.Id userId) {
-        try {
-            return persistence.sortList(
-                    cache.getAll(userId.getValue(), () -> loadUserTxData(userId)),
-                    Comparator.comparing(Transaction::getTxDate));
-        } catch (final RuntimeException ex) {
-            throw ex;
-        }
+        return persistence.sortList(
+                cache.getAll(userId.getValue(), () -> loadUserTxData(userId)),
+                Comparator.comparing(Transaction::getTxDate));
     }
 
     protected Optional<Transaction> getTransaction(final Person.Id userId, final String txId) {
-        try {
-            return
-                    cache.getOne(userId.getValue(), txId, () -> loadUserTxData(userId));
-        } catch (final RuntimeException ex) {
-            throw ex;
-        }
+        return cache.getOne(userId.getValue(), txId, () -> loadUserTxData(userId));
     }
 
     protected Boolean saveTransaction(final Transaction tx) throws IOException {
@@ -75,14 +68,9 @@ public class TransactionDAO {
         map.put(USER_ID, AttributeValue.builder().s(tx.getUserId().getValue()).build());
         map.put(TX_ID, AttributeValue.builder().s(tx.getTxId()).build());
         map.put(CONTENT, AttributeValue.builder().s(mapper.writeValueAsString(tx)).build());
-        try {
-            final boolean saved = persistence.putItem(b -> b.tableName(TRANSACTION_TABLE).item(map))
-                    .sdkHttpResponse().isSuccessful();
-            return saved && updateCacheForTx(tx);
-        } catch (final RuntimeException ex) {
-            // Shim until Phase 5: persistence failures are synchronous now but callers expect a failed future.
-            throw ex;
-        }
+        final boolean saved = persistence.putItem(b -> b.tableName(TRANSACTION_TABLE).item(map))
+                .sdkHttpResponse().isSuccessful();
+        return saved && updateCacheForTx(tx);
     }
 
     public void clearCache() {
@@ -105,25 +93,7 @@ public class TransactionDAO {
     }
 
     private Transaction toTransaction(final AttributeValue content) {
-        return (content == null) ? null : parseTransaction(content.s());
-    }
-
-    private Transaction parseTransaction(final String json) {
-        try {
-            return mapper.readValue(json, Transaction.class);
-        } catch (final IOException ex) {
-            log.error("Unable to parse record: " + json, ex);
-            return null;
-        }
-    }
-
-    private String toJson(final Transaction tx) {
-        try {
-            return mapper.writeValueAsString(tx);
-        } catch (final IOException ex) {
-            log.error("Unable to serialize transaction: " + tx.getTxId(), ex);
-            return null;
-        }
+        return (content == null) ? null : rows.parse(Transaction.class, content.s());
     }
 
     private void txByUserId(final QueryRequest.Builder qb, final Person.Id userId) {

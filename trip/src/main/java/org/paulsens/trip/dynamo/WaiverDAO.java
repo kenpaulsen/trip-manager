@@ -8,7 +8,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.cache.CacheClient;
 import org.paulsens.trip.cache.CacheKeys;
 import org.paulsens.trip.cache.CacheSupport;
@@ -36,7 +35,6 @@ import software.amazon.awssdk.services.dynamodb.model.QueryRequest;
  *       has no business living in a cache whose local-mode twin IS the store. There is no delete.</li>
  * </ul>
  */
-@Slf4j
 public class WaiverDAO {
     /** Package-visible so {@link InMemoryPersistence} can register the tables for local mode. */
     static final String WAIVERS_TABLE = "org_waivers";
@@ -51,11 +49,13 @@ public class WaiverDAO {
     static final int MAX_DOCUMENT_BYTES = 350_000;
 
     private final ObjectMapper mapper;
+    private final JsonRows rows;
     private final Persistence persistence;
     private final PartitionCache<String, WaiverDocument> cache;
 
     protected WaiverDAO(final ObjectMapper mapper, final Persistence persistence, final CacheClient cacheClient) {
         this.mapper = mapper;
+        this.rows = new JsonRows(mapper);
         this.persistence = persistence;
         this.cache = PartitionCache.<String, WaiverDocument>builder()
                 .cache(cacheClient)
@@ -63,8 +63,8 @@ public class WaiverDAO {
                 .softRevalidate(CacheSupport.softRevalidateEnabled(cacheClient))
                 .idGetter(WaiverDocument::getId)
                 .idFormatter(id -> id)
-                .serializer(this::toJson)
-                .deserializer(this::parseDocument)
+                .serializer(value -> rows.toJson(value))
+                .deserializer(json -> rows.parse(WaiverDocument.class, json))
                 .order(Comparator.comparing(WaiverDAO::sortTitle))
                 .build();
     }
@@ -104,7 +104,7 @@ public class WaiverDAO {
         } catch (final ConditionalCheckFailedException ex) {
             doc.setVersion(expected);
             VersionedWrites.recacheStored(persistence, WAIVERS_TABLE,
-                    Map.of(ORG_ID, item.get(ORG_ID), ID, item.get(ID)), this::parseDocument,
+                    Map.of(ORG_ID, item.get(ORG_ID), ID, item.get(ID)), json -> rows.parse(WaiverDocument.class, json),
                     stored -> cache.put(doc.getOrgId(), stored));
             throw ex;
         }
@@ -142,7 +142,7 @@ public class WaiverDAO {
         return persistence.queryAll(qb -> partitionQuery(qb, WAIVERS_TABLE, ORG_ID, orgId)).stream()
                 .map(item -> item.get(CONTENT))
                 .filter(Objects::nonNull)
-                .map(content -> parseDocument(content.s()))
+                .map(content -> rows.parse(WaiverDocument.class, content.s()))
                 .filter(Objects::nonNull)
                 .toList();
     }
@@ -182,7 +182,7 @@ public class WaiverDAO {
         return persistence.queryAll(qb -> partitionQuery(qb, ACCEPTANCES_TABLE, TRIP_ID, tripId)).stream()
                 .map(item -> item.get(CONTENT))
                 .filter(Objects::nonNull)
-                .map(content -> parseAcceptance(content.s()))
+                .map(content -> rows.parse(WaiverAcceptance.class, content.s()))
                 .filter(Objects::nonNull)
                 .sorted(Comparator.comparing(WaiverAcceptance::getSortKey))
                 .toList();
@@ -208,32 +208,5 @@ public class WaiverDAO {
 
     private static AttributeValue str(final String value) {
         return AttributeValue.builder().s(value).build();
-    }
-
-    private WaiverDocument parseDocument(final String json) {
-        try {
-            return mapper.readValue(json, WaiverDocument.class);
-        } catch (final IOException ex) {
-            log.error("Unable to parse waiver document: " + json, ex);
-            return null;
-        }
-    }
-
-    private WaiverAcceptance parseAcceptance(final String json) {
-        try {
-            return mapper.readValue(json, WaiverAcceptance.class);
-        } catch (final IOException ex) {
-            log.error("Unable to parse waiver acceptance: " + json, ex);
-            return null;
-        }
-    }
-
-    private String toJson(final WaiverDocument doc) {
-        try {
-            return mapper.writeValueAsString(doc);
-        } catch (final IOException ex) {
-            log.error("Unable to serialize waiver document: " + doc.getId(), ex);
-            return null;
-        }
     }
 }

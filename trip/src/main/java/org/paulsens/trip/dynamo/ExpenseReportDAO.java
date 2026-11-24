@@ -5,7 +5,6 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
-import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.cache.CacheClient;
 import org.paulsens.trip.cache.CacheKeys;
 import org.paulsens.trip.cache.CacheSupport;
@@ -23,7 +22,6 @@ import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
  * two people editing one report can never half-merge it. A row that would not fit DynamoDB's 400 KB item cap
  * is refused before the store sees it.
  */
-@Slf4j
 public class ExpenseReportDAO {
     static final String EXPENSES_TABLE = "trip_expense_reports";
     static final String TRIP_ID = "tripId";
@@ -33,19 +31,21 @@ public class ExpenseReportDAO {
     static final int MAX_REPORT_BYTES = 350_000;
 
     private final ObjectMapper mapper;
+    private final JsonRows rows;
     private final Persistence persistence;
     private final PointCache<TripExpenseReport> cache;
 
     protected ExpenseReportDAO(final ObjectMapper mapper, final Persistence persistence,
             final CacheClient cacheClient) {
         this.mapper = mapper;
+        this.rows = new JsonRows(mapper);
         this.persistence = persistence;
         this.cache = PointCache.<TripExpenseReport>builder()
                 .cache(cacheClient)
                 .keyPrefix(CacheKeys.EXPENSE_PREFIX)
                 .softRevalidate(CacheSupport.softRevalidateEnabled(cacheClient))
-                .serializer(this::toJson)
-                .deserializer(this::parseReport)
+                .serializer(value -> rows.toJson(value))
+                .deserializer(json -> rows.parse(TripExpenseReport.class, json))
                 .build();
     }
 
@@ -80,7 +80,7 @@ public class ExpenseReportDAO {
         } catch (final ConditionalCheckFailedException ex) {
             report.setVersion(expected);
             VersionedWrites.recacheStored(persistence, EXPENSES_TABLE, Map.of(TRIP_ID, map.get(TRIP_ID)),
-                    this::parseReport, stored -> cache.put(report.getTripId(), stored));
+                    json -> rows.parse(TripExpenseReport.class, json), stored -> cache.put(report.getTripId(), stored));
             throw ex;
         }
     }
@@ -118,24 +118,6 @@ public class ExpenseReportDAO {
         final Map<String, AttributeValue> key = Map.of(TRIP_ID, AttributeValue.builder().s(tripId).build());
         final AttributeValue content =
                 persistence.getItem(b -> b.key(key).tableName(EXPENSES_TABLE).build()).item().get(CONTENT);
-        return (content == null) ? null : parseReport(content.s());
-    }
-
-    private TripExpenseReport parseReport(final String json) {
-        try {
-            return mapper.readValue(json, TripExpenseReport.class);
-        } catch (final IOException ex) {
-            log.error("Unable to parse expense report record: " + json, ex);
-            return null;
-        }
-    }
-
-    private String toJson(final TripExpenseReport report) {
-        try {
-            return mapper.writeValueAsString(report);
-        } catch (final IOException ex) {
-            log.error("Unable to serialize expense report: " + report.getTripId(), ex);
-            return null;
-        }
+        return (content == null) ? null : rows.parse(TripExpenseReport.class, content.s());
     }
 }

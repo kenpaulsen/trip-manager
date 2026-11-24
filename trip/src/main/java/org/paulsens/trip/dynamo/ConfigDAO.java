@@ -34,6 +34,7 @@ public class ConfigDAO {
     static final String CONFIG_TABLE = "config";
 
     private final ObjectMapper mapper;
+    private final JsonRows rows;
     private final Persistence persistence;
     private final PartitionScanCache<Config> cache;
 
@@ -43,6 +44,7 @@ public class ConfigDAO {
 
     protected ConfigDAO(final ObjectMapper mapper, final Persistence persistence, final CacheClient cacheClient) {
         this.mapper = mapper;
+        this.rows = new JsonRows(mapper);
         this.persistence = persistence;
         this.cache = PartitionScanCache.<Config>builder()
                 .cache(cacheClient)
@@ -53,8 +55,8 @@ public class ConfigDAO {
                 // One partition on purpose: the table is small and always wanted whole.
                 .partitioner(config -> CacheKeys.CONFIG_PARTITION)
                 .fielder(Config::getName)
-                .serializer(this::toJson)
-                .deserializer(this::parseConfig)
+                .serializer(value -> rows.toJson(value))
+                .deserializer(json -> rows.parse(Config.class, json))
                 .build();
     }
 
@@ -72,22 +74,14 @@ public class ConfigDAO {
             log.warn(error);
             throw new IllegalStateException(error);
         }
-        try {
-            final boolean saved = persistence.putItem(b -> b.tableName(CONFIG_TABLE).item(map))
-                    .sdkHttpResponse().isSuccessful();
-            return saved && cache.put(config);
-        } catch (final RuntimeException ex) {
-            throw ex;
-        }
+        final boolean saved = persistence.putItem(b -> b.tableName(CONFIG_TABLE).item(map))
+                .sdkHttpResponse().isSuccessful();
+        return saved && cache.put(config);
     }
 
     /** Every setting, for the admin page. */
     protected List<Config> getAllConfig() {
-        try {
-            return cache.getPartition(CacheKeys.CONFIG_PARTITION);
-        } catch (final RuntimeException ex) {
-            throw ex;
-        }
+        return cache.getPartition(CacheKeys.CONFIG_PARTITION);
     }
 
     /** One setting by name; served from the cached hash, or a point read on a miss. Never a table scan. */
@@ -95,12 +89,7 @@ public class ConfigDAO {
         if (name == null) {
             return Optional.empty();
         }
-        try {
-            return
-                    cache.getOne(CacheKeys.CONFIG_PARTITION, name, () -> pointReadConfig(name));
-        } catch (final RuntimeException ex) {
-            throw ex;
-        }
+        return cache.getOne(CacheKeys.CONFIG_PARTITION, name, () -> pointReadConfig(name));
     }
 
     public void clearCache() {
@@ -112,7 +101,7 @@ public class ConfigDAO {
         try {
             final AttributeValue content =
                     persistence.getItem(b -> b.key(key).tableName(CONFIG_TABLE).build()).item().get(CONTENT);
-            return Optional.ofNullable(content == null ? null : parseConfig(content.s()));
+            return Optional.ofNullable(content == null ? null : rows.parse(Config.class, content.s()));
         } catch (final RuntimeException ex) {
             // Deliberately not rethrown: the caller has a default and the site must keep serving.
             log.debug("ConfigDAO: unable to read config ({})", name, ex);
@@ -126,26 +115,8 @@ public class ConfigDAO {
                 .stream()
                 .map(it -> it.get(CONTENT))
                 .filter(content -> content != null)
-                .map(content -> parseConfig(content.s()))
+                .map(content -> rows.parse(Config.class, content.s()))
                 .filter(config -> config != null)
                 .toList();
-    }
-
-    private Config parseConfig(final String json) {
-        try {
-            return mapper.readValue(json, Config.class);
-        } catch (final IOException ex) {
-            log.error("Unable to parse config record: " + json, ex);
-            return null;
-        }
-    }
-
-    private String toJson(final Config config) {
-        try {
-            return mapper.writeValueAsString(config);
-        } catch (final IOException ex) {
-            log.error("Unable to serialize config: " + config.getName(), ex);
-            return null;
-        }
     }
 }

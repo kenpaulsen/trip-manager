@@ -5,7 +5,6 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
-import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.cache.CacheClient;
 import org.paulsens.trip.cache.CacheKeys;
 import org.paulsens.trip.cache.CacheSupport;
@@ -25,7 +24,6 @@ import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedExce
  * winning row. The version attribute is duplicated top-level (beside the content JSON) so the condition can see
  * it; it is always expression-aliased, sidestepping any reserved-word concern.
  */
-@Slf4j
 public class FamilyDAO {
     static final String FAMILY_TABLE = "family";
     static final String VERSION_ATTR = "version";
@@ -33,18 +31,20 @@ public class FamilyDAO {
     private static final String CONTENT = "content";
 
     private final ObjectMapper mapper;
+    private final JsonRows rows;
     private final Persistence persistence;
     private final PointCache<Family> cache;
 
     protected FamilyDAO(final ObjectMapper mapper, final Persistence persistence, final CacheClient cacheClient) {
         this.mapper = mapper;
+        this.rows = new JsonRows(mapper);
         this.persistence = persistence;
         this.cache = PointCache.<Family>builder()
                 .cache(cacheClient)
                 .keyPrefix(CacheKeys.FAMILY_PREFIX)
                 .softRevalidate(CacheSupport.softRevalidateEnabled(cacheClient))
-                .serializer(this::toJson)
-                .deserializer(this::parseFamily)
+                .serializer(value -> rows.toJson(value))
+                .deserializer(json -> rows.parse(Family.class, json))
                 .build();
     }
 
@@ -83,7 +83,8 @@ public class FamilyDAO {
         } catch (final ConditionalCheckFailedException ex) {
             family.setVersion(expected);
             final String id = family.getId().getValue();
-            VersionedWrites.recacheStored(persistence, FAMILY_TABLE, Map.of(ID, map.get(ID)), this::parseFamily,
+            VersionedWrites.recacheStored(persistence, FAMILY_TABLE, Map.of(ID, map.get(ID)),
+                    json -> rows.parse(Family.class, json),
                     stored -> cache.put(id, stored));
             throw ex;
         }
@@ -111,24 +112,6 @@ public class FamilyDAO {
         final Map<String, AttributeValue> key = Map.of(ID, AttributeValue.builder().s(id).build());
         final AttributeValue content =
                 persistence.getItem(b -> b.key(key).tableName(FAMILY_TABLE).build()).item().get(CONTENT);
-        return (content == null) ? null : parseFamily(content.s());
-    }
-
-    private Family parseFamily(final String json) {
-        try {
-            return mapper.readValue(json, Family.class);
-        } catch (final IOException ex) {
-            log.error("Unable to parse family record: " + json, ex);
-            return null;
-        }
-    }
-
-    private String toJson(final Family family) {
-        try {
-            return mapper.writeValueAsString(family);
-        } catch (final IOException ex) {
-            log.error("Unable to serialize family: " + family.getId(), ex);
-            return null;
-        }
+        return (content == null) ? null : rows.parse(Family.class, content.s());
     }
 }

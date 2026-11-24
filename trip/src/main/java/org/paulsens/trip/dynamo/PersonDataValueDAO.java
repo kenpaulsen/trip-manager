@@ -32,6 +32,7 @@ public class PersonDataValueDAO {
     private static final String USER_ID = "userId";
 
     private final ObjectMapper mapper;
+    private final JsonRows rows;
     private final Persistence persistence;
     private final CacheClient cacheClient;
     private final PartitionCache<DataId, PersonDataValue> cache;
@@ -43,6 +44,7 @@ public class PersonDataValueDAO {
     protected PersonDataValueDAO(final ObjectMapper mapper, final Persistence persistence,
             final CacheClient cacheClient) {
         this.mapper = mapper;
+        this.rows = new JsonRows(mapper);
         this.persistence = persistence;
         this.cacheClient = cacheClient;
         this.cache = PartitionCache.<DataId, PersonDataValue>builder()
@@ -51,8 +53,8 @@ public class PersonDataValueDAO {
                 .softRevalidate(CacheSupport.softRevalidateEnabled(cacheClient))
                 .idGetter(PersonDataValue::getDataId)
                 .idFormatter(DataId::getValue)
-                .serializer(this::toJson)
-                .deserializer(this::parsePersonDataValue)
+                .serializer(value -> rows.toJson(value))
+                .deserializer(json -> rows.parse(PersonDataValue.class, json))
                 .order(Comparator.comparing(PersonDataValue::getDataId))
                 .build();
     }
@@ -81,23 +83,14 @@ public class PersonDataValueDAO {
     }
 
     protected Map<DataId, PersonDataValue> getPersonDataValues(final Person.Id pid) {
-        try {
-            final Map<DataId, PersonDataValue> result = new LinkedHashMap<>();
-            cache.getAll(pid.getValue(), () -> loadPersonDataValues(pid))
-                    .forEach(pdv -> result.put(pdv.getDataId(), pdv));
-            return result;
-        } catch (final RuntimeException ex) {
-            throw ex;
-        }
+        final Map<DataId, PersonDataValue> result = new LinkedHashMap<>();
+        cache.getAll(pid.getValue(), () -> loadPersonDataValues(pid))
+                .forEach(pdv -> result.put(pdv.getDataId(), pdv));
+        return result;
     }
 
     protected Optional<PersonDataValue> getPersonDataValue(final Person.Id pid, final DataId pdvId) {
-        try {
-            return
-                    cache.getOne(pid.getValue(), pdvId, () -> loadPersonDataValues(pid));
-        } catch (final RuntimeException ex) {
-            throw ex;
-        }
+        return cache.getOne(pid.getValue(), pdvId, () -> loadPersonDataValues(pid));
     }
 
     /**
@@ -172,24 +165,6 @@ public class PersonDataValueDAO {
     }
 
     private PersonDataValue toPersonDataValue(final AttributeValue content) {
-        return (content == null) ? null : parsePersonDataValue(content.s());
-    }
-
-    private PersonDataValue parsePersonDataValue(final String json) {
-        try {
-            return mapper.readValue(json, PersonDataValue.class);
-        } catch (final IOException ex) {
-            log.error("Unable to parse Person Data Value record: " + json, ex);
-            return null;
-        }
-    }
-
-    private String toJson(final PersonDataValue pdv) {
-        try {
-            return mapper.writeValueAsString(pdv);
-        } catch (final IOException ex) {
-            log.error("Unable to serialize PDV: " + pdv.getDataId(), ex);
-            return null;
-        }
+        return (content == null) ? null : rows.parse(PersonDataValue.class, content.s());
     }
 }

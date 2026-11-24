@@ -5,7 +5,6 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
-import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.cache.CacheClient;
 import org.paulsens.trip.cache.CacheKeys;
 import org.paulsens.trip.cache.CacheSupport;
@@ -24,7 +23,6 @@ import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedExce
  * the point of the one-row shape: the refusal covers the whole sheet, never half of it. The save also refuses
  * a row that would not fit DynamoDB's 400 KB item cap, before the store does.
  */
-@Slf4j
 public class BudgetDAO {
     static final String BUDGETS_TABLE = "trip_budgets";
     static final String TRIP_ID = "tripId";
@@ -34,18 +32,20 @@ public class BudgetDAO {
     static final int MAX_BUDGET_BYTES = 350_000;
 
     private final ObjectMapper mapper;
+    private final JsonRows rows;
     private final Persistence persistence;
     private final PointCache<TripBudget> cache;
 
     protected BudgetDAO(final ObjectMapper mapper, final Persistence persistence, final CacheClient cacheClient) {
         this.mapper = mapper;
+        this.rows = new JsonRows(mapper);
         this.persistence = persistence;
         this.cache = PointCache.<TripBudget>builder()
                 .cache(cacheClient)
                 .keyPrefix(CacheKeys.BUDGET_PREFIX)
                 .softRevalidate(CacheSupport.softRevalidateEnabled(cacheClient))
-                .serializer(this::toJson)
-                .deserializer(this::parseBudget)
+                .serializer(value -> rows.toJson(value))
+                .deserializer(json -> rows.parse(TripBudget.class, json))
                 .build();
     }
 
@@ -90,7 +90,7 @@ public class BudgetDAO {
         } catch (final ConditionalCheckFailedException ex) {
             budget.setVersion(expected);
             VersionedWrites.recacheStored(persistence, BUDGETS_TABLE, Map.of(TRIP_ID, map.get(TRIP_ID)),
-                    this::parseBudget, stored -> cache.put(budget.getTripId(), stored));
+                    json -> rows.parse(TripBudget.class, json), stored -> cache.put(budget.getTripId(), stored));
             throw ex;
         }
     }
@@ -114,24 +114,6 @@ public class BudgetDAO {
         final Map<String, AttributeValue> key = Map.of(TRIP_ID, AttributeValue.builder().s(tripId).build());
         final AttributeValue content =
                 persistence.getItem(b -> b.key(key).tableName(BUDGETS_TABLE).build()).item().get(CONTENT);
-        return (content == null) ? null : parseBudget(content.s());
-    }
-
-    private TripBudget parseBudget(final String json) {
-        try {
-            return mapper.readValue(json, TripBudget.class);
-        } catch (final IOException ex) {
-            log.error("Unable to parse budget record: " + json, ex);
-            return null;
-        }
-    }
-
-    private String toJson(final TripBudget budget) {
-        try {
-            return mapper.writeValueAsString(budget);
-        } catch (final IOException ex) {
-            log.error("Unable to serialize budget: " + budget.getTripId(), ex);
-            return null;
-        }
+        return (content == null) ? null : rows.parse(TripBudget.class, content.s());
     }
 }

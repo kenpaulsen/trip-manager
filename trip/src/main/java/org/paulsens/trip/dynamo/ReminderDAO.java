@@ -9,7 +9,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.ReminderSend;
 import org.paulsens.trip.model.TripReminderPlan;
@@ -33,7 +32,6 @@ import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
  * approval must never be read, and a send claim has no business living in a cache whose local-mode twin IS the
  * store. The reads are one small partition per trip, on one admin page and one daily job.
  */
-@Slf4j
 public class ReminderDAO {
     /** Package-visible so {@link InMemoryPersistence} can register the table for local mode. */
     static final String REMINDERS_TABLE = "trip_reminders";
@@ -45,10 +43,12 @@ public class ReminderDAO {
     static final int MAX_PLAN_BYTES = 350_000;
 
     private final ObjectMapper mapper;
+    private final JsonRows rows;
     private final Persistence persistence;
 
     protected ReminderDAO(final ObjectMapper mapper, final Persistence persistence) {
         this.mapper = mapper;
+        this.rows = new JsonRows(mapper);
         this.persistence = persistence;
     }
 
@@ -106,7 +106,7 @@ public class ReminderDAO {
         final AttributeValue content =
                 persistence.getItem(b -> b.key(key).tableName(REMINDERS_TABLE).build()).item().get(CONTENT);
         return (content == null) ? Optional.empty()
-                : Optional.ofNullable(parse(content.s(), TripReminderPlan.class));
+                : Optional.ofNullable(rows.parse(TripReminderPlan.class, content.s()));
     }
 
     // ================================================================== the send ledger
@@ -150,7 +150,7 @@ public class ReminderDAO {
                 .filter(item -> item.get(ITEM).s().startsWith(ReminderSend.SORT_PREFIX))
                 .map(item -> item.get(CONTENT))
                 .filter(Objects::nonNull)
-                .map(content -> parse(content.s(), ReminderSend.class))
+                .map(content -> rows.parse(ReminderSend.class, content.s()))
                 .filter(Objects::nonNull)
                 .sorted(Comparator.comparing(ReminderSend::getAt, Comparator.nullsLast(Comparator.reverseOrder())))
                 .toList();
@@ -240,14 +240,5 @@ public class ReminderDAO {
 
     private static AttributeValue str(final String value) {
         return AttributeValue.builder().s(value).build();
-    }
-
-    private <T> T parse(final String json, final Class<T> type) {
-        try {
-            return mapper.readValue(json, type);
-        } catch (final IOException ex) {
-            log.error("Unable to parse reminder record: " + json, ex);
-            return null;
-        }
     }
 }

@@ -7,7 +7,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.cache.CacheClient;
 import org.paulsens.trip.cache.CacheKeys;
 import org.paulsens.trip.cache.CacheSupport;
@@ -24,7 +23,6 @@ import software.amazon.awssdk.services.dynamodb.model.QueryRequest;
  * deliberately has no index: the derived {@link Person#getOrgIds()} list answers it, the same way
  * {@code Person.familyId} answers "which family".
  */
-@Slf4j
 public class OrgMemberDAO {
     /** Package-visible so {@link InMemoryPersistence} can register the table for local mode. */
     static final String ORG_MEMBERS_TABLE = "org_members";
@@ -33,12 +31,14 @@ public class OrgMemberDAO {
     private static final String CONTENT = "content";
 
     private final ObjectMapper mapper;
+    private final JsonRows rows;
     private final Persistence persistence;
     private final PartitionCache<String, OrgMember> cache;
 
     protected OrgMemberDAO(final ObjectMapper mapper, final Persistence persistence,
             final CacheClient cacheClient) {
         this.mapper = mapper;
+        this.rows = new JsonRows(mapper);
         this.persistence = persistence;
         this.cache = PartitionCache.<String, OrgMember>builder()
                 .cache(cacheClient)
@@ -46,8 +46,8 @@ public class OrgMemberDAO {
                 .softRevalidate(CacheSupport.softRevalidateEnabled(cacheClient))
                 .idGetter(member -> member.getPersonId().getValue())
                 .idFormatter(personId -> personId)
-                .serializer(this::toJson)
-                .deserializer(this::parseMember)
+                .serializer(value -> rows.toJson(value))
+                .deserializer(json -> rows.parse(OrgMember.class, json))
                 .order(Comparator.comparing(member -> member.getPersonId().getValue()))
                 .build();
     }
@@ -86,7 +86,7 @@ public class OrgMemberDAO {
         return persistence.queryAll(qb -> membersByOrgId(qb, orgId)).stream()
                 .map(item -> item.get(CONTENT))
                 .filter(content -> content != null)
-                .map(content -> parseMember(content.s()))
+                .map(content -> rows.parse(OrgMember.class, content.s()))
                 .filter(member -> member != null)
                 .toList();
     }
@@ -96,23 +96,5 @@ public class OrgMemberDAO {
                 .keyConditionExpression("orgId = :c")
                 .expressionAttributeValues(
                         Map.of(":c", AttributeValue.builder().s(orgId.getValue()).build()));
-    }
-
-    private OrgMember parseMember(final String json) {
-        try {
-            return mapper.readValue(json, OrgMember.class);
-        } catch (final IOException ex) {
-            log.error("Unable to parse org member record: " + json, ex);
-            return null;
-        }
-    }
-
-    private String toJson(final OrgMember member) {
-        try {
-            return mapper.writeValueAsString(member);
-        } catch (final IOException ex) {
-            log.error("Unable to serialize org member: " + member.getOrgId() + "/" + member.getPersonId(), ex);
-            return null;
-        }
     }
 }

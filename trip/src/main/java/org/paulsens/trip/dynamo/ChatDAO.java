@@ -68,6 +68,7 @@ public class ChatDAO {
     private static final Duration CLIENT_MSG_TTL = Duration.ofHours(24);
 
     private final ObjectMapper mapper;
+    private final JsonRows rows;
     private final Persistence persistence;
     private final CacheClient cacheClient;
     private final PointCache<ChatChannel> channelCache;
@@ -79,13 +80,14 @@ public class ChatDAO {
 
     protected ChatDAO(final ObjectMapper mapper, final Persistence persistence, final CacheClient cacheClient) {
         this.mapper = mapper;
+        this.rows = new JsonRows(mapper);
         this.persistence = persistence;
         this.cacheClient = cacheClient;
         this.channelCache = PointCache.<ChatChannel>builder()
                 .cache(cacheClient)
                 .keyPrefix(CacheKeys.CHAT_CHANNEL_META_PREFIX)
                 .softRevalidate(CacheSupport.softRevalidateEnabled(cacheClient))
-                .serializer(this::toJson)
+                .serializer(value -> rows.toJson(value))
                 .deserializer(this::parseChannel)
                 .build();
     }
@@ -98,31 +100,21 @@ public class ChatDAO {
         }
         final Map<String, AttributeValue> item = new HashMap<>();
         item.put(ATTR_CHANNEL_ID, persistence.toStrAttr(channel.getId().getValue()));
-        final String json = toJson(channel);
+        final String json = rows.toJson(channel);
         if (json == null) {
             return false;
         }
         item.put(ATTR_CONTENT, persistence.toStrAttr(json));
-        try {
-            final boolean saved = persistence.putItem(b -> b.tableName(CHANNELS_TABLE).item(item))
-                    .sdkHttpResponse().isSuccessful();
-            return
-                    saved && channelCache.put(channel.getId().getValue(), channel);
-        } catch (final RuntimeException ex) {
-            throw ex;
-        }
+        final boolean saved = persistence.putItem(b -> b.tableName(CHANNELS_TABLE).item(item))
+                .sdkHttpResponse().isSuccessful();
+        return saved && channelCache.put(channel.getId().getValue(), channel);
     }
 
     protected Optional<ChatChannel> getChannel(final ChatChannel.Id id) {
         if (id == null) {
             return Optional.empty();
         }
-        try {
-            return
-                    channelCache.get(id.getValue(), missed -> pointReadChannel(missed).orElse(null));
-        } catch (final RuntimeException ex) {
-            throw ex;
-        }
+        return channelCache.get(id.getValue(), missed -> pointReadChannel(missed).orElse(null));
     }
 
     private Optional<ChatChannel> pointReadChannel(final String channelId) {
@@ -159,18 +151,14 @@ public class ChatDAO {
         final Map<String, AttributeValue> item = new HashMap<>();
         item.put(ATTR_CHANNEL_ID, persistence.toStrAttr(channelId));
         item.put(ATTR_PERSON_ID, persistence.toStrAttr(personId));
-        final String json = toJson(member);
+        final String json = rows.toJson(member);
         if (json == null) {
             return false;
         }
         item.put(ATTR_CONTENT, persistence.toStrAttr(json));
-        try {
-            final boolean saved = persistence.putItem(b -> b.tableName(MEMBERS_TABLE).item(item))
-                    .sdkHttpResponse().isSuccessful();
-            return saved && cacheMembership(channelId, personId, json);
-        } catch (final RuntimeException ex) {
-            throw ex;
-        }
+        final boolean saved = persistence.putItem(b -> b.tableName(MEMBERS_TABLE).item(item))
+                .sdkHttpResponse().isSuccessful();
+        return saved && cacheMembership(channelId, personId, json);
     }
 
     /** The row is already durable; the cache write is best effort, so its result never fails the save. */
@@ -186,14 +174,9 @@ public class ChatDAO {
         }
         final String cId = channelId.getValue();
         final String pId = personId.getValue();
-        try {
-            final String cached = cacheClient.getHashFields(CacheKeys.chatMembersKey(cId), List.of(pId)).get(pId);
-            final ChatMembership hit = cached == null ? null : parseMembership(cached);
-            return
-                    hit == null ? pointReadMembership(cId, pId) : Optional.of(hit);
-        } catch (final RuntimeException ex) {
-            throw ex;
-        }
+        final String cached = cacheClient.getHashFields(CacheKeys.chatMembersKey(cId), List.of(pId)).get(pId);
+        final ChatMembership hit = cached == null ? null : parseMembership(cached);
+        return hit == null ? pointReadMembership(cId, pId) : Optional.of(hit);
     }
 
     private Optional<ChatMembership> pointReadMembership(final String channelId, final String personId) {
@@ -302,21 +285,17 @@ public class ChatDAO {
         final Map<String, String> names = Map.of("#channelId", ATTR_CHANNEL_ID);
         final Map<String, AttributeValue> values =
                 Map.of(":c", AttributeValue.builder().s(cId).build());
-        try {
-            return persistence.queryAll(b -> b.tableName(MEMBERS_TABLE)
-                            .keyConditionExpression("#channelId = :c")
-                            .expressionAttributeNames(names)
-                            .expressionAttributeValues(values)
-                            .build())
-                    .stream()
-                    .map(item -> item.get(ATTR_CONTENT))
-                    .filter(c -> c != null)
-                    .map(c -> parseMembership(c.s()))
-                    .filter(m -> m != null)
-                    .toList();
-        } catch (final RuntimeException ex) {
-            throw ex;
-        }
+        return persistence.queryAll(b -> b.tableName(MEMBERS_TABLE)
+                        .keyConditionExpression("#channelId = :c")
+                        .expressionAttributeNames(names)
+                        .expressionAttributeValues(values)
+                        .build())
+                .stream()
+                .map(item -> item.get(ATTR_CONTENT))
+                .filter(c -> c != null)
+                .map(c -> parseMembership(c.s()))
+                .filter(m -> m != null)
+                .toList();
     }
 
     // --- messages ---
@@ -380,7 +359,7 @@ public class ChatDAO {
         final Map<String, AttributeValue> item = new HashMap<>();
         item.put(ATTR_CHANNEL_ID, persistence.toStrAttr(message.getChannelId().getValue()));
         item.put(ATTR_MSG_ID, persistence.toStrAttr(message.getId().getValue()));
-        final String json = toJson(message);
+        final String json = rows.toJson(message);
         if (json == null) {
             return Optional.empty();
         }
@@ -430,7 +409,7 @@ public class ChatDAO {
         final Duration bufferTtl = Duration.ofMinutes(Math.max(1, bufferMinutes));
 
         cacheClient.addScoredEntries(CacheKeys.chatLogKey(channelId), Map.of(msgId, score));
-        cacheClient.putHashField(CacheKeys.chatBodyKey(channelId), msgId, toJson(message));
+        cacheClient.putHashField(CacheKeys.chatBodyKey(channelId), msgId, rows.toJson(message));
         cacheClient.trimSortedSet(CacheKeys.chatLogKey(channelId), bufferMax);
         cacheClient.expire(CacheKeys.chatLogKey(channelId), bufferTtl);
         cacheClient.expire(CacheKeys.chatBodyKey(channelId), bufferTtl);
@@ -493,12 +472,8 @@ public class ChatDAO {
         }
         final String cId = channelId.getValue();
         final String mId = msgId.getValue();
-        try {
-            final String cached = cacheClient.getHashFields(CacheKeys.chatBodyKey(cId), List.of(mId)).get(mId);
-            return cachedMessageOrRead(cId, mId, cached);
-        } catch (final RuntimeException ex) {
-            throw ex;
-        }
+        final String cached = cacheClient.getHashFields(CacheKeys.chatBodyKey(cId), List.of(mId)).get(mId);
+        return cachedMessageOrRead(cId, mId, cached);
     }
 
     private Optional<ChatMessage> cachedMessageOrRead(
@@ -510,12 +485,7 @@ public class ChatDAO {
         final Map<String, AttributeValue> key = Map.of(
                 ATTR_CHANNEL_ID, AttributeValue.builder().s(cId).build(),
                 ATTR_MSG_ID, AttributeValue.builder().s(mId).build());
-        try {
-            return
-                    messageFrom(persistence.getItem(b -> b.tableName(MESSAGES_TABLE).key(key).build()));
-        } catch (final RuntimeException ex) {
-            throw ex;
-        }
+        return messageFrom(persistence.getItem(b -> b.tableName(MESSAGES_TABLE).key(key).build()));
     }
 
     private Optional<ChatMessage> messageFrom(final GetItemResponse resp) {
@@ -555,7 +525,7 @@ public class ChatDAO {
     private Optional<ChatMessage> writeTombstone(
             final ChatMessage original, final String deletedBy) {
         final ChatMessage tombstoned = original.withDeleted(deletedBy);
-        final String json = toJson(tombstoned);
+        final String json = rows.toJson(tombstoned);
         final Map<String, AttributeValue> item = new HashMap<>();
         item.put(ATTR_CHANNEL_ID, persistence.toStrAttr(tombstoned.getChannelId().getValue()));
         item.put(ATTR_MSG_ID, persistence.toStrAttr(tombstoned.getId().getValue()));
@@ -564,13 +534,9 @@ public class ChatDAO {
             item.put(ATTR_EXPIRES_AT,
                     AttributeValue.builder().n(Long.toString(tombstoned.getExpiresAt())).build());
         }
-        try {
-            final boolean saved = persistence.putItem(b -> b.tableName(MESSAGES_TABLE).item(item))
-                    .sdkHttpResponse().isSuccessful();
-            return saved ? cacheTombstone(tombstoned, json) : Optional.empty();
-        } catch (final RuntimeException ex) {
-            throw ex;
-        }
+        final boolean saved = persistence.putItem(b -> b.tableName(MESSAGES_TABLE).item(item))
+                .sdkHttpResponse().isSuccessful();
+        return saved ? cacheTombstone(tombstoned, json) : Optional.empty();
     }
 
     private Optional<ChatMessage> cacheTombstone(
@@ -697,7 +663,7 @@ public class ChatDAO {
     private Optional<ChatMessage> writeAttachments(
             final ChatMessage original, final List<ChatAttachment> replaced) {
         final ChatMessage updated = original.withAttachments(replaced);
-        final String json = toJson(updated);
+        final String json = rows.toJson(updated);
         if (json == null) {
             return Optional.empty();
         }
@@ -731,7 +697,7 @@ public class ChatDAO {
     private Optional<ChatMessage> writeEdit(
             final ChatMessage original, final String newBody) {
         final ChatMessage edited = original.withBody(newBody);
-        final String json = toJson(edited);
+        final String json = rows.toJson(edited);
         if (json == null) {
             return Optional.empty();
         }
@@ -743,13 +709,9 @@ public class ChatDAO {
             item.put(ATTR_EXPIRES_AT,
                     AttributeValue.builder().n(Long.toString(edited.getExpiresAt())).build());
         }
-        try {
-            final boolean saved = persistence.putItem(b -> b.tableName(MESSAGES_TABLE).item(item))
-                    .sdkHttpResponse().isSuccessful();
-            return saved ? cacheEdit(edited, json) : Optional.empty();
-        } catch (final RuntimeException ex) {
-            throw ex;
-        }
+        final boolean saved = persistence.putItem(b -> b.tableName(MESSAGES_TABLE).item(item))
+                .sdkHttpResponse().isSuccessful();
+        return saved ? cacheEdit(edited, json) : Optional.empty();
     }
 
     private Optional<ChatMessage> cacheEdit(final ChatMessage edited, final String json) {
@@ -789,9 +751,8 @@ public class ChatDAO {
         if (channelId == null || personId == null) {
             return Optional.empty();
         }
-        return
-                cacheClient.getValue(CacheKeys.chatCursorKey(channelId.getValue(), personId.getValue()))
-                        .map(ChatMessage.Id::from);
+        return cacheClient.getValue(CacheKeys.chatCursorKey(channelId.getValue(), personId.getValue()))
+                .map(ChatMessage.Id::from);
     }
 
     /** Last-activity millis per channel, for the unread indicator and the "My Chats" sort. */
@@ -995,18 +956,14 @@ public class ChatDAO {
         // query(), NOT queryAll(): DynamoDB's limit caps one page, so a paginating read walks the whole
         // partition and only then truncates in memory -- every page load would read the channel's entire
         // history. A message log grows without bound, so this read must stay one bounded page.
-        try {
-            return toMessages(
-                    persistence.query(b -> b.tableName(MESSAGES_TABLE)
-                            .keyConditionExpression(cond.toString())
-                            .expressionAttributeNames(names)
-                            .expressionAttributeValues(values)
-                            .scanIndexForward(forward)
-                            .limit(limit)).items(),
-                    limit);
-        } catch (final RuntimeException ex) {
-            throw ex;
-        }
+        return toMessages(
+                persistence.query(b -> b.tableName(MESSAGES_TABLE)
+                        .keyConditionExpression(cond.toString())
+                        .expressionAttributeNames(names)
+                        .expressionAttributeValues(values)
+                        .scanIndexForward(forward)
+                        .limit(limit)).items(),
+                limit);
     }
 
     /**
@@ -1079,7 +1036,7 @@ public class ChatDAO {
         final Map<String, String> bodies = new HashMap<>();
         for (final ChatMessage m : msgs) {
             scores.put(m.getId().getValue(), (double) m.getId().getEpochMilli());
-            final String json = toJson(m);
+            final String json = rows.toJson(m);
             if (json != null) {
                 bodies.put(m.getId().getValue(), json);
             }
@@ -1227,7 +1184,7 @@ public class ChatDAO {
             final ChatChannel.Id channelId, final Map<ChatMessage.Id, ChatReactionSummary> summaries) {
         final Map<String, String> fields = new HashMap<>();
         for (final Map.Entry<ChatMessage.Id, ChatReactionSummary> e : summaries.entrySet()) {
-            final String json = toJson(e.getValue());
+            final String json = rows.toJson(e.getValue());
             if (json != null) {
                 fields.put(e.getKey().getValue(), json);
             }
@@ -1251,7 +1208,7 @@ public class ChatDAO {
         final Map<String, AttributeValue> item = new HashMap<>();
         item.put(ATTR_CHANNEL_ID, persistence.toStrAttr(reaction.getChannelId().getValue()));
         item.put(ATTR_SK, persistence.toStrAttr(reaction.sortKey()));
-        final String json = toJson(reaction);
+        final String json = rows.toJson(reaction);
         if (json == null) {
             return false;
         }
@@ -1260,13 +1217,9 @@ public class ChatDAO {
             item.put(ATTR_EXPIRES_AT,
                     AttributeValue.builder().n(Long.toString(reaction.getExpiresAt())).build());
         }
-        try {
-            final boolean saved = persistence.putItem(b -> b.tableName(REACTIONS_TABLE).item(item))
-                    .sdkHttpResponse().isSuccessful();
-            return afterReactionWritten(saved, reaction.getChannelId(), reaction.getTargetMessageId());
-        } catch (final RuntimeException ex) {
-            throw ex;
-        }
+        final boolean saved = persistence.putItem(b -> b.tableName(REACTIONS_TABLE).item(item))
+                .sdkHttpResponse().isSuccessful();
+        return afterReactionWritten(saved, reaction.getChannelId(), reaction.getTargetMessageId());
     }
 
     protected Boolean deleteReaction(
@@ -1278,13 +1231,9 @@ public class ChatDAO {
                 ATTR_CHANNEL_ID, AttributeValue.builder().s(channelId.getValue()).build(),
                 ATTR_SK, AttributeValue.builder()
                         .s(ChatReaction.sortKey(targetMessageId, personId, emoji)).build());
-        try {
-            final boolean deleted = persistence.deleteItem(b -> b.tableName(REACTIONS_TABLE).key(key))
-                    .sdkHttpResponse().isSuccessful();
-            return afterReactionWritten(deleted, channelId, targetMessageId);
-        } catch (final RuntimeException ex) {
-            throw ex;
-        }
+        final boolean deleted = persistence.deleteItem(b -> b.tableName(REACTIONS_TABLE).key(key))
+                .sdkHttpResponse().isSuccessful();
+        return afterReactionWritten(deleted, channelId, targetMessageId);
     }
 
     /**
@@ -1463,21 +1412,17 @@ public class ChatDAO {
                 ":c", AttributeValue.builder().s(channelId.getValue()).build(),
                 ":lo", AttributeValue.builder().s(ChatReaction.rangeLower(oldest)).build(),
                 ":hi", AttributeValue.builder().s(ChatReaction.rangeUpper(newest)).build());
-        try {
-            return persistence.queryAll(b -> b.tableName(REACTIONS_TABLE)
-                            .keyConditionExpression("#channelId = :c AND #sk BETWEEN :lo AND :hi")
-                            .expressionAttributeNames(names)
-                            .expressionAttributeValues(values)
-                            .build())
-                    .stream()
-                    .map(item -> item.get(ATTR_CONTENT))
-                    .filter(c -> c != null)
-                    .map(c -> parseReaction(c.s()))
-                    .filter(r -> r != null)
-                    .toList();
-        } catch (final RuntimeException ex) {
-            throw ex;
-        }
+        return persistence.queryAll(b -> b.tableName(REACTIONS_TABLE)
+                        .keyConditionExpression("#channelId = :c AND #sk BETWEEN :lo AND :hi")
+                        .expressionAttributeNames(names)
+                        .expressionAttributeValues(values)
+                        .build())
+                .stream()
+                .map(item -> item.get(ATTR_CONTENT))
+                .filter(c -> c != null)
+                .map(c -> parseReaction(c.s()))
+                .filter(r -> r != null)
+                .toList();
     }
 
     protected Map<ChatMessage.Id, ChatReactionSummary> summariesForMessages(
@@ -1607,7 +1552,7 @@ public class ChatDAO {
                 countComments(photoId),
                 ChatReactionSummary.fromReactions(PhotoChatMeta.PHOTO_ROOT,
                         getReactionsForRange(photoId, PhotoChatMeta.PHOTO_ROOT, PhotoChatMeta.PHOTO_ROOT)));
-        final String json = toJson(meta);
+        final String json = rows.toJson(meta);
         if (json != null) {
             writeBack.put(s3Key, json);
         }
@@ -1731,15 +1676,6 @@ public class ChatDAO {
         return false;
     }
 
-    private String toJson(final Object value) {
-        try {
-            return mapper.writeValueAsString(value);
-        } catch (final IOException ex) {
-            log.error("Unable to serialize {}", value == null ? null : value.getClass().getSimpleName(), ex);
-            return null;
-        }
-    }
-
     private ChatChannel parseChannel(final String json) {
         return parse(json, ChatChannel.class);
     }
@@ -1757,14 +1693,6 @@ public class ChatDAO {
     }
 
     private <T> T parse(final String json, final Class<T> type) {
-        if (json == null) {
-            return null;
-        }
-        try {
-            return mapper.readValue(json, type);
-        } catch (final IOException ex) {
-            log.error("Unable to parse {}: {}", type.getSimpleName(), json, ex);
-            return null;
-        }
+        return json == null ? null : rows.parse(type, json);
     }
 }

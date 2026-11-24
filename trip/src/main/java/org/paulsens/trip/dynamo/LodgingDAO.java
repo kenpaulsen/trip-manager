@@ -78,6 +78,7 @@ public class LodgingDAO {
     private static final String FOREVER = "9999-12-31T23:59";
 
     private final ObjectMapper mapper;
+    private final JsonRows rows;
     private final Persistence persistence;
     private final PartitionScanCache<Accommodation> accommodations;
     private final PartitionCache<String, ReservationOffer> offers;
@@ -87,6 +88,7 @@ public class LodgingDAO {
 
     protected LodgingDAO(final ObjectMapper mapper, final Persistence persistence, final CacheClient cacheClient) {
         this.mapper = mapper;
+        this.rows = new JsonRows(mapper);
         this.persistence = persistence;
         final boolean soft = CacheSupport.softRevalidateEnabled(cacheClient);
         this.accommodations = PartitionScanCache.<Accommodation>builder()
@@ -97,8 +99,8 @@ public class LodgingDAO {
                 .loader(this::loadAllAccommodations)
                 .partitioner(acc -> CacheKeys.LODGING_ACC_PARTITION)
                 .fielder(acc -> acc.getId().getValue())
-                .serializer(this::toJson)
-                .deserializer(json -> parse(json, Accommodation.class))
+                .serializer(value -> rows.toJson(value))
+                .deserializer(json -> rows.parse(Accommodation.class, json))
                 .build();
         this.offers = PartitionCache.<String, ReservationOffer>builder()
                 .cache(cacheClient)
@@ -106,8 +108,8 @@ public class LodgingDAO {
                 .softRevalidate(soft)
                 .idGetter(offer -> offer.getId().getValue())
                 .idFormatter(id -> id)
-                .serializer(this::toJson)
-                .deserializer(json -> parse(json, ReservationOffer.class))
+                .serializer(value -> rows.toJson(value))
+                .deserializer(json -> rows.parse(ReservationOffer.class, json))
                 .order(Comparator.comparing(offer -> offer.getId().getValue()))
                 .build();
         this.reservations = PartitionCache.<String, Reservation>builder()
@@ -116,8 +118,8 @@ public class LodgingDAO {
                 .softRevalidate(soft)
                 .idGetter(res -> res.getId().getValue())
                 .idFormatter(id -> id)
-                .serializer(this::toJson)
-                .deserializer(json -> parse(json, Reservation.class))
+                .serializer(value -> rows.toJson(value))
+                .deserializer(json -> rows.parse(Reservation.class, json))
                 .order(Comparator.comparing(res -> res.getId().getValue()))
                 .build();
         this.blocks = PartitionCache.<String, RoomBlock>builder()
@@ -126,8 +128,8 @@ public class LodgingDAO {
                 .softRevalidate(soft)
                 .idGetter(block -> block.getId().getValue())
                 .idFormatter(id -> id)
-                .serializer(this::toJson)
-                .deserializer(json -> parse(json, RoomBlock.class))
+                .serializer(value -> rows.toJson(value))
+                .deserializer(json -> rows.parse(RoomBlock.class, json))
                 .order(Comparator.comparing(block -> block.getId().getValue()))
                 .build();
         this.plans = PartitionCache.<String, RatePlan>builder()
@@ -136,8 +138,8 @@ public class LodgingDAO {
                 .softRevalidate(soft)
                 .idGetter(plan -> plan.getId().getValue())
                 .idFormatter(id -> id)
-                .serializer(this::toJson)
-                .deserializer(json -> parse(json, RatePlan.class))
+                .serializer(value -> rows.toJson(value))
+                .deserializer(json -> rows.parse(RatePlan.class, json))
                 .order(Comparator.comparing(plan -> plan.getId().getValue()))
                 .build();
     }
@@ -248,7 +250,7 @@ public class LodgingDAO {
                         .build()).stream()
                 .map(item -> item.get(CONTENT))
                 .filter(content -> content != null)
-                .map(content -> parse(content.s(), Reservation.class))
+                .map(content -> rows.parse(Reservation.class, content.s()))
                 .filter(res -> res != null)
                 .toList();
     }
@@ -360,7 +362,7 @@ public class LodgingDAO {
                         .build()).stream()
                 .map(item -> item.get(CONTENT))
                 .filter(content -> content != null)
-                .map(content -> parse(content.s(), type))
+                .map(content -> rows.parse(type, content.s()))
                 .filter(row -> row != null)
                 .toList();
     }
@@ -424,7 +426,7 @@ public class LodgingDAO {
     /** {@link VersionedWrites#recacheStored} for one of this class's five tables. */
     private <T> void recacheStored(final String table, final Map<String, AttributeValue> key, final Class<T> type,
             final Consumer<T> cachePut) {
-        VersionedWrites.recacheStored(persistence, table, key, json -> parse(json, type), cachePut);
+        VersionedWrites.recacheStored(persistence, table, key, json -> rows.parse(type, json), cachePut);
     }
 
     private void conditionalPut(final PutItemRequest.Builder b, final String table,
@@ -462,7 +464,7 @@ public class LodgingDAO {
         return persistence.queryAll(qb -> byTripId(qb, table, tripId)).stream()
                 .map(item -> item.get(CONTENT))
                 .filter(content -> content != null)
-                .map(content -> parse(content.s(), type))
+                .map(content -> rows.parse(type, content.s()))
                 .filter(row -> row != null)
                 .toList();
     }
@@ -478,7 +480,7 @@ public class LodgingDAO {
         try {
             final AttributeValue content = persistence.getItem(
                     b -> b.key(key).tableName(ACCOMMODATIONS_TABLE).build()).item().get(CONTENT);
-            return Optional.ofNullable(content == null ? null : parse(content.s(), Accommodation.class));
+            return Optional.ofNullable(content == null ? null : rows.parse(Accommodation.class, content.s()));
         } catch (final RuntimeException ex) {
             log.debug("LodgingDAO: unable to read accommodation ({})", id.getValue(), ex);
             return Optional.empty();
@@ -491,26 +493,8 @@ public class LodgingDAO {
                 .stream()
                 .map(item -> item.get(CONTENT))
                 .filter(content -> content != null)
-                .map(content -> parse(content.s(), Accommodation.class))
+                .map(content -> rows.parse(Accommodation.class, content.s()))
                 .filter(acc -> acc != null)
                 .toList();
-    }
-
-    private <T> T parse(final String json, final Class<T> type) {
-        try {
-            return mapper.readValue(json, type);
-        } catch (final IOException ex) {
-            log.error("Unable to parse " + type.getSimpleName() + " record: " + json, ex);
-            return null;
-        }
-    }
-
-    private String toJson(final Object value) {
-        try {
-            return mapper.writeValueAsString(value);
-        } catch (final IOException ex) {
-            log.error("Unable to serialize lodging row: " + value, ex);
-            return null;
-        }
     }
 }

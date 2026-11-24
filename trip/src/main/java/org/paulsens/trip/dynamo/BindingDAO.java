@@ -94,12 +94,7 @@ public class BindingDAO {
     }
 
     private List<String> getBindings(final TypeAndId key, final BindingType dest) {
-        try {
-            return
-                    cache.get(key.getValue(), destTypeId(dest), () -> loadBindings(key));
-        } catch (final RuntimeException ex) {
-            throw ex;
-        }
+        return cache.get(key.getValue(), destTypeId(dest), () -> loadBindings(key));
     }
 
     private Boolean saveBinding(final TypeAndId key, final TypeAndId destKey, final boolean both) {
@@ -130,14 +125,9 @@ public class BindingDAO {
         map.put(ID1_TYPE, AttributeValue.builder().s(key.getType().name()).build());
         map.put(ID2, AttributeValue.builder().s(destKey.getValue()).build());
         map.put(ID2_TYPE, AttributeValue.builder().s(destKey.getType().name()).build());
-        try {
-            final boolean saved = persistence.putItem(b -> b.tableName(BINDINGS_TABLE).item(map))
-                    .sdkHttpResponse().isSuccessful();
-            return
-                    saved && cache.add(key.getValue(), destTypeId(destKey.getType()), destKey.getId());
-        } catch (final RuntimeException ex) {
-            throw ex;
-        }
+        final boolean saved = persistence.putItem(b -> b.tableName(BINDINGS_TABLE).item(map))
+                .sdkHttpResponse().isSuccessful();
+        return saved && cache.add(key.getValue(), destTypeId(destKey.getType()), destKey.getId());
     }
 
     private Boolean removeBinding(final TypeAndId key, final TypeAndId destKey) {
@@ -147,14 +137,9 @@ public class BindingDAO {
         final Map<String, AttributeValue> primaryKey = Map.of(
                 ID1, AttributeValue.builder().s(key.getValue()).build(),
                 ID2, AttributeValue.builder().s(destKey.getValue()).build());
-        try {
-            final boolean deleted = persistence.deleteItem(b -> b.tableName(BINDINGS_TABLE).key(primaryKey))
-                    .sdkHttpResponse().isSuccessful();
-            return
-                    deleted && cache.remove(key.getValue(), destTypeId(destKey.getType()), destKey.getId());
-        } catch (final RuntimeException ex) {
-            throw ex;
-        }
+        final boolean deleted = persistence.deleteItem(b -> b.tableName(BINDINGS_TABLE).key(primaryKey))
+                .sdkHttpResponse().isSuccessful();
+        return deleted && cache.remove(key.getValue(), destTypeId(destKey.getType()), destKey.getId());
     }
 
     /** Loads every direction of the source's partition: destination-type id -> bound destination ids. */

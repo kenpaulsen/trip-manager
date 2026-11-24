@@ -46,6 +46,7 @@ public class TemplateDAO {
     static final String TEMPLATES_TABLE = "templates";
 
     private final ObjectMapper mapper;
+    private final JsonRows rows;
     private final Persistence persistence;
     private final PartitionScanCache<Entry> cache;
 
@@ -68,6 +69,7 @@ public class TemplateDAO {
     protected TemplateDAO(final ObjectMapper mapper, final Persistence persistence,
             final CacheClient cacheClient) {
         this.mapper = mapper;
+        this.rows = new JsonRows(mapper);
         this.persistence = persistence;
         this.cache = PartitionScanCache.<Entry>builder()
                 .cache(cacheClient)
@@ -79,7 +81,7 @@ public class TemplateDAO {
                 .partitioner(entry -> CacheKeys.TEMPLATE_PARTITION)
                 // Versioned field: one cache entry per retained version, never a mixed pairing; plus the latest copy.
                 .fielder(Entry::field)
-                .serializer(entry -> toJson(entry.template()))
+                .serializer(entry -> rows.toJson(entry.template()))
                 .deserializer(this::parseEntry)
                 .build();
     }
@@ -219,7 +221,7 @@ public class TemplateDAO {
         try {
             final AttributeValue content =
                     persistence.getItem(b -> b.key(key).tableName(TEMPLATES_TABLE).build()).item().get(CONTENT);
-            return Optional.ofNullable(content == null ? null : parseRecord(content.s()));
+            return Optional.ofNullable(content == null ? null : rows.parse(TemplateRecord.class, content.s()));
         } catch (final RuntimeException ex) {
             log.debug("TemplateDAO: unable to read template ({})", id, ex);
             return Optional.empty();
@@ -248,7 +250,7 @@ public class TemplateDAO {
                 .stream()
                 .map(it -> it.get(CONTENT))
                 .filter(content -> content != null)
-                .map(content -> parseRecord(content.s()))
+                .map(content -> rows.parse(TemplateRecord.class, content.s()))
                 .filter(rec -> rec != null)
                 .toList();
     }
@@ -259,34 +261,7 @@ public class TemplateDAO {
 
     /** A cached field back to an entry; null (dropped by the cache) when it does not parse. */
     private Entry parseEntry(final String json) {
-        final ContentTemplate template = parseTemplate(json);
+        final ContentTemplate template = rows.parse(ContentTemplate.class, json);
         return template == null ? null : new Entry(template, false);
-    }
-
-    private TemplateRecord parseRecord(final String json) {
-        try {
-            return mapper.readValue(json, TemplateRecord.class);
-        } catch (final IOException ex) {
-            log.error("Unable to parse template record: " + json, ex);
-            return null;
-        }
-    }
-
-    private ContentTemplate parseTemplate(final String json) {
-        try {
-            return mapper.readValue(json, ContentTemplate.class);
-        } catch (final IOException ex) {
-            log.error("Unable to parse template: " + json, ex);
-            return null;
-        }
-    }
-
-    private String toJson(final ContentTemplate template) {
-        try {
-            return mapper.writeValueAsString(template);
-        } catch (final IOException ex) {
-            log.error("Unable to serialize template: " + template.getId(), ex);
-            return null;
-        }
     }
 }

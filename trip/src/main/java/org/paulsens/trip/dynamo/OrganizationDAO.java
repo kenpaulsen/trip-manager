@@ -34,12 +34,14 @@ public class OrganizationDAO {
     private static final String CONTENT = "content";
 
     private final ObjectMapper mapper;
+    private final JsonRows rows;
     private final Persistence persistence;
     private final PartitionScanCache<Organization> cache;
 
     protected OrganizationDAO(final ObjectMapper mapper, final Persistence persistence,
             final CacheClient cacheClient) {
         this.mapper = mapper;
+        this.rows = new JsonRows(mapper);
         this.persistence = persistence;
         this.cache = PartitionScanCache.<Organization>builder()
                 .cache(cacheClient)
@@ -50,8 +52,8 @@ public class OrganizationDAO {
                 // One partition: pickers and the admin page want the whole (small) table.
                 .partitioner(org -> CacheKeys.ORG_PARTITION)
                 .fielder(org -> org.getId().getValue())
-                .serializer(this::toJson)
-                .deserializer(this::parseOrganization)
+                .serializer(value -> rows.toJson(value))
+                .deserializer(json -> rows.parse(Organization.class, json))
                 .build();
     }
 
@@ -89,7 +91,7 @@ public class OrganizationDAO {
         } catch (final ConditionalCheckFailedException ex) {
             org.setVersion(expected);
             VersionedWrites.recacheStored(persistence, ORG_TABLE, Map.of(ID, map.get(ID)),
-                    this::parseOrganization, cache::put);
+                    json -> rows.parse(Organization.class, json), cache::put);
             throw ex;
         }
     }
@@ -115,7 +117,7 @@ public class OrganizationDAO {
         try {
             final AttributeValue content =
                     persistence.getItem(b -> b.key(key).tableName(ORG_TABLE).build()).item().get(CONTENT);
-            return Optional.ofNullable(content == null ? null : parseOrganization(content.s()));
+            return Optional.ofNullable(content == null ? null : rows.parse(Organization.class, content.s()));
         } catch (final RuntimeException ex) {
             log.debug("OrganizationDAO: unable to read organization ({})", id.getValue(), ex);
             return Optional.empty();
@@ -128,26 +130,8 @@ public class OrganizationDAO {
                 .stream()
                 .map(item -> item.get(CONTENT))
                 .filter(content -> content != null)
-                .map(content -> parseOrganization(content.s()))
+                .map(content -> rows.parse(Organization.class, content.s()))
                 .filter(org -> org != null)
                 .toList();
-    }
-
-    private Organization parseOrganization(final String json) {
-        try {
-            return mapper.readValue(json, Organization.class);
-        } catch (final IOException ex) {
-            log.error("Unable to parse organization record: " + json, ex);
-            return null;
-        }
-    }
-
-    private String toJson(final Organization org) {
-        try {
-            return mapper.writeValueAsString(org);
-        } catch (final IOException ex) {
-            log.error("Unable to serialize organization: " + org.getId(), ex);
-            return null;
-        }
     }
 }

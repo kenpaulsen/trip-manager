@@ -59,10 +59,12 @@ public class AuditDAO {
     private static final LocalDate EARLIEST = org.paulsens.trip.model.AuditQuery.EARLIEST;
 
     private final ObjectMapper mapper;
+    private final JsonRows rows;
     private final Persistence persistence;
 
     protected AuditDAO(final ObjectMapper mapper, final Persistence persistence) {
         this.mapper = mapper;
+        this.rows = new JsonRows(mapper);
         this.persistence = persistence;
     }
 
@@ -192,7 +194,7 @@ public class AuditDAO {
             }).stream()
                     .map(item -> item.get(CONTENT))
                     .filter(content -> content != null)
-                    .map(content -> parseEvent(content.s()))
+                    .map(content -> rows.parse(AuditEvent.class, content.s()))
                     .filter(event -> event != null)
                     .filter(query::matches)
                     .toList();
@@ -220,14 +222,5 @@ public class AuditDAO {
     /** How long the walk may span, for callers that want to explain the window to a user. */
     static Duration maxWindow() {
         return Duration.ofDays(MAX_DAYS_PER_PAGE);
-    }
-
-    private AuditEvent parseEvent(final String json) {
-        try {
-            return mapper.readValue(json, AuditEvent.class);
-        } catch (final IOException ex) {
-            log.error("Unable to parse audit record: {}", json, ex);
-            return null;
-        }
     }
 }

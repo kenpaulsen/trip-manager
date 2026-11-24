@@ -35,6 +35,7 @@ public class MediaDAO {
     static final String MEDIA_TABLE = "media";
 
     private final ObjectMapper mapper;
+    private final JsonRows rows;
     private final Persistence persistence;
     private final PartitionScanCache<MediaItem> cache;
 
@@ -44,6 +45,7 @@ public class MediaDAO {
 
     protected MediaDAO(final ObjectMapper mapper, final Persistence persistence, final CacheClient cacheClient) {
         this.mapper = mapper;
+        this.rows = new JsonRows(mapper);
         this.persistence = persistence;
         this.cache = PartitionScanCache.<MediaItem>builder()
                 .cache(cacheClient)
@@ -54,8 +56,8 @@ public class MediaDAO {
                 // One partition: the table is small and pages want it whole (then filter by slot).
                 .partitioner(item -> CacheKeys.MEDIA_PARTITION)
                 .fielder(MediaItem::getId)
-                .serializer(this::toJson)
-                .deserializer(this::parseMedia)
+                .serializer(value -> rows.toJson(value))
+                .deserializer(json -> rows.parse(MediaItem.class, json))
                 .build();
     }
 
@@ -73,22 +75,14 @@ public class MediaDAO {
             log.warn(error);
             throw new IllegalStateException(error);
         }
-        try {
-            final boolean saved = persistence.putItem(b -> b.tableName(MEDIA_TABLE).item(map))
-                    .sdkHttpResponse().isSuccessful();
-            return saved && cache.put(item);
-        } catch (final RuntimeException ex) {
-            throw ex;
-        }
+        final boolean saved = persistence.putItem(b -> b.tableName(MEDIA_TABLE).item(map))
+                .sdkHttpResponse().isSuccessful();
+        return saved && cache.put(item);
     }
 
     /** Every media item, for the admin page. */
     protected List<MediaItem> getAllMedia() {
-        try {
-            return cache.getPartition(CacheKeys.MEDIA_PARTITION);
-        } catch (final RuntimeException ex) {
-            throw ex;
-        }
+        return cache.getPartition(CacheKeys.MEDIA_PARTITION);
     }
 
     /**
@@ -110,12 +104,7 @@ public class MediaDAO {
         if (id == null) {
             return Optional.empty();
         }
-        try {
-            return
-                    cache.getOne(CacheKeys.MEDIA_PARTITION, id, () -> pointReadMedia(id));
-        } catch (final RuntimeException ex) {
-            throw ex;
-        }
+        return cache.getOne(CacheKeys.MEDIA_PARTITION, id, () -> pointReadMedia(id));
     }
 
     protected Boolean deleteMedia(final String id) {
@@ -123,19 +112,15 @@ public class MediaDAO {
             return false;
         }
         final Map<String, AttributeValue> key = Map.of(ID, AttributeValue.builder().s(id).build());
-        try {
-            final boolean deleted = persistence.deleteItem(b -> b.tableName(MEDIA_TABLE).key(key))
-                    .sdkHttpResponse().isSuccessful();
-            // Surgical removal, NOT invalidate(): in local mode the cache client is the datastore (soft
-            // revalidate off), so a full invalidation deleted every OTHER media row too -- one removed chat
-            // photo emptied the whole trip album. Chat photos also made deletes routine rather than rare.
-            if (deleted) {
-                cache.removeOne(CacheKeys.MEDIA_PARTITION, id);
-            }
-            return deleted;
-        } catch (final RuntimeException ex) {
-            throw ex;
+        final boolean deleted = persistence.deleteItem(b -> b.tableName(MEDIA_TABLE).key(key))
+                .sdkHttpResponse().isSuccessful();
+        // Surgical removal, NOT invalidate(): in local mode the cache client is the datastore (soft
+        // revalidate off), so a full invalidation deleted every OTHER media row too -- one removed chat
+        // photo emptied the whole trip album. Chat photos also made deletes routine rather than rare.
+        if (deleted) {
+            cache.removeOne(CacheKeys.MEDIA_PARTITION, id);
         }
+        return deleted;
     }
 
     public void clearCache() {
@@ -147,7 +132,7 @@ public class MediaDAO {
         try {
             final AttributeValue content =
                     persistence.getItem(b -> b.key(key).tableName(MEDIA_TABLE).build()).item().get(CONTENT);
-            return Optional.ofNullable(content == null ? null : parseMedia(content.s()));
+            return Optional.ofNullable(content == null ? null : rows.parse(MediaItem.class, content.s()));
         } catch (final RuntimeException ex) {
             log.debug("MediaDAO: unable to read media item ({})", id, ex);
             return Optional.empty();
@@ -160,26 +145,8 @@ public class MediaDAO {
                 .stream()
                 .map(it -> it.get(CONTENT))
                 .filter(content -> content != null)
-                .map(content -> parseMedia(content.s()))
+                .map(content -> rows.parse(MediaItem.class, content.s()))
                 .filter(item -> item != null)
                 .toList();
-    }
-
-    private MediaItem parseMedia(final String json) {
-        try {
-            return mapper.readValue(json, MediaItem.class);
-        } catch (final IOException ex) {
-            log.error("Unable to parse media record: " + json, ex);
-            return null;
-        }
-    }
-
-    private String toJson(final MediaItem item) {
-        try {
-            return mapper.writeValueAsString(item);
-        } catch (final IOException ex) {
-            log.error("Unable to serialize media item: " + item.getId(), ex);
-            return null;
-        }
     }
 }

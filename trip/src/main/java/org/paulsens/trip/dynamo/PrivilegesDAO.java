@@ -32,8 +32,8 @@ public class PrivilegesDAO {
             a.getName().compareToIgnoreCase(b.getName());
 
     private final ObjectMapper mapper;
+    private final JsonRows rows;
     private final Persistence persistence;
-    private final CacheClient cacheClient;
     private final PartitionScanCache<Privilege> cache;
 
     protected PrivilegesDAO(final ObjectMapper mapper, final Persistence persistence) {
@@ -42,8 +42,8 @@ public class PrivilegesDAO {
 
     protected PrivilegesDAO(final ObjectMapper mapper, final Persistence persistence, final CacheClient cacheClient) {
         this.mapper = mapper;
+        this.rows = new JsonRows(mapper);
         this.persistence = persistence;
-        this.cacheClient = cacheClient;
         this.cache = PartitionScanCache.<Privilege>builder()
                 .cache(cacheClient)
                 .keyPrefix(CacheKeys.PRIV_PREFIX)
@@ -52,8 +52,8 @@ public class PrivilegesDAO {
                 .loader(this::loadAllPrivileges)
                 .partitioner(PrivilegesDAO::partitionOf)
                 .fielder(Privilege::getName)
-                .serializer(this::toJson)
-                .deserializer(this::parsePrivilege)
+                .serializer(value -> rows.toJson(value))
+                .deserializer(json -> rows.parse(Privilege.class, json))
                 .build();
     }
 
@@ -67,13 +67,9 @@ public class PrivilegesDAO {
             log.warn(error);
             throw new IllegalStateException(error);
         }
-        try {
-            final boolean saved = persistence.putItem(b -> b.tableName(PRIVILEGE_TABLE).item(map))
-                    .sdkHttpResponse().isSuccessful();
-            return saved && cache.put(priv);
-        } catch (final RuntimeException ex) {
-            throw ex;
-        }
+        final boolean saved = persistence.putItem(b -> b.tableName(PRIVILEGE_TABLE).item(map))
+                .sdkHttpResponse().isSuccessful();
+        return saved && cache.put(priv);
     }
 
     /**
@@ -91,11 +87,7 @@ public class PrivilegesDAO {
 
     /** Global (non-trip) privileges. */
     protected List<Privilege> getGlobalPrivileges() {
-        try {
-            return cache.getPartition(CacheKeys.PRIV_GLOBAL_PARTITION);
-        } catch (final RuntimeException ex) {
-            throw ex;
-        }
+        return cache.getPartition(CacheKeys.PRIV_GLOBAL_PARTITION);
     }
 
     /** Privileges scoped to the given trip. */
@@ -103,11 +95,7 @@ public class PrivilegesDAO {
         if (tripId == null) {
             return getGlobalPrivileges();
         }
-        try {
-            return cache.getPartition(tripId);
-        } catch (final RuntimeException ex) {
-            throw ex;
-        }
+        return cache.getPartition(tripId);
     }
 
     /**
@@ -118,12 +106,7 @@ public class PrivilegesDAO {
         if (id == null) {
             return Optional.empty();
         }
-        try {
-            return
-                    cache.getOne(partitionOf(id), baseNameOf(id), () -> pointReadPrivilege(id));
-        } catch (final RuntimeException ex) {
-            throw ex;
-        }
+        return cache.getOne(partitionOf(id), baseNameOf(id), () -> pointReadPrivilege(id));
     }
 
     public void clearCache() {
@@ -148,7 +131,7 @@ public class PrivilegesDAO {
         try {
             final AttributeValue content =
                     persistence.getItem(b -> b.key(key).tableName(PRIVILEGE_TABLE).build()).item().get(CONTENT);
-            return Optional.ofNullable(content == null ? null : parsePrivilege(content.s()));
+            return Optional.ofNullable(content == null ? null : rows.parse(Privilege.class, content.s()));
         } catch (final RuntimeException ex) {
             return logAndReturnEmpty(ex, id);
         }
@@ -160,27 +143,9 @@ public class PrivilegesDAO {
                 .stream()
                 .map(it -> it.get(CONTENT))
                 .filter(content -> content != null)
-                .map(content -> parsePrivilege(content.s()))
+                .map(content -> rows.parse(Privilege.class, content.s()))
                 .filter(priv -> priv != null)
                 .toList();
-    }
-
-    private Privilege parsePrivilege(final String json) {
-        try {
-            return mapper.readValue(json, Privilege.class);
-        } catch (final IOException ex) {
-            log.error("Unable to parse privilege record: " + json, ex);
-            return null;
-        }
-    }
-
-    private String toJson(final Privilege priv) {
-        try {
-            return mapper.writeValueAsString(priv);
-        } catch (final IOException ex) {
-            log.error("Unable to serialize privilege: " + priv.getId(), ex);
-            return null;
-        }
     }
 
     private Optional<Privilege> logAndReturnEmpty(final Throwable ex, final String id) {

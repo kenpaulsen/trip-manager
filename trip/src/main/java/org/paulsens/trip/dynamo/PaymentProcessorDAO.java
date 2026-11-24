@@ -7,7 +7,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.cache.CacheClient;
 import org.paulsens.trip.cache.CacheKeys;
 import org.paulsens.trip.cache.CacheSupport;
@@ -25,7 +24,6 @@ import software.amazon.awssdk.services.dynamodb.model.QueryRequest;
  * admins -- disabling is the normal retirement path, because a config referenced by historical payments
  * should keep resolving.
  */
-@Slf4j
 public class PaymentProcessorDAO {
     /** Package-visible so {@link InMemoryPersistence} can register the table for local mode. */
     static final String PROCESSORS_TABLE = "payment_processors";
@@ -35,12 +33,14 @@ public class PaymentProcessorDAO {
     private static final String CONTENT = "content";
 
     private final ObjectMapper mapper;
+    private final JsonRows rows;
     private final Persistence persistence;
     private final PartitionCache<String, PaymentProcessorConfig> cache;
 
     protected PaymentProcessorDAO(final ObjectMapper mapper, final Persistence persistence,
             final CacheClient cacheClient) {
         this.mapper = mapper;
+        this.rows = new JsonRows(mapper);
         this.persistence = persistence;
         this.cache = PartitionCache.<String, PaymentProcessorConfig>builder()
                 .cache(cacheClient)
@@ -48,8 +48,8 @@ public class PaymentProcessorDAO {
                 .softRevalidate(CacheSupport.softRevalidateEnabled(cacheClient))
                 .idGetter(config -> config.getId().getValue())
                 .idFormatter(id -> id)
-                .serializer(this::toJson)
-                .deserializer(this::parseConfig)
+                .serializer(value -> rows.toJson(value))
+                .deserializer(json -> rows.parse(PaymentProcessorConfig.class, json))
                 .order(Comparator.comparing(config -> config.getId().getValue()))
                 .build();
     }
@@ -89,7 +89,8 @@ public class PaymentProcessorDAO {
         } catch (final ConditionalCheckFailedException ex) {
             config.setVersion(expected);
             VersionedWrites.recacheStored(persistence, PROCESSORS_TABLE,
-                    Map.of(ORG_ID, map.get(ORG_ID), CONFIG_ID, map.get(CONFIG_ID)), this::parseConfig,
+                    Map.of(ORG_ID, map.get(ORG_ID), CONFIG_ID, map.get(CONFIG_ID)),
+                    json -> rows.parse(PaymentProcessorConfig.class, json),
                     stored -> cache.put(config.getOrgId().getValue(), stored));
             throw ex;
         }
@@ -120,7 +121,7 @@ public class PaymentProcessorDAO {
         return persistence.queryAll(qb -> configsByOrgId(qb, orgId)).stream()
                 .map(item -> item.get(CONTENT))
                 .filter(content -> content != null)
-                .map(content -> parseConfig(content.s()))
+                .map(content -> rows.parse(PaymentProcessorConfig.class, content.s()))
                 .filter(config -> config != null)
                 .toList();
     }
@@ -130,23 +131,5 @@ public class PaymentProcessorDAO {
                 .keyConditionExpression("orgId = :c")
                 .expressionAttributeValues(
                         Map.of(":c", AttributeValue.builder().s(orgId.getValue()).build()));
-    }
-
-    private PaymentProcessorConfig parseConfig(final String json) {
-        try {
-            return mapper.readValue(json, PaymentProcessorConfig.class);
-        } catch (final IOException ex) {
-            log.error("Unable to parse payment processor config: " + json, ex);
-            return null;
-        }
-    }
-
-    private String toJson(final PaymentProcessorConfig config) {
-        try {
-            return mapper.writeValueAsString(config);
-        } catch (final IOException ex) {
-            log.error("Unable to serialize payment processor config: " + config.getId(), ex);
-            return null;
-        }
     }
 }

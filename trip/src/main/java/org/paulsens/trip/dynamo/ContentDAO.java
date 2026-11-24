@@ -35,6 +35,7 @@ public class ContentDAO {
     static final String CONTENT_TABLE = "content";
 
     private final ObjectMapper mapper;
+    private final JsonRows rows;
     private final Persistence persistence;
     private final PartitionScanCache<ContentInstance> cache;
 
@@ -45,6 +46,7 @@ public class ContentDAO {
     protected ContentDAO(final ObjectMapper mapper, final Persistence persistence,
             final CacheClient cacheClient) {
         this.mapper = mapper;
+        this.rows = new JsonRows(mapper);
         this.persistence = persistence;
         this.cache = PartitionScanCache.<ContentInstance>builder()
                 .cache(cacheClient)
@@ -55,8 +57,8 @@ public class ContentDAO {
                 .loader(this::loadAllCurrent)
                 .partitioner(ContentInstance::getSection)
                 .fielder(ContentInstance::getId)
-                .serializer(this::toJson)
-                .deserializer(this::parseInstance)
+                .serializer(value -> rows.toJson(value))
+                .deserializer(json -> rows.parse(ContentInstance.class, json))
                 .build();
     }
 
@@ -161,7 +163,7 @@ public class ContentDAO {
                 .stream()
                 .map(it -> it.get(CONTENT))
                 .filter(content -> content != null)
-                .map(content -> parseRecord(content.s()))
+                .map(content -> rows.parse(ContentRecord.class, content.s()))
                 .filter(rec -> rec != null)
                 .toList();
     }
@@ -215,7 +217,7 @@ public class ContentDAO {
         try {
             final AttributeValue content =
                     persistence.getItem(b -> b.key(key).tableName(CONTENT_TABLE).build()).item().get(CONTENT);
-            return Optional.ofNullable(content == null ? null : parseRecord(content.s()));
+            return Optional.ofNullable(content == null ? null : rows.parse(ContentRecord.class, content.s()));
         } catch (final RuntimeException ex) {
             log.debug("ContentDAO: unable to read content ({})", id, ex);
             return Optional.empty();
@@ -228,36 +230,9 @@ public class ContentDAO {
                 .stream()
                 .map(it -> it.get(CONTENT))
                 .filter(content -> content != null)
-                .map(content -> parseRecord(content.s()))
+                .map(content -> rows.parse(ContentRecord.class, content.s()))
                 .filter(rec -> rec != null && rec.getCurrent() != null)
                 .map(ContentRecord::getCurrent)
                 .toList();
-    }
-
-    private ContentRecord parseRecord(final String json) {
-        try {
-            return mapper.readValue(json, ContentRecord.class);
-        } catch (final IOException ex) {
-            log.error("Unable to parse content record: " + json, ex);
-            return null;
-        }
-    }
-
-    private ContentInstance parseInstance(final String json) {
-        try {
-            return mapper.readValue(json, ContentInstance.class);
-        } catch (final IOException ex) {
-            log.error("Unable to parse content instance: " + json, ex);
-            return null;
-        }
-    }
-
-    private String toJson(final ContentInstance instance) {
-        try {
-            return mapper.writeValueAsString(instance);
-        } catch (final IOException ex) {
-            log.error("Unable to serialize content instance: " + instance.getId(), ex);
-            return null;
-        }
     }
 }
