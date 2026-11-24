@@ -16,7 +16,6 @@ import org.paulsens.trip.cache.InMemoryCacheClient;
 import org.paulsens.trip.model.BindingType;
 import org.paulsens.trip.model.CompositeKey;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
-import software.amazon.awssdk.services.dynamodb.model.QueryRequest;
 
 /**
  * The following details the data storage format.
@@ -145,7 +144,8 @@ public class BindingDAO {
     /** Loads every direction of the source's partition: destination-type id -> bound destination ids. */
     private Map<String, List<String>> loadBindings(final TypeAndId key) {
         log.info("Cache Miss for {} ({}) bindings.", key.getType().name(), key.getId());
-        final List<Map<String, AttributeValue>> items = persistence.queryAll(qb -> createQueryByID1(qb, key));
+        final List<Map<String, AttributeValue>> items =
+                persistence.queryPartition(BINDINGS_TABLE, ID1, key.getValue());
         // Pre-seed every dest type (including empty) so cache reconcile can clear deleted edges.
         final Map<String, List<String>> result = new HashMap<>();
         for (final BindingType type : BindingType.values()) {
@@ -161,13 +161,6 @@ public class BindingDAO {
 
     private static String destTypeId(final BindingType type) {
         return String.valueOf(type.getTypeId());
-    }
-
-    private void createQueryByID1(final QueryRequest.Builder qb, final TypeAndId key) {
-        qb.tableName(BINDINGS_TABLE)
-                .keyConditionExpression(ID1 + " = :key")
-                .expressionAttributeValues(
-                        Map.of(":key", AttributeValue.builder().s(key.getValue()).build()));
     }
 
     @Value

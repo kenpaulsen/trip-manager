@@ -1,5 +1,6 @@
 package org.paulsens.trip.dynamo;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
@@ -9,12 +10,14 @@ import org.testng.annotations.Test;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.DeleteItemResponse;
 import software.amazon.awssdk.services.dynamodb.model.PutItemResponse;
+import software.amazon.awssdk.services.dynamodb.model.QueryRequest;
 import software.amazon.awssdk.services.dynamodb.model.QueryResponse;
 import software.amazon.awssdk.services.dynamodb.model.ScanRequest;
 import software.amazon.awssdk.services.dynamodb.model.ScanResponse;
 
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNotNull;
+import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
 
 public class PersistenceTest {
@@ -79,6 +82,56 @@ public class PersistenceTest {
         };
         final List<Map<String, AttributeValue>> items = custom.scanAll(b -> b.tableName("test"));
         assertEquals(items, List.of(row));
+    }
+
+    /**
+     * The exact request: aliased key name, one page-following query, never a consistent read, no index. Several
+     * of the tables it reads (registrations, todo items, person data, transactions, bindings) are not backed by
+     * the in-memory fake, which answers empty for them whatever the key is named; their own DAO tests run on
+     * the real engine ({@link DynamoLocal}), and this pins the shape for everything else.
+     */
+    @Test
+    public void queryPartitionAsksForOnePartitionByItsAliasedKey() {
+        final Map<String, AttributeValue> row = Map.of("tripId", AttributeValue.builder().s("t1").build());
+        final List<QueryRequest> asked = new ArrayList<>();
+        final Persistence recording = new Persistence() {
+            @Override
+            public List<Map<String, AttributeValue>> queryAll(final Consumer<QueryRequest.Builder> queryRequest) {
+                final QueryRequest.Builder builder = QueryRequest.builder();
+                queryRequest.accept(builder);
+                asked.add(builder.build());
+                return List.of(row);
+            }
+        };
+
+        assertEquals(recording.queryPartition("registrations", "tripId", "t1"), List.of(row));
+
+        assertEquals(asked.size(), 1, "one paginating query");
+        final QueryRequest request = asked.get(0);
+        assertEquals(request.tableName(), "registrations");
+        assertEquals(request.keyConditionExpression(), "#p = :p");
+        assertEquals(request.expressionAttributeNames(), Map.of("#p", "tripId"));
+        assertEquals(request.expressionAttributeValues(), Map.of(":p", AttributeValue.builder().s("t1").build()));
+        assertNull(request.indexName());
+        assertNull(request.consistentRead());
+        assertNull(request.filterExpression());
+    }
+
+    /** Against the fake's own key-schema check: another partition's rows never come back. */
+    @Test
+    public void queryPartitionReadsOnlyTheNamedPartition() {
+        final InMemoryPersistence store = new InMemoryPersistence();
+        store.putItem(b -> b.tableName(OrgMemberDAO.ORG_MEMBERS_TABLE).item(Map.of(
+                OrgMemberDAO.ORG_ID, store.toStrAttr("org-a"), OrgMemberDAO.PERSON_ID, store.toStrAttr("p1"))));
+        store.putItem(b -> b.tableName(OrgMemberDAO.ORG_MEMBERS_TABLE).item(Map.of(
+                OrgMemberDAO.ORG_ID, store.toStrAttr("org-b"), OrgMemberDAO.PERSON_ID, store.toStrAttr("p2"))));
+
+        final List<Map<String, AttributeValue>> rows =
+                store.queryPartition(OrgMemberDAO.ORG_MEMBERS_TABLE, OrgMemberDAO.ORG_ID, "org-a");
+
+        assertEquals(rows.size(), 1);
+        assertEquals(rows.get(0).get(OrgMemberDAO.PERSON_ID).s(), "p1");
+        assertTrue(store.queryPartition(OrgMemberDAO.ORG_MEMBERS_TABLE, OrgMemberDAO.ORG_ID, "org-c").isEmpty());
     }
 
     @Test

@@ -26,7 +26,6 @@ import org.paulsens.trip.model.RoomBlock;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
 import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
-import software.amazon.awssdk.services.dynamodb.model.QueryRequest;
 
 /**
  * The lodging tables (one class, the {@link ChatDAO} precedent):
@@ -350,9 +349,7 @@ public class LodgingDAO {
 
     /** One hotel's partition of a table keyed (accommodationId, id): blocks and rate plans share the shape. */
     private <T> List<T> loadByAccommodation(final String table, final String accId, final Class<T> type) {
-        return rows.parseAll(type, persistence.queryAll(qb -> qb.tableName(table)
-                .keyConditionExpression("accommodationId = :c")
-                .expressionAttributeValues(Map.of(":c", AttributeValue.builder().s(accId).build()))));
+        return rows.parseAll(type, persistence.queryPartition(table, ACC_ID, accId));
     }
 
     /**
@@ -439,7 +436,7 @@ public class LodgingDAO {
 
     private Set<String> rawIds(final String table, final String tripId) {
         final Set<String> ids = new LinkedHashSet<>();
-        for (final Map<String, AttributeValue> row : persistence.queryAll(qb -> byTripId(qb, table, tripId))) {
+        for (final Map<String, AttributeValue> row : persistence.queryPartition(table, TRIP_ID, tripId)) {
             final AttributeValue id = row.get(ID);
             if (id != null) {
                 ids.add(id.s());
@@ -449,13 +446,7 @@ public class LodgingDAO {
     }
 
     private <T> List<T> loadRows(final String table, final String tripId, final Class<T> type) {
-        return rows.parseAll(type, persistence.queryAll(qb -> byTripId(qb, table, tripId)));
-    }
-
-    private void byTripId(final QueryRequest.Builder qb, final String table, final String tripId) {
-        qb.tableName(table)
-                .keyConditionExpression("tripId = :c")
-                .expressionAttributeValues(Map.of(":c", AttributeValue.builder().s(tripId).build()));
+        return rows.parseAll(type, persistence.queryPartition(table, TRIP_ID, tripId));
     }
 
     private Optional<Accommodation> pointRead(final Accommodation.Id id) {

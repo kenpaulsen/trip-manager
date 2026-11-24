@@ -78,6 +78,20 @@ public interface Persistence {
         return query(queryRequest).items();
     }
 
+    /**
+     * Every row of one partition: the query nearly every DAO's loader and trip-delete sweep makes. The key
+     * name is always aliased, so no caller has to know which attribute names are reserved words. Built on
+     * {@link #queryAll}, so it paginates, and deliberately NOT a consistent read (the callers are cache loaders
+     * and sweeps, which never were).
+     */
+    default List<Map<String, AttributeValue>> queryPartition(final String table, final String pkName,
+            final String pkValue) {
+        return queryAll(qb -> qb.tableName(table)
+                .keyConditionExpression("#p = :p")
+                .expressionAttributeNames(Map.of("#p", pkName))
+                .expressionAttributeValues(Map.of(":p", toStrAttr(pkValue))));
+    }
+
     default AttributeValue toStrAttr(final String val) {
         return AttributeValue.builder().s(val).build();
     }

@@ -19,7 +19,6 @@ import org.paulsens.trip.cache.PartitionCache;
 import org.paulsens.trip.model.DataId;
 import org.paulsens.trip.model.TodoItem;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
-import software.amazon.awssdk.services.dynamodb.model.QueryRequest;
 
 @Slf4j
 public class TodoDAO {
@@ -95,7 +94,7 @@ public class TodoDAO {
     protected List<DataId> deleteAllForTrip(final String tripId) {
         final Set<String> dataIds = new LinkedHashSet<>();
         getTodoItems(tripId).forEach(todo -> dataIds.add(todo.getDataId().getValue()));
-        for (final Map<String, AttributeValue> row : persistence.queryAll(qb -> queryTodoItemsByTrip(qb, tripId))) {
+        for (final Map<String, AttributeValue> row : persistence.queryPartition(TODO_ITEM_TABLE, TRIP_ID, tripId)) {
             final AttributeValue dataId = row.get(DATA_ID);
             if (dataId != null) {
                 dataIds.add(dataId.s());
@@ -119,13 +118,6 @@ public class TodoDAO {
 
     private List<TodoItem> loadTodoItems(final String tripId) {
         log.info("Cache miss for todo items for tripId: {}", tripId);
-        return rows.parseAll(TodoItem.class, persistence.queryAll(qb -> queryTodoItemsByTrip(qb, tripId)));
-    }
-
-    private void queryTodoItemsByTrip(final QueryRequest.Builder qb, final String tripId) {
-        qb.tableName(TODO_ITEM_TABLE)
-                .keyConditionExpression(TRIP_ID + " = :tripIdVal")
-                .expressionAttributeValues(
-                        Map.of(":tripIdVal", AttributeValue.builder().s(tripId).build()));
+        return rows.parseAll(TodoItem.class, persistence.queryPartition(TODO_ITEM_TABLE, TRIP_ID, tripId));
     }
 }

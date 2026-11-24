@@ -20,7 +20,6 @@ import org.paulsens.trip.model.DataId;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.PersonDataValue;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
-import software.amazon.awssdk.services.dynamodb.model.QueryRequest;
 
 @Slf4j
 public class PersonDataValueDAO {
@@ -151,13 +150,6 @@ public class PersonDataValueDAO {
     private List<PersonDataValue> loadPersonDataValues(final Person.Id pid) {
         log.info("Cache miss for person data values for person id: {}", pid);
         return rows.parseAll(PersonDataValue.class,
-                persistence.queryAll(qb -> queryPersonDataValuesByPerson(qb, pid)));
-    }
-
-    private void queryPersonDataValuesByPerson(final QueryRequest.Builder qb, final Person.Id pid) {
-        qb.tableName(PERSON_DATA_VALUE_TABLE)
-                .keyConditionExpression(USER_ID + " = :pid")
-                .expressionAttributeValues(
-                        Map.of(":pid", AttributeValue.builder().s(pid.getValue()).build()));
+                persistence.queryPartition(PERSON_DATA_VALUE_TABLE, USER_ID, pid.getValue()));
     }
 }

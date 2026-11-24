@@ -15,7 +15,6 @@ import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.PaymentProcessorConfig;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
-import software.amazon.awssdk.services.dynamodb.model.QueryRequest;
 
 /**
  * Payment-processor configs, partitioned by owning org (PK orgId, SK id) -- the partition IS the tenancy
@@ -118,13 +117,7 @@ public class PaymentProcessorDAO {
     }
 
     private List<PaymentProcessorConfig> loadConfigs(final Organization.Id orgId) {
-        return rows.parseAll(PaymentProcessorConfig.class, persistence.queryAll(qb -> configsByOrgId(qb, orgId)));
-    }
-
-    private void configsByOrgId(final QueryRequest.Builder qb, final Organization.Id orgId) {
-        qb.tableName(PROCESSORS_TABLE)
-                .keyConditionExpression("orgId = :c")
-                .expressionAttributeValues(
-                        Map.of(":c", AttributeValue.builder().s(orgId.getValue()).build()));
+        return rows.parseAll(PaymentProcessorConfig.class,
+                persistence.queryPartition(PROCESSORS_TABLE, ORG_ID, orgId.getValue()));
     }
 }

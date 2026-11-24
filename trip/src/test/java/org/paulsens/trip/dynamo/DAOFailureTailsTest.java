@@ -89,6 +89,9 @@ public class DAOFailureTailsTest {
                 AdditionalAnswers.delegatesTo(DynamoLocal.persistence()));
         Mockito.doThrow(new IllegalStateException("read refused"))
                 .when(failing).queryAll(ArgumentMatchers.any());
+        // queryPartition is a default method: run the real one, so it reaches the stubbed queryAll.
+        Mockito.doCallRealMethod().when(failing).queryPartition(
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any());
         return failing;
     }
 
@@ -286,6 +289,9 @@ public class DAOFailureTailsTest {
         Mockito.doThrow(new IllegalStateException("read refused")).when(failing).getItem(ArgumentMatchers.any());
         Mockito.doThrow(new IllegalStateException("query refused"))
                 .when(failing).queryAll(ArgumentMatchers.any());
+        // queryPartition is a default method: run the real one, so it reaches the stubbed queryAll.
+        Mockito.doCallRealMethod().when(failing).queryPartition(
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any());
         Mockito.doThrow(new IllegalStateException("delete refused"))
                 .when(failing).deleteItem(ArgumentMatchers.any());
         final ChatDAO dao = new ChatDAO(mapper, failing, new InMemoryCacheClient());

@@ -16,7 +16,6 @@ import org.paulsens.trip.cache.PartitionCache;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Transaction;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
-import software.amazon.awssdk.services.dynamodb.model.QueryRequest;
 
 @Slf4j
 public class TransactionDAO {
@@ -86,15 +85,9 @@ public class TransactionDAO {
 
     private List<Transaction> loadUserTxData(final Person.Id userId) {
         log.info("Cache Miss for tx data for userId: {}", userId.getValue());
-        return rows.parseAll(Transaction.class, persistence.queryAll(qb -> txByUserId(qb, userId))).stream()
+        return rows.parseAll(Transaction.class,
+                persistence.queryPartition(TRANSACTION_TABLE, USER_ID, userId.getValue())).stream()
                 .filter(tx -> tx.getDeleted() == null)
                 .toList();
-    }
-
-    private void txByUserId(final QueryRequest.Builder qb, final Person.Id userId) {
-        qb.tableName(TRANSACTION_TABLE)
-                .keyConditionExpression("userId = :userIdVal")
-                .expressionAttributeValues(
-                        Map.of(":userIdVal", AttributeValue.builder().s(userId.getValue()).build()));
     }
 }

@@ -15,7 +15,6 @@ import org.paulsens.trip.model.OrgMember;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
-import software.amazon.awssdk.services.dynamodb.model.QueryRequest;
 
 /**
  * Org membership rows -- the source of truth for who is in an {@link Organization}. One partition per org
@@ -83,13 +82,7 @@ public class OrgMemberDAO {
     }
 
     private List<OrgMember> loadMembers(final Organization.Id orgId) {
-        return rows.parseAll(OrgMember.class, persistence.queryAll(qb -> membersByOrgId(qb, orgId)));
-    }
-
-    private void membersByOrgId(final QueryRequest.Builder qb, final Organization.Id orgId) {
-        qb.tableName(ORG_MEMBERS_TABLE)
-                .keyConditionExpression("orgId = :c")
-                .expressionAttributeValues(
-                        Map.of(":c", AttributeValue.builder().s(orgId.getValue()).build()));
+        return rows.parseAll(OrgMember.class,
+                persistence.queryPartition(ORG_MEMBERS_TABLE, ORG_ID, orgId.getValue()));
     }
 }

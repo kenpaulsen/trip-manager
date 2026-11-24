@@ -17,7 +17,6 @@ import org.paulsens.trip.model.WaiverDocument;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
 import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
-import software.amazon.awssdk.services.dynamodb.model.QueryRequest;
 
 /**
  * The two waiver tables (see {@code docs/waivers.md}).
@@ -139,7 +138,7 @@ public class WaiverDAO {
 
     private List<WaiverDocument> loadDocuments(final String orgId) {
         return rows.parseAll(WaiverDocument.class,
-                persistence.queryAll(qb -> partitionQuery(qb, WAIVERS_TABLE, ORG_ID, orgId)));
+                persistence.queryPartition(WAIVERS_TABLE, ORG_ID, orgId));
     }
 
     private static String sortTitle(final WaiverDocument doc) {
@@ -175,7 +174,7 @@ public class WaiverDAO {
             return List.of();
         }
         return rows.parseAll(WaiverAcceptance.class,
-                persistence.queryAll(qb -> partitionQuery(qb, ACCEPTANCES_TABLE, TRIP_ID, tripId)))
+                persistence.queryPartition(ACCEPTANCES_TABLE, TRIP_ID, tripId))
                 .stream()
                 .sorted(Comparator.comparing(WaiverAcceptance::getSortKey))
                 .toList();
@@ -190,14 +189,6 @@ public class WaiverDAO {
     }
 
     // ================================================================== plumbing
-
-    private static void partitionQuery(final QueryRequest.Builder qb, final String table, final String pkName,
-            final String pkValue) {
-        qb.tableName(table)
-                .keyConditionExpression("#p = :p")
-                .expressionAttributeNames(Map.of("#p", pkName))
-                .expressionAttributeValues(Map.of(":p", AttributeValue.builder().s(pkValue).build()));
-    }
 
     private static AttributeValue str(final String value) {
         return AttributeValue.builder().s(value).build();

@@ -264,6 +264,9 @@ public class LodgingDAOTest {
                 .thenReturn(List.of(corrupt, bare));
         org.mockito.Mockito.when(broken.queryAll(org.mockito.ArgumentMatchers.any()))
                 .thenReturn(List.of(corrupt, bare));
+        // queryPartition is a default method: run the real one, so it reaches the stubbed queryAll.
+        org.mockito.Mockito.doCallRealMethod().when(broken).queryPartition(org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
         final software.amazon.awssdk.services.dynamodb.model.DeleteItemResponse deleted =
                 (software.amazon.awssdk.services.dynamodb.model.DeleteItemResponse)
                         software.amazon.awssdk.services.dynamodb.model.DeleteItemResponse.builder()

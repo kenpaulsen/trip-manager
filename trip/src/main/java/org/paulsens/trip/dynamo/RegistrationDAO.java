@@ -18,7 +18,6 @@ import org.paulsens.trip.cache.PartitionCache;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Registration;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
-import software.amazon.awssdk.services.dynamodb.model.QueryRequest;
 
 @Slf4j
 public class RegistrationDAO {
@@ -95,8 +94,8 @@ public class RegistrationDAO {
     protected int deleteAllForTrip(final String tripId) {
         final Set<String> userIds = new LinkedHashSet<>();
         getRegistrations(tripId).forEach(reg -> userIds.add(reg.getUserId().getValue()));
-        for (final Map<String, AttributeValue> row : persistence.queryAll(qb ->
-                registrationsByTripId(qb, tripId))) {
+        for (final Map<String, AttributeValue> row
+                : persistence.queryPartition(REGISTRATION_TABLE, TRIP_ID, tripId)) {
             final AttributeValue userId = row.get(USER_ID);
             if (userId != null) {
                 userIds.add(userId.s());
@@ -137,13 +136,6 @@ public class RegistrationDAO {
 
     private List<Registration> loadTripRegData(final String tripId) {
         log.info("Cache miss for registration data for tripId: {}", tripId);
-        return rows.parseAll(Registration.class, persistence.queryAll(qb -> registrationsByTripId(qb, tripId)));
-    }
-
-    private void registrationsByTripId(final QueryRequest.Builder qb, final String tripId) {
-        qb.tableName(REGISTRATION_TABLE)
-                .keyConditionExpression(TRIP_ID + " = :tripIdVal")
-                .expressionAttributeValues(
-                        Map.of(":tripIdVal", AttributeValue.builder().s(tripId).build()));
+        return rows.parseAll(Registration.class, persistence.queryPartition(REGISTRATION_TABLE, TRIP_ID, tripId));
     }
 }

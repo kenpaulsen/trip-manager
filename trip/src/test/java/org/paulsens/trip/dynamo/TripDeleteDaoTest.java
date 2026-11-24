@@ -88,6 +88,9 @@ public class TripDeleteDaoTest {
 
     private static Persistence deletablePersistence() {
         final Persistence persistence = Mockito.mock(Persistence.class);
+        // queryPartition is a default method: run the real one, so it reaches the stubbed queryAll.
+        Mockito.doCallRealMethod().when(persistence).queryPartition(
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any());
         Mockito.when(persistence.deleteItem(ArgumentMatchers.any())).thenReturn(
                 (DeleteItemResponse) DeleteItemResponse.builder()
                         .sdkHttpResponse(SdkHttpResponse.builder().statusCode(200).build())

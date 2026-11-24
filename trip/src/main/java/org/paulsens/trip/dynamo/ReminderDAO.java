@@ -214,10 +214,7 @@ public class ReminderDAO {
         if (tripId == null || tripId.isBlank()) {
             return List.of();
         }
-        return persistence.queryAll(qb -> qb.tableName(REMINDERS_TABLE)
-                .keyConditionExpression("#p = :p")
-                .expressionAttributeNames(Map.of("#p", TRIP_ID))
-                .expressionAttributeValues(Map.of(":p", str(tripId))));
+        return persistence.queryPartition(REMINDERS_TABLE, TRIP_ID, tripId);
     }
 
     private boolean deleteItem(final String tripId, final String sortKey) {
