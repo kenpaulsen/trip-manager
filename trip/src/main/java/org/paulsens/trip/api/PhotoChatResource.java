@@ -67,7 +67,7 @@ public class PhotoChatResource extends BaseResource {
     @Path("meta")
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response meta(final Map<String, Object> body) {
-        final List<String> keys = stringList(body == null ? null : body.get("keys"));
+        final List<String> keys = JsonBody.strings(body, "keys");
         if (keys.size() > PhotoChatCommands.MAX_META_KEYS) {
             return error(400, ApiErrors.BAD_REQUEST,
                     Text.get("api.photoChat.tooManyKeys", PhotoChatCommands.MAX_META_KEYS));
@@ -151,9 +151,9 @@ public class PhotoChatResource extends BaseResource {
         } catch (final NotAuthorizedException ex) {
             return error(401, ChatErrors.NOT_AUTHENTICATED, Text.get("api.shared.signInRequired"));
         }
-        final String key = string(body == null ? null : body.get("key"));
-        final String text = string(body == null ? null : body.get("body"));
-        final String clientMessageId = string(body == null ? null : body.get("clientMessageId"));
+        final String key = JsonBody.str(body, "key");
+        final String text = JsonBody.str(body, "body");
+        final String clientMessageId = JsonBody.str(body, "clientMessageId");
         final ChatCommands.SendResult result = PhotoChatCommands.getPhotoChatCommands()
                 .comment(key, me, text, clientMessageId, caller());
         if (result.isOk()) {
@@ -221,7 +221,7 @@ public class PhotoChatResource extends BaseResource {
             return error(401, ChatErrors.NOT_AUTHENTICATED, Text.get("api.shared.signInRequired"));
         }
         final ModerationCommands.ReportOutcome outcome = Beans.get(ModerationCommands.class)
-                .report(target, string(body == null ? null : body.get("reason")), caller());
+                .report(target, JsonBody.str(body, "reason"), caller());
         if (outcome.ok()) {
             return Response.status(202)
                     .type(negotiatedType())
@@ -303,7 +303,7 @@ public class PhotoChatResource extends BaseResource {
             return error(403, ChatErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         final String target = LocalRedirect.sanitizeLocalTarget(
-                string(body == null ? null : body.get("target")));
+                JsonBody.str(body, "target"));
         if (target == null) {
             return error(400, ApiErrors.BAD_REQUEST, Text.get("api.photoChat.targetNotSameSite"));
         }
@@ -406,22 +406,5 @@ public class PhotoChatResource extends BaseResource {
             case "not_found" -> error(404, ApiErrors.NOT_FOUND, message);
             default -> error(500, ChatErrors.STORE_FAILED, message);
         };
-    }
-
-    private static String string(final Object raw) {
-        return raw == null ? null : raw.toString();
-    }
-
-    private static List<String> stringList(final Object raw) {
-        if (!(raw instanceof List<?> list)) {
-            return List.of();
-        }
-        final List<String> out = new ArrayList<>(list.size());
-        for (final Object entry : list) {
-            if (entry != null) {
-                out.add(entry.toString());
-            }
-        }
-        return out;
     }
 }

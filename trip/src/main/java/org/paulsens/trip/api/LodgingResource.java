@@ -13,7 +13,6 @@ import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -83,28 +82,28 @@ public class LodgingResource extends BaseResource {
             return error(403, ApiErrors.FORBIDDEN, Text.get("api.lodging.adminRequired"));
         }
         final LodgingViews.AccommodationForm form = new LodgingViews.AccommodationForm();
-        form.setName(str(body, "name"));
-        form.setEmail(str(body, "email"));
-        form.setPhone(str(body, "phone"));
-        form.setWebsite(str(body, "website"));
-        form.setStreet(str(body, "street"));
-        form.setCity(str(body, "city"));
-        form.setZip(str(body, "zip"));
-        form.setCountry(str(body, "country"));
-        form.setContactEmail(str(body, "contactEmail"));
-        form.setContactFirst(str(body, "contactFirst"));
-        form.setContactLast(str(body, "contactLast"));
+        form.setName(JsonBody.str(body, "name"));
+        form.setEmail(JsonBody.str(body, "email"));
+        form.setPhone(JsonBody.str(body, "phone"));
+        form.setWebsite(JsonBody.str(body, "website"));
+        form.setStreet(JsonBody.str(body, "street"));
+        form.setCity(JsonBody.str(body, "city"));
+        form.setZip(JsonBody.str(body, "zip"));
+        form.setCountry(JsonBody.str(body, "country"));
+        form.setContactEmail(JsonBody.str(body, "contactEmail"));
+        form.setContactFirst(JsonBody.str(body, "contactFirst"));
+        form.setContactLast(JsonBody.str(body, "contactLast"));
         form.setForce(true);
-        final String accId = lodging.saveAccommodation(form, str(body, "orgId"));
+        final String accId = lodging.saveAccommodation(form, JsonBody.str(body, "orgId"));
         if (accId.isEmpty()) {
             return error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.lodging.accommodationNotCreated"));
         }
         final Map<String, String> typeIds = new LinkedHashMap<>();
         for (final Map<String, Object> type : list(body, "roomTypes")) {
             final LodgingViews.RoomTypeForm rt = new LodgingViews.RoomTypeForm();
-            rt.setName(str(type, "name"));
-            rt.setMinPeople(intOf(type, "minPeople", 1));
-            rt.setMaxPeople(intOf(type, "maxPeople", 2));
+            rt.setName(JsonBody.str(type, "name"));
+            rt.setMinPeople(JsonBody.intOf(type, "minPeople", 1));
+            rt.setMaxPeople(JsonBody.intOf(type, "maxPeople", 2));
             if (!lodging.saveRoomType(accId, rt)) {
                 return error(400, ApiErrors.VALIDATION_FAILED,
                         Text.get("api.lodging.roomTypeNotCreated", String.valueOf(rt.getName())));
@@ -115,9 +114,9 @@ public class LodgingResource extends BaseResource {
         }
         for (final Map<String, Object> room : list(body, "rooms")) {
             final LodgingViews.RoomForm rf = new LodgingViews.RoomForm();
-            rf.setRoomNumber(str(room, "number"));
-            rf.setFloor(str(room, "floor"));
-            rf.setRoomTypeId(typeIds.get(str(room, "type")));
+            rf.setRoomNumber(JsonBody.str(room, "number"));
+            rf.setFloor(JsonBody.str(room, "floor"));
+            rf.setRoomTypeId(typeIds.get(JsonBody.str(room, "type")));
             if (!lodging.saveRoom(accId, rf)) {
                 return error(400, ApiErrors.VALIDATION_FAILED,
                         Text.get("api.lodging.roomNotCreated", String.valueOf(rf.getRoomNumber())));
@@ -161,15 +160,13 @@ public class LodgingResource extends BaseResource {
             return error(403, ApiErrors.FORBIDDEN, Text.get("api.lodging.accommodationAdminRequired"));
         }
         final LodgingViews.BlockForm form = new LodgingViews.BlockForm();
-        for (final Object id : listOf(body, "roomIds")) {
-            form.getRoomIds().add(id.toString());
-        }
-        final String start = str(body, "start");
-        final String end = str(body, "end");
+        form.getRoomIds().addAll(JsonBody.strings(body, "roomIds"));
+        final LocalDate start = JsonBody.date(body, "start");
+        final LocalDate end = JsonBody.date(body, "end");
         if (start != null && end != null) {
-            form.setRange(List.of(LocalDate.parse(start), LocalDate.parse(end)));
+            form.setRange(List.of(start, end));
         }
-        form.setReason(str(body, "reason"));
+        form.setReason(JsonBody.str(body, "reason"));
         if (!hotel.saveBlock(accId, form)) {
             return error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.lodging.blockNotSaved"));
         }
@@ -204,7 +201,7 @@ public class LodgingResource extends BaseResource {
         if (lodging.findAccommodation(accId) == null) {
             return error(404, ApiErrors.NOT_FOUND, Text.get("api.lodging.noSuchAccommodation"));
         }
-        final String personId = str(body, "personId");
+        final String personId = JsonBody.str(body, "personId");
         if (personId == null || personId.isBlank() || findPerson(Person.Id.from(personId)) == null) {
             return error(404, ApiErrors.NOT_FOUND, Text.get("api.shared.noSuchPerson"));
         }
@@ -258,25 +255,23 @@ public class LodgingResource extends BaseResource {
             return error(403, ApiErrors.FORBIDDEN, Text.get("api.lodging.accommodationAdminRequired"));
         }
         final RatePlanViews.RatePlanForm form = ratePlans.planFormFor(accId, null);
-        form.setName(str(body, "name"));
-        for (final Object typeId : listOf(body, "roomTypeIds")) {
-            form.getRoomTypeIds().add(typeId.toString());
+        form.setName(JsonBody.str(body, "name"));
+        form.getRoomTypeIds().addAll(JsonBody.strings(body, "roomTypeIds"));
+        if (JsonBody.has(body, "validFrom")) {
+            form.setValidFrom(JsonBody.date(body, "validFrom"));
         }
-        if (body.containsKey("validFrom")) {
-            form.setValidFrom(LocalDate.parse(str(body, "validFrom")));
+        if (JsonBody.has(body, "validUntil")) {
+            form.setValidUntil(JsonBody.date(body, "validUntil"));
         }
-        if (body.containsKey("validUntil")) {
-            form.setValidUntil(LocalDate.parse(str(body, "validUntil")));
-        }
-        form.setCostKnown(!body.containsKey("costKnown") || Boolean.TRUE.equals(body.get("costKnown")));
-        form.setCostPricingModel(body.containsKey("costPricingModel") ? str(body, "costPricingModel") : "PER_ROOM");
-        form.setCostNightlyPrice(dbl(body, "costNightlyPrice"));
-        form.setCostSupplement(dbl(body, "costSupplement"));
+        form.setCostKnown(!JsonBody.has(body, "costKnown") || JsonBody.bool(body, "costKnown", false));
+        form.setCostPricingModel(JsonBody.str(body, "costPricingModel", "PER_ROOM"));
+        form.setCostNightlyPrice(JsonBody.dbl(body, "costNightlyPrice"));
+        form.setCostSupplement(JsonBody.dbl(body, "costSupplement"));
         form.setCostExtras(extraForms(list(body, "costExtras")));
-        form.setNotes(str(body, "notes"));
+        form.setNotes(JsonBody.str(body, "notes"));
         if (!ratePlans.savePlan(form)) {
             return error(400, ApiErrors.VALIDATION_FAILED,
-                    problemOr(form.getProblem(), Text.get("api.lodging.ratePlanNotSaved")));
+                    JsonBody.problemOr(form.getProblem(), Text.get("api.lodging.ratePlanNotSaved")));
         }
         // The command writes the minted id back onto the form.
         return ok(Map.of("id", form.getPlanId() == null ? "" : form.getPlanId()));
@@ -329,42 +324,39 @@ public class LodgingResource extends BaseResource {
             return error(403, ApiErrors.FORBIDDEN, Text.get("api.lodging.tripManagerRequired"));
         }
         final LodgingViews.OfferForm form = lodging.offerFormFor(tripId, null);
-        form.setName(str(body, "name"));
-        form.setAccommodationId(str(body, "accommodationId"));
-        for (final Object typeId : listOf(body, "roomTypeIds")) {
-            form.getRoomTypeIds().add(typeId.toString());
+        form.setName(JsonBody.str(body, "name"));
+        form.setAccommodationId(JsonBody.str(body, "accommodationId"));
+        form.getRoomTypeIds().addAll(JsonBody.strings(body, "roomTypeIds"));
+        if (JsonBody.has(body, "roomTypeId")) {
+            form.getRoomTypeIds().add(JsonBody.str(body, "roomTypeId"));
         }
-        if (body.containsKey("roomTypeId")) {
-            form.getRoomTypeIds().add(str(body, "roomTypeId"));
-        }
-        form.setTripEventId(body.containsKey("tripEventId") ? str(body, "tripEventId")
-                : LodgingViews.OfferForm.NEW_EVENT);
-        form.setPricingModel(body.containsKey("pricingModel") ? str(body, "pricingModel") : "PER_ROOM");
-        form.setNightlyPrice(dbl(body, "nightlyPrice"));
-        form.setSingleSupplement(dbl(body, "singleSupplement"));
-        form.setPriceKnown(!body.containsKey("priceKnown") || Boolean.TRUE.equals(body.get("priceKnown")));
+        form.setTripEventId(JsonBody.str(body, "tripEventId", LodgingViews.OfferForm.NEW_EVENT));
+        form.setPricingModel(JsonBody.str(body, "pricingModel", "PER_ROOM"));
+        form.setNightlyPrice(JsonBody.dbl(body, "nightlyPrice"));
+        form.setSingleSupplement(JsonBody.dbl(body, "singleSupplement"));
+        form.setPriceKnown(!JsonBody.has(body, "priceKnown") || JsonBody.bool(body, "priceKnown", false));
         applyCostSide(form, body);
-        form.setMinNights(intOf(body, "minNights", 1));
-        if (body.containsKey("validFrom")) {
-            form.setValidFrom(LocalDateTime.parse(str(body, "validFrom")));
+        form.setMinNights(JsonBody.intOf(body, "minNights", 1));
+        if (JsonBody.has(body, "validFrom")) {
+            form.setValidFrom(JsonBody.dateTime(body, "validFrom"));
         }
-        if (body.containsKey("validUntil")) {
-            form.setValidUntil(LocalDateTime.parse(str(body, "validUntil")));
+        if (JsonBody.has(body, "validUntil")) {
+            form.setValidUntil(JsonBody.dateTime(body, "validUntil"));
         }
-        if (body.containsKey("defaultStart")) {
-            form.setDefaultStart(LocalDateTime.parse(str(body, "defaultStart")));
+        if (JsonBody.has(body, "defaultStart")) {
+            form.setDefaultStart(JsonBody.dateTime(body, "defaultStart"));
         }
-        if (body.containsKey("defaultEnd")) {
-            form.setDefaultEnd(LocalDateTime.parse(str(body, "defaultEnd")));
+        if (JsonBody.has(body, "defaultEnd")) {
+            form.setDefaultEnd(JsonBody.dateTime(body, "defaultEnd"));
         }
-        if (body.containsKey("cancelFeeKind")) {
-            form.setCancelFeeKind(str(body, "cancelFeeKind"));
+        if (JsonBody.has(body, "cancelFeeKind")) {
+            form.setCancelFeeKind(JsonBody.str(body, "cancelFeeKind"));
         }
-        form.setCancelFeeAmount(dbl(body, "cancelFeeAmount"));
+        form.setCancelFeeAmount(JsonBody.dbl(body, "cancelFeeAmount"));
         // Which ids existed BEFORE the save is how this call knows which offer is its own; see createdOffer.
         final Set<String> before = offerIds(lodging.getOffers(tripId));
         if (!lodging.saveOffer(tripId, form)) {
-            return error(400, ApiErrors.VALIDATION_FAILED, problemOr(form.getProblem(),
+            return error(400, ApiErrors.VALIDATION_FAILED, JsonBody.problemOr(form.getProblem(),
                     Text.get("api.lodging.offerNotCreated")));
         }
         final ReservationOffer offer = createdOffer(lodging.getOffers(tripId), before, form.getName());
@@ -393,13 +385,13 @@ public class LodgingResource extends BaseResource {
         if (!lodging.canManageTripLodging(tripId)) {
             return error(403, ApiErrors.FORBIDDEN, Text.get("api.lodging.tripManagerRequired"));
         }
-        final String accId = str(body, "accId");
-        final String planId = str(body, "planId");
+        final String accId = JsonBody.str(body, "accId");
+        final String planId = JsonBody.str(body, "planId");
         final Set<String> before = offerIds(lodging.getOffers(tripId));
         final RatePlanViews.AttachForm price = attachPrice(tripId, body);
         if (!ratePlans().attach(tripId, accId, planId, price)) {
             return error(400, ApiErrors.VALIDATION_FAILED,
-                    problemOr(price.getProblem(), Text.get("api.lodging.ratePlanNotAttached")));
+                    JsonBody.problemOr(price.getProblem(), Text.get("api.lodging.ratePlanNotAttached")));
         }
         ReservationOffer created = null;
         for (final ReservationOffer offer : lodging.getOffers(tripId)) {
@@ -439,26 +431,26 @@ public class LodgingResource extends BaseResource {
     private static RatePlanViews.AttachForm attachPrice(final String tripId, final Map<String, Object> body) {
         final RatePlanViews.AttachForm price = new RatePlanViews.AttachForm();
         price.setTripId(tripId);
-        final boolean anyKey = body.containsKey("pricingModel") || body.containsKey("nightlyPrice")
-                || body.containsKey("singleSupplement");
-        price.setPriceKnown(body.containsKey("priceKnown") ? Boolean.TRUE.equals(body.get("priceKnown")) : anyKey);
-        price.setPricingModel(body.containsKey("pricingModel") ? str(body, "pricingModel") : "PER_ROOM");
-        price.setNightlyPrice(dbl(body, "nightlyPrice"));
-        price.setSingleSupplement(dbl(body, "singleSupplement"));
+        final boolean anyKey = JsonBody.has(body, "pricingModel") || JsonBody.has(body, "nightlyPrice")
+                || JsonBody.has(body, "singleSupplement");
+        price.setPriceKnown(JsonBody.has(body, "priceKnown") ? JsonBody.bool(body, "priceKnown", false) : anyKey);
+        price.setPricingModel(JsonBody.str(body, "pricingModel", "PER_ROOM"));
+        price.setNightlyPrice(JsonBody.dbl(body, "nightlyPrice"));
+        price.setSingleSupplement(JsonBody.dbl(body, "singleSupplement"));
         return price;
     }
 
     /** The optional cost side of a create body: stated as soon as any cost key is present. */
     private static void applyCostSide(final LodgingViews.OfferForm form, final Map<String, Object> body) {
-        final boolean stated = body.containsKey("costNightlyPrice") || body.containsKey("costPricingModel")
-                || body.containsKey("costSupplement") || body.containsKey("costExtras");
+        final boolean stated = JsonBody.has(body, "costNightlyPrice") || JsonBody.has(body, "costPricingModel")
+                || JsonBody.has(body, "costSupplement") || JsonBody.has(body, "costExtras");
         form.setCostKnown(stated);
         if (!stated) {
             return;
         }
-        form.setCostPricingModel(body.containsKey("costPricingModel") ? str(body, "costPricingModel") : "PER_ROOM");
-        form.setCostNightlyPrice(dbl(body, "costNightlyPrice"));
-        form.setCostSupplement(dbl(body, "costSupplement"));
+        form.setCostPricingModel(JsonBody.str(body, "costPricingModel", "PER_ROOM"));
+        form.setCostNightlyPrice(JsonBody.dbl(body, "costNightlyPrice"));
+        form.setCostSupplement(JsonBody.dbl(body, "costSupplement"));
         form.setCostExtras(extraForms(list(body, "costExtras")));
     }
 
@@ -515,24 +507,22 @@ public class LodgingResource extends BaseResource {
             return error(403, ApiErrors.FORBIDDEN, Text.get("api.lodging.tripManagerRequired"));
         }
         final LodgingViews.ReservationForm form = new LodgingViews.ReservationForm();
-        form.setOfferId(str(body, "offerId"));
+        form.setOfferId(JsonBody.str(body, "offerId"));
         final ReservationOffer offer = lodging.findOffer(tripId, form.getOfferId());
         if (offer == null) {
             return error(404, ApiErrors.NOT_FOUND, Text.get("api.lodging.noSuchOffer"));
         }
         lodging.applyOfferDefaults(form, offer);
-        for (final Object id : listOf(body, "personIds")) {
-            form.getPersonIds().add(id.toString());
+        form.getPersonIds().addAll(JsonBody.strings(body, "personIds"));
+        if (JsonBody.has(body, "start")) {
+            form.setStart(JsonBody.dateTime(body, "start"));
         }
-        if (body.containsKey("start")) {
-            form.setStart(LocalDateTime.parse(str(body, "start")));
+        if (JsonBody.has(body, "end")) {
+            form.setEnd(JsonBody.dateTime(body, "end"));
         }
-        if (body.containsKey("end")) {
-            form.setEnd(LocalDateTime.parse(str(body, "end")));
-        }
-        form.setRoomId(str(body, "roomId"));
-        form.setNotes(str(body, "notes"));
-        form.setShareOneRoom(Boolean.TRUE.equals(body.get("shareOneRoom")));
+        form.setRoomId(JsonBody.str(body, "roomId"));
+        form.setNotes(JsonBody.str(body, "notes"));
+        form.setShareOneRoom(JsonBody.bool(body, "shareOneRoom", false));
         final int created = lodging.createReservations(tripId, form);
         if (created == 0) {
             // The command puts WHY on the form (a page shows it in the dialog); a bare "no reservation was
@@ -588,13 +578,13 @@ public class LodgingResource extends BaseResource {
         if (!lodging.canAssignAt(tripId, accId)) {
             return error(403, ApiErrors.FORBIDDEN, Text.get("api.lodging.notYourHotel"));
         }
-        final String roomId = str(body, "roomId");
+        final String roomId = JsonBody.str(body, "roomId");
         if (roomId == null || roomId.isBlank()) {
             return lodging.unassignRoom(tripId, reservationId) ? ok(Map.of("assigned", false))
                     : error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.lodging.roomNotCleared"));
         }
         final LodgingViews.AssignOutcome outcome = lodging.assignRoom(tripId, reservationId, roomId,
-                Boolean.TRUE.equals(body.get("force")), null, null);
+                JsonBody.bool(body, "force", false), null, null);
         return outcome.isAssigned() ? ok(outcome) : error(409, ApiErrors.CONFLICT, outcome.getMessage());
     }
 
@@ -624,21 +614,21 @@ public class LodgingResource extends BaseResource {
             return error(403, ApiErrors.FORBIDDEN, Text.get("api.lodging.costNeedsTripManager"));
         }
         final LodgingViews.OfferCostForm form = lodging.offerCostFormFor(tripId, offerId);
-        form.setCostKnown(!body.containsKey("costKnown") || Boolean.TRUE.equals(body.get("costKnown")));
-        if (body.containsKey("costPricingModel")) {
-            form.setCostPricingModel(str(body, "costPricingModel"));
+        form.setCostKnown(!JsonBody.has(body, "costKnown") || JsonBody.bool(body, "costKnown", false));
+        if (JsonBody.has(body, "costPricingModel")) {
+            form.setCostPricingModel(JsonBody.str(body, "costPricingModel"));
         }
-        if (body.containsKey("costNightlyPrice")) {
-            form.setCostNightlyPrice(dbl(body, "costNightlyPrice"));
+        if (JsonBody.has(body, "costNightlyPrice")) {
+            form.setCostNightlyPrice(JsonBody.dbl(body, "costNightlyPrice"));
         }
-        if (body.containsKey("costSupplement")) {
-            form.setCostSupplement(dbl(body, "costSupplement"));
+        if (JsonBody.has(body, "costSupplement")) {
+            form.setCostSupplement(JsonBody.dbl(body, "costSupplement"));
         }
-        if (body.containsKey("costExtras")) {
+        if (JsonBody.has(body, "costExtras")) {
             form.setCostExtras(extraForms(list(body, "costExtras")));
         }
         if (!lodging.setOfferCost(form)) {
-            return error(400, ApiErrors.VALIDATION_FAILED, problemOr(form.getProblem(),
+            return error(400, ApiErrors.VALIDATION_FAILED, JsonBody.problemOr(form.getProblem(),
                     Text.get("api.lodging.costNotSaved")));
         }
         final LodgingViews.OfferCostForm saved = lodging.offerCostFormFor(tripId, offerId);
@@ -648,7 +638,8 @@ public class LodgingResource extends BaseResource {
     private static List<LodgingViews.CostExtraForm> extraForms(final List<Map<String, Object>> rows) {
         final List<LodgingViews.CostExtraForm> forms = new ArrayList<>();
         for (final Map<String, Object> row : rows) {
-            forms.add(new LodgingViews.CostExtraForm(str(row, "label"), str(row, "basis"), dbl(row, "amount")));
+            forms.add(new LodgingViews.CostExtraForm(JsonBody.str(row, "label"), JsonBody.str(row, "basis"),
+                    JsonBody.dbl(row, "amount")));
         }
         return forms;
     }
@@ -688,43 +679,19 @@ public class LodgingResource extends BaseResource {
         form.setTripId(tripId);
         form.setReservationId(reservationId);
         form.setSide(price ? "PRICE" : "COST");
-        form.setKind(body.containsKey("kind") ? str(body, "kind") : "");
-        form.setAmount(dbl(body, "amount"));
-        form.setReason(str(body, "reason"));
+        form.setKind(JsonBody.str(body, "kind", ""));
+        form.setAmount(JsonBody.dbl(body, "amount"));
+        form.setReason(JsonBody.str(body, "reason"));
         if (!lodging.setConcession(form)) {
             return error(400, ApiErrors.VALIDATION_FAILED,
-                    problemOr(form.getProblem(), Text.get("api.lodging.concessionNotSaved")));
+                    JsonBody.problemOr(form.getProblem(), Text.get("api.lodging.concessionNotSaved")));
         }
         return ok(Map.of("ok", true, "label", form.getCurrent() == null ? "" : form.getCurrent()));
-    }
-
-    private static String problemOr(final String problem, final String fallback) {
-        return (problem == null || problem.isBlank()) ? fallback : problem;
-    }
-
-    private static String str(final Map<String, Object> body, final String key) {
-        final Object value = (body == null) ? null : body.get(key);
-        return (value == null) ? null : value.toString();
-    }
-
-    private static Double dbl(final Map<String, Object> body, final String key) {
-        final Object value = (body == null) ? null : body.get(key);
-        return (value instanceof Number n) ? n.doubleValue() : null;
-    }
-
-    private static int intOf(final Map<String, Object> body, final String key, final int fallback) {
-        final Object value = (body == null) ? null : body.get(key);
-        return (value instanceof Number n) ? n.intValue() : fallback;
     }
 
     @SuppressWarnings("unchecked")
     private static List<Map<String, Object>> list(final Map<String, Object> body, final String key) {
         final Object value = (body == null) ? null : body.get(key);
         return (value instanceof List<?> l) ? (List<Map<String, Object>>) l : List.of();
-    }
-
-    private static List<?> listOf(final Map<String, Object> body, final String key) {
-        final Object value = (body == null) ? null : body.get(key);
-        return (value instanceof List<?> l) ? l : List.of();
     }
 }

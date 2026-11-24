@@ -51,11 +51,12 @@ public class PushResource extends BaseResource {
         if (csrfMissing(csrf)) {
             return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
-        final PushDevices.Outcome outcome = PushDevice.Kind.ANDROID.wire().equalsIgnoreCase(string(body, "kind"))
-                ? push().registerAndroid(personId(), string(body, "token"), string(body, "selector"),
-                        string(body, "label"), string(body, "appVersion"), actor())
-                : push().registerIos(personId(), string(body, "token"), string(body, "environment"),
-                        string(body, "selector"), string(body, "label"), string(body, "appVersion"), actor());
+        final PushDevices.Outcome outcome = PushDevice.Kind.ANDROID.wire().equalsIgnoreCase(JsonBody.str(body, "kind"))
+                ? push().registerAndroid(personId(), JsonBody.str(body, "token"), JsonBody.str(body, "selector"),
+                        JsonBody.str(body, "label"), JsonBody.str(body, "appVersion"), actor())
+                : push().registerIos(personId(), JsonBody.str(body, "token"), JsonBody.str(body, "environment"),
+                        JsonBody.str(body, "selector"), JsonBody.str(body, "label"),
+                        JsonBody.str(body, "appVersion"), actor());
         return outcome.ok() ? ok(devicesBody(outcome)) : refusal(outcome);
     }
 
@@ -83,9 +84,9 @@ public class PushResource extends BaseResource {
         }
         final Object keys = body == null ? null : body.get("keys");
         final Map<?, ?> keyMap = keys instanceof Map<?, ?> map ? map : Map.of();
-        final PushDevices.Outcome outcome = push().registerWeb(personId(), string(body, "endpoint"),
-                stringOf(keyMap.get("p256dh")), stringOf(keyMap.get("auth")), string(body, "label"), origin(),
-                actor());
+        final PushDevices.Outcome outcome = push().registerWeb(personId(), JsonBody.str(body, "endpoint"),
+                JsonBody.string(keyMap.get("p256dh")), JsonBody.string(keyMap.get("auth")),
+                JsonBody.str(body, "label"), origin(), actor());
         return outcome.ok() ? ok(devicesBody(outcome)) : refusal(outcome);
     }
 
@@ -98,7 +99,7 @@ public class PushResource extends BaseResource {
         if (csrfMissing(csrf)) {
             return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
-        push().unsubscribeWeb(personId(), string(body, "endpoint"), actor());
+        push().unsubscribeWeb(personId(), JsonBody.str(body, "endpoint"), actor());
         return ok(Map.of("removed", true));
     }
 
@@ -136,7 +137,8 @@ public class PushResource extends BaseResource {
         final PushCommands push = push();
         final PushDevices.Outcome outcome = push.setPrefs(personId(),
                 enabled == null ? null : Boolean.valueOf(String.valueOf(enabled)),
-                string(body, "quietHoursStart"), string(body, "quietHoursEnd"), string(body, "timeZone"));
+                JsonBody.str(body, "quietHoursStart"), JsonBody.str(body, "quietHoursEnd"),
+                JsonBody.str(body, "timeZone"));
         return outcome.ok() ? ok(push.describe(outcome.prefs())) : refusal(outcome);
     }
 
@@ -185,14 +187,6 @@ public class PushResource extends BaseResource {
     private String origin() {
         final String root = absoluteUrl("/");
         return root.endsWith("/") ? root.substring(0, root.length() - 1) : root;
-    }
-
-    private static String string(final Map<String, Object> body, final String key) {
-        return body == null ? null : stringOf(body.get(key));
-    }
-
-    private static String stringOf(final Object value) {
-        return value == null ? null : String.valueOf(value);
     }
 
     private static PushCommands push() {

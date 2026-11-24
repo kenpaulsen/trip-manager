@@ -14,8 +14,6 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.io.IOException;
 import java.io.InputStream;
-import java.time.LocalDate;
-import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -114,10 +112,10 @@ public class ExpenseReportResource extends BaseResource {
             return refused;
         }
         final ExpenseViews.HeaderForm form = new ExpenseViews.HeaderForm();
-        form.setSubmittedBy(str(body, "submittedBy"));
-        form.setPaymentInstructions(str(body, "paymentInstructions"));
+        form.setSubmittedBy(JsonBody.str(body, "submittedBy"));
+        form.setPaymentInstructions(JsonBody.str(body, "paymentInstructions"));
         return expenses().saveHeader(tripId, form) ? ok(Map.of("ok", true))
-                : error(400, ApiErrors.VALIDATION_FAILED, problemOr(form.getProblem(),
+                : error(400, ApiErrors.VALIDATION_FAILED, JsonBody.problemOr(form.getProblem(),
                         Text.get("api.expenses.reportNotSaved")));
     }
 
@@ -186,7 +184,7 @@ public class ExpenseReportResource extends BaseResource {
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response createCurrency(@PathParam("tripId") final String tripId,
             @HeaderParam(CSRF_HEADER) final String csrf, final Map<String, Object> body) {
-        return saveCurrency(tripId, str(body, "code"), false, csrf, body);
+        return saveCurrency(tripId, JsonBody.str(body, "code"), false, csrf, body);
     }
 
     /** Changes a currency's rate or note; body {@code {rate, note}}. */
@@ -447,22 +445,22 @@ public class ExpenseReportResource extends BaseResource {
         }
         final ExpenseViews.AdvanceForm form = new ExpenseViews.AdvanceForm();
         form.setId(advanceId);
-        form.setType(str(body, "type"));
-        form.setCurrency((str(body, "currency") == null) ? "USD" : str(body, "currency"));
-        form.setAmount(dbl(body, "amount"));
-        form.setParty(str(body, "party"));
-        form.setPersonIds(strings(body, "personIds"));
-        form.setNote(str(body, "note"));
-        form.setRecordTransaction(Boolean.TRUE.equals(body.get("recordTransaction")));
-        form.setNewCode(str(body, "newCode"));
-        form.setNewRate(dbl(body, "rate"));
+        form.setType(JsonBody.str(body, "type"));
+        form.setCurrency((JsonBody.str(body, "currency") == null) ? "USD" : JsonBody.str(body, "currency"));
+        form.setAmount(JsonBody.dbl(body, "amount"));
+        form.setParty(JsonBody.str(body, "party"));
+        form.setPersonIds(JsonBody.strings(body, "personIds"));
+        form.setNote(JsonBody.str(body, "note"));
+        form.setRecordTransaction(JsonBody.bool(body, "recordTransaction", false));
+        form.setNewCode(JsonBody.str(body, "newCode"));
+        form.setNewRate(JsonBody.dbl(body, "rate"));
         try {
-            form.setDate(date(body, "date"));
-        } catch (final DateTimeParseException ex) {
+            form.setDate(JsonBody.date(body, "date"));
+        } catch (final IllegalArgumentException ex) {
             return error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.expenses.dateInvalid"));
         }
         if (!expenses().saveAdvance(tripId, form)) {
-            return error(400, ApiErrors.VALIDATION_FAILED, problemOr(form.getProblem(),
+            return error(400, ApiErrors.VALIDATION_FAILED, JsonBody.problemOr(form.getProblem(),
                     Text.get("api.expenses.advanceNotSaved")));
         }
         final Map<String, Object> out = new LinkedHashMap<>();
@@ -479,17 +477,17 @@ public class ExpenseReportResource extends BaseResource {
         }
         final ExpenseViews.PaymentForm form = new ExpenseViews.PaymentForm();
         form.setId(paymentId);
-        form.setAmount(dbl(body, "amount"));
-        form.setMethod(str(body, "method"));
-        form.setNote(str(body, "note"));
-        form.setLineIds(strings(body, "lineIds"));
+        form.setAmount(JsonBody.dbl(body, "amount"));
+        form.setMethod(JsonBody.str(body, "method"));
+        form.setNote(JsonBody.str(body, "note"));
+        form.setLineIds(JsonBody.strings(body, "lineIds"));
         try {
-            form.setDate(date(body, "date"));
-        } catch (final DateTimeParseException ex) {
+            form.setDate(JsonBody.date(body, "date"));
+        } catch (final IllegalArgumentException ex) {
             return error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.expenses.dateInvalid"));
         }
         if (!expenses().recordPayment(tripId, form)) {
-            return error(400, ApiErrors.VALIDATION_FAILED, problemOr(form.getProblem(),
+            return error(400, ApiErrors.VALIDATION_FAILED, JsonBody.problemOr(form.getProblem(),
                     Text.get("api.expenses.paymentNotSaved")));
         }
         return ok(Map.of("id", form.getId()));
@@ -513,12 +511,12 @@ public class ExpenseReportResource extends BaseResource {
         }
         final ExpenseViews.CurrencyForm form = new ExpenseViews.CurrencyForm();
         form.setCode(code);
-        form.setRate(dbl(body, "rate"));
-        form.setNote(str(body, "note"));
+        form.setRate(JsonBody.dbl(body, "rate"));
+        form.setNote(JsonBody.str(body, "note"));
         form.setExisting(existing);
         if (!expenses().saveCurrency(tripId, form)) {
             return error(400, ApiErrors.VALIDATION_FAILED,
-                    problemOr(form.getProblem(), Text.get("api.expenses.currencyNotSaved")));
+                    JsonBody.problemOr(form.getProblem(), Text.get("api.expenses.currencyNotSaved")));
         }
         return ok(Map.of("code", form.getCode()));
     }
@@ -531,27 +529,27 @@ public class ExpenseReportResource extends BaseResource {
         }
         final ExpenseViews.ExpenseForm form = new ExpenseViews.ExpenseForm();
         form.setId(lineId);
-        form.setCategory(str(body, "category"));
-        form.setDescription(str(body, "description"));
-        form.setAmount(dbl(body, "amount"));
-        form.setBudgetLineId(str(body, "budgetLineId"));
-        form.setNote(str(body, "note"));
-        form.setPaidStatus(str(body, "paidStatus"));
-        final String currency = str(body, "currency");
-        if (dbl(body, "rate") != null) {
+        form.setCategory(JsonBody.str(body, "category"));
+        form.setDescription(JsonBody.str(body, "description"));
+        form.setAmount(JsonBody.dbl(body, "amount"));
+        form.setBudgetLineId(JsonBody.str(body, "budgetLineId"));
+        form.setNote(JsonBody.str(body, "note"));
+        form.setPaidStatus(JsonBody.str(body, "paidStatus"));
+        final String currency = JsonBody.str(body, "currency");
+        if (JsonBody.dbl(body, "rate") != null) {
             form.setCurrency(ExpenseViews.NEW_CURRENCY);
             form.setNewCode(currency);
-            form.setNewRate(dbl(body, "rate"));
+            form.setNewRate(JsonBody.dbl(body, "rate"));
         } else {
             form.setCurrency((currency == null) ? "USD" : currency);
         }
         try {
-            form.setDate(date(body, "date"));
-        } catch (final DateTimeParseException ex) {
+            form.setDate(JsonBody.date(body, "date"));
+        } catch (final IllegalArgumentException ex) {
             return error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.expenses.dateOrNullInvalid"));
         }
         if (!expenses().saveLine(tripId, form)) {
-            return error(400, ApiErrors.VALIDATION_FAILED, problemOr(form.getProblem(),
+            return error(400, ApiErrors.VALIDATION_FAILED, JsonBody.problemOr(form.getProblem(),
                     Text.get("api.expenses.expenseNotSaved")));
         }
         return ok(Map.of("id", form.getId()));
@@ -565,39 +563,5 @@ public class ExpenseReportResource extends BaseResource {
         }
         return expenses().canEditExpenses(tripId) ? null : error(403, ApiErrors.FORBIDDEN,
                 Text.get("api.shared.tripManagerOrFinanceAdminRequired"));
-    }
-
-    private static String problemOr(final String problem, final String fallback) {
-        return (problem == null || problem.isBlank()) ? fallback : problem;
-    }
-
-    private static String str(final Map<String, Object> body, final String key) {
-        final Object value = (body == null) ? null : body.get(key);
-        return (value == null) ? null : value.toString();
-    }
-
-    private static Double dbl(final Map<String, Object> body, final String key) {
-        final Object value = (body == null) ? null : body.get(key);
-        return (value instanceof Number n) ? n.doubleValue() : null;
-    }
-
-    /** A JSON array as strings; empty when absent or not an array. */
-    private static List<String> strings(final Map<String, Object> body, final String key) {
-        final List<String> out = new ArrayList<>();
-        final Object value = (body == null) ? null : body.get(key);
-        if (value instanceof List<?> list) {
-            for (final Object item : list) {
-                if (item != null) {
-                    out.add(item.toString());
-                }
-            }
-        }
-        return out;
-    }
-
-    /** An ISO date ("2026-09-20"), or null when absent or blank. */
-    private static LocalDate date(final Map<String, Object> body, final String key) {
-        final String text = str(body, key);
-        return (text == null || text.isBlank()) ? null : LocalDate.parse(text.trim());
     }
 }

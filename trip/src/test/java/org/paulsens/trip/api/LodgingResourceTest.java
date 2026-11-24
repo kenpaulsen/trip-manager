@@ -448,6 +448,41 @@ public class LodgingResourceTest extends ResourceTestSupport {
     }
 
     /**
+     * A date the server cannot read, and a request with no body at all, are the caller's mistakes: a 400, never
+     * the 500 an uncaught DateTimeParseException or NullPointerException used to become.
+     */
+    @Test
+    public void aBadDateOrAMissingBodyIsA400NotA500() {
+        signedInAsSiteAdmin(admin.getId());
+        final String[] hotel = offerAtNewHotel("Bad Date Pansion", "Double room");
+        final String accId = hotel[0];
+
+        assertBadRequest(() -> resource.createBlock(accId, CSRF_OK, Map.of("start", "22/09/2027", "end", "x")));
+        assertBadRequest(() -> resource.createRatePlan(accId, CSRF_OK, Map.of("name", "Plan", "validFrom", "soon")));
+        assertBadRequest(() -> resource.createOffer(trip.getId(), CSRF_OK,
+                Map.of("name", "Offer", "accommodationId", accId, "validFrom", "2027-13-45T00:00")));
+        assertBadRequest(() -> resource.createReservations(trip.getId(), CSRF_OK,
+                Map.of("offerId", hotel[1], "start", "tomorrow")));
+
+        // No body: every field is absent, so each endpoint answers in its own words (a refusal, or the defaults).
+        assertError(resource.createAccommodation(CSRF_OK, null), 400, ApiErrors.VALIDATION_FAILED);
+        assertError(resource.createBlock(accId, CSRF_OK, null), 400, ApiErrors.VALIDATION_FAILED);
+        assertError(resource.createRatePlan(accId, CSRF_OK, null), 400, ApiErrors.VALIDATION_FAILED);
+        assertError(resource.createOffer(trip.getId(), CSRF_OK, null), 400, ApiErrors.VALIDATION_FAILED);
+        assertError(resource.createOfferFromPlan(trip.getId(), CSRF_OK, null), 400, ApiErrors.VALIDATION_FAILED);
+        assertError(resource.createReservations(trip.getId(), CSRF_OK, null), 404, ApiErrors.NOT_FOUND);
+        assertTrue(resource.setOfferCost(trip.getId(), hotel[1], CSRF_OK, null).getStatus() < 500);
+    }
+
+    /** What Jersey does with the exception: the mapper's 400 BAD_REQUEST. */
+    private static void assertBadRequest(final org.testng.Assert.ThrowingRunnable call) {
+        final IllegalArgumentException refused = org.testng.Assert.expectThrows(IllegalArgumentException.class, call);
+        final Response response = new JsonExceptionMapper().toResponse(refused);
+        assertEquals(response.getStatus(), 400);
+        assertEquals(((Map<?, ?>) response.getEntity()).get("error"), ApiErrors.BAD_REQUEST);
+    }
+
+    /**
      * Two hotels on one trip, each with an option of the SAME name, which is entirely legal. Each POST must
      * answer with the id of the offer IT created: the endpoint used to find that offer by name and take the
      * last match, so it could hand back the other hotel's, and the caller then reserved at the wrong hotel.

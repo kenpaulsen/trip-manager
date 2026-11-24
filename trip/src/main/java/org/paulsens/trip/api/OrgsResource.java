@@ -155,13 +155,13 @@ public class OrgsResource extends BaseResource {
         if (!privileges().isSiteAdmin()) {
             return error(403, ApiErrors.FORBIDDEN, Text.get("api.orgs.createNeedsSiteAdmin"));
         }
-        final String name = body == null ? null : string(body.get("name"));
+        final String name = JsonBody.str(body, "name");
         if (name == null || name.isBlank()) {
             return error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.orgs.nameRequired"));
         }
         final Organization org = new OrgCommands(this::caller).createOrganization(name,
-                body == null ? null : string(body.get("abbreviation")),
-                body == null ? null : string(body.get("contactEmail")));
+                JsonBody.str(body, "abbreviation"),
+                JsonBody.str(body, "contactEmail"));
         if (org == null) {
             return error(409, ApiErrors.CONFLICT,
                     Text.get("api.orgs.nameTaken"));
@@ -288,9 +288,5 @@ public class OrgsResource extends BaseResource {
                     Text.get("api.orgs.adminChangeRefused"));
         }
         return ok(Map.of("admin", admin));
-    }
-
-    private static String string(final Object value) {
-        return value == null ? null : value.toString();
     }
 }

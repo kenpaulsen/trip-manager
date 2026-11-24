@@ -92,11 +92,12 @@ public class TripWaiversResource extends BaseResource {
             return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
         final Trip trip = requireTrip(tripId);
-        final Person.Id subject = subjectOf(str(body, "personId"));
+        final Person.Id subject = subjectOf(JsonBody.str(body, "personId"));
         final WaiverCommands waivers = waivers();
-        final WaiverCommands.AcceptResult result = waivers.accept(trip, subject, waiverId, intOf(body, "version"),
-                bool(body, "agreed"), bool(body, "authorityAttested"),
-                WaiverCommands.ClientInfo.of(clientOf(str(body, "client")), request));
+        final WaiverCommands.AcceptResult result = waivers.accept(trip, subject, waiverId,
+                JsonBody.intOf(body, "version", 0), JsonBody.bool(body, "agreed", false),
+                JsonBody.bool(body, "authorityAttested", false),
+                WaiverCommands.ClientInfo.of(clientOf(JsonBody.str(body, "client")), request));
         if (!result.ok()) {
             return acceptRefusal(result);
         }
@@ -217,7 +218,8 @@ public class TripWaiversResource extends BaseResource {
             for (final Object item : items) {
                 if (item instanceof Map<?, ?> map) {
                     final Map<String, Object> pin = (Map<String, Object>) map;
-                    pins.add(TripWaiver.builder().waiverId(str(pin, "waiverId")).version(intOf(pin, "version"))
+                    pins.add(TripWaiver.builder().waiverId(JsonBody.str(pin, "waiverId"))
+                            .version(JsonBody.intOf(pin, "version", 0))
                             .acceptOlder(!Boolean.FALSE.equals(pin.get("acceptOlder"))).build());
                 }
             }
@@ -234,19 +236,5 @@ public class TripWaiversResource extends BaseResource {
         } catch (final IllegalArgumentException ex) {
             return WaiverAcceptance.Client.API;
         }
-    }
-
-    private static String str(final Map<String, Object> body, final String key) {
-        final Object value = (body == null) ? null : body.get(key);
-        return (value == null) ? null : value.toString();
-    }
-
-    private static int intOf(final Map<String, Object> body, final String key) {
-        final Object value = (body == null) ? null : body.get(key);
-        return (value instanceof Number n) ? n.intValue() : 0;
-    }
-
-    private static boolean bool(final Map<String, Object> body, final String key) {
-        return Boolean.TRUE.equals(body == null ? null : body.get(key));
     }
 }

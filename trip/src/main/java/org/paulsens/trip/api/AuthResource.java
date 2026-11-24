@@ -96,8 +96,8 @@ public class AuthResource extends BaseResource {
     @Consumes({V1, MediaType.APPLICATION_JSON})
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response login(final Map<String, Object> body) {
-        final String email = string(body == null ? null : body.get("email"));
-        final String password = string(body == null ? null : body.get("password"));
+        final String email = JsonBody.str(body, "email");
+        final String password = JsonBody.str(body, "password");
         if (email == null || email.isBlank() || password == null || password.isBlank()) {
             return error(400, ApiErrors.BAD_REQUEST, Text.get("api.auth.emailAndPasswordRequired"));
         }
@@ -122,7 +122,7 @@ public class AuthResource extends BaseResource {
     @Consumes({V1, MediaType.APPLICATION_JSON})
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response requestCode(final Map<String, Object> body) {
-        final String email = string(body == null ? null : body.get("email"));
+        final String email = JsonBody.str(body, "email");
         if (email == null || email.isBlank()) {
             return error(400, ApiErrors.BAD_REQUEST, Text.get("api.auth.emailRequired"));
         }
@@ -136,8 +136,8 @@ public class AuthResource extends BaseResource {
     @Consumes({V1, MediaType.APPLICATION_JSON})
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response verifyCode(final Map<String, Object> body) {
-        final String email = string(body == null ? null : body.get("email"));
-        final String code = string(body == null ? null : body.get("code"));
+        final String email = JsonBody.str(body, "email");
+        final String code = JsonBody.str(body, "code");
         if (email == null || email.isBlank() || code == null || code.isBlank()) {
             return error(400, ApiErrors.BAD_REQUEST, Text.get("api.auth.emailAndCodeRequired"));
         }
@@ -163,9 +163,9 @@ public class AuthResource extends BaseResource {
         if (!tokens.enabled()) {
             return error(404, ApiErrors.NOT_FOUND, Text.get("api.auth.tokensDisabled"));
         }
-        final String email = string(body == null ? null : body.get("email"));
-        final String password = string(body == null ? null : body.get("password"));
-        final String code = string(body == null ? null : body.get("code"));
+        final String email = JsonBody.str(body, "email");
+        final String password = JsonBody.str(body, "password");
+        final String code = JsonBody.str(body, "code");
         final boolean hasPassword = password != null && !password.isBlank();
         final boolean hasCode = code != null && !code.isBlank();
         if (email == null || email.isBlank() || hasPassword == hasCode) {
@@ -183,7 +183,7 @@ public class AuthResource extends BaseResource {
             return error(401, ApiErrors.NOT_AUTHENTICATED,
                     hasPassword ? Text.get("api.auth.badCredentials") : Text.get("api.auth.badCode"));
         }
-        final TokenService.Grant grant = tokens.issue(creds, grantable(creds, scope), string(body.get("label")));
+        final TokenService.Grant grant = tokens.issue(creds, grantable(creds, scope), JsonBody.str(body, "label"));
         if (grant == null) {
             return error(500, ApiErrors.STORE_FAILED, Text.get("api.auth.tokensNotIssued"));
         }
@@ -204,7 +204,7 @@ public class AuthResource extends BaseResource {
         if (!tokens.enabled()) {
             return error(404, ApiErrors.NOT_FOUND, Text.get("api.auth.tokensDisabled"));
         }
-        final String email = string(body == null ? null : body.get("email"));
+        final String email = JsonBody.str(body, "email");
         if (email == null || email.isBlank()) {
             return error(400, ApiErrors.BAD_REQUEST, Text.get("api.auth.emailRequired"));
         }
@@ -361,7 +361,7 @@ public class AuthResource extends BaseResource {
         if (!tokens.enabled()) {
             return error(404, ApiErrors.NOT_FOUND, Text.get("api.auth.tokensDisabled"));
         }
-        final String presented = string(body == null ? null : body.get("refreshToken"));
+        final String presented = JsonBody.str(body, "refreshToken");
         if (presented == null || presented.isBlank()) {
             return error(400, ApiErrors.BAD_REQUEST, Text.get("api.auth.refreshTokenRequired"));
         }
@@ -386,7 +386,7 @@ public class AuthResource extends BaseResource {
         if (!tokens.enabled()) {
             return error(404, ApiErrors.NOT_FOUND, Text.get("api.auth.tokensDisabled"));
         }
-        tokens.revoke(string(body == null ? null : body.get("refreshToken")));
+        tokens.revoke(JsonBody.str(body, "refreshToken"));
         return ok(Map.of("revoked", true));
     }
 
@@ -396,7 +396,7 @@ public class AuthResource extends BaseResource {
      * later).
      */
     private static AuthToken.Scope requestedScope(final Map<String, Object> body) {
-        final String raw = string(body == null ? null : body.get("scope"));
+        final String raw = JsonBody.str(body, "scope");
         if (raw == null || raw.isBlank() || "member".equalsIgnoreCase(raw.trim())) {
             return AuthToken.Scope.MEMBER;
         }
@@ -572,9 +572,5 @@ public class AuthResource extends BaseResource {
         result.put("role", creds.getPriv());
         result.put("csrfHeader", CSRF_HEADER);
         return result;
-    }
-
-    private static String string(final Object value) {
-        return value == null ? null : value.toString();
     }
 }

@@ -88,7 +88,8 @@ public class OrgWaiversResource extends BaseResource {
         if (csrfMissing(csrf)) {
             return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
-        return answer(waivers().createDocument(orgId, str(body, "title"), str(body, "bodyHtml"), str(body, "note")));
+        return answer(waivers().createDocument(orgId, JsonBody.str(body, "title"), JsonBody.str(body, "bodyHtml"),
+                JsonBody.str(body, "note")));
     }
 
     /** Body {@code {bodyHtml, title?, note?}} ({@code title} defaults to the current one): the next version. */
@@ -103,9 +104,10 @@ public class OrgWaiversResource extends BaseResource {
         }
         final WaiverCommands waivers = waivers();
         final WaiverDocument existing = waivers.document(orgId, id);
-        final String title = (str(body, "title") != null || existing == null) ? str(body, "title")
+        final String title = (JsonBody.str(body, "title") != null || existing == null) ? JsonBody.str(body, "title")
                 : existing.getTitle();
-        return answer(waivers.publishVersion(orgId, id, title, str(body, "bodyHtml"), str(body, "note")));
+        return answer(waivers.publishVersion(orgId, id, title, JsonBody.str(body, "bodyHtml"),
+                JsonBody.str(body, "note")));
     }
 
     /** Body {@code {retired}}: hides the document from the trip pickers (or restores it). */
@@ -151,10 +153,5 @@ public class OrgWaiversResource extends BaseResource {
         }
         out.put("versions", versions);
         return out;
-    }
-
-    private static String str(final Map<String, Object> body, final String key) {
-        final Object value = (body == null) ? null : body.get(key);
-        return (value == null) ? null : value.toString();
     }
 }

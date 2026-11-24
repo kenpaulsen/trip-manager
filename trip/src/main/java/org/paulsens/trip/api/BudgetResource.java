@@ -87,10 +87,10 @@ public class BudgetResource extends BaseResource {
             return refused;
         }
         final BudgetViews.InputsForm form = new BudgetViews.InputsForm();
-        form.setPeople(intOf(body, "people", 0));
-        form.setTripNights(intOf(body, "tripNights", 0));
-        form.setPerPersonBudget(dbl(body, "perPersonBudget"));
-        form.setToBill(dbl(body, "toBill"));
+        form.setPeople(JsonBody.intOf(body, "people", 0));
+        form.setTripNights(JsonBody.intOf(body, "tripNights", 0));
+        form.setPerPersonBudget(JsonBody.dbl(body, "perPersonBudget"));
+        form.setToBill(JsonBody.dbl(body, "toBill"));
         return budget().saveInputs(tripId, form) ? ok(Map.of("ok", true))
                 : error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.budget.inputsNotSaved"));
     }
@@ -180,7 +180,7 @@ public class BudgetResource extends BaseResource {
         if (refused != null) {
             return refused;
         }
-        return budget().cloneBudget(tripId, str(body, "fromTripId")) ? ok(Map.of("ok", true))
+        return budget().cloneBudget(tripId, JsonBody.str(body, "fromTripId")) ? ok(Map.of("ok", true))
                 : error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.budget.notCloned"));
     }
 
@@ -193,19 +193,20 @@ public class BudgetResource extends BaseResource {
             return refused;
         }
         final BudgetCommands budget = budget();
-        final BudgetViews.LineForm form = budget.newLineForm(str(body, "kind"), str(body, "category"));
+        final BudgetViews.LineForm form = budget.newLineForm(JsonBody.str(body, "kind"),
+                JsonBody.str(body, "category"));
         form.setId(lineId);
-        form.setName(str(body, "name"));
-        form.setAmount(dbl(body, "amount"));
+        form.setName(JsonBody.str(body, "name"));
+        form.setAmount(JsonBody.dbl(body, "amount"));
         form.setPerNight(Boolean.TRUE.equals(body == null ? null : body.get("perNight")));
-        form.setNote(str(body, "note"));
-        form.setPayee(str(body, "payee"));
+        form.setNote(JsonBody.str(body, "note"));
+        form.setPayee(JsonBody.str(body, "payee"));
         form.setOnSite(!Boolean.FALSE.equals(body == null ? null : body.get("onSite")));
-        form.setPercentOf(str(body, "percentOf"));
+        form.setPercentOf(JsonBody.str(body, "percentOf"));
         form.setPercentMode(form.getPercentOf() != null);
-        form.setPercent(dbl(body, "percent"));
+        form.setPercent(JsonBody.dbl(body, "percent"));
         if (!budget.saveLine(tripId, form)) {
-            return error(400, ApiErrors.VALIDATION_FAILED, problemOr(form.getProblem(),
+            return error(400, ApiErrors.VALIDATION_FAILED, JsonBody.problemOr(form.getProblem(),
                     Text.get("api.budget.lineNotSaved")));
         }
         return ok(Map.of("id", form.getId()));
@@ -220,17 +221,17 @@ public class BudgetResource extends BaseResource {
         final BudgetCommands budget = budget();
         final BudgetViews.LodgingLineForm form = budget.newLodgingForm(tripId);
         form.setId(lineId);
-        form.setOfferId(str(body, "offerId"));
-        form.setNights(intOf(body, "nights", form.getNights()));
-        form.setPeople(intOf(body, "people", form.getPeople()));
-        form.setRooms(intOf(body, "rooms", 0));
-        form.setSingles(intOf(body, "singles", 0));
-        form.setPayee(str(body, "payee"));
-        form.setNote(str(body, "note"));
+        form.setOfferId(JsonBody.str(body, "offerId"));
+        form.setNights(JsonBody.intOf(body, "nights", form.getNights()));
+        form.setPeople(JsonBody.intOf(body, "people", form.getPeople()));
+        form.setRooms(JsonBody.intOf(body, "rooms", 0));
+        form.setSingles(JsonBody.intOf(body, "singles", 0));
+        form.setPayee(JsonBody.str(body, "payee"));
+        form.setNote(JsonBody.str(body, "note"));
         form.setOnSite(!Boolean.FALSE.equals(body == null ? null : body.get("onSite")));
         if (!budget.saveLodgingLine(tripId, form)) {
             return error(400, ApiErrors.VALIDATION_FAILED,
-                    problemOr(form.getProblem(), Text.get("api.budget.lodgingLineNotSaved")));
+                    JsonBody.problemOr(form.getProblem(), Text.get("api.budget.lodgingLineNotSaved")));
         }
         return ok(Map.of("id", form.getId()));
     }
@@ -243,24 +244,5 @@ public class BudgetResource extends BaseResource {
         }
         return budget().canEditBudget(tripId) ? null : error(403, ApiErrors.FORBIDDEN,
                 Text.get("api.shared.tripManagerOrFinanceAdminRequired"));
-    }
-
-    private static String problemOr(final String problem, final String fallback) {
-        return (problem == null || problem.isBlank()) ? fallback : problem;
-    }
-
-    private static String str(final Map<String, Object> body, final String key) {
-        final Object value = (body == null) ? null : body.get(key);
-        return (value == null) ? null : value.toString();
-    }
-
-    private static Double dbl(final Map<String, Object> body, final String key) {
-        final Object value = (body == null) ? null : body.get(key);
-        return (value instanceof Number n) ? n.doubleValue() : null;
-    }
-
-    private static int intOf(final Map<String, Object> body, final String key, final int fallback) {
-        final Object value = (body == null) ? null : body.get(key);
-        return (value instanceof Number n) ? n.intValue() : fallback;
     }
 }

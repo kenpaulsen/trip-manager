@@ -294,15 +294,15 @@ public class ChatResource extends BaseResource {
         if (tripId == null) {
             return error(400, ChatErrors.BAD_CHANNEL, Text.get("api.chat.invalidChannel"));
         }
-        final String text = body == null ? null : string(body.get("body"));
-        final String clientMessageId = body == null ? null : string(body.get("clientMessageId"));
-        final String replyTo = body == null ? null : string(body.get("replyTo"));
+        final String text = JsonBody.str(body, "body");
+        final String clientMessageId = JsonBody.str(body, "clientMessageId");
+        final String replyTo = JsonBody.str(body, "replyTo");
         final ChatMessage.Id replyId = replyTo == null || replyTo.isBlank()
                 ? null : ChatMessage.Id.from(replyTo);
         final List<ChatPhotos.AttachmentRef> attachments =
                 parseAttachments(body == null ? null : body.get("attachments"));
         // A family manager acting as a member stamps the post; the author is still the bearer principal.
-        final String onBehalfOf = body == null ? null : string(body.get("onBehalfOf"));
+        final String onBehalfOf = JsonBody.str(body, "onBehalfOf");
         final Person.Id onBehalfOfId = onBehalfOf == null || onBehalfOf.isBlank()
                 ? null : Person.Id.from(onBehalfOf);
 
@@ -558,7 +558,7 @@ public class ChatResource extends BaseResource {
         if (tripId == null) {
             return error(400, ChatErrors.BAD_CHANNEL, Text.get("api.chat.invalidChannel"));
         }
-        final String text = body == null ? null : string(body.get("body"));
+        final String text = JsonBody.str(body, "body");
         final List<ChatPhotos.AttachmentRef> attachments =
                 parseAttachments(body == null ? null : body.get("attachments"));
         final ChatCommands.DraftResult result =
@@ -801,7 +801,7 @@ public class ChatResource extends BaseResource {
         }
         final ChatCommands chat = ChatCommands.getChatCommands();
         final ChatCommands.ReactResult result = chat.editMessage(
-                tripId, me, ChatMessage.Id.from(msgId), string(body == null ? null : body.get("body")));
+                tripId, me, ChatMessage.Id.from(msgId), JsonBody.str(body, "body"));
         if (result.ok()) {
             return ok(Map.of("edited", true, "msgId", msgId));
         }
@@ -847,7 +847,7 @@ public class ChatResource extends BaseResource {
         if (tripId == null) {
             return error(400, ChatErrors.BAD_CHANNEL, Text.get("api.chat.invalidChannel"));
         }
-        final String cursor = string(body == null ? null : body.get("cursor"));
+        final String cursor = JsonBody.str(body, "cursor");
         if (cursor == null || cursor.isBlank()) {
             return error(400, ChatErrors.BAD_CHANNEL, Text.get("api.chat.cursorRequired"));
         }
@@ -1150,9 +1150,9 @@ public class ChatResource extends BaseResource {
         }
         final ChatCommands chat = ChatCommands.getChatCommands();
         final Person.Id me = personId();
-        final boolean mention = bool(body, "mentionEmail", chat.mentionEmailForTrip(tripId, me));
-        final boolean digest = bool(body, "dailyDigest", chat.dailyDigestForTrip(tripId, me));
-        final String rawMode = string(body == null ? null : body.get("pushMode"));
+        final boolean mention = JsonBody.bool(body, "mentionEmail", chat.mentionEmailForTrip(tripId, me));
+        final boolean digest = JsonBody.bool(body, "dailyDigest", chat.dailyDigestForTrip(tripId, me));
+        final String rawMode = JsonBody.str(body, "pushMode");
         final ChatNotifyPref.PushMode pushMode = rawMode == null ? null : pushModeOf(rawMode);
         if (rawMode != null && pushMode == null) {
             return error(400, ApiErrors.BAD_REQUEST, Text.get("api.chat.pushModeInvalid"));
@@ -1202,7 +1202,7 @@ public class ChatResource extends BaseResource {
         }
         final ModerationCommands.ReportOutcome outcome = Beans.get(ModerationCommands.class).report(
                 ModerationCommands.ReportTarget.message(tripId, ChatMessage.Id.from(msgId)),
-                string(body == null ? null : body.get("reason")), caller());
+                JsonBody.str(body, "reason"), caller());
         return reportResponse(outcome, msgId);
     }
 
@@ -1246,12 +1246,12 @@ public class ChatResource extends BaseResource {
         if (tripId == null) {
             return error(400, ChatErrors.BAD_CHANNEL, Text.get("api.chat.invalidChannel"));
         }
-        final int minutes = intValue(body, "minutes", 0);
+        final int minutes = JsonBody.intOf(body, "minutes", 0);
         if (minutes <= 0) {
             return error(400, ChatErrors.FORBIDDEN, Text.get("api.chat.minutesRequired"));
         }
         final Instant until = Instant.now().plusSeconds(minutes * 60L);
-        final String reason = string(body == null ? null : body.get("reason"));
+        final String reason = JsonBody.str(body, "reason");
         // caller() carries the session-derived identity AND role: the bean's own role check reads FacesContext
         // and reports false here, so without this a site administrator is refused every moderation action.
         final boolean ok = ChatCommands.getChatCommands()
@@ -1325,22 +1325,12 @@ public class ChatResource extends BaseResource {
         if (tripId == null) {
             return error(400, ChatErrors.BAD_CHANNEL, Text.get("api.chat.invalidChannel"));
         }
-        final String acknowledgement = string(body == null ? null : body.get("acknowledgement"));
+        final String acknowledgement = JsonBody.str(body, "acknowledgement");
         final boolean ok = ChatCommands.getChatCommands()
                 .addMember(tripId, Person.Id.from(targetId), acknowledgement, caller());
         return ok ? ok(Map.of("added", true))
                 : error(403, ChatErrors.FORBIDDEN,
                         Text.get("api.chat.managerAndPermissionRequired"));
-    }
-
-    private static boolean bool(final Map<String, Object> body, final String key, final boolean fallback) {
-        final Object value = body == null ? null : body.get(key);
-        return (value instanceof Boolean flag) ? flag : fallback;
-    }
-
-    private static int intValue(final Map<String, Object> body, final String key, final int fallback) {
-        final Object value = body == null ? null : body.get(key);
-        return (value instanceof Number number) ? number.intValue() : fallback;
     }
 
     private static String denialMessage(final String code) {
@@ -1370,9 +1360,5 @@ public class ChatResource extends BaseResource {
         }
         final String tripId = channelId.substring("trip:".length());
         return tripId.isBlank() ? null : tripId;
-    }
-
-    private static String string(final Object o) {
-        return o == null ? null : o.toString();
     }
 }

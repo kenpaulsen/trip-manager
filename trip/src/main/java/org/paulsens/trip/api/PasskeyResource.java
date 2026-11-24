@@ -129,11 +129,11 @@ public class PasskeyResource extends BaseResource {
             return error(404, ApiErrors.NOT_FOUND, Text.get("api.passkeys.disabled"));
         }
         final String email = sessionEmail();
-        final String credential = string(body == null ? null : body.get("credential"));
+        final String credential = JsonBody.str(body, "credential");
         if (email == null || credential == null || credential.isBlank()) {
             return error(400, ApiErrors.BAD_REQUEST, Text.get("api.passkeys.credentialMissing"));
         }
-        final String label = string(body.get("label"));
+        final String label = JsonBody.str(body, "label");
         final PasskeyCredential passkey = passkeys.finishRegistration(personId(), email,
                 request.getServerName(), request.isSecure(), request.getSession().getId(), credential, label);
         if (passkey == null) {
@@ -173,8 +173,8 @@ public class PasskeyResource extends BaseResource {
     @Consumes({V1, MediaType.APPLICATION_JSON})
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response loginFinish(final Map<String, Object> body) {
-        final String challengeToken = string(body == null ? null : body.get("challengeToken"));
-        final String credential = string(body == null ? null : body.get("credential"));
+        final String challengeToken = JsonBody.str(body, "challengeToken");
+        final String credential = JsonBody.str(body, "credential");
         if (challengeToken == null || challengeToken.isBlank() || credential == null || credential.isBlank()) {
             return error(400, ApiErrors.BAD_REQUEST, Text.get("api.passkeys.challengeOrCredentialMissing"));
         }
@@ -247,9 +247,5 @@ public class PasskeyResource extends BaseResource {
         result.put("created", passkey.getCreated());
         result.put("lastUsed", passkey.getLastUsed());
         return result;
-    }
-
-    private static String string(final Object value) {
-        return value == null ? null : value.toString();
     }
 }
