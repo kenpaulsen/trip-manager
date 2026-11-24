@@ -1,8 +1,5 @@
 package org.paulsens.trip.audit;
 
-import java.io.ByteArrayOutputStream;
-import java.io.PrintStream;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -15,6 +12,8 @@ import org.paulsens.trip.util.RandomData;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
+
+import static org.paulsens.trip.util.TestWaits.captureStdout;
 
 /**
  * Audit has no CloudWatch group configured under test (TRIP_AUDIT_LOG_GROUP is unset), so it uses the console
@@ -191,17 +190,5 @@ public class AuditTest {
         Assert.assertEquals(Audit.inferOutcome("Unable to send email: boom"), AuditOutcome.FAILURE);
         Assert.assertEquals(Audit.inferOutcome("User bob@example.com logged in"), AuditOutcome.UNKNOWN);
         Assert.assertEquals(Audit.inferOutcome(null), AuditOutcome.UNKNOWN);
-    }
-
-    private static String captureStdout(final Runnable action) {
-        final PrintStream original = System.out;
-        final ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-        System.setOut(new PrintStream(buffer, true, StandardCharsets.UTF_8));
-        try {
-            action.run();
-        } finally {
-            System.setOut(original);
-        }
-        return buffer.toString(StandardCharsets.UTF_8);
     }
 }

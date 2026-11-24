@@ -1,8 +1,5 @@
 package org.paulsens.trip.audit;
 
-import java.io.ByteArrayOutputStream;
-import java.io.PrintStream;
-import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -26,6 +23,8 @@ import software.amazon.awssdk.services.cloudwatchlogs.model.InputLogEvent;
 import software.amazon.awssdk.services.cloudwatchlogs.model.PutLogEventsRequest;
 import software.amazon.awssdk.services.cloudwatchlogs.model.PutLogEventsResponse;
 import software.amazon.awssdk.services.cloudwatchlogs.model.ResourceAlreadyExistsException;
+
+import static org.paulsens.trip.util.TestWaits.captureStdout;
 
 /**
  * {@link CloudWatchAuditSink} with its log client injected.
@@ -55,19 +54,6 @@ public class CloudWatchAuditSinkTest {
     private static PutLogEventsResponse slowOk() throws InterruptedException {
         Thread.sleep(TimeUnit.SECONDS.toMillis(2));
         return PutLogEventsResponse.builder().build();
-    }
-
-    /** Captures stdout, which is where every fallback path writes. */
-    private static String captureStdout(final Runnable action) {
-        final PrintStream original = System.out;
-        final ByteArrayOutputStream captured = new ByteArrayOutputStream();
-        System.setOut(new PrintStream(captured, true, StandardCharsets.UTF_8));
-        try {
-            action.run();
-        } finally {
-            System.setOut(original);
-        }
-        return captured.toString(StandardCharsets.UTF_8);
     }
 
     @Test

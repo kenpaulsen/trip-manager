@@ -14,6 +14,8 @@ import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
+import static org.paulsens.trip.util.TestWaits.awaitTrue;
+
 /**
  * {@link PartitionScanCache}, the whole-table-scan template for data whose partition key is not the database
  * key.
@@ -491,17 +493,5 @@ public class PartitionScanCacheTest {
         Assert.assertFalse(cache.getSetMembers("scan-test-loaded:parts").isEmpty());
         scan.invalidate();
         Assert.assertTrue(cache.getSetMembers("scan-test-loaded:parts").isEmpty());
-    }
-
-    private static void awaitTrue(final java.util.function.BooleanSupplier condition, final String message)
-            throws InterruptedException {
-        final long deadline = System.currentTimeMillis() + 5_000;
-        while (System.currentTimeMillis() < deadline) {
-            if (condition.getAsBoolean()) {
-                return;
-            }
-            Thread.sleep(10);
-        }
-        Assert.fail(message);
     }
 }

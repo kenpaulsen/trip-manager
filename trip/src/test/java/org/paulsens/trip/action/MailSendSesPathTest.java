@@ -1,7 +1,5 @@
 package org.paulsens.trip.action;
 
-import java.io.ByteArrayOutputStream;
-import java.io.PrintStream;
 import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -24,6 +22,8 @@ import software.amazon.awssdk.services.ses.model.SendEmailRequest;
 import software.amazon.awssdk.services.ses.model.SendEmailResponse;
 import software.amazon.awssdk.services.ses.model.SendRawEmailRequest;
 import software.amazon.awssdk.services.ses.model.SendRawEmailResponse;
+
+import static org.paulsens.trip.util.TestWaits.captureStdout;
 
 /**
  * The SES half of {@link MailCommands#send} -- everything past the local-mode guard.
@@ -265,18 +265,6 @@ public class MailSendSesPathTest {
 
     private void sendWithNullActor() {
         mail.send("f@example.org", "to@example.org", null, "r@example.org", "S", "B", null);
-    }
-
-    private static String captureStdout(final Runnable action) {
-        final PrintStream original = System.out;
-        final ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-        System.setOut(new PrintStream(buffer, true, StandardCharsets.UTF_8));
-        try {
-            action.run();
-        } finally {
-            System.setOut(original);
-        }
-        return buffer.toString(StandardCharsets.UTF_8);
     }
 
     /**

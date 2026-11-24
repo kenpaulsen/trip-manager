@@ -10,7 +10,6 @@ import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.function.BooleanSupplier;
 import org.mockito.AdditionalAnswers;
 import org.mockito.ArgumentMatchers;
 import org.mockito.InOrder;
@@ -18,6 +17,8 @@ import org.mockito.Mockito;
 import org.testng.Assert;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
+
+import static org.paulsens.trip.util.TestWaits.awaitTrue;
 
 /**
  * {@link SearchIndex}, the lex-ordered sorted sets behind people search, partitioned by a token's first two
@@ -484,17 +485,5 @@ public class SearchIndexTest {
         Thread.sleep(200);
         Assert.assertEquals(index.searchIds("ali", 10), List.of("p1"),
                 "a failed rebuild must leave the index serving");
-    }
-
-    private static void awaitTrue(final BooleanSupplier condition, final String message)
-            throws InterruptedException {
-        final long deadline = System.currentTimeMillis() + 5_000;
-        while (System.currentTimeMillis() < deadline) {
-            if (condition.getAsBoolean()) {
-                return;
-            }
-            Thread.sleep(10);
-        }
-        Assert.fail(message);
     }
 }

@@ -8,6 +8,8 @@ import org.testng.Assert;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
+import static org.paulsens.trip.util.TestWaits.awaitTrue;
+
 /**
  * {@link TripIndex}, the sorted-set index that replaced full-table scans for trip listings.
  *
@@ -237,17 +239,5 @@ public class TripIndexTest {
 
         Assert.assertTrue(cache.getValue(CacheKeys.TRIPS_BY_DATE + CacheKeys.SEARCH_LOADED_SUFFIX)
                 .isEmpty(), "the loser must not mark loaded: it did not populate");
-    }
-
-    private static void awaitTrue(final java.util.function.BooleanSupplier condition, final String message)
-            throws InterruptedException {
-        final long deadline = System.currentTimeMillis() + 5_000;
-        while (System.currentTimeMillis() < deadline) {
-            if (condition.getAsBoolean()) {
-                return;
-            }
-            Thread.sleep(10);
-        }
-        Assert.fail(message);
     }
 }

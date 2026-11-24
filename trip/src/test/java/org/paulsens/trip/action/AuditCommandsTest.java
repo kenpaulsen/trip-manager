@@ -1,8 +1,5 @@
 package org.paulsens.trip.action;
 
-import java.io.ByteArrayOutputStream;
-import java.io.PrintStream;
-import java.nio.charset.StandardCharsets;
 import org.paulsens.trip.model.Payment;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Transaction;
@@ -10,6 +7,8 @@ import org.paulsens.trip.model.Trip;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
+
+import static org.paulsens.trip.util.TestWaits.captureStdout;
 
 /**
  * The page-facing audit API.
@@ -271,17 +270,5 @@ public class AuditCommandsTest {
 
     private static Trip trip(final String title) {
         return Trip.builder().id("t1").title(title).build();
-    }
-
-    private static String captureStdout(final Runnable action) {
-        final PrintStream original = System.out;
-        final ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-        System.setOut(new PrintStream(buffer, true, StandardCharsets.UTF_8));
-        try {
-            action.run();
-        } finally {
-            System.setOut(original);
-        }
-        return buffer.toString(StandardCharsets.UTF_8);
     }
 }

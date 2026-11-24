@@ -13,6 +13,8 @@ import org.testng.Assert;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
+import static org.paulsens.trip.util.TestWaits.awaitTrue;
+
 /**
  * {@link AdjacencyCache}, the per-source bindings template.
  *
@@ -220,17 +222,5 @@ public class AdjacencyCacheTest {
 
         Assert.assertEquals(adjacency(failing).get(SRC, "2", loader()), List.of("t1", "t2"),
                 "discarded cache writes must not change the answer");
-    }
-
-    private static void awaitTrue(final java.util.function.BooleanSupplier condition, final String message)
-            throws InterruptedException {
-        final long deadline = System.currentTimeMillis() + 5_000;
-        while (System.currentTimeMillis() < deadline) {
-            if (condition.getAsBoolean()) {
-                return;
-            }
-            Thread.sleep(10);
-        }
-        Assert.fail(message);
     }
 }
