@@ -78,6 +78,7 @@ import org.paulsens.trip.pay.LodgingBiller;
 import org.paulsens.trip.pay.LodgingPricing;
 import org.paulsens.trip.pay.MoneyMath;
 import org.paulsens.trip.util.EmailAddresses;
+import org.paulsens.trip.util.Html;
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
 
 import static org.paulsens.trip.action.PageFeedback.callbackParam;
@@ -2936,7 +2937,7 @@ public class LodgingCommands {
 
     /** A NEW lodging event's notes: the hotel's address, escaped because event notes render as HTML. */
     static String lodgingEventNotes(final Accommodation acc) {
-        return acc == null || acc.getAddress() == null ? "" : escape(acc.getAddress().oneLine());
+        return acc == null || acc.getAddress() == null ? "" : Html.escapeText(acc.getAddress().oneLine());
     }
 
     private static String place(final Address address) {
@@ -2976,10 +2977,6 @@ public class LodgingCommands {
 
     static String blankToNull(final String value) {
         return (value == null || value.isBlank()) ? null : value.trim();
-    }
-
-    static String escape(final String value) {
-        return nullSafe(value).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 
     /** Whether this bean's name resolver can be handed to pricing (a seam for tests). */

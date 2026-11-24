@@ -61,6 +61,7 @@ import org.paulsens.trip.pay.BudgetMath;
 import org.paulsens.trip.pay.ExpenseMath;
 import org.paulsens.trip.pay.MoneyMath;
 import org.paulsens.trip.util.EmailAddresses;
+import org.paulsens.trip.util.Html;
 import org.paulsens.trip.util.PersonNames;
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
 
@@ -1462,8 +1463,7 @@ public class ExpenseCommands {
     }
 
     private static String esc(final String text) {
-        return (text == null) ? "" : text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-                .replace("\n", "<br/>");
+        return Html.escapeText(text).replace("\n", "<br/>");
     }
 
     /** The caller's own email, the treasurer's Reply-To; null when they have none. */

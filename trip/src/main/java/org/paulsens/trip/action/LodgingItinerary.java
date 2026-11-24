@@ -22,6 +22,7 @@ import org.paulsens.trip.model.Room;
 import org.paulsens.trip.model.RoomType;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripEvent;
+import org.paulsens.trip.util.Html;
 
 /**
  * What the trip's OTHER pages derive from its reservations: the rooming list ({@code trip/rooms.xhtml} and
@@ -107,8 +108,8 @@ final class LodgingItinerary {
         final StringBuilder sb = new StringBuilder();
         for (final Map.Entry<String, String> entry : lodging.answersFor(trip, person).entrySet()) {
             // Label AND answer are escaped: the rooming list renders this unescaped for the markup built here.
-            sb.append(LodgingCommands.escape(entry.getKey())).append(" <b>")
-                    .append(LodgingCommands.escape(entry.getValue())).append("</b><br />");
+            sb.append(Html.escapeText(entry.getKey())).append(" <b>")
+                    .append(Html.escapeText(entry.getValue())).append("</b><br />");
         }
         return sb.toString();
     }
