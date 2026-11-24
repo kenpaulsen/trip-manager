@@ -1601,10 +1601,7 @@ public class LodgingCommandsTest {
         final Person guest = savedPerson("Nadia");
         final Trip own = ownTrip("Split trip", guest);
         final Stay stay = stay(true, own);
-        assertEquals(admin.createReservations(own.getId(), form(own, stay, guest, CHECK_IN, CHECK_OUT)), 1);
-        final Reservation res = admin.activeReservationsFor(own.getId(), guest.getId()).get(0);
-        assertTrue(admin.assignRoom(own.getId(), res.getId().getValue(), stay.r101(), false, null, null)
-                .isAssigned());
+        final Reservation res = placed(own, stay, guest);
 
         final SplitForm form = admin.splitFormFor(own.getId(), res.getId().getValue());
         assertEquals(form.getRoomLabel(), "101");
@@ -1636,10 +1633,7 @@ public class LodgingCommandsTest {
         final Person guest = savedPerson("Omar");
         final Trip own = ownTrip("Split refusal trip", guest);
         final Stay stay = stay(true, own);
-        assertEquals(admin.createReservations(own.getId(), form(own, stay, guest, CHECK_IN, CHECK_OUT)), 1);
-        final Reservation res = admin.activeReservationsFor(own.getId(), guest.getId()).get(0);
-        assertTrue(admin.assignRoom(own.getId(), res.getId().getValue(), stay.r101(), false, null, null)
-                .isAssigned());
+        final Reservation res = placed(own, stay, guest);
 
         final SplitForm edge = admin.splitFormFor(own.getId(), res.getId().getValue());
         edge.setDate(CHECK_IN.toLocalDate());
@@ -1670,10 +1664,7 @@ public class LodgingCommandsTest {
         final Person keeper = savedPerson("Quinn");
         final Trip own = ownTrip("Manager split trip", guest);
         final Stay stay = stay(true, own);
-        assertEquals(admin.createReservations(own.getId(), form(own, stay, guest, CHECK_IN, CHECK_OUT)), 1);
-        final Reservation res = admin.activeReservationsFor(own.getId(), guest.getId()).get(0);
-        assertTrue(admin.assignRoom(own.getId(), res.getId().getValue(), stay.r101(), false, null, null)
-                .isAssigned());
+        final Reservation res = placed(own, stay, guest);
         LodgingFixtures.makeOperator(keeper, stay.accId());
 
         final LodgingCommands staff = new LodgingCommands(() -> TestCallers.person(keeper.getId()));
@@ -1766,10 +1757,7 @@ public class LodgingCommandsTest {
         final Person guest = savedPerson("Tova");
         final Trip own = ownTrip("Clash board trip", guest);
         final Stay stay = stay(true, own);
-        assertEquals(admin.createReservations(own.getId(), form(own, stay, guest, CHECK_IN, CHECK_OUT)), 1);
-        final Reservation res = admin.activeReservationsFor(own.getId(), guest.getId()).get(0);
-        assertTrue(admin.assignRoom(own.getId(), res.getId().getValue(), stay.r101(), false, null, null)
-                .isAssigned());
+        final Reservation res = placed(own, stay, guest);
         blockRoom(stay.accId(), stay.r101(), CHECK_IN.toLocalDate(), CHECK_OUT.toLocalDate());
         assertEquals(admin.roomBoard(own.getId(), stay.accId(), null, null).getRooms().get(0).getState(),
                 "rs-over", "the block landed on somebody who is already in it");
@@ -2442,6 +2430,15 @@ public class LodgingCommandsTest {
     /** The live bill row's note for one person. */
     private static String noteOf(final Person person, final String txId) {
         return DAO.getInstance().getTransaction(person.getId(), txId, Cached.NO).orElseThrow().getNote();
+    }
+
+    /** The guest reserved on the stay's option for the fixture dates, then placed in room 101; the stay as booked. */
+    private Reservation placed(final Trip own, final Stay stay, final Person guest) {
+        assertEquals(admin.createReservations(own.getId(), form(own, stay, guest, CHECK_IN, CHECK_OUT)), 1);
+        final Reservation res = admin.activeReservationsFor(own.getId(), guest.getId()).get(0);
+        assertTrue(admin.assignRoom(own.getId(), res.getId().getValue(), stay.r101(), false, null, null)
+                .isAssigned());
+        return res;
     }
 
     private ReservationForm form(final Trip onTrip, final Stay stay, final Person person,

@@ -8,6 +8,7 @@ import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.RegistrationOption;
 import org.paulsens.trip.model.Trip;
 import org.testng.annotations.BeforeClass;
+import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 import org.paulsens.trip.action.ChatCommands;
 import org.paulsens.trip.model.ReservationOffer;
@@ -159,57 +160,43 @@ public class FakeDataTest {
         }
     }
 
-    @Test
-    public void getTestUserCredsForAdminReturnsAdminPriv() {
-        final GetItemRequest req = GetItemRequest.builder()
-                .tableName(CredentialsDAO.PASS_TABLE)
-                .key(Map.of(CredentialsDAO.EMAIL, AttributeValue.builder().s("admin123").build()))
-                .build();
-        final Map<String, AttributeValue> creds = FakeData.getTestUserCreds(req);
-        assertNotNull(creds);
-        assertEquals(creds.get(CredentialsDAO.PRIV).s(), "admin");
+    /** One row per persona prefix: any email starting with it signs in, with that prefix as its privilege. */
+    @DataProvider(name = "personas")
+    public Object[][] personas() {
+        return new Object[][] {{"admin123", "admin"}, {"userABC", "user"}};
     }
 
-    @Test
-    public void getTestUserCredsForUserReturnsUserPriv() {
-        final GetItemRequest req = GetItemRequest.builder()
-                .tableName(CredentialsDAO.PASS_TABLE)
-                .key(Map.of(CredentialsDAO.EMAIL, AttributeValue.builder().s("userABC").build()))
-                .build();
-        final Map<String, AttributeValue> creds = FakeData.getTestUserCreds(req);
+    @Test(dataProvider = "personas")
+    public void getTestUserCredsGivesAPersonaItsPriv(final String email, final String priv) {
+        final Map<String, AttributeValue> creds = credsFor(email);
         assertNotNull(creds);
-        assertEquals(creds.get(CredentialsDAO.PRIV).s(), "user");
+        assertEquals(creds.get(CredentialsDAO.PRIV).s(), priv);
     }
 
     @Test
     public void getTestUserCredsForUnknownReturnsNull() {
-        final GetItemRequest req = GetItemRequest.builder()
-                .tableName(CredentialsDAO.PASS_TABLE)
-                .key(Map.of(CredentialsDAO.EMAIL, AttributeValue.builder().s("unknown@test.com").build()))
-                .build();
-        assertNull(FakeData.getTestUserCreds(req));
+        assertNull(credsFor("unknown@test.com"));
     }
 
     @Test
     public void getTestUserCredsEmailIsCaseInsensitive() {
-        final GetItemRequest req = GetItemRequest.builder()
-                .tableName(CredentialsDAO.PASS_TABLE)
-                .key(Map.of(CredentialsDAO.EMAIL, AttributeValue.builder().s("ADMIN_user").build()))
-                .build();
-        final Map<String, AttributeValue> creds = FakeData.getTestUserCreds(req);
+        final Map<String, AttributeValue> creds = credsFor("ADMIN_user");
         assertNotNull(creds);
         assertEquals(creds.get(CredentialsDAO.EMAIL).s(), "admin_user");
     }
 
     @Test
     public void getTestUserCredsIncludesLastLogin() {
-        final GetItemRequest req = GetItemRequest.builder()
-                .tableName(CredentialsDAO.PASS_TABLE)
-                .key(Map.of(CredentialsDAO.EMAIL, AttributeValue.builder().s("admin").build()))
-                .build();
-        final Map<String, AttributeValue> creds = FakeData.getTestUserCreds(req);
+        final Map<String, AttributeValue> creds = credsFor("admin");
         assertNotNull(creds);
         assertNotNull(creds.get(CredentialsDAO.LAST_LOGIN));
+    }
+
+    private static Map<String, AttributeValue> credsFor(final String email) {
+        return FakeData.getTestUserCreds(GetItemRequest.builder()
+                .tableName(CredentialsDAO.PASS_TABLE)
+                .key(Map.of(CredentialsDAO.EMAIL, AttributeValue.builder().s(email).build()))
+                .build());
     }
 
     /**
