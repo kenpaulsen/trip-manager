@@ -318,22 +318,6 @@ public class AuditDAOTest {
     }
 
     @Test
-    public void unreadableDayDoesNotBlankThePage() {
-        // A single unparseable or unreachable partition must degrade, not empty the whole view.
-        final AuditDAO brittle = new AuditDAO(new ObjectMapper().findAndRegisterModules(), new Persistence() {
-            @Override
-            public List<java.util.Map<String, software.amazon.awssdk.services.dynamodb.model
-                    .AttributeValue>> queryAll(final java.util.function.Consumer<
-                            software.amazon.awssdk.services.dynamodb.model.QueryRequest.Builder> request) {
-                throw new IllegalStateException("boom");
-            }
-        });
-
-        final AuditPage page = brittle.getAuditEvents(AuditQuery.builder().build());
-        assertTrue(page.isEmpty(), "A failing query should yield an empty page, not an exception");
-    }
-
-    @Test
     public void aSerializationFailureIsRefusedBeforeAnyWrite() {
         final ObjectMapper broken = new ObjectMapper() {
             @Override

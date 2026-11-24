@@ -26,7 +26,7 @@ public class PassportTest {
     public void canCreatePassport() {
         final Passport pass = getTestPassport(NUMBER, COUNTRY, EXPIRES, ISSUED, PLACE_OF_BIRTH);
         Assert.assertEquals(pass.getNumber(), NUMBER, "Street doesn't match!");
-        Assert.assertEquals(pass.getCountry(), COUNTRY, "City doesn't match!");
+        Assert.assertEquals(pass.getCountry(), COUNTRY, "Country doesn't match!");
         Assert.assertEquals(pass.getExpires(), EXPIRES, "State doesn't match!");
         Assert.assertEquals(pass.getIssued(), ISSUED, "Zip doesn't match!");
         Assert.assertEquals(pass.getPlaceOfBirth(), PLACE_OF_BIRTH, "Zip doesn't match!");
@@ -45,7 +45,7 @@ public class PassportTest {
         final Passport pass = getTestPassport(NUMBER, COUNTRY, EXPIRES, ISSUED, PLACE_OF_BIRTH);
         pass.setNumber(number);
         Assert.assertEquals(pass.getNumber(), number);
-        Assert.assertEquals(pass.getCountry(), COUNTRY, "City doesn't match!");
+        Assert.assertEquals(pass.getCountry(), COUNTRY, "Country doesn't match!");
         Assert.assertEquals(pass.getExpires(), EXPIRES, "State doesn't match!");
         Assert.assertEquals(pass.getIssued(), ISSUED, "Zip doesn't match!");
         Assert.assertEquals(pass.getPlaceOfBirth(), PLACE_OF_BIRTH, "Zip doesn't match!");
@@ -57,7 +57,7 @@ public class PassportTest {
         final Passport pass = getTestPassport(NUMBER, COUNTRY, EXPIRES, ISSUED, PLACE_OF_BIRTH);
         pass.setIssued(newIssue);
         Assert.assertEquals(pass.getNumber(), NUMBER, "Street doesn't match!");
-        Assert.assertEquals(pass.getCountry(), COUNTRY, "City doesn't match!");
+        Assert.assertEquals(pass.getCountry(), COUNTRY, "Country doesn't match!");
         Assert.assertEquals(pass.getExpires(), EXPIRES, "State doesn't match!");
         Assert.assertEquals(pass.getPlaceOfBirth(), PLACE_OF_BIRTH, "Zip doesn't match!");
         Assert.assertEquals(pass.getIssued(), newIssue);
