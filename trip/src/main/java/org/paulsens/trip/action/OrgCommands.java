@@ -2347,8 +2347,12 @@ public class OrgCommands {
                 ? PaymentProcessorConfig.ProcessorMode.LIVE
                 : PaymentProcessorConfig.ProcessorMode.SANDBOX);
         config.setEnabled(enabled);
-        if (type == ProcessorType.STRIPE && (clientId == null || clientId.isBlank())) {
-            // The Payment Element and PaymentSheet cannot mount without it; PayPal's redirect never needed one.
+        if (type == ProcessorType.STRIPE && (clientId == null || clientId.isBlank())
+                && (sandboxClientId == null || sandboxClientId.isBlank())) {
+            // The Payment Element and PaymentSheet cannot mount without one; PayPal's redirect never needed one.
+            // Either set may be the only one: a new Stripe account shows its live keys only after Stripe has
+            // verified it, so the org rehearses with the sandbox key alone (the live set then fails "not
+            // configured" until its keys are pasted).
             return failNull(Text.get("feedback.orgCommands.pubKeyRequired"),
                     Text.get("feedback.orgCommands.stripeNeedsKey"));
         }

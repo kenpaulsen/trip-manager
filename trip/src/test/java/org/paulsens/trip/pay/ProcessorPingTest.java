@@ -48,6 +48,23 @@ public class ProcessorPingTest {
                 "a well-formed key goes to the network (here: a closed port)");
     }
 
+    /**
+     * A Stripe config saves with only one set's publishable key, and the checkout refuses the set without one: Test
+     * names it rather than answering success on the secret alone (review, 2026-11-24).
+     */
+    @Test
+    public void stripeTestNamesAMissingPublishableKey() {
+        final ProcessorPing ping = new ProcessorPing(Mockito.mock(HttpClient.class), "http://127.0.0.1:1");
+        final PaymentProcessorConfig sandboxOnly = config(ProcessorType.STRIPE);
+        sandboxOnly.setPublicConfig(Map.of());
+        assertTrue(ping.ping(sandboxOnly, false, "sk_live_1").contains("No publishable key stored."));
+        assertTrue(ping.ping(sandboxOnly, true, "sk_test_1").contains("Could not reach"),
+                "the sandbox set has its key and goes on to the network");
+        final PaymentProcessorConfig liveOnly = config(ProcessorType.STRIPE);
+        liveOnly.setSandboxPublicConfig(Map.of("clientId", " "));
+        assertTrue(ping.ping(liveOnly, true, "sk_test_1").contains("No publishable key stored (sandbox)."));
+    }
+
     @Test
     public void payPalRefusesWithoutCredentialsBeforeTouchingTheNetwork() {
         final ProcessorPing ping = new ProcessorPing(Mockito.mock(HttpClient.class));

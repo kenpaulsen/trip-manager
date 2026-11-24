@@ -581,7 +581,13 @@ public class OrgCommandsTest {
         final Organization acme = orgWithAdmin(acmeAdmin);
         final OrgCommands cmds = commandsFor(acmeAdmin);
         assertFalse(cmds.saveProcessorConfig(acme.getId().getValue(), null, "Acme Stripe", "STRIPE",
-                "SANDBOX", true, "  ", "pk_test_1", 0, 0), "Stripe needs its publishable key");
+                "LIVE", true, "  ", " ", 0, 0), "Stripe needs a publishable key in at least one set");
+        // Before Stripe verifies an account there is no live key yet: the sandbox key alone saves.
+        final Organization newcomer = orgWithAdmin(acmeAdmin);
+        final String early = cmds.saveProcessorConfigId(newcomer.getId().getValue(), null, "Newcomer Stripe",
+                "STRIPE", "LIVE", true, "", "pk_test_1", 0, 0);
+        assertEquals(cmds.findProcessorConfig(newcomer.getId().getValue(), early).getSandboxPublicConfig()
+                .get("clientId"), "pk_test_1", "the sandbox-only config saved");
         final String cfgId = cmds.saveProcessorConfigId(acme.getId().getValue(), null, "Acme Stripe", "STRIPE",
                 "SANDBOX", true, "pk_live_1", "pk_test_1", 0, 0);
         assertEquals(cfgId, cmds.getProcessorConfigs(acme.getId().getValue()).get(0).getId().getValue(),

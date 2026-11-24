@@ -521,9 +521,11 @@ Zeffy: a future record-only kind.
   `amount_received` is the ONLY success; `processing` = the settling PENDING; `canceled` = FAILED; a transport
   failure = plain PENDING, never FAILED, because FAILED is terminal and would strand paid money). The fee comes
   from the expanded balance transaction when present.
-- **Keys**: per org, pasted on `admin/orgProcessors.jsf`. `publicConfig.clientId` = publishable key (REQUIRED
-  for STRIPE), secret-store `clientSecret`/`clientSecretSandbox` = secret key, `webhookSecret`/
-  `webhookSecretSandbox` = the two endpoints' signing secrets. The sandbox set is Stripe TEST mode; the
+- **Keys**: per org, pasted on `admin/orgProcessors.jsf`. `publicConfig.clientId` /
+  `sandboxPublicConfig.clientId` = the live / test publishable key; a STRIPE config needs at least one (a new org
+  rehearses on the test set before Stripe verifies it), and a set without its key fails "not configured" at
+  checkout and in Test until it is pasted. Secret-store `clientSecret`/`clientSecretSandbox` = secret key,
+  `webhookSecret`/`webhookSecretSandbox` = the two endpoints' signing secrets. The sandbox set is Stripe TEST mode; the
   processor refuses a key whose `_test_`/`_live_` segment disagrees with the set. Every SDK call passes the
   key in `RequestOptions`; `ArchitectureTest` bans the process-global `Stripe.apiKey`.
 - **Webhook**: `api/StripeWebhookResource`, `POST /api/webhooks/stripe/{configId}` (the page shows the URL),

@@ -72,6 +72,15 @@ public class ProcessorPing {
 
     private String pingStripe(final PaymentProcessorConfig config, final boolean sandbox,
             final String secretKey) {
+        // A config may now save with only one set's publishable key (rehearsing before Stripe verifies the
+        // account), so Test names the missing one: the checkout refuses a set without it ("not configured").
+        final String publishableKey = sandbox
+                ? config.getSandboxPublicConfig().get("clientId")
+                : config.getPublicConfig().get("clientId");
+        if (publishableKey == null || publishableKey.isBlank()) {
+            return sandbox ? Text.get("server.processorPing.noPublishableKeySandbox")
+                    : Text.get("server.processorPing.noPublishableKey");
+        }
         if (secretKey == null || secretKey.isBlank()) {
             return sandbox ? Text.get("server.processorPing.noSecretKeySandbox")
                     : Text.get("server.processorPing.noSecretKey");
