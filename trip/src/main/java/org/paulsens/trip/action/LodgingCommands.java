@@ -678,10 +678,8 @@ public class LodgingCommands {
 
     static List<Room> sortedRooms(final Accommodation acc) {
         final List<Room> rooms = new ArrayList<>(acc.getRooms());
-        rooms.sort((a, b) -> {
-            final int byFloor = naturalCompare(a.getFloor(), b.getFloor());
-            return (byFloor != 0) ? byFloor : naturalCompare(a.getRoomNumber(), b.getRoomNumber());
-        });
+        rooms.sort(Comparator.comparing(Room::getFloor, LodgingCommands::naturalCompare)
+                .thenComparing(Room::getRoomNumber, LodgingCommands::naturalCompare));
         return rooms;
     }
 
