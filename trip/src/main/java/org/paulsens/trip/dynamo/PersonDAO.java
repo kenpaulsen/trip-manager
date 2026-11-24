@@ -212,7 +212,7 @@ public class PersonDAO {
                         .expressionAttributeValues(Map.of(":e", persistence.toStrAttr(lowEmail)))
                         .build())
                 .stream()
-                .map(item -> toPerson(item.get(CONTENT)))
+                .map(item -> rows.parseItem(Person.class, item))
                 .filter(p -> p != null && p.getDeleted() == null)
                 .findFirst());
     }
@@ -229,8 +229,7 @@ public class PersonDAO {
 
     private Person loadPersonById(final String id) {
         final Map<String, AttributeValue> key = Map.of(ID, AttributeValue.builder().s(id).build());
-        final Person person = toPerson(
-                persistence.getItem(b -> b.key(key).tableName(PERSON_TABLE).build()).item().get(CONTENT));
+        final Person person = rows.get(persistence, PERSON_TABLE, key, Person.class);
         return (person == null || person.getDeleted() != null) ? null : person;
     }
 
@@ -270,7 +269,7 @@ public class PersonDAO {
         final Map<String, Set<String>> tokens = new HashMap<>();
         persistence.scanAll(b -> b.consistentRead(false).limit(2000).tableName(PERSON_TABLE).build())
                 .stream()
-                .map(it -> toPerson(it.get(CONTENT)))
+                .map(it -> rows.parseItem(Person.class, it))
                 .filter(p -> p != null && p.getDeleted() == null)
                 .forEach(p -> tokens.put(p.getId().getValue(), PersonMatch.indexTokens(p)));
         return tokens;
@@ -282,9 +281,5 @@ public class PersonDAO {
         }
         final String email = SearchIndex.normalizeToken(person.getEmail());
         return email.isEmpty() ? null : email;
-    }
-
-    private Person toPerson(final AttributeValue content) {
-        return (content == null) ? null : rows.parse(Person.class, content.s());
     }
 }

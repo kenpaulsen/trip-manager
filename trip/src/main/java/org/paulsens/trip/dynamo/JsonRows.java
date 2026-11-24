@@ -5,6 +5,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 
@@ -35,6 +36,47 @@ final class JsonRows {
             log.error("Unable to parse {} record: {}", type.getSimpleName(), json, ex);
             return null;
         }
+    }
+
+    /** One stored row as a {@code type}: {@code null} for a row that is absent or carries no {@code content}. */
+    <T> T parseItem(final Class<T> type, final Map<String, AttributeValue> item) {
+        final AttributeValue content = item.get(CONTENT);
+        return (content == null) ? null : parse(type, content.s());
+    }
+
+    /**
+     * A point read that lets a store failure PROPAGATE; {@code null} only when there is no such row. For the
+     * loaders behind a cache and for the uncached reads: an outage must never be answered as "no such row",
+     * which a cache would then remember.
+     */
+    <T> T get(final Persistence persistence, final String table, final Map<String, AttributeValue> key,
+            final Class<T> type) {
+        return parseItem(type, persistence.getItem(b -> b.tableName(table).key(key)).item());
+    }
+
+    /**
+     * A point read that answers empty (logged at debug) when the store fails. Only for the fallback read behind
+     * a scan-cached table, where the caller has a default or an already-rendered page and must keep serving.
+     * Never interchangeable with {@link #get}.
+     */
+    <T> Optional<T> tryGet(final Persistence persistence, final String table, final Map<String, AttributeValue> key,
+            final Class<T> type) {
+        try {
+            return Optional.ofNullable(get(persistence, table, key, type));
+        } catch (final RuntimeException ex) {
+            log.debug("Unable to read the {} row {}", table, key, ex);
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Every row of a (small) table, by a STRONGLY CONSISTENT paginating scan. Consistent because these are the
+     * loaders behind a {@code PartitionScanCache}, whose rebuild REMOVES whatever the scan does not return: an
+     * eventually consistent scan can miss a row written just before it (docs/caching.md). Fixed here so that no
+     * loader can leave it out.
+     */
+    <T> List<T> scanAll(final Persistence persistence, final String table, final Class<T> type) {
+        return parseAll(type, persistence.scanAll(b -> b.tableName(table).consistentRead(true).limit(1000)));
     }
 
     /**

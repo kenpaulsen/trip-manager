@@ -112,8 +112,6 @@ public class BudgetDAO {
 
     private TripBudget loadBudget(final String tripId) {
         final Map<String, AttributeValue> key = Map.of(TRIP_ID, AttributeValue.builder().s(tripId).build());
-        final AttributeValue content =
-                persistence.getItem(b -> b.key(key).tableName(BUDGETS_TABLE).build()).item().get(CONTENT);
-        return (content == null) ? null : rows.parse(TripBudget.class, content.s());
+        return rows.get(persistence, BUDGETS_TABLE, key, TripBudget.class);
     }
 }

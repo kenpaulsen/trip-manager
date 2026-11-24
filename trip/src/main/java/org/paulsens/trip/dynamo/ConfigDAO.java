@@ -98,20 +98,11 @@ public class ConfigDAO {
 
     private Optional<Config> pointReadConfig(final String name) {
         final Map<String, AttributeValue> key = Map.of(NAME, AttributeValue.builder().s(name).build());
-        try {
-            final AttributeValue content =
-                    persistence.getItem(b -> b.key(key).tableName(CONFIG_TABLE).build()).item().get(CONTENT);
-            return Optional.ofNullable(content == null ? null : rows.parse(Config.class, content.s()));
-        } catch (final RuntimeException ex) {
-            // Deliberately not rethrown: the caller has a default and the site must keep serving.
-            log.debug("ConfigDAO: unable to read config ({})", name, ex);
-            return Optional.empty();
-        }
+        // A swallowing read on purpose: the caller has a default and the site must keep serving.
+        return rows.tryGet(persistence, CONFIG_TABLE, key, Config.class);
     }
 
     private List<Config> loadAllConfig() {
-        // A consistent scan: the rebuild REMOVES what this does not return (PartitionScanCache's loader).
-        return rows.parseAll(Config.class,
-                persistence.scanAll(b -> b.consistentRead(true).limit(1000).tableName(CONFIG_TABLE).build()));
+        return rows.scanAll(persistence, CONFIG_TABLE, Config.class);
     }
 }

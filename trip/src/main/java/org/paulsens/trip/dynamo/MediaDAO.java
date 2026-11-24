@@ -129,19 +129,10 @@ public class MediaDAO {
 
     private Optional<MediaItem> pointReadMedia(final String id) {
         final Map<String, AttributeValue> key = Map.of(ID, AttributeValue.builder().s(id).build());
-        try {
-            final AttributeValue content =
-                    persistence.getItem(b -> b.key(key).tableName(MEDIA_TABLE).build()).item().get(CONTENT);
-            return Optional.ofNullable(content == null ? null : rows.parse(MediaItem.class, content.s()));
-        } catch (final RuntimeException ex) {
-            log.debug("MediaDAO: unable to read media item ({})", id, ex);
-            return Optional.empty();
-        }
+        return rows.tryGet(persistence, MEDIA_TABLE, key, MediaItem.class);
     }
 
     private List<MediaItem> loadAllMedia() {
-        // A consistent scan: the rebuild REMOVES what this does not return (PartitionScanCache's loader).
-        return rows.parseAll(MediaItem.class,
-                persistence.scanAll(b -> b.consistentRead(true).limit(1000).tableName(MEDIA_TABLE).build()));
+        return rows.scanAll(persistence, MEDIA_TABLE, MediaItem.class);
     }
 }

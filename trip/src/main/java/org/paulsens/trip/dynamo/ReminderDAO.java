@@ -103,10 +103,7 @@ public class ReminderDAO {
             return Optional.empty();
         }
         final Map<String, AttributeValue> key = key(tripId, TripReminderPlan.SORT_KEY);
-        final AttributeValue content =
-                persistence.getItem(b -> b.key(key).tableName(REMINDERS_TABLE).build()).item().get(CONTENT);
-        return (content == null) ? Optional.empty()
-                : Optional.ofNullable(rows.parse(TripReminderPlan.class, content.s()));
+        return Optional.ofNullable(rows.get(persistence, REMINDERS_TABLE, key, TripReminderPlan.class));
     }
 
     // ================================================================== the send ledger

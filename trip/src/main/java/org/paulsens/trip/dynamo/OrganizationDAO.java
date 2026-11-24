@@ -6,7 +6,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.cache.CacheClient;
 import org.paulsens.trip.cache.CacheKeys;
 import org.paulsens.trip.cache.CacheSupport;
@@ -25,7 +24,6 @@ import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedExce
  * admins editing the same org serialize at this row. There is deliberately no delete: an organization with
  * historical trips and transactions must never vanish (deactivation can come later as a flag).
  */
-@Slf4j
 public class OrganizationDAO {
     /** Package-visible so {@link InMemoryPersistence} can register the table for local mode. */
     static final String ORG_TABLE = "organizations";
@@ -114,19 +112,10 @@ public class OrganizationDAO {
 
     private Optional<Organization> pointReadOrganization(final Organization.Id id) {
         final Map<String, AttributeValue> key = Map.of(ID, AttributeValue.builder().s(id.getValue()).build());
-        try {
-            final AttributeValue content =
-                    persistence.getItem(b -> b.key(key).tableName(ORG_TABLE).build()).item().get(CONTENT);
-            return Optional.ofNullable(content == null ? null : rows.parse(Organization.class, content.s()));
-        } catch (final RuntimeException ex) {
-            log.debug("OrganizationDAO: unable to read organization ({})", id.getValue(), ex);
-            return Optional.empty();
-        }
+        return rows.tryGet(persistence, ORG_TABLE, key, Organization.class);
     }
 
     private List<Organization> loadAllOrganizations() {
-        // A consistent scan: the rebuild REMOVES what this does not return (PartitionScanCache's loader).
-        return rows.parseAll(Organization.class,
-                persistence.scanAll(b -> b.consistentRead(true).limit(1000).tableName(ORG_TABLE).build()));
+        return rows.scanAll(persistence, ORG_TABLE, Organization.class);
     }
 }

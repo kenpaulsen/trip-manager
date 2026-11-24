@@ -116,8 +116,6 @@ public class ExpenseReportDAO {
 
     private TripExpenseReport loadReport(final String tripId) {
         final Map<String, AttributeValue> key = Map.of(TRIP_ID, AttributeValue.builder().s(tripId).build());
-        final AttributeValue content =
-                persistence.getItem(b -> b.key(key).tableName(EXPENSES_TABLE).build()).item().get(CONTENT);
-        return (content == null) ? null : rows.parse(TripExpenseReport.class, content.s());
+        return rows.get(persistence, EXPENSES_TABLE, key, TripExpenseReport.class);
     }
 }

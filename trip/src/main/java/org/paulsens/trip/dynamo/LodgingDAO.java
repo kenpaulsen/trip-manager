@@ -12,7 +12,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Consumer;
-import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.cache.CacheClient;
 import org.paulsens.trip.cache.CacheKeys;
 import org.paulsens.trip.cache.CacheSupport;
@@ -53,7 +52,6 @@ import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
  * accommodation's whole inventory is one row, so a lost admin race must surface, never merge. The
  * accommodation save also refuses a row that would not fit DynamoDB's 400 KB item cap, before the store does.
  */
-@Slf4j
 public class LodgingDAO {
     /** Package-visible so {@link InMemoryPersistence} can register the tables for local mode. */
     static final String ACCOMMODATIONS_TABLE = "lodging_accommodations";
@@ -451,19 +449,10 @@ public class LodgingDAO {
 
     private Optional<Accommodation> pointRead(final Accommodation.Id id) {
         final Map<String, AttributeValue> key = Map.of(ID, AttributeValue.builder().s(id.getValue()).build());
-        try {
-            final AttributeValue content = persistence.getItem(
-                    b -> b.key(key).tableName(ACCOMMODATIONS_TABLE).build()).item().get(CONTENT);
-            return Optional.ofNullable(content == null ? null : rows.parse(Accommodation.class, content.s()));
-        } catch (final RuntimeException ex) {
-            log.debug("LodgingDAO: unable to read accommodation ({})", id.getValue(), ex);
-            return Optional.empty();
-        }
+        return rows.tryGet(persistence, ACCOMMODATIONS_TABLE, key, Accommodation.class);
     }
 
     private List<Accommodation> loadAllAccommodations() {
-        // A consistent scan: the rebuild REMOVES what this does not return (PartitionScanCache's loader).
-        return rows.parseAll(Accommodation.class,
-                persistence.scanAll(b -> b.consistentRead(true).limit(1000).tableName(ACCOMMODATIONS_TABLE).build()));
+        return rows.scanAll(persistence, ACCOMMODATIONS_TABLE, Accommodation.class);
     }
 }

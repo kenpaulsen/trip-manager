@@ -110,8 +110,6 @@ public class FamilyDAO {
 
     private Family loadFamilyById(final String id) {
         final Map<String, AttributeValue> key = Map.of(ID, AttributeValue.builder().s(id).build());
-        final AttributeValue content =
-                persistence.getItem(b -> b.key(key).tableName(FAMILY_TABLE).build()).item().get(CONTENT);
-        return (content == null) ? null : rows.parse(Family.class, content.s());
+        return rows.get(persistence, FAMILY_TABLE, key, Family.class);
     }
 }

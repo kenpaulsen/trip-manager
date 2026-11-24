@@ -22,7 +22,6 @@ import org.paulsens.trip.cache.TripIndex;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
-import software.amazon.awssdk.services.dynamodb.model.GetItemResponse;
 
 /**
  * Trips are point entries: {@link #getTrip(String)} is a point read (cached). List queries -- active/inactive
@@ -183,14 +182,13 @@ public class TripDAO {
 
     private Trip loadTripById(final String id) {
         final Map<String, AttributeValue> key = Map.of(ID, AttributeValue.builder().s(id).build());
-        final GetItemResponse resp = persistence.getItem(b -> b.key(key).tableName(TRIP_TABLE).build());
-        return toTrip(resp.item().get(CONTENT));
+        return rows.get(persistence, TRIP_TABLE, key, Trip.class);
     }
 
     private List<TripIndex.Entry> loadAllEntries() {
         return persistence.scanAll(b -> b.consistentRead(false).limit(1000).tableName(TRIP_TABLE).build())
                 .stream()
-                .map(it -> toTrip(it.get(CONTENT)))
+                .map(it -> rows.parseItem(Trip.class, it))
                 .filter(trip -> trip != null)
                 .map(TripDAO::entryOf)
                 .toList();
@@ -203,9 +201,5 @@ public class TripDAO {
 
     private static long toEpochMillis(final LocalDateTime dateTime) {
         return (dateTime == null) ? NO_END_DATE : dateTime.toInstant(ZoneOffset.UTC).toEpochMilli();
-    }
-
-    private Trip toTrip(final AttributeValue content) {
-        return (content == null) ? null : rows.parse(Trip.class, content.s());
     }
 }

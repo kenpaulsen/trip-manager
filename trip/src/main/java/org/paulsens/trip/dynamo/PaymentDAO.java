@@ -109,8 +109,7 @@ public class PaymentDAO {
 
     /** Every stored payment (tiny table); the command layer filters for the reconciliation view. */
     protected List<Payment> getAllPayments() {
-        return rows.parseAll(Payment.class,
-                persistence.scanAll(b -> b.consistentRead(true).limit(1000).tableName(PAYMENTS_TABLE).build()));
+        return rows.scanAll(persistence, PAYMENTS_TABLE, Payment.class);
     }
 
     private Map<String, AttributeValue> itemFor(final Payment payment) throws IOException {

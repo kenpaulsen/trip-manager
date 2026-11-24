@@ -218,14 +218,7 @@ public class TemplateDAO {
 
     private Optional<TemplateRecord> pointReadRecord(final String id) {
         final Map<String, AttributeValue> key = Map.of(ID, AttributeValue.builder().s(id).build());
-        try {
-            final AttributeValue content =
-                    persistence.getItem(b -> b.key(key).tableName(TEMPLATES_TABLE).build()).item().get(CONTENT);
-            return Optional.ofNullable(content == null ? null : rows.parse(TemplateRecord.class, content.s()));
-        } catch (final RuntimeException ex) {
-            log.debug("TemplateDAO: unable to read template ({})", id, ex);
-            return Optional.empty();
-        }
+        return rows.tryGet(persistence, TEMPLATES_TABLE, key, TemplateRecord.class);
     }
 
     private List<ContentTemplate> loadAllVersions() {
@@ -245,9 +238,7 @@ public class TemplateDAO {
     }
 
     private List<TemplateRecord> loadAllRecords() {
-        // A consistent scan: the rebuild REMOVES what this does not return (PartitionScanCache's loader).
-        return rows.parseAll(TemplateRecord.class,
-                persistence.scanAll(b -> b.consistentRead(true).limit(1000).tableName(TEMPLATES_TABLE).build()));
+        return rows.scanAll(persistence, TEMPLATES_TABLE, TemplateRecord.class);
     }
 
     private static List<ContentTemplate> templatesOf(final List<Entry> entries) {

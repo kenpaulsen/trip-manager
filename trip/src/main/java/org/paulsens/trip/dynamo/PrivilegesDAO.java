@@ -128,23 +128,10 @@ public class PrivilegesDAO {
 
     private Optional<Privilege> pointReadPrivilege(final String id) {
         final Map<String, AttributeValue> key = Map.of(NAME, AttributeValue.builder().s(id).build());
-        try {
-            final AttributeValue content =
-                    persistence.getItem(b -> b.key(key).tableName(PRIVILEGE_TABLE).build()).item().get(CONTENT);
-            return Optional.ofNullable(content == null ? null : rows.parse(Privilege.class, content.s()));
-        } catch (final RuntimeException ex) {
-            return logAndReturnEmpty(ex, id);
-        }
+        return rows.tryGet(persistence, PRIVILEGE_TABLE, key, Privilege.class);
     }
 
     private List<Privilege> loadAllPrivileges() {
-        // A consistent scan: the rebuild REMOVES what this does not return (PartitionScanCache's loader).
-        return rows.parseAll(Privilege.class,
-                persistence.scanAll(b -> b.consistentRead(true).limit(1000).tableName(PRIVILEGE_TABLE).build()));
-    }
-
-    private Optional<Privilege> logAndReturnEmpty(final Throwable ex, final String id) {
-        log.debug("PrivilegesDAO: Unable to retrieve Privilege (" + id + ")!", ex);
-        return Optional.empty();
+        return rows.scanAll(persistence, PRIVILEGE_TABLE, Privilege.class);
     }
 }

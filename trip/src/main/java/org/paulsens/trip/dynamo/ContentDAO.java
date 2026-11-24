@@ -210,21 +210,11 @@ public class ContentDAO {
             return Optional.empty();
         }
         final Map<String, AttributeValue> key = Map.of(ID, AttributeValue.builder().s(id).build());
-        try {
-            final AttributeValue content =
-                    persistence.getItem(b -> b.key(key).tableName(CONTENT_TABLE).build()).item().get(CONTENT);
-            return Optional.ofNullable(content == null ? null : rows.parse(ContentRecord.class, content.s()));
-        } catch (final RuntimeException ex) {
-            log.debug("ContentDAO: unable to read content ({})", id, ex);
-            return Optional.empty();
-        }
+        return rows.tryGet(persistence, CONTENT_TABLE, key, ContentRecord.class);
     }
 
     private List<ContentInstance> loadAllCurrent() {
-        // A consistent scan: the rebuild REMOVES what this does not return (PartitionScanCache's loader).
-        return rows.parseAll(ContentRecord.class,
-                persistence.scanAll(b -> b.consistentRead(true).limit(1000).tableName(CONTENT_TABLE).build()))
-                .stream()
+        return rows.scanAll(persistence, CONTENT_TABLE, ContentRecord.class).stream()
                 .map(ContentRecord::getCurrent)
                 .filter(Objects::nonNull)
                 .toList();

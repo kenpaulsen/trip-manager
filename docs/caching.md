@@ -82,7 +82,8 @@ Two things the compare alone gets wrong, and what covers each:
   write that lands DURING the scan. A row written just before it is in the snapshot, unchanged, and an
   eventually consistent scan may not return it yet, so the rebuild would remove it and mark the cache loaded
   without it. All seven loaders (privileges, config, media, templates, content, organizations, lodging
-  accommodations) therefore ask for a strongly consistent scan; these are small tables scanned once per soft
+  accommodations) therefore ask for a strongly consistent scan, through the one `JsonRows.scanAll`, which fixes
+  `consistentRead(true)` so that no loader can leave it out; these are small tables scanned once per soft
   TTL, so twice the read units is nothing. `PartitionCache`'s per-partition queries are still eventually
   consistent.
 
