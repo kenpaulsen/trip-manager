@@ -442,6 +442,51 @@ public class ChatCommandsTest {
         Assert.assertEquals(row.getJoinedAt(), channel.getCreated());
     }
 
+    /** The page's composer gate is the send path's gate: whoever a send would refuse is shown no composer. */
+    @Test
+    public void theComposerGateRefusesWhomeverASendRefuses() {
+        final ChatChannel channel = chat.ensureChannel(TRIP, actor);
+        final Person.Id stranger = Person.Id.from("no-access-" + System.nanoTime());
+        final Person.Id member = Person.Id.from("member-" + System.nanoTime());
+        final Person.Id leaver = Person.Id.from("left-" + System.nanoTime());
+        grantTripView(List.of(member, leaver));
+        DAO.getInstance().saveChatMembership(new ChatMembership(
+                channel.getId(), leaver, ChatMembership.MemberState.LEFT,
+                ChatMembership.MemberRole.MEMBER, Instant.now(), Instant.now(), "self", null,
+                null, null, null, null, null, null, null, null, null));
+
+        Assert.assertEquals(chat.postDenialForTrip(TRIP, member), "");
+        Assert.assertFalse(chat.send(TRIP, stranger, "hello", null, null, actor).isOk());
+        Assert.assertFalse(chat.postDenialForTrip(TRIP, stranger).isEmpty(),
+                "someone a send refuses must not be offered the composer");
+        Assert.assertFalse(chat.send(TRIP, leaver, "hello", null, null, actor).isOk());
+        Assert.assertFalse(chat.postDenialForTrip(TRIP, leaver).isEmpty());
+    }
+
+    @Test
+    public void aRemovedMessageTakesNoNewReactionsButLetsOneBeTakenBack() {
+        final Person.Id fan = reactor("tomb-fan");
+        final ChatMessage.Id msg = postAs(fan, "soon removed");
+        Assert.assertTrue(chat.react(TRIP, fan, msg, "👍").ok());
+        Assert.assertTrue(chat.deleteMessage(TRIP, msg, Caller.forActor(actor)));
+
+        final ChatCommands.ReactResult refused = chat.react(TRIP, fan, msg, "🎉");
+        Assert.assertFalse(refused.ok(), "a tombstone takes no new reactions");
+        Assert.assertEquals(refused.code(), "not_found");
+        Assert.assertTrue(chat.unreact(TRIP, fan, msg, "👍").ok(),
+                "a reaction left on a tombstone can still be taken back");
+    }
+
+    @Test
+    public void aWhitespaceOnlyBodyIsEmpty() {
+        final Person.Id author = reactor("blank-author");
+        chat.ensureChannel(TRIP, actor);
+        Assert.assertEquals(chat.send(TRIP, author, " \n\t ", null, null, actor).getCode(), "empty");
+
+        final ChatMessage.Id msg = postAs(author, "real words");
+        Assert.assertEquals(chat.editMessage(TRIP, author, msg, "   \n").code(), "empty");
+    }
+
     private ChatMessage.Id postAs(final Person.Id author, final String body) {
         chat.ensureChannel(TRIP, actor);
         final ChatCommands.SendResult sent = chat.send(TRIP, author, body, null, null, actor);

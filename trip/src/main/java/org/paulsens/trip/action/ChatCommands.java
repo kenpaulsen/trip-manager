@@ -430,9 +430,10 @@ public class ChatCommands {
     /**
      * Why this person cannot post right now, as a sentence, or {@code ""} when they can.
      *
-     * <p>The page hides the composer on a non-empty answer and shows the sentence instead. It asks the same
-     * private denial the send path uses, so the control and the enforcement cannot drift into disagreeing —
-     * a composer that accepts text and then refuses it is worse than one that is not there.
+     * <p>The page hides the composer on a non-empty answer and shows the sentence instead. The two channel-wide
+     * reasons come first, in the page's own words (a closed chat reads as closed even to someone muted in it);
+     * everything else is the private denial the send path uses, so the control and the enforcement cannot drift
+     * into disagreeing -- a composer that accepts text and then refuses it is worse than one that is not there.
      */
     public String postDenialForTrip(final String tripId, final Person.Id personId) {
         final ChatChannel channel = channelForPage(tripId);
@@ -448,10 +449,10 @@ public class ChatCommands {
             return Text.get("feedback.chatCommands.onlyTripAdminsPost");
         }
         final ChatMembership row = membershipFor(channel.getId(), personId);
-        if (row != null && row.isMuted(now)) {
-            return Text.get("feedback.chatCommands.muted");
-        }
-        return "";
+        // The send path's own denial answers the rest (muted, not a member, left, removed). This method spelled
+        // the mute check alone, so someone who could read but not post was shown a composer that then refused.
+        final SendResult denial = postDenial(channel, personId, row, now);
+        return denial == null ? "" : denial.getMessage();
     }
 
     /**
@@ -915,7 +916,7 @@ public class ChatCommands {
         final String text = body == null ? "" : body;
         final int cps = text.codePointCount(0, text.length());
         final int max = channel.getSettings().getMaxMessageChars();
-        if (cps == 0 && attachments.isEmpty()) {
+        if (text.isBlank() && attachments.isEmpty()) {
             return SendResult.fail("empty", Text.get("feedback.chatCommands.empty"));
         }
         if (cps > max) {
@@ -1234,7 +1235,7 @@ public class ChatCommands {
         }
         final String text = newBody == null ? "" : newBody;
         final int cps = text.codePointCount(0, text.length());
-        if (cps == 0) {
+        if (text.isBlank()) {
             return ReactResult.fail("empty", Text.get("feedback.chatCommands.empty"));
         }
         if (cps > channel.getSettings().getMaxMessageChars()) {
@@ -1760,7 +1761,9 @@ public class ChatCommands {
         final ChatMembership row = membershipFor(channel.getId(), me);
         final Optional<ChatMessage> target = dao().getVisibleChatMessage(
                 channel.getId(), msgId, row, channel, tripOf(channel), now, Cached.NO);
-        if (target.isEmpty()) {
+        // A removed message takes no NEW reactions (editMessage refuses it the same way); taking one's own back
+        // off a tombstone stays allowed, or a chip left on it could never be cleared.
+        if (target.isEmpty() || (add && target.get().isDeleted())) {
             return ReactResult.fail("not_found", Text.get("api.chat.messageNotFound"));
         }
         final boolean ok = add
