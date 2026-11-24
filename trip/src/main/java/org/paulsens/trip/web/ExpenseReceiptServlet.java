@@ -1,11 +1,8 @@
 package org.paulsens.trip.web;
 
-import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import org.paulsens.trip.action.Caller;
 import org.paulsens.trip.action.ExpenseCommands;
 import org.paulsens.trip.action.ExpenseReceipts;
@@ -26,16 +23,14 @@ import org.paulsens.trip.model.MediaItem;
  * login and comes back here; an unknown id, or a row that is not a receipt, is 404; a signed-in caller who may
  * not read the report gets 403. Bytes come from S3, or the local-mode store, through {@link ExpenseReceipts}.
  */
-public class ExpenseReceiptServlet extends HttpServlet {
-
-    static final String LOGIN = "/account/login.jsf?to=";
+public class ExpenseReceiptServlet extends SignedInServlet {
 
     @Override
     protected void doGet(final HttpServletRequest req, final HttpServletResponse resp) throws IOException {
         final Caller caller = callerOf(req);
         if (!caller.isAuthenticated()) {
-            final String back = req.getRequestURI();
-            resp.sendRedirect(req.getContextPath() + LOGIN + URLEncoder.encode(back, StandardCharsets.UTF_8));
+            // The path is the whole address of a receipt, so that is all login brings the visitor back to.
+            resp.sendRedirect(loginUrl(req, req.getRequestURI()));
             return;
         }
         final String path = req.getPathInfo();
@@ -60,25 +55,13 @@ public class ExpenseReceiptServlet extends HttpServlet {
             resp.sendError(HttpServletResponse.SC_NOT_FOUND);
             return;
         }
-        resp.setContentType(served.contentType());
-        resp.setContentLength(served.bytes().length);
-        resp.setHeader("Content-Disposition", inline(item.getTitle()));
         // Money paperwork: never kept by a browser or anything in between, and never sniffed into something else.
-        resp.setHeader("Cache-Control", "private, no-store");
         resp.setHeader("X-Content-Type-Options", "nosniff");
-        resp.getOutputStream().write(served.bytes());
+        writeNoStore(resp, served.contentType(), inline(item.getTitle()), served.bytes());
     }
 
-    /** RFC 6266 {@code inline}: an ASCII fallback name plus the real one percent-encoded. */
+    /** Shown in place, named by its title; a receipt with no title is still a file with a name. */
     static String inline(final String title) {
-        final String name = (title == null || title.isBlank()) ? "receipt" : title;
-        final String ascii = name.replaceAll("[^\\x20-\\x7E]", "_").replace("\"", "'");
-        final String encoded = URLEncoder.encode(name, StandardCharsets.UTF_8).replace("+", "%20");
-        return "inline; filename=\"" + ascii + "\"; filename*=UTF-8''" + encoded;
-    }
-
-    /** Seam for tests; production resolves the caller from the request's session. */
-    protected Caller callerOf(final HttpServletRequest req) {
-        return Caller.of(req.getSession(false));
+        return ContentDisposition.inline((title == null || title.isBlank()) ? "receipt" : title);
     }
 }

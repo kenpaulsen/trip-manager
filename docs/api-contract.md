@@ -854,6 +854,9 @@ versioned put, so two simultaneous writes can refuse one as "Saved by someone el
   source is another of the SAME organization's budgets the caller may read.
 - `GET /api/budget/trips/{tripId}/pdf` (Accept `application/pdf`) → the budget as a PDF (`Content-Disposition:
   attachment`); 403 for a caller who may not read it.
+  Since 2026-11-24 the API's three PDFs (this one, the expense report, a signed waiver) name the file exactly
+  as the website's downloads do (RFC 6266): `filename="..."` reduced to ASCII as before, followed by
+  `filename*=UTF-8''...` with the real name percent-encoded. A client that reads only `filename` sees no change.
 
 ### Expense report (`/api/expenses`, Accept `application/vnd.trip.expense-report.v1+json`)
 

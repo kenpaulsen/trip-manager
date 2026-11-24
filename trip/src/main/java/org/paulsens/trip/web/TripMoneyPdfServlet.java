@@ -1,11 +1,8 @@
 package org.paulsens.trip.web;
 
-import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import org.paulsens.trip.action.BudgetCommands;
 import org.paulsens.trip.action.BudgetPdf;
 import org.paulsens.trip.action.Caller;
@@ -27,9 +24,8 @@ import org.paulsens.trip.model.Trip;
  * pages' own ({@code TripFinanceGate}, through the two beans built on THIS request's caller): an unknown trip and
  * a caller who may not read it are both 404, so the URL does not confirm that a trip exists.
  */
-public class TripMoneyPdfServlet extends HttpServlet {
+public class TripMoneyPdfServlet extends SignedInServlet {
 
-    static final String LOGIN = "/account/login.jsf?to=";
     static final String BUDGET_PATH = "/reports/budget";
     static final String EXPENSES_PATH = "/reports/expense-report";
 
@@ -37,8 +33,7 @@ public class TripMoneyPdfServlet extends HttpServlet {
     protected void doGet(final HttpServletRequest req, final HttpServletResponse resp) throws IOException {
         final Caller caller = callerOf(req);
         if (!caller.isAuthenticated()) {
-            final String back = req.getRequestURI() + (req.getQueryString() == null ? "" : "?" + req.getQueryString());
-            resp.sendRedirect(req.getContextPath() + LOGIN + URLEncoder.encode(back, StandardCharsets.UTF_8));
+            resp.sendRedirect(loginUrl(req));
             return;
         }
         final String tripId = req.getParameter("trip");
@@ -60,20 +55,11 @@ public class TripMoneyPdfServlet extends HttpServlet {
             resp.sendError(HttpServletResponse.SC_NOT_FOUND);
             return;
         }
-        resp.setContentType("application/pdf");
-        resp.setContentLength(pdf.length);
-        resp.setHeader("Content-Disposition", RoomInvoicePdfServlet.disposition(fileName));
-        resp.setHeader("Cache-Control", "private, no-store");
-        resp.getOutputStream().write(pdf);
+        writeNoStore(resp, "application/pdf", ContentDisposition.attachment(fileName), pdf);
     }
 
     /** The trip's title for the file name; only asked once the bean has already let the caller read it. */
     private static String titleOf(final String tripId) {
         return DAO.getInstance().getTrip(tripId, Cached.YES).map(Trip::getTitle).orElse(null);
-    }
-
-    /** Seam for tests; production resolves the caller from the request's session. */
-    protected Caller callerOf(final HttpServletRequest req) {
-        return Caller.of(req.getSession(false));
     }
 }

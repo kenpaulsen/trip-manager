@@ -89,7 +89,9 @@ public class BudgetResourceTest extends ResourceTestSupport {
         assertOk(resource.get(trip.getId()));
         final Response pdf = resource.pdf(trip.getId());
         assertEquals(pdf.getStatus(), 200);
-        assertTrue(pdf.getHeaderString("Content-Disposition").endsWith("Api budget trip - Budget.pdf\""));
+        // The same header the website's download sends for this file: the ASCII name, then the real one.
+        assertEquals(pdf.getHeaderString("Content-Disposition"), "attachment; filename=\"Api budget trip - Budget.pdf\""
+                + "; filename*=UTF-8''Api%20budget%20trip%20-%20Budget.pdf");
         assertError(resource.saveInputs(trip.getId(), CSRF_OK, Map.of("people", 3)), 403, ApiErrors.FORBIDDEN);
     }
 

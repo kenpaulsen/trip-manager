@@ -30,6 +30,7 @@ import org.paulsens.trip.audit.RequestContext;
 import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.media.QuarterTurn;
 import org.paulsens.trip.model.MediaItem;
+import org.paulsens.trip.web.ContentDisposition;
 
 /**
  * A trip's expense report over REST, a thin wrapper of {@link ExpenseCommands} (the {@link BudgetResource}
@@ -160,7 +161,7 @@ public class ExpenseReportResource extends BaseResource {
             return error(403, ApiErrors.FORBIDDEN, Text.get("api.shared.financeViewerRequired"));
         }
         return Response.ok(pdf, "application/pdf").header("Content-Disposition",
-                attachmentDisposition(ExpenseReportPdf.fileName(trip.getTitle())))
+                ContentDisposition.attachment(ExpenseReportPdf.fileName(trip.getTitle())))
                 .header("Cache-Control", "private, no-store").build();
     }
 

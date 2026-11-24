@@ -25,6 +25,7 @@ import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripWaiver;
 import org.paulsens.trip.model.WaiverAcceptance;
+import org.paulsens.trip.web.ContentDisposition;
 
 /**
  * A trip's required documents, for one traveler: what to read, where they stand, and the one write that signs.
@@ -124,7 +125,7 @@ public class TripWaiversResource extends BaseResource {
                 .filter(a -> waiverId.equals(a.getWaiverId()) && a.getVersion() == version)
                 .findFirst().orElse(null);
         return Response.ok(pdf, "application/pdf")
-                .header("Content-Disposition", attachmentDisposition(WaiverPdf.fileName(
+                .header("Content-Disposition", ContentDisposition.attachment(WaiverPdf.fileName(
                         row == null ? "Document" : row.getTitle(), row == null ? "" : row.getSubjectName())))
                 .header("Cache-Control", "private, no-store").build();
     }

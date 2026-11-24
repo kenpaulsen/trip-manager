@@ -1,11 +1,8 @@
 package org.paulsens.trip.web;
 
-import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import org.paulsens.trip.action.Caller;
 import org.paulsens.trip.action.WaiverCommands;
 import org.paulsens.trip.action.WaiverPdf;
@@ -22,16 +19,13 @@ import org.paulsens.trip.model.WaiverAcceptance;
  * signed in goes to login and comes back, the answer is {@code private, no-store}, and the gate is the bean's
  * ({@link WaiverCommands#canReadRecords}): no signature and no right to read it are both 404.
  */
-public class WaiverPdfServlet extends HttpServlet {
-
-    static final String LOGIN = "/account/login.jsf?to=";
+public class WaiverPdfServlet extends SignedInServlet {
 
     @Override
     protected void doGet(final HttpServletRequest req, final HttpServletResponse resp) throws IOException {
         final Caller caller = callerOf(req);
         if (!caller.isAuthenticated()) {
-            final String back = req.getRequestURI() + (req.getQueryString() == null ? "" : "?" + req.getQueryString());
-            resp.sendRedirect(req.getContextPath() + LOGIN + URLEncoder.encode(back, StandardCharsets.UTF_8));
+            resp.sendRedirect(loginUrl(req));
             return;
         }
         final String tripId = req.getParameter("trip");
@@ -45,12 +39,8 @@ public class WaiverPdfServlet extends HttpServlet {
             resp.sendError(HttpServletResponse.SC_NOT_FOUND);
             return;
         }
-        resp.setContentType("application/pdf");
-        resp.setContentLength(pdf.length);
-        resp.setHeader("Content-Disposition", RoomInvoicePdfServlet.disposition(fileName(tripId, subject, waiverId,
-                version)));
-        resp.setHeader("Cache-Control", "private, no-store");
-        resp.getOutputStream().write(pdf);
+        writeNoStore(resp, "application/pdf",
+                ContentDisposition.attachment(fileName(tripId, subject, waiverId, version)), pdf);
     }
 
     /** The file name from the signature row itself; only asked once the bean has let the caller read it. */
@@ -68,10 +58,5 @@ public class WaiverPdfServlet extends HttpServlet {
         } catch (final NumberFormatException ex) {
             return 0;
         }
-    }
-
-    /** Seam for tests; production resolves the caller from the request's session. */
-    protected Caller callerOf(final HttpServletRequest req) {
-        return Caller.of(req.getSession(false));
     }
 }

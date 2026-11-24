@@ -253,12 +253,6 @@ public class RoomInvoicePdfServletTest {
         Assert.assertEquals(status.get(), HttpServletResponse.SC_NOT_FOUND);
     }
 
-    @Test
-    public void aNonAsciiFileNameKeepsBothForms() {
-        Assert.assertEquals(RoomInvoicePdfServlet.disposition("Međugorje \"A\".pdf"),
-                "attachment; filename=\"Me_ugorje 'A'.pdf\"; filename*=UTF-8''Me%C4%91ugorje%20%22A%22.pdf");
-    }
-
     // ------------------------------------------------------------------ fixtures
 
     private static final LocalDateTime CHECK_IN = LocalDateTime.of(2027, 11, 2, 15, 0);

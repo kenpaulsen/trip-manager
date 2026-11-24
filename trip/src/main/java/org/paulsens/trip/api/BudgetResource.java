@@ -17,6 +17,7 @@ import org.paulsens.trip.action.BudgetCommands;
 import org.paulsens.trip.action.BudgetPdf;
 import org.paulsens.trip.action.BudgetViews;
 import org.paulsens.trip.i18n.Text;
+import org.paulsens.trip.web.ContentDisposition;
 
 /**
  * A trip's planning budget: a THIN wrapper over {@link BudgetCommands} with the session's caller, so the
@@ -71,7 +72,7 @@ public class BudgetResource extends BaseResource {
             return error(403, ApiErrors.FORBIDDEN, Text.get("api.shared.financeViewerRequired"));
         }
         return Response.ok(pdf, "application/pdf").header("Content-Disposition",
-                attachmentDisposition(BudgetPdf.fileName(trip.getTitle())))
+                ContentDisposition.attachment(BudgetPdf.fileName(trip.getTitle())))
                 .header("Cache-Control", "private, no-store").build();
     }
 

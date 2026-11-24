@@ -1,10 +1,8 @@
 package org.paulsens.trip.web;
 
-import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
-import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.function.Function;
 import org.paulsens.trip.action.Caller;
@@ -42,9 +40,7 @@ import org.paulsens.trip.model.Trip;
  * FacesContext, and a plain servlet has none (the memo it keeps in the Faces request map is irrelevant here
  * for the same reason). The bean has no injected collaborators, so constructing one is what the pages get.
  */
-public class RoomInvoicePdfServlet extends HttpServlet {
-
-    static final String LOGIN = "/account/login.jsf?to=";
+public class RoomInvoicePdfServlet extends SignedInServlet {
 
     /** The invoice as one caller may see it: {@link ReportCommands#roomInvoiceFor}'s shape. */
     @FunctionalInterface
@@ -63,13 +59,12 @@ public class RoomInvoicePdfServlet extends HttpServlet {
 
     @Override
     protected void doGet(final HttpServletRequest req, final HttpServletResponse resp) throws IOException {
-        final Caller caller = Caller.of(req.getSession(false));
-        final String tripId = req.getParameter("trip");
+        final Caller caller = callerOf(req);
         if (!caller.isAuthenticated()) {
-            final String back = req.getRequestURI() + (req.getQueryString() == null ? "" : "?" + req.getQueryString());
-            resp.sendRedirect(req.getContextPath() + LOGIN + URLEncoder.encode(back, StandardCharsets.UTF_8));
+            resp.sendRedirect(loginUrl(req));
             return;
         }
+        final String tripId = req.getParameter("trip");
         if (tripId == null || tripId.isBlank()) {
             resp.sendError(HttpServletResponse.SC_NOT_FOUND);
             return;
@@ -93,33 +88,19 @@ public class RoomInvoicePdfServlet extends HttpServlet {
             final byte[] why = ReportCommands.blockedMessage(invoice.getMissingCost(), !internal)
                     .getBytes(StandardCharsets.UTF_8);
             resp.setStatus(HttpServletResponse.SC_CONFLICT);
-            resp.setContentType("text/plain;charset=UTF-8");
-            resp.setContentLength(why.length);
-            resp.setHeader("Cache-Control", "private, no-store");
-            resp.getOutputStream().write(why);
+            writeNoStore(resp, "text/plain;charset=UTF-8", null, why);
             return;
         }
         final byte[] pdf = RoomInvoicePdf.render(new RoomInvoiceHeading(trip.getTitle(), orgNameOf(trip)), invoice,
                 internal);
-        resp.setContentType("application/pdf");
-        resp.setContentLength(pdf.length);
-        resp.setHeader("Content-Disposition", disposition(RoomInvoicePdf.fileName(trip.getTitle())));
-        // Money: never cached by a browser or anything between.
-        resp.setHeader("Cache-Control", "private, no-store");
-        resp.getOutputStream().write(pdf);
+        writeNoStore(resp, "application/pdf", ContentDisposition.attachment(RoomInvoicePdf.fileName(trip.getTitle())),
+                pdf);
     }
 
     /** The organization the hotel invoices, as the page prints it ({@code theTrip.organization.name}); "" if gone. */
     static String orgNameOf(final Trip trip) {
         final Organization org = trip.getOrganization();
         return (org == null || org.getName() == null) ? "" : org.getName();
-    }
-
-    /** RFC 6266: an ASCII fallback name, plus the real one percent-encoded for every current browser. */
-    static String disposition(final String fileName) {
-        final String ascii = fileName.replaceAll("[^\\x20-\\x7E]", "_").replace("\"", "'");
-        final String encoded = URLEncoder.encode(fileName, StandardCharsets.UTF_8).replace("+", "%20");
-        return "attachment; filename=\"" + ascii + "\"; filename*=UTF-8''" + encoded;
     }
 
     private Function<String, Trip> trips() {
