@@ -833,8 +833,7 @@ public class ReminderCommands {
 
     /** The signed-in user's own address: what the test-send field starts with (editable; prompt, never assume). */
     public String myEmail() {
-        final Person me = caller().isAuthenticated()
-                ? DAO.getInstance().getPerson(caller().personId(), Cached.YES).orElse(null) : null;
+        final Person me = caller().person(Cached.YES);
         return (me == null || me.getEmail() == null) ? "" : me.getEmail();
     }
 
