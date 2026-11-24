@@ -14,18 +14,23 @@ import org.mockito.Mockito;
  * with {@link #clear} in a finally block: the instance is thread-bound and would leak into the next test.
  * {@code FacesContext.setCurrentInstance} is protected, hence the abstract subclass.
  */
-abstract class TestFaces extends FacesContext {
+public abstract class TestFaces extends FacesContext {
 
-    static FacesContext install(final Map<String, Object> requestMap) {
+    public static FacesContext install(final Map<String, Object> requestMap) {
         final ExternalContext external = Mockito.mock(ExternalContext.class);
         Mockito.when(external.getRequestMap()).thenReturn(requestMap);
         final FacesContext ctx = Mockito.mock(FacesContext.class);
         Mockito.when(ctx.getExternalContext()).thenReturn(external);
+        return install(ctx);
+    }
+
+    /** Installs a context the test stubbed itself (a partial view, a servlet request, a flash). */
+    public static FacesContext install(final FacesContext ctx) {
         FacesContext.setCurrentInstance(ctx);
         return ctx;
     }
 
-    static void clear() {
+    public static void clear() {
         FacesContext.setCurrentInstance(null);
     }
 
@@ -33,7 +38,7 @@ abstract class TestFaces extends FacesContext {
      * Every message {@code call} adds to a request answering {@code requestMap}, in order: what the page's growl
      * would show, with each one's severity (so a warning is told from an info line). Installs and clears itself.
      */
-    static List<FacesMessage> messagesOf(final Map<String, Object> requestMap, final Runnable call) {
+    public static List<FacesMessage> messagesOf(final Map<String, Object> requestMap, final Runnable call) {
         final FacesContext ctx = install(requestMap);
         try {
             call.run();
@@ -46,7 +51,7 @@ abstract class TestFaces extends FacesContext {
     }
 
     /** The summaries of {@link #messagesOf}: the growl lines alone. */
-    static List<String> growlsOf(final Map<String, Object> requestMap, final Runnable call) {
+    public static List<String> growlsOf(final Map<String, Object> requestMap, final Runnable call) {
         return messagesOf(requestMap, call).stream().map(FacesMessage::getSummary).toList();
     }
 }
