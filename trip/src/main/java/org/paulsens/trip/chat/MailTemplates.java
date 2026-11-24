@@ -7,6 +7,7 @@ import java.util.Locale;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.i18n.Text;
+import org.paulsens.trip.util.Html;
 
 /**
  * Renders {@code mailTemplates/*.tpl} for mail that is sent <b>off a request thread</b>.
@@ -95,22 +96,7 @@ public final class MailTemplates {
 
     /** HTML-escapes text for inclusion in a mail body. */
     public static String escape(final String text) {
-        if (text == null) {
-            return "";
-        }
-        final StringBuilder out = new StringBuilder(text.length() + 16);
-        for (int i = 0; i < text.length(); i++) {
-            final char c = text.charAt(i);
-            switch (c) {
-                case '&' -> out.append("&amp;");
-                case '<' -> out.append("&lt;");
-                case '>' -> out.append("&gt;");
-                case '"' -> out.append("&quot;");
-                case '\'' -> out.append("&#39;");
-                default -> out.append(c);
-            }
-        }
-        return out.toString();
+        return Html.escape(text);
     }
 
     /**

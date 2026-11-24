@@ -287,12 +287,6 @@ public class ContentRendererTest {
         Assert.assertTrue(ContentRenderer.tokenNames(null).isEmpty());
     }
 
-    @Test
-    public void escapeHelperCoversAllFive() {
-        Assert.assertEquals(ContentRenderer.escapeHtml("&<>\"'"), "&amp;&lt;&gt;&quot;&#39;");
-        Assert.assertEquals(ContentRenderer.escapeHtml("plain"), "plain");
-    }
-
     /** A container's own title has a slot of its own; the STANDARD vocabulary never sees it. */
     @Test
     public void aContainerBodyCanPlaceItsOwnTitle() {

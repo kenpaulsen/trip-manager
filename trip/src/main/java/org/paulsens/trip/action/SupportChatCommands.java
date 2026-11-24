@@ -35,6 +35,7 @@ import org.paulsens.trip.model.chat.ChatSettings;
 import org.paulsens.trip.util.EmailAddresses;
 import org.paulsens.trip.util.TripThreads;
 import org.paulsens.trip.cache.Cached;
+import org.paulsens.trip.util.Html;
 
 /**
  * The site-wide technical-support channel ({@code support:main}) -- the {@code PhotoChatCommands} precedent:
@@ -227,8 +228,8 @@ public class SupportChatCommands {
             if (url.isEmpty()) {
                 continue;
             }
-            out.append(escapeHtml(body.substring(copied, links.start())));
-            final String href = escapeHtml(url);
+            out.append(Html.escape(body.substring(copied, links.start())));
+            final String href = Html.escape(url);
             out.append("<a href=\"").append(href).append('"');
             if (url.startsWith("http")) {
                 out.append(" target=\"_blank\" rel=\"noopener\"");
@@ -236,13 +237,8 @@ public class SupportChatCommands {
             out.append('>').append(href).append("</a>");
             copied = links.start() + url.length();
         }
-        out.append(escapeHtml(body.substring(copied)));
+        out.append(Html.escape(body.substring(copied)));
         return out.toString();
-    }
-
-    private static String escapeHtml(final String text) {
-        return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-                .replace("\"", "&quot;").replace("'", "&#39;");
     }
 
     /** A reply by a support reader (channel admin or chatAdmin). Not a request: no marker, no email fan-out. */

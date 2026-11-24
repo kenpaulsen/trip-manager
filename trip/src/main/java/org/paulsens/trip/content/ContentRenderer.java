@@ -11,6 +11,7 @@ import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.ContentTemplate;
 import org.paulsens.trip.model.Placeholder;
+import org.paulsens.trip.util.Html;
 
 /**
  * Substitutes a {@link ContentInstance}'s values into its {@link ContentTemplate}'s body.
@@ -107,11 +108,11 @@ public final class ContentRenderer {
             return "";
         }
         return switch (declared.getType()) {
-            case TEXT, CHOICE, MULTI_CHOICE, PERSON -> escapeHtml(raw);
+            case TEXT, CHOICE, MULTI_CHOICE, PERSON -> Html.escape(raw);
             case RICH_TEXT -> PageHtml.clean(raw);
-            case IMAGE_URL -> escapeHtml(requireHttpUrl(raw));
-            case URL -> escapeHtml(requireLinkUrl(linkTarget.apply(raw)));
-            case VIDEO_URL -> escapeHtml(normalizeVideoUrl(raw));
+            case IMAGE_URL -> Html.escape(requireHttpUrl(raw));
+            case URL -> Html.escape(requireLinkUrl(linkTarget.apply(raw)));
+            case VIDEO_URL -> Html.escape(normalizeVideoUrl(raw));
         };
     }
 
@@ -143,7 +144,7 @@ public final class ContentRenderer {
         if (title == null || title.isBlank()) {
             return "";
         }
-        return PageHtml.titleHasMarkup(title) ? PageHtml.clean(title) : escapeHtml(title.trim());
+        return PageHtml.titleHasMarkup(title) ? PageHtml.clean(title) : Html.escape(title.trim());
     }
 
     /**
@@ -158,7 +159,7 @@ public final class ContentRenderer {
         if (PageHtml.titleHasMarkup(title)) {
             return PageHtml.clean(title);
         }
-        return "<h3 class=\"contentTitle\">" + escapeHtml(title.trim()) + "</h3>";
+        return "<h3 class=\"contentTitle\">" + Html.escape(title.trim()) + "</h3>";
     }
 
     /**
@@ -332,8 +333,8 @@ public final class ContentRenderer {
         }
         return switch (property) {
             case "title" -> childRendersOwnHeading || child.getTitle() == null
-                    ? "" : escapeHtml(child.getTitle().trim());
-            case "id" -> child.getId() == null ? "" : escapeHtml(child.getId());
+                    ? "" : Html.escape(child.getTitle().trim());
+            case "id" -> child.getId() == null ? "" : Html.escape(child.getId());
             case "index" -> String.valueOf(index + 1);
             default -> "";
         };
@@ -390,22 +391,5 @@ public final class ContentRenderer {
         }
         final Matcher matcher = YOUTUBE.matcher(url);
         return matcher.matches() ? "https://www.youtube.com/embed/" + matcher.group(1) : url;
-    }
-
-    /** Minimal HTML/attribute escaping; both element and attribute contexts are covered by the five. */
-    static String escapeHtml(final String raw) {
-        final StringBuilder out = new StringBuilder(raw.length() + 16);
-        for (int i = 0; i < raw.length(); i++) {
-            final char c = raw.charAt(i);
-            switch (c) {
-                case '&' -> out.append("&amp;");
-                case '<' -> out.append("&lt;");
-                case '>' -> out.append("&gt;");
-                case '"' -> out.append("&quot;");
-                case '\'' -> out.append("&#39;");
-                default -> out.append(c);
-            }
-        }
-        return out.toString();
     }
 }

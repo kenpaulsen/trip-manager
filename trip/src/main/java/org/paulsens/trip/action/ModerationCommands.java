@@ -22,6 +22,7 @@ import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.chat.ChatChannel;
 import org.paulsens.trip.model.chat.ChatMessage;
+import org.paulsens.trip.util.Html;
 import org.paulsens.trip.util.Util;
 
 /**
@@ -314,9 +315,6 @@ public class ModerationCommands {
     }
 
     static String escape(final String value) {
-        if (value == null) {
-            return "";
-        }
-        return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;");
+        return Html.escape(value);
     }
 }

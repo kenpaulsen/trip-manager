@@ -27,6 +27,7 @@ import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.SitePage;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.site.SiteContext;
+import org.paulsens.trip.util.Html;
 
 /**
  * The page keys of the sites the content engine renders besides the classic shared landing page, and the
@@ -619,9 +620,6 @@ public final class OrgPageBootstrap {
 
     /** Minimal HTML escaping for the one authored-by-us string that embeds user data (the org name). */
     static String escape(final String text) {
-        if (text == null) {
-            return "";
-        }
-        return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;");
+        return Html.escapeKeepingApostrophes(text);
     }
 }
