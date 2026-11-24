@@ -270,6 +270,25 @@ public class RoomInvoicePdfTest {
     }
 
     @Test
+    public void aCharacterTheFontLacksPrintsAsAQuestionMarkInsteadOfFailingTheInvoice() throws IOException {
+        // An emoji in a guest's name used to throw from the font and fail the whole document.
+        final ReportCommands.RoomInvoice invoice = twoHotels();
+        final ReportCommands.InvoiceSection hotel = invoice.getSections().get(0);
+        hotel.setAccommodation("Pansion \uD83C\uDFE8");
+        hotel.getOffers().get(0).setName("Double \uD83D\uDECF room");
+        hotel.getOffers().get(0).getLines().add(concession("-$10.00", "Joe \uD83D\uDE00: comped\nby the hotel"));
+        hotel.getPeople().get(0).setName("Joe \uD83D\uDE00 Smith");
+        hotel.getPeople().get(0).setOption("Single \uD83D\uDECF");
+        final List<String> pages = pages(RoomInvoicePdf.render(heading("Spring \uD83C\uDF37 Trip"), invoice, false,
+                PRINTED));
+        Assert.assertTrue(pages.get(0).contains("Joe ? Smith"), pages.get(0));
+        Assert.assertTrue(pages.get(0).contains("Double ? room"), pages.get(0));
+        Assert.assertTrue(pages.get(0).contains("Joe ?: comped by the hotel"), pages.get(0));
+        Assert.assertTrue(pages.get(0).contains("Spring ? Trip"), pages.get(0));
+        Assert.assertTrue(pages.get(0).contains("Pansion ?"), pages.get(0));
+    }
+
+    @Test
     public void theFileNameIsSafeForAnyFileSystem() {
         Assert.assertEquals(RoomInvoicePdf.fileName("Spring: A/B \"Trip\""), "Spring- A-B -Trip- - Room Invoice.pdf");
         Assert.assertEquals(RoomInvoicePdf.fileName(" "), "Trip - Room Invoice.pdf");
@@ -281,12 +300,12 @@ public class RoomInvoicePdfTest {
         try (PDDocument doc = new PDDocument()) {
             final PDType0Font font = PDType0Font.load(doc,
                     RoomInvoicePdf.class.getResourceAsStream("/liberation/LiberationSans-Regular.ttf"));
-            Assert.assertEquals(RoomInvoicePdf.wrap(font, 10f, "one two three", 1000f), List.of("one two three"));
-            Assert.assertEquals(RoomInvoicePdf.wrap(font, 10f, "one two three", 30f),
+            Assert.assertEquals(PdfSheet.wrap(font, 10f, "one two three", 1000f), List.of("one two three"));
+            Assert.assertEquals(PdfSheet.wrap(font, 10f, "one two three", 30f),
                     List.of("one", "two", "three"));
-            Assert.assertEquals(RoomInvoicePdf.wrap(font, 10f, "Supercalifragilistic", 5f),
+            Assert.assertEquals(PdfSheet.wrap(font, 10f, "Supercalifragilistic", 5f),
                     List.of("Supercalifragilistic"));
-            Assert.assertEquals(RoomInvoicePdf.wrap(font, 10f, null, 50f), List.of(""));
+            Assert.assertEquals(PdfSheet.wrap(font, 10f, null, 50f), List.of(""));
         }
     }
 

@@ -3,7 +3,6 @@ package org.paulsens.trip.action;
 import java.awt.Color;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -12,12 +11,31 @@ import java.util.Locale;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
-import org.apache.pdfbox.pdmodel.common.PDRectangle;
 import org.apache.pdfbox.pdmodel.font.PDFont;
-import org.apache.pdfbox.pdmodel.font.PDType0Font;
 import org.paulsens.trip.audit.RequestContext;
 import org.paulsens.trip.i18n.Formats;
 import org.paulsens.trip.i18n.Text;
+
+import static org.paulsens.trip.action.PdfSheet.BAND_FILL;
+import static org.paulsens.trip.action.PdfSheet.BODY;
+import static org.paulsens.trip.action.PdfSheet.BOLD;
+import static org.paulsens.trip.action.PdfSheet.BOTTOM;
+import static org.paulsens.trip.action.PdfSheet.HEAD_FILL;
+import static org.paulsens.trip.action.PdfSheet.INK;
+import static org.paulsens.trip.action.PdfSheet.MARGIN;
+import static org.paulsens.trip.action.PdfSheet.MUTED;
+import static org.paulsens.trip.action.PdfSheet.REGULAR;
+import static org.paulsens.trip.action.PdfSheet.ROW;
+import static org.paulsens.trip.action.PdfSheet.RULE;
+import static org.paulsens.trip.action.PdfSheet.SHEET;
+import static org.paulsens.trip.action.PdfSheet.SMALL;
+import static org.paulsens.trip.action.PdfSheet.TOP;
+import static org.paulsens.trip.action.PdfSheet.WIDTH;
+import static org.paulsens.trip.action.PdfSheet.clean;
+import static org.paulsens.trip.action.PdfSheet.fitted;
+import static org.paulsens.trip.action.PdfSheet.load;
+import static org.paulsens.trip.action.PdfSheet.widthOf;
+import static org.paulsens.trip.action.PdfSheet.wrap;
 
 /**
  * The Room Invoice as a PDF: the same {@link ReportCommands.RoomInvoice} the page renders, EACH ACCOMMODATION
@@ -49,18 +67,7 @@ import org.paulsens.trip.i18n.Text;
  */
 public final class RoomInvoicePdf {
 
-    private static final String REGULAR = "/liberation/LiberationSans-Regular.ttf";
-    private static final String BOLD = "/liberation/LiberationSans-Bold.ttf";
-
-    private static final PDRectangle SHEET = PDRectangle.LETTER;
-    private static final float MARGIN = 40f;
-    private static final float WIDTH = SHEET.getWidth() - 2 * MARGIN;
-    private static final float TOP = SHEET.getHeight() - MARGIN;
-    /** Room kept at the bottom for the page footer. */
-    private static final float BOTTOM = MARGIN + 24f;
-    private static final float BODY = 9.5f;
-    private static final float SMALL = 8f;
-    private static final float ROW = 15f;
+    // The sheet's measures, greys and fonts are PdfSheet's (static imports), so the money documents look alike.
     private static final float SUB_ROW = 11f;
 
     /** The per-option table: Item, Dates, Quantity, Nights, Rate, Amount; numbers right-aligned. */
@@ -71,12 +78,6 @@ public final class RoomInvoicePdf {
     private static final boolean[] PEOPLE_RIGHT = {false, false, true, false, true};
     /** The per-option Quantity column, under which a per-room line's guest note sits. */
     private static final int QUANTITY = 2;
-
-    private static final Color INK = Color.BLACK;
-    private static final Color MUTED = new Color(0x55, 0x55, 0x55);
-    private static final Color HEAD_FILL = new Color(0xBB, 0xBB, 0xBB);
-    private static final Color GROUP_FILL = new Color(0xF0, 0xF0, 0xF0);
-    private static final Color RULE = new Color(0xD8, 0xD8, 0xD8);
 
     private RoomInvoicePdf() {
     }
@@ -133,41 +134,7 @@ public final class RoomInvoicePdf {
 
     /** {@code "Spring Demo Trip - Room Invoice.pdf"}, with anything a file system would refuse replaced. */
     public static String fileName(final String tripTitle) {
-        final String title = (tripTitle == null || tripTitle.isBlank()) ? "Trip" : tripTitle.trim();
-        return title.replaceAll("[\\\\/:*?\"<>|\\p{Cntrl}]", "-") + " - Room Invoice.pdf";
-    }
-
-    private static PDFont load(final PDDocument doc, final String resource) throws IOException {
-        try (InputStream in = RoomInvoicePdf.class.getResourceAsStream(resource)) {
-            if (in == null) {
-                throw new IOException("Font " + resource + " is not on the classpath (openpdf-fonts-extra)");
-            }
-            return PDType0Font.load(doc, in);
-        }
-    }
-
-    /** Words wrapped to {@code width}; a single word longer than the line is left to overhang. */
-    static List<String> wrap(final PDFont font, final float size, final String text, final float width)
-            throws IOException {
-        final List<String> lines = new ArrayList<>();
-        final StringBuilder line = new StringBuilder();
-        for (final String word : (text == null ? "" : text.trim()).split("\\s+")) {
-            final String candidate = line.isEmpty() ? word : line + " " + word;
-            if (!line.isEmpty() && widthOf(font, size, candidate) > width) {
-                lines.add(line.toString());
-                line.setLength(0);
-                line.append(word);
-            } else {
-                line.setLength(0);
-                line.append(candidate);
-            }
-        }
-        lines.add(line.toString());
-        return lines;
-    }
-
-    private static float widthOf(final PDFont font, final float size, final String text) throws IOException {
-        return font.getStringWidth(text) / 1000f * size;
+        return PdfSheet.safeTitle(tripTitle) + " - Room Invoice.pdf";
     }
 
     /** A table's shape: column widths (summing to the printable width), headings, and which are numbers. */
@@ -234,7 +201,7 @@ public final class RoomInvoicePdf {
                 group(section, group);
             }
             ensure(ROW + 4, section.getAccommodation(), true);
-            fill(GROUP_FILL, ROW);
+            fill(BAND_FILL, ROW);
             row(bold, new String[] {Text.forLocale(locale, "pdf.roomInvoice.subtotal", section.getAccommodation()),
                 "", "", "", "", section.getAmount()});
             people(section);
@@ -264,7 +231,7 @@ public final class RoomInvoicePdf {
                 rule();
             }
             ensure(ROW + 4, section.getAccommodation(), true);
-            fill(GROUP_FILL, ROW);
+            fill(BAND_FILL, ROW);
             row(bold, new String[] {Text.forLocale(locale, "common.total"), "", "", "",
                 section.getPeopleAmount()});
             if (section.getExtrasCents() != 0L) {
@@ -276,14 +243,14 @@ public final class RoomInvoicePdf {
         /** An option's heading (name, pricing, room mix) kept on the same sheet as at least its first line. */
         private void group(final ReportCommands.InvoiceSection section, final ReportCommands.InvoiceOffer group)
                 throws IOException {
-            final List<String> names = wrap(bold, BODY, group.getName(), WIDTH - 8);
-            final List<String> notes = new ArrayList<>(wrap(regular, SMALL, group.getPricing(), WIDTH - 8));
+            final List<String> names = wrapped(bold, BODY, group.getName(), WIDTH - 8);
+            final List<String> notes = new ArrayList<>(wrapped(regular, SMALL, group.getPricing(), WIDTH - 8));
             if (group.getRoomMix() != null && !group.getRoomMix().isEmpty()) {
-                notes.addAll(wrap(regular, SMALL, group.getRoomMix(), WIDTH - 8));
+                notes.addAll(wrapped(regular, SMALL, group.getRoomMix(), WIDTH - 8));
             }
             final float headHeight = 6 + names.size() * 12 + notes.size() * SUB_ROW + 5;
             ensure(headHeight + ROW + SUB_ROW, section.getAccommodation(), true);
-            fill(GROUP_FILL, headHeight);
+            fill(BAND_FILL, headHeight);
             y -= 6;
             for (final String name : names) {
                 y -= 12;
@@ -352,15 +319,21 @@ public final class RoomInvoicePdf {
          */
         private void lines(final PDFont font, final float size, final Color color, final String sentence,
                 final float step) throws IOException {
-            for (final String line : wrap(font, size, sentence, WIDTH)) {
+            for (final String line : wrapped(font, size, sentence, WIDTH)) {
                 y -= step;
                 text(font, size, color, line, MARGIN);
             }
         }
 
+        /** Cleaned BEFORE it is measured: the font cannot give a width to a character it has no glyph for. */
+        private static List<String> wrapped(final PDFont font, final float size, final String text,
+                final float width) throws IOException {
+            return wrap(font, size, clean(font, text), width);
+        }
+
         /** A sheet that has no table: its one message, wrapped, from the cursor down. */
         private void paragraph(final String message) throws IOException {
-            for (final String line : wrap(regular, BODY, message, WIDTH)) {
+            for (final String line : wrapped(regular, BODY, message, WIDTH)) {
                 text(regular, BODY, INK, line, MARGIN);
                 y -= ROW - 2;
             }
@@ -418,21 +391,16 @@ public final class RoomInvoicePdf {
             y -= ROW - 4;
             float left = MARGIN + 4;
             for (int i = 0; i < cells.length; i++) {
-                final float size = fitted(font, cells[i], table.room(cells, i) - 8);
+                final String cell = clean(font, cells[i]);
+                final float size = fitted(font, cell, table.room(cells, i) - 8);
                 if (table.right()[i]) {
-                    textRight(font, size, INK, cells[i], table.columnRight(i));
+                    textRight(font, size, INK, cell, table.columnRight(i));
                 } else {
-                    text(font, size, INK, cells[i], left);
+                    text(font, size, INK, cell, left);
                 }
                 left += table.widths()[i];
             }
             y -= 4;
-        }
-
-        /** The body size, or smaller (never under {@link #SMALL}) so a long cell stays inside its column. */
-        private static float fitted(final PDFont font, final String text, final float width) throws IOException {
-            final float natural = widthOf(font, BODY, text == null ? "" : text);
-            return natural <= width ? BODY : Math.max(SMALL, BODY * width / natural);
         }
 
         /** A band behind the next {@code height} points (a heading row, an option, the subtotal). */
@@ -452,36 +420,20 @@ public final class RoomInvoicePdf {
 
         private void text(final PDFont font, final float size, final Color color, final String text,
                 final float x) throws IOException {
-            page.beginText();
-            page.setFont(font, size);
-            page.setNonStrokingColor(color);
-            page.newLineAtOffset(x, y);
-            page.showText(text == null ? "" : text);
-            page.endText();
+            PdfSheet.show(page, font, size, color, text, x, y);
         }
 
         private void textRight(final PDFont font, final float size, final Color color, final String text,
                 final float right) throws IOException {
-            text(font, size, color, text, right - widthOf(font, size, text == null ? "" : text));
+            final String cleaned = clean(font, text);
+            text(font, size, color, cleaned, right - widthOf(font, size, cleaned));
         }
 
         /** "Page n of m" on every sheet, which only the finished document can know. */
         private void footers(final String printed) throws IOException {
             close();
-            final int pages = doc.getNumberOfPages();
-            for (int i = 0; i < pages; i++) {
-                try (PDPageContentStream foot = new PDPageContentStream(doc, doc.getPage(i),
-                        PDPageContentStream.AppendMode.APPEND, true, true)) {
-                    page = foot;
-                    y = MARGIN;
-                    text(regular, SMALL, MUTED, Text.forLocale(locale, "pdf.roomInvoice.printedFooter", tripTitle,
-                            printed), MARGIN);
-                    // Page numbers go in as text: a number argument would be grouped ("1,000") by the format.
-                    textRight(regular, SMALL, MUTED, Text.forLocale(locale, "pdf.shared.pageOf",
-                            String.valueOf(i + 1), String.valueOf(pages)), MARGIN + WIDTH);
-                }
-            }
-            page = null;
+            PdfSheet.footers(doc, regular, Text.forLocale(locale, "pdf.roomInvoice.printedFooter", tripTitle,
+                    printed), locale);
         }
 
         private void close() throws IOException {

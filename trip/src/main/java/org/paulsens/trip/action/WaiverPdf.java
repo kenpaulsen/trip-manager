@@ -13,6 +13,9 @@ import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.WaiverAcceptance;
 import org.paulsens.trip.model.WaiverVersion;
 
+import static org.paulsens.trip.action.PdfSheet.nonNull;
+import static org.paulsens.trip.action.PdfSheet.safeTitle;
+
 /**
  * The signed copy of one document: the exact version's text, then the signature record -- who signed, for whom,
  * both attestations in the words the signer saw, when (UTC), from where, and the text's SHA-256. Drawn with the
@@ -37,7 +40,7 @@ public final class WaiverPdf {
 
     /** "{document} - {traveler}.pdf", safe for a Content-Disposition. */
     public static String fileName(final String title, final String travelerName) {
-        return BudgetPdf.safeTitle(title) + " - " + BudgetPdf.safeTitle(travelerName) + ".pdf";
+        return safeTitle(title) + " - " + safeTitle(travelerName) + ".pdf";
     }
 
     /** The signed copy with its frame in English. */
@@ -96,9 +99,5 @@ public final class WaiverPdf {
         return (text.getPublishedAt() == null) ? Text.forLocale(locale, "pdf.waiver.version", number)
                 : Text.forLocale(locale, "pdf.waiver.versionPublished", number,
                         Formats.format(text.getPublishedAt(), "yMMMd", locale));
-    }
-
-    private static String nonNull(final String value) {
-        return (value == null) ? "" : value;
     }
 }

@@ -16,7 +16,7 @@ import org.paulsens.trip.action.ExpenseViews.PaymentRow;
 import org.paulsens.trip.action.PdfSheet.Table;
 import org.paulsens.trip.i18n.Text;
 
-import static org.paulsens.trip.action.BudgetPdf.nonNull;
+import static org.paulsens.trip.action.PdfSheet.nonNull;
 
 /**
  * A trip's expense report as a PDF ({@code docs/expense-report.md}, "PDF and email"): the same {@link ExpensePage} the
@@ -207,7 +207,7 @@ public final class ExpenseReportPdf {
 
     /** {@code "Spring Demo Trip - Expense Report.pdf"}. */
     public static String fileName(final String tripTitle) {
-        return BudgetPdf.safeTitle(tripTitle) + " - Expense Report.pdf";
+        return PdfSheet.safeTitle(tripTitle) + " - Expense Report.pdf";
     }
 
     /** The worksheet; an entry that recorded a transaction says so under its note. */

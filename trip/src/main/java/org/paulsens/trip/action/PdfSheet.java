@@ -28,10 +28,11 @@ import org.paulsens.trip.i18n.Text;
  * A plain report sheet for the trip's money documents ({@link BudgetPdf}, {@link ExpenseReportPdf}): US Letter,
  * a title on the first page and a short one on each continuation page, section headings, tables whose column
  * headings repeat after a page break, wrapped paragraphs, label/value lines, whole-page images, other PDFs'
- * pages appended, and "Page n of m" footers. The look follows {@code RoomInvoicePdf} (same font, sizes and
- * greys); that class keeps its own private drawing code.
+ * pages appended, and "Page n of m" footers. {@code RoomInvoicePdf} lays out its own sheet (its tables nest
+ * notes under their rows) but draws with this class's measures, greys, fonts and static primitives, so the two
+ * cannot drift: its own copy of {@link #show} once skipped {@link #clean}, and one emoji failed an invoice.
  *
- * <p>Liberation Sans is EMBEDDED, as in {@code RoomInvoicePdf}, so names like Dragi&#263;evi&#263; draw. A character
+ * <p>Liberation Sans is EMBEDDED, so names like Dragi&#263;evi&#263; draw. A character
  * the font has no glyph for prints as "?" rather than failing the whole document, and line breaks in typed text
  * become separate lines. Text arrives already formatted ("$1,440.00"): this class draws, it does not compute.
  *
@@ -52,21 +53,22 @@ final class PdfSheet {
     static final float BODY = 9.5f;
     static final float SMALL = 8f;
 
-    private static final String REGULAR = "/liberation/LiberationSans-Regular.ttf";
-    private static final String BOLD = "/liberation/LiberationSans-Bold.ttf";
-    private static final float TOP = SHEET.getHeight() - MARGIN;
+    static final String REGULAR = "/liberation/LiberationSans-Regular.ttf";
+    static final String BOLD = "/liberation/LiberationSans-Bold.ttf";
+    static final float TOP = SHEET.getHeight() - MARGIN;
     /** Room kept at the bottom for the page footer. */
-    private static final float BOTTOM = MARGIN + 24f;
-    private static final float ROW = 15f;
+    static final float BOTTOM = MARGIN + 24f;
+    static final float ROW = 15f;
     private static final float LINE = 12f;
     /** The step between the lines of a wrapped table cell. */
     private static final float WRAPPED = 11f;
-    private static final Color INK = Color.BLACK;
-    private static final Color MUTED = new Color(0x55, 0x55, 0x55);
+    static final Color INK = Color.BLACK;
+    static final Color MUTED = new Color(0x55, 0x55, 0x55);
     private static final Color NEGATIVE = new Color(0xA3, 0x3A, 0x2E);
-    private static final Color HEAD_FILL = new Color(0xBB, 0xBB, 0xBB);
-    private static final Color TOTAL_FILL = new Color(0xF0, 0xF0, 0xF0);
-    private static final Color RULE = new Color(0xD8, 0xD8, 0xD8);
+    static final Color HEAD_FILL = new Color(0xBB, 0xBB, 0xBB);
+    /** The light band behind a total row, and behind an invoice's option heading. */
+    static final Color BAND_FILL = new Color(0xF0, 0xF0, 0xF0);
+    static final Color RULE = new Color(0xD8, 0xD8, 0xD8);
     /** The label column of {@link #fields}: its usual width, the most it grows to, and the gap it keeps. */
     private static final float LABELS = 150f;
     private static final float WIDEST_LABELS = 250f;
@@ -121,7 +123,8 @@ final class PdfSheet {
         this.locale = (locale == null) ? Locale.ENGLISH : locale;
     }
 
-    private static PDFont load(final PDDocument doc, final String resource) throws IOException {
+    /** One of the embedded Liberation Sans faces ({@link #REGULAR}, {@link #BOLD}), loaded into {@code doc}. */
+    static PDFont load(final PDDocument doc, final String resource) throws IOException {
         try (InputStream in = PdfSheet.class.getResourceAsStream(resource)) {
             if (in == null) {
                 throw new IOException("Font " + resource + " is not on the classpath (openpdf-fonts-extra)");
@@ -175,7 +178,7 @@ final class PdfSheet {
         if (total != null) {
             final List<List<String>> lines = layout(table, bold, total, false);
             ensure(heightOf(lines) + 2, table);
-            fill(TOTAL_FILL, heightOf(lines));
+            fill(BAND_FILL, heightOf(lines));
             draw(table, bold, lines, false);
         }
         y -= 4;
@@ -307,20 +310,8 @@ final class PdfSheet {
     byte[] finish(final LocalDate printed) throws IOException {
         try {
             closePage();
-            final int pages = doc.getNumberOfPages();
-            for (int i = 0; i < pages; i++) {
-                try (PDPageContentStream foot = new PDPageContentStream(doc, doc.getPage(i),
-                        PDPageContentStream.AppendMode.APPEND, true, true)) {
-                    page = foot;
-                    y = MARGIN;
-                    text(regular, SMALL, MUTED, Text.forLocale(locale, "pdf.shared.printedFooter", shortTitle,
-                            Formats.format(printed, "yMMMd", locale)), MARGIN);
-                    // Page numbers go in as text: a number argument would be grouped ("1,000") by the format.
-                    textRight(regular, SMALL, MUTED, Text.forLocale(locale, "pdf.shared.pageOf",
-                            String.valueOf(i + 1), String.valueOf(pages)), MARGIN + WIDTH);
-                }
-            }
-            page = null;
+            footers(doc, regular, Text.forLocale(locale, "pdf.shared.printedFooter", shortTitle,
+                    Formats.format(printed, "yMMMd", locale)), locale);
             final ByteArrayOutputStream bytes = new ByteArrayOutputStream();
             doc.save(bytes);
             return bytes.toByteArray();
@@ -329,6 +320,25 @@ final class PdfSheet {
                 source.close();
             }
             doc.close();
+        }
+    }
+
+    /**
+     * The footer of every sheet of a finished document: {@code left} at the left margin and "Page n of m", which
+     * only the finished document can know, at the right. Every content stream must be closed first.
+     */
+    static void footers(final PDDocument doc, final PDFont font, final String left, final Locale locale)
+            throws IOException {
+        final int pages = doc.getNumberOfPages();
+        for (int i = 0; i < pages; i++) {
+            try (PDPageContentStream foot = new PDPageContentStream(doc, doc.getPage(i),
+                    PDPageContentStream.AppendMode.APPEND, true, true)) {
+                show(foot, font, SMALL, MUTED, left, MARGIN, MARGIN);
+                // Page numbers go in as text: a number argument would be grouped ("1,000") by the format.
+                final String number = clean(font, Text.forLocale(locale, "pdf.shared.pageOf", String.valueOf(i + 1),
+                        String.valueOf(pages)));
+                show(foot, font, SMALL, MUTED, number, MARGIN + WIDTH - widthOf(font, SMALL, number), MARGIN);
+            }
         }
     }
 
@@ -428,7 +438,7 @@ final class PdfSheet {
     }
 
     /** The body size, or smaller (never under {@link #SMALL}) so a long cell stays inside its column. */
-    private static float fitted(final PDFont font, final String text, final float width) throws IOException {
+    static float fitted(final PDFont font, final String text, final float width) throws IOException {
         final float natural = widthOf(font, BODY, text);
         return natural <= width ? BODY : Math.max(SMALL, BODY * width / natural);
     }
@@ -449,6 +459,12 @@ final class PdfSheet {
 
     private void text(final PDFont font, final float size, final Color color, final String text, final float x)
             throws IOException {
+        show(page, font, size, color, text, x, y);
+    }
+
+    /** One run of text at a point of {@code page}, {@link #clean cleaned} first: THE way text reaches a sheet. */
+    static void show(final PDPageContentStream page, final PDFont font, final float size, final Color color,
+            final String text, final float x, final float y) throws IOException {
         page.beginText();
         page.setFont(font, size);
         page.setNonStrokingColor(color);
@@ -505,7 +521,7 @@ final class PdfSheet {
         return lines;
     }
 
-    private static float widthOf(final PDFont font, final float size, final String text) throws IOException {
+    static float widthOf(final PDFont font, final float size, final String text) throws IOException {
         return font.getStringWidth(text) / 1000f * size;
     }
 
@@ -530,6 +546,16 @@ final class PdfSheet {
             out.append(encodable(font, ch) ? ch : "?");
         }
         return out.toString();
+    }
+
+    /** {@code "Spring Demo Trip"} as part of a file name: anything a file system would refuse replaced. */
+    static String safeTitle(final String tripTitle) {
+        final String title = (tripTitle == null || tripTitle.isBlank()) ? "Trip" : tripTitle.trim();
+        return title.replaceAll("[\\\\/:*?\"<>|\\p{Cntrl}]", "-");
+    }
+
+    static String nonNull(final String text) {
+        return (text == null) ? "" : text;
     }
 
     private static boolean encodable(final PDFont font, final String ch) {

@@ -15,6 +15,9 @@ import org.paulsens.trip.action.PdfSheet.Table;
 import org.paulsens.trip.audit.RequestContext;
 import org.paulsens.trip.i18n.Text;
 
+import static org.paulsens.trip.action.PdfSheet.nonNull;
+import static org.paulsens.trip.action.PdfSheet.safeTitle;
+
 /**
  * The trip's budget as a PDF ({@code docs/budget.md}, "PDF"): the same {@link BudgetPage} the page renders,
  * section for section in the page's order (inputs, Shared Expenses, Lodging, per-person extras, per person by
@@ -142,11 +145,6 @@ public final class BudgetPdf {
         return safeTitle(tripTitle) + " - Budget.pdf";
     }
 
-    static String safeTitle(final String tripTitle) {
-        final String title = (tripTitle == null || tripTitle.isBlank()) ? "Trip" : tripTitle.trim();
-        return title.replaceAll("[\\\\/:*?\"<>|\\p{Cntrl}]", "-");
-    }
-
     private static List<String[]> shared(final List<LineRow> rows, final Locale locale) {
         final List<String[]> out = new ArrayList<>();
         for (final LineRow r : rows) {
@@ -226,9 +224,5 @@ public final class BudgetPdf {
     /** An amount with its percent label after it ("$100.00 (10% of Guide)"). */
     private static String percent(final String amount, final String percentLabel) {
         return (percentLabel == null) ? nonNull(amount) : nonNull(amount) + " (" + percentLabel + ")";
-    }
-
-    static String nonNull(final String text) {
-        return (text == null) ? "" : text;
     }
 }
