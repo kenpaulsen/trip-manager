@@ -18,6 +18,7 @@ import org.paulsens.trip.util.TestRandom;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
+import static org.paulsens.trip.util.TestPeople.savedPerson;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotNull;
@@ -197,19 +198,6 @@ public class ActingForAndFamilyVisibilityTest {
     }
 
     // ------------------------------------------------------------------ helpers
-
-    private Person savedPerson() {
-        final Person person = Person.builder()
-                .first(RandomData.genAlpha(6)).last(RandomData.genAlpha(8))
-                .email("vis." + RandomData.genAlpha(10) + "@example.com")
-                .build();
-        try {
-            assertTrue(dao.savePerson(person));
-        } catch (final IOException ex) {
-            throw new IllegalStateException(ex);
-        }
-        return person;
-    }
 
     private static Transaction plainTx(final Person.Id userId, final float amount) {
         return new Transaction("tx-" + RandomData.genAlpha(9), userId, null, Transaction.Type.Tx,

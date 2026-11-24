@@ -14,6 +14,7 @@ import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.chat.ChatChannel;
 import org.paulsens.trip.model.chat.ChatDraft;
+import org.paulsens.trip.util.TestPeople;
 import org.testng.Assert;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
@@ -46,12 +47,7 @@ public class ChatDraftTest {
     }
 
     private static Person.Id person(final String first) {
-        final PersonCommands people = new PersonCommands();
-        final Person who = people.createPerson();
-        who.setFirst(first);
-        who.setLast("Composer");
-        Assert.assertTrue(people.savePerson(who));
-        return who.getId();
+        return TestPeople.unreachable(first, "Composer");
     }
 
     private void seedTrip() throws IOException {

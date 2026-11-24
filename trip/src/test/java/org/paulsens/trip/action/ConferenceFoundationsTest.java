@@ -23,6 +23,7 @@ import org.paulsens.trip.util.RandomData;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
+import static org.paulsens.trip.util.TestPeople.savedPerson;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotNull;
@@ -331,13 +332,6 @@ public class ConferenceFoundationsTest {
     private static RegistrationOption admission() {
         return new RegistrationOption(1, "Admission", "", true, RegistrationOption.QuestionType.CHOICE, true,
                 List.of(new OptionChoice("full", "Full weekend", 15000L, null, null, null, null)));
-    }
-
-    private Person savedPerson() throws IOException {
-        final Person person = Person.builder().first("Conf" + RandomData.genAlpha(4)).last(RandomData.genAlpha(6))
-                .email("conf." + RandomData.genAlpha(8) + "@example.com").build();
-        assertTrue(dao.savePerson(person));
-        return person;
     }
 
     private static Caller callerFor(final Person person) {

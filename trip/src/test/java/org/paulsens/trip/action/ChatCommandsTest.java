@@ -17,6 +17,7 @@ import org.paulsens.trip.model.chat.ChatMembership;
 import org.paulsens.trip.model.chat.ChatMessage;
 import org.paulsens.trip.model.chat.ChatPage;
 import org.paulsens.trip.model.chat.ChatSettings;
+import org.paulsens.trip.util.TestPeople;
 import org.testng.Assert;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
@@ -632,11 +633,8 @@ public class ChatCommandsTest {
         Assert.assertNull(reply.getMessageObj().getOnBehalfOfId(), "an unstamped reply carries no stamp");
     }
 
-    private Person savedPerson(final String first) throws IOException {
-        final Person person = Person.builder().first(first).last("Chat")
-                .email(first.toLowerCase() + "-" + System.nanoTime() + "@example.com").build();
-        Assert.assertTrue(DAO.getInstance().savePerson(person), "test setup: save person");
-        return person;
+    private Person savedPerson(final String first) {
+        return TestPeople.savedPerson(first, "Chat");
     }
 
     private void manages(final Person manager, final Person member) throws IOException {

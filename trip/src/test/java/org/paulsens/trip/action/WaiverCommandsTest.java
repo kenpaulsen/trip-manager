@@ -24,6 +24,7 @@ import org.paulsens.trip.util.RandomData;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
+import static org.paulsens.trip.util.TestPeople.savedPerson;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotNull;
@@ -65,13 +66,6 @@ public class WaiverCommandsTest {
     }
 
     // ------------------------------------------------------------------ fixtures
-
-    private static Person savedPerson(final String first, final String last) throws IOException {
-        final Person person = Person.builder().first(first).last(last)
-                .email("wv." + RandomData.genAlpha(10) + "@example.com").build();
-        assertTrue(DAO.getInstance().savePerson(person));
-        return person;
-    }
 
     private Trip newTrip(final String org) throws IOException {
         final Trip trip = Trip.builder().id(UUID.randomUUID().toString()).title("Waiver trip")

@@ -4,9 +4,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.util.List;
 import org.paulsens.trip.dynamo.DAO;
-import org.paulsens.trip.util.RandomData;
 import org.testng.Assert;
 import org.testng.annotations.Test;
+
+import static org.paulsens.trip.util.TestPeople.savedPerson;
 
 /**
  * The person-modeled trip staff (2026-08-24): {@code facilitatorIds}/{@code directorIds} resolve to
@@ -96,14 +97,5 @@ public class TripStaffNamesTest {
         Assert.assertEquals(director.getLegacyDirector(), "Fr. Legacy");
         director.removeDirectorId(ann.getId());
         Assert.assertEquals(director.getDirectorNames(), "");
-    }
-
-    private static Person savedPerson(final String first, final String last) throws IOException {
-        final Person person = Person.builder()
-                .first(first).last(last)
-                .email("staff." + RandomData.genAlpha(8) + "@example.com")
-                .build();
-        Assert.assertTrue(DAO.getInstance().savePerson(person));
-        return person;
     }
 }

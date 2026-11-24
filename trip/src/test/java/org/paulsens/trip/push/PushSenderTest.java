@@ -13,7 +13,6 @@ import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
 import org.paulsens.trip.action.ChatCommands;
 import org.paulsens.trip.action.ConfigCommands;
-import org.paulsens.trip.action.PersonCommands;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.cache.CacheClient;
 import org.paulsens.trip.cache.CacheKeys;
@@ -22,6 +21,7 @@ import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.chat.ChatMessage;
+import org.paulsens.trip.util.TestPeople;
 import org.testng.Assert;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
@@ -248,12 +248,7 @@ public class PushSenderTest {
     }
 
     private static Person.Id person(final String first) {
-        final PersonCommands people = new PersonCommands();
-        final Person who = people.createPerson();
-        who.setFirst(first);
-        who.setLast("Badge");
-        Assert.assertTrue(people.savePerson(who));
-        return who.getId();
+        return TestPeople.unreachable(first, "Badge");
     }
 
     private static String trip(final Person.Id... people) throws IOException {

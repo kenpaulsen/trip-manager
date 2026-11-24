@@ -17,6 +17,7 @@ import org.paulsens.trip.model.Registration;
 import org.paulsens.trip.model.TemplateKind;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.util.RandomData;
+import org.paulsens.trip.util.TestPeople;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
@@ -407,16 +408,7 @@ public class FamilyRegistrationAndMailTest {
     // ------------------------------------------------------------------ helpers
 
     private Person savedPerson(final String tag) {
-        final Person person = Person.builder()
-                .first(tag + RandomData.genAlpha(4)).last(RandomData.genAlpha(6))
-                .email(tag + "." + RandomData.genAlpha(8) + "@example.com")
-                .build();
-        try {
-            assertTrue(dao.savePerson(person));
-        } catch (final IOException ex) {
-            throw new IllegalStateException(ex);
-        }
-        return person;
+        return TestPeople.savedPerson(tag + RandomData.genAlpha(4));
     }
 
     private Trip savedTrip() throws IOException {

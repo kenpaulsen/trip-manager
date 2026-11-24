@@ -28,6 +28,7 @@ import org.paulsens.trip.model.chat.ChatAttachment;
 import org.paulsens.trip.model.chat.ChatChannel;
 import org.paulsens.trip.model.chat.ChatMessage;
 import org.paulsens.trip.model.chat.ChatPage;
+import org.paulsens.trip.util.TestPeople;
 import org.testng.Assert;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
@@ -74,12 +75,7 @@ public class ChatPhotoRotationTest {
     }
 
     private static Person.Id person(final String first) {
-        final PersonCommands people = new PersonCommands();
-        final Person who = people.createPerson();
-        who.setFirst(first);
-        who.setLast("Photog");
-        Assert.assertTrue(people.savePerson(who));
-        return who.getId();
+        return TestPeople.unreachable(first, "Photog");
     }
 
     /** Stages and sends one photo as {@link #member}; answers the sent message. */

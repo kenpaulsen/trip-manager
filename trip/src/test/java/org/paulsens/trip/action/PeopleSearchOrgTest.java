@@ -14,6 +14,7 @@ import org.testng.annotations.Test;
 
 import static org.paulsens.trip.action.TenancyFixtures.orgWithAdmin;
 import static org.paulsens.trip.action.TestCallers.grantsNothing;
+import static org.paulsens.trip.util.TestPeople.savedPerson;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotNull;
@@ -216,13 +217,6 @@ public class PeopleSearchOrgTest {
 
     private static List<Person.Id> ids(final List<Person> people) {
         return people.stream().map(Person::getId).toList();
-    }
-
-    private Person savedPerson(final String first, final String last) throws IOException {
-        final Person person = Person.builder().first(first).last(last)
-                .email("pso." + RandomData.genAlpha(10) + "@example.com").build();
-        assertTrue(dao.savePerson(person));
-        return person;
     }
 
     private OrgCommands admin() {

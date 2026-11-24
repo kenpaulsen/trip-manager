@@ -13,6 +13,8 @@ import org.testng.Assert;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
+import static org.paulsens.trip.util.TestPeople.savedPerson;
+
 /**
  * {@link PaymentsResource}: the payment flow for clients that are not browsers -- a thin edge over
  * {@code PaymentCommands} (the flow itself is pinned in {@code PaymentCommandsTest}). What carries risk HERE
@@ -250,19 +252,6 @@ public class PaymentsResourceTest extends ResourceTestSupport {
     protected void signedInAs(final Person.Id id) {
         super.signedInAs(id);
         lastSignedIn = id;
-    }
-
-    private Person savedPerson() {
-        final Person person = Person.builder()
-                .first(RandomData.genAlpha(6)).last(RandomData.genAlpha(8))
-                .email("rest." + RandomData.genAlpha(10) + "@example.com")
-                .build();
-        try {
-            Assert.assertTrue(DAO.getInstance().savePerson(person));
-        } catch (final java.io.IOException ex) {
-            throw new IllegalStateException(ex);
-        }
-        return person;
     }
 
     private static String tokenFrom(final String approvalUrl) {

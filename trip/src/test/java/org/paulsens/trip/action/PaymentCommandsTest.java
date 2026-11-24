@@ -22,6 +22,7 @@ import org.paulsens.trip.pay.PaymentProcessor;
 import org.paulsens.trip.pay.PaymentProcessors;
 import org.paulsens.trip.pay.PaymentRecorder;
 import org.paulsens.trip.util.RandomData;
+import org.paulsens.trip.util.TestPeople;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
@@ -1232,17 +1233,11 @@ public class PaymentCommandsTest {
     }
 
     private Person savedPerson(final boolean siteAdmin) {
-        final Person person = Person.builder()
+        return TestPeople.save(Person.builder()
                 .first(RandomData.genAlpha(6)).last(RandomData.genAlpha(8))
                 .email("pay." + RandomData.genAlpha(10) + "@example.com")
                 .notes(siteAdmin ? "true" : null)
-                .build();
-        try {
-            org.testng.Assert.assertTrue(DAO.getInstance().savePerson(person));
-        } catch (final IOException ex) {
-            throw new IllegalStateException(ex);
-        }
-        return person;
+                .build());
     }
 
     private void grantManaged(final Person manager, final Person managed) throws IOException {

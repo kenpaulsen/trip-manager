@@ -16,10 +16,11 @@ import org.paulsens.trip.model.Transaction;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.pay.PaymentRecorder;
 import org.paulsens.trip.site.SiteContext;
-import org.paulsens.trip.util.RandomData;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
+
+import static org.paulsens.trip.util.TestPeople.savedPerson;
 
 /**
  * What a site does not list, it does not serve: a trip, its chat, its ledger rows and its payments are
@@ -226,15 +227,6 @@ public class SiteReachTest {
 
     private static List<String> ids(final List<Payment> payments) {
         return payments.stream().map(Payment::getPaymentId).toList();
-    }
-
-    private static Person savedPerson() throws IOException {
-        final Person person = Person.builder()
-                .first(RandomData.genAlpha(6)).last(RandomData.genAlpha(8))
-                .email("reach." + RandomData.genAlpha(10) + "@example.com")
-                .build();
-        Assert.assertTrue(DAO.getInstance().savePerson(person));
-        return person;
     }
 
     private static Transaction saveRow(final Person.Id personId, final String orgId, final float amount,

@@ -18,6 +18,7 @@ import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.chat.ChatChannel;
 import org.paulsens.trip.model.chat.ChatMembership;
 import org.paulsens.trip.model.chat.ChatMessage;
+import org.paulsens.trip.util.TestPeople;
 import org.testng.Assert;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
@@ -52,12 +53,7 @@ public class ChatUnreadCountTest {
     }
 
     private static Person.Id person(final String first) {
-        final PersonCommands people = new PersonCommands();
-        final Person who = people.createPerson();
-        who.setFirst(first);
-        who.setLast("Unread");
-        Assert.assertTrue(people.savePerson(who));
-        return who.getId();
+        return TestPeople.unreachable(first, "Unread");
     }
 
     private ChatMessage send(final Person.Id author, final String body) {

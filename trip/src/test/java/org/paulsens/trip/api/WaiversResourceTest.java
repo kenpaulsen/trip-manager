@@ -23,6 +23,7 @@ import org.testng.annotations.BeforeClass;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
+import static org.paulsens.trip.util.TestPeople.savedPerson;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertTrue;
@@ -63,13 +64,6 @@ public class WaiversResourceTest extends ResourceTestSupport {
         bind(PersonCommands.class, new PersonCommands());
         bind(TripCommands.class, new TripCommands());
         bind(PrivilegeCommands.class, new PrivilegeCommands());
-    }
-
-    private static Person savedPerson(final String first, final String last) throws IOException {
-        final Person person = Person.builder().first(first).last(last)
-                .email("awv." + RandomData.genAlpha(10) + "@example.com").build();
-        assertTrue(DAO.getInstance().savePerson(person));
-        return person;
     }
 
     private Trip newTrip() throws IOException {

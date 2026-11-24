@@ -21,6 +21,7 @@ import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
 import static org.paulsens.trip.action.TestCallers.grantsNothing;
+import static org.paulsens.trip.util.TestPeople.savedPerson;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotSame;
@@ -354,21 +355,6 @@ public class RegistrationDraftTest {
     private RegistrationCommands commandsFor(final Person person) {
         return new RegistrationCommands(() -> new Caller(person.getId(), false,
                 new AuditActor(person.getEmail(), person.getId().getValue()), grantsNothing()));
-    }
-
-    private Person savedPerson() {
-        final Person person = Person.builder()
-                .first(RandomData.genAlpha(6)).last(RandomData.genAlpha(8))
-                .email("draft." + RandomData.genAlpha(10) + "@example.com")
-                .build();
-        try {
-            if (!dao.savePerson(person)) {
-                throw new IllegalStateException("could not save test person");
-            }
-        } catch (final IOException ex) {
-            throw new IllegalStateException(ex);
-        }
-        return person;
     }
 
     private Trip savedTrip() throws IOException {

@@ -16,6 +16,7 @@ import org.paulsens.trip.model.CustomPalette;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.site.SiteContext;
+import org.paulsens.trip.util.TestPeople;
 import org.testng.annotations.Test;
 
 /**
@@ -66,9 +67,9 @@ public class EditorColorsTest {
     @Test
     public void onlyTheOrgsOwnPeopleSeeItsColorNames() throws Exception {
         final DAO dao = DAO.getInstance();
-        final Person member = person(dao);
-        final Person stranger = person(dao);
-        final Person admin = person(dao);
+        final Person member = TestPeople.savedPerson("Ed", "Colors");
+        final Person stranger = TestPeople.savedPerson("Ed", "Colors");
+        final Person admin = TestPeople.savedPerson("Ed", "Colors");
         final Organization org = orgIn("blue");
         org.setAdminIds(List.of(admin.getId()));
         member.setOrgIds(List.of(org.getId()));
@@ -121,13 +122,6 @@ public class EditorColorsTest {
                 RequestContext.of(null, null, SiteContext.shared("www.visitqueenofpeace.com")))
                 .call(() -> colors.json(null));
         assertTrue(shared.contains("\"--text-color\"") && !shared.contains("--brand-"), shared);
-    }
-
-    private static Person person(final DAO dao) throws java.io.IOException {
-        final Person person = Person.builder().first("Ed").last("Colors")
-                .email("editor.colors." + System.nanoTime() + "@example.com").build();
-        assertTrue(dao.savePerson(person));
-        return person;
     }
 
     private static Caller caller(final Person person, final boolean siteAdmin) {

@@ -15,6 +15,7 @@ import org.paulsens.trip.model.chat.ChatChannel;
 import org.paulsens.trip.model.chat.ChatMembership;
 import org.paulsens.trip.model.chat.ChatMessage;
 import org.paulsens.trip.model.chat.ChatSettings;
+import org.paulsens.trip.util.TestPeople;
 import org.testng.Assert;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
@@ -51,12 +52,7 @@ public class ChatMembershipAndPrefsTest {
     }
 
     private static Person.Id person(final String first) {
-        final PersonCommands people = new PersonCommands();
-        final Person who = people.createPerson();
-        who.setFirst(first);
-        who.setLast("Chatter");
-        Assert.assertTrue(people.savePerson(who));
-        return who.getId();
+        return TestPeople.unreachable(first, "Chatter");
     }
 
     private void seedTrip() throws IOException {

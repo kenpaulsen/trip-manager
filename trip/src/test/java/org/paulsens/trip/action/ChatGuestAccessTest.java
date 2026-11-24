@@ -24,6 +24,8 @@ import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 import org.paulsens.trip.cache.Cached;
 
+import static org.paulsens.trip.util.TestPeople.savedPerson;
+
 /**
  * Non-member chat access: whole-family membership, invite-link guests, and the hardening that came with
  * making a membership row mean something (rejoin's outsider refusal, removed-stays-removed).
@@ -493,15 +495,6 @@ public class ChatGuestAccessTest {
 
     private static String selectorOf(final String token) {
         return token.substring(0, token.indexOf('.'));
-    }
-
-    private Person savedPerson(final String label) throws IOException {
-        final Person person = Person.builder()
-                .first(label).last(RandomData.genAlpha(8))
-                .email(label + "." + RandomData.genAlpha(8) + "@example.com")
-                .build();
-        Assert.assertTrue(DAO.getInstance().savePerson(person));
-        return person;
     }
 
     private static Person.Id outsider(final String label) {

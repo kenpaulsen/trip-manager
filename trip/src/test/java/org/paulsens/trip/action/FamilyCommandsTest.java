@@ -13,6 +13,7 @@ import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Transaction;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.util.RandomData;
+import org.paulsens.trip.util.TestPeople;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
@@ -604,16 +605,7 @@ public class FamilyCommandsTest {
 
     /** A fresh saved person with a unique email, acting as a family owner. */
     private Person savedOwner() {
-        final Person owner = Person.builder()
-                .first(RandomData.genAlpha(6)).last(RandomData.genAlpha(8))
-                .email("owner." + unique() + "@example.com")
-                .build();
-        try {
-            assertTrue(dao.savePerson(owner));
-        } catch (final IOException ex) {
-            throw new IllegalStateException(ex);
-        }
-        return owner;
+        return TestPeople.savedPerson();
     }
 
     /** An org-scoped people admin can link within their org, and NEVER across the tenancy line. */
