@@ -1,5 +1,7 @@
 package org.paulsens.trip.action;
 
+import java.util.ArrayList;
+import java.util.List;
 import org.paulsens.trip.model.ExpenseCategory;
 import org.testng.annotations.Test;
 
@@ -7,6 +9,26 @@ import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNull;
 
 public class MoneyFormsTest {
+
+    @Test
+    public void aSavedRowIsAppendedWhenNewAndKeepsItsPlaceWhenEdited() {
+        final List<String> rows = new ArrayList<>(List.of("a", "b", "c"));
+        MoneyForms.putAt(rows, null, "d");
+        assertEquals(rows, List.of("a", "b", "c", "d"));
+        MoneyForms.putAt(rows, "b", "B");
+        assertEquals(rows, List.of("a", "B", "c", "d"));
+    }
+
+    @Test
+    public void anEnumsMenuListsEveryConstantByNameInOrder() {
+        final List<BudgetViews.Choice> menu = MoneyForms.choicesOf(ExpenseCategory.values(),
+                ExpenseCategory::getLabel);
+        assertEquals(menu.size(), ExpenseCategory.values().length);
+        assertEquals(menu.get(0).getId(), ExpenseCategory.values()[0].name());
+        assertEquals(menu.get(0).getLabel(), ExpenseCategory.values()[0].getLabel());
+        menu.add(MoneyForms.choice("x", "Extra"));      // the caller's own list
+        assertEquals(menu.get(menu.size() - 1).getLabel(), "Extra");
+    }
 
     @Test
     public void aPercentBecomesBasisPointsHalfUp() {

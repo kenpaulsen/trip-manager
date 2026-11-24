@@ -51,10 +51,13 @@ import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedExce
 
 import static org.paulsens.trip.action.MoneyForms.bps;
 import static org.paulsens.trip.action.MoneyForms.cents;
+import static org.paulsens.trip.action.MoneyForms.choice;
+import static org.paulsens.trip.action.MoneyForms.choicesOf;
 import static org.paulsens.trip.action.MoneyForms.dollars;
 import static org.paulsens.trip.action.MoneyForms.dollarsProblem;
 import static org.paulsens.trip.action.MoneyForms.money;
 import static org.paulsens.trip.action.MoneyForms.parse;
+import static org.paulsens.trip.action.MoneyForms.putAt;
 import static org.paulsens.trip.action.MoneyForms.tooLong;
 import static org.paulsens.trip.action.PageFeedback.info;
 import static org.paulsens.trip.action.PageFeedback.refuse;
@@ -452,11 +455,7 @@ public class BudgetCommands {
 
     /** The line dialog's Category menu: every category, in menu order, value = the enum name. */
     public List<Choice> categories() {
-        final List<Choice> choices = new ArrayList<>();
-        for (final BudgetCategory category : BudgetCategory.values()) {
-            choices.add(choice(category.name(), category.getLabel()));
-        }
-        return choices;
+        return choicesOf(BudgetCategory.values(), BudgetCategory::getLabel);
     }
 
     /**
@@ -477,13 +476,6 @@ public class BudgetCommands {
             }
         }
         return choices;
-    }
-
-    private static Choice choice(final String id, final String label) {
-        final Choice choice = new Choice();
-        choice.setId(id);
-        choice.setLabel(label);
-        return choice;
     }
 
     // ================================================================== clone
@@ -782,11 +774,7 @@ public class BudgetCommands {
                 .percentBps(form.isPercentMode() ? bps(form.getPercent()) : 0)
                 .perNight(form.isPerNight()).note(form.getNote()).payee(form.getPayee()).offSite(form.isOffSite())
                 .build();
-        if (adding) {
-            budget.getLines().add(line);
-        } else {
-            budget.getLines().set(budget.getLines().indexOf(existing), line);
-        }
+        putAt(budget.getLines(), existing, line);
         // Checked against the budget WITH this line in place: a cycle runs through the line being saved.
         final String percent = BudgetMath.percentProblem(budget, line);
         if (percent != null) {
@@ -913,11 +901,7 @@ public class BudgetCommands {
                 .singles(form.isNeedsSingles() ? form.getSingles() : 0).payee(form.getPayee()).note(form.getNote())
                 .offSite(form.isOffSite())
                 .build();
-        if (adding) {
-            budget.getLodging().add(line);
-        } else {
-            budget.getLodging().set(budget.getLodging().indexOf(existing), line);
-        }
+        putAt(budget.getLodging(), existing, line);
         if (!persist(trip, budget, refusal, (adding ? "added" : "edited") + " lodging line '" + line.getLabel()
                 + "'", Text.get("feedback.budgetCommands.lodgingLineSaved"))) {
             return false;

@@ -2,6 +2,10 @@ package org.paulsens.trip.action;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.function.Function;
+import org.paulsens.trip.action.BudgetViews.Choice;
 import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.pay.MoneyMath;
 
@@ -75,6 +79,35 @@ final class MoneyForms {
      */
     static String tooLong(final String tooLongKey, final String text, final int max) {
         return (text != null && text.trim().length() > max) ? Text.get(tooLongKey, max) : null;
+    }
+
+    /**
+     * A saved row into its list: appended when it is new ({@code existing} null), else in {@code existing}'s
+     * place, so an edit never moves a line. The caller has already refused an edit of a row that is gone.
+     */
+    static <T> void putAt(final List<T> rows, final T existing, final T row) {
+        if (existing == null) {
+            rows.add(row);
+        } else {
+            rows.set(rows.indexOf(existing), row);
+        }
+    }
+
+    /** One menu entry: the value a form stores and what the menu calls it. */
+    static Choice choice(final String id, final String label) {
+        final Choice choice = new Choice();
+        choice.setId(id);
+        choice.setLabel(label);
+        return choice;
+    }
+
+    /** An enum's menu: every constant in declaration order, value = its name. A new list, the caller's to change. */
+    static <E extends Enum<E>> List<Choice> choicesOf(final E[] values, final Function<E, String> label) {
+        final List<Choice> choices = new ArrayList<>();
+        for (final E value : values) {
+            choices.add(choice(value.name(), label.apply(value)));
+        }
+        return choices;
     }
 
     /** The enum constant named {@code name}; null for blank or unknown. */

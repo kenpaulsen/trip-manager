@@ -64,10 +64,13 @@ import org.paulsens.trip.util.EmailAddresses;
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
 
 import static org.paulsens.trip.action.MoneyForms.cents;
+import static org.paulsens.trip.action.MoneyForms.choice;
+import static org.paulsens.trip.action.MoneyForms.choicesOf;
 import static org.paulsens.trip.action.MoneyForms.dollars;
 import static org.paulsens.trip.action.MoneyForms.dollarsProblem;
 import static org.paulsens.trip.action.MoneyForms.money;
 import static org.paulsens.trip.action.MoneyForms.parse;
+import static org.paulsens.trip.action.MoneyForms.putAt;
 import static org.paulsens.trip.action.MoneyForms.signedDollarsProblem;
 import static org.paulsens.trip.action.MoneyForms.tooLong;
 import static org.paulsens.trip.action.PageFeedback.info;
@@ -727,20 +730,12 @@ public class ExpenseCommands {
 
     /** The Category menu: every category, in menu order, value = the enum name. */
     public List<Choice> categories() {
-        final List<Choice> choices = new ArrayList<>();
-        for (final ExpenseCategory category : ExpenseCategory.values()) {
-            choices.add(choice(category.name(), category.getLabel()));
-        }
-        return choices;
+        return choicesOf(ExpenseCategory.values(), ExpenseCategory::getLabel);
     }
 
     /** The Paid status menu: Not yet reimbursed, Paid by organization, Already reimbursed; value = the enum name. */
     public List<Choice> paidStatuses() {
-        final List<Choice> choices = new ArrayList<>();
-        for (final ExpensePaidStatus status : ExpensePaidStatus.values()) {
-            choices.add(choice(status.name(), status.getLabel()));
-        }
-        return choices;
+        return choicesOf(ExpensePaidStatus.values(), ExpensePaidStatus::getLabel);
     }
 
     /** The budget line just chosen in the dialog sets the category to match it (still editable after). */
@@ -877,11 +872,7 @@ public class ExpenseCommands {
         }
         final CurrencyRate rate = CurrencyRate.builder().code(code).perUsdMicros(micros(form.getRate()))
                 .note(form.getNote()).build();
-        if (existing == null) {
-            report.getCurrencies().add(rate);
-        } else {
-            report.getCurrencies().set(report.getCurrencies().indexOf(existing), rate);
-        }
+        putAt(report.getCurrencies(), existing, rate);
         if (!persist(trip, report, refusal, ((existing == null) ? "added " : "set the rate of ") + code + " at "
                 + ExpenseMath.rate(rate.getPerUsdMicros()).toPlainString(),
                 Text.get("feedback.expenseCommands.currencySaved"))) {
@@ -985,11 +976,7 @@ public class ExpenseCommands {
                 .category(category).description(form.getDescription()).currency(currency)
                 .amountMinor(cents(form.getAmount())).budgetLineId(budgetLineId).note(form.getNote())
                 .receiptIds(adding ? null : existing.getReceiptIds()).paidStatus(paidStatus).build();
-        if (adding) {
-            report.getLines().add(line);
-        } else {
-            report.getLines().set(report.getLines().indexOf(existing), line);
-        }
+        putAt(report.getLines(), existing, line);
         if (!persist(trip, report, refusal, (adding ? "added" : "edited") + " expense '" + line.getDescription()
                 + "'", Text.get("feedback.expenseCommands.expenseSaved"))) {
             return false;
@@ -1235,11 +1222,7 @@ public class ExpenseCommands {
                 .recordedById(adding ? caller().personId() : existing.getRecordedById())
                 .recordedBy(adding ? callerName() : existing.getRecordedBy())
                 .recordedOn(adding ? LocalDateTime.now() : existing.getRecordedOn()).build();
-        if (adding) {
-            report.getPayments().add(payment);
-        } else {
-            report.getPayments().set(report.getPayments().indexOf(existing), payment);
-        }
+        putAt(report.getPayments(), existing, payment);
         final String what = (adding ? "recorded" : "edited") + " a payment of " + money(payment.getAmountCents())
                 + " by " + payment.getMethod() + " for " + lineIds.size()
                 + ((lineIds.size() == 1) ? " expense" : " expenses");
@@ -1549,11 +1532,7 @@ public class ExpenseCommands {
 
     /** The worksheet types in menu order; value = the enum name. */
     public List<Choice> advanceTypes() {
-        final List<Choice> choices = new ArrayList<>();
-        for (final AdvanceType type : AdvanceType.values()) {
-            choices.add(choice(type.name(), type.getLabel()));
-        }
-        return choices;
+        return choicesOf(AdvanceType.values(), AdvanceType::getLabel);
     }
 
     /** The dialog's title for a type name; "Advance" for an unknown one. */
@@ -1696,11 +1675,7 @@ public class ExpenseCommands {
                 .fields(advanceFields(type, form))
                 .personIds((type == AdvanceType.PARTICIPANT) ? distinct(form.getPersonIds()) : List.of())
                 .transaction(adding ? null : existing.getTransaction()).build();
-        if (adding) {
-            report.getAdvances().add(entry);
-        } else {
-            report.getAdvances().set(report.getAdvances().indexOf(existing), entry);
-        }
+        putAt(report.getAdvances(), existing, entry);
         // Audit text stays English whatever the editor reads (docs/i18n.md).
         final String what = (adding ? "added" : "edited") + " the " + type.getLabel(Locale.ENGLISH) + " of "
                 + money(Math.abs(ExpenseMath.advanceUsd(report, entry))) + " on the cash-advance worksheet";
@@ -1943,13 +1918,6 @@ public class ExpenseCommands {
         }
         final String trimmed = text.trim();
         return trimmed.isEmpty() ? null : trimmed;
-    }
-
-    private static Choice choice(final String id, final String label) {
-        final Choice choice = new Choice();
-        choice.setId(id);
-        choice.setLabel(label);
-        return choice;
     }
 
     Caller caller() {
