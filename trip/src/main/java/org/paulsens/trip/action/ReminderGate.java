@@ -59,13 +59,9 @@ public final class ReminderGate {
         return personId != null && facilitators != null && facilitators.contains(personId);
     }
 
-    /** The trip, or null for an unknown one ({@code getTrip} answers a miss with a blank trip and a fresh id). */
+    /** The trip, or null for an unknown one: the money pages' one test ({@link TripFinanceGate#knownTrip}). */
     Trip knownTrip(final String tripId) {
-        if (tripId == null) {
-            return null;
-        }
-        final Trip trip = tripSource.get().getTrip(tripId);
-        return (trip == null || !tripId.equals(trip.getId())) ? null : trip;
+        return TripFinanceGate.knownTrip(tripSource.get(), tripId);
     }
 
     /** The trip read fresh for a write, behind the gate; null when the caller may not manage it. */

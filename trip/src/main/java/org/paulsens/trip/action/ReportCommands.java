@@ -490,9 +490,9 @@ public class ReportCommands {
                         false), offers);
     }
 
-    /** getTrip answers a blank trip for an unknown id or one this site does not serve. */
+    /** Unknown here, or a trip this site does not serve: the money pages' one test, not a copy of it. */
     private boolean knownTrip(final String tripId) {
-        return tripId != null && tripId.equals(tripSource.get().getTrip(tripId).getId());
+        return TripFinanceGate.knownTrip(tripSource.get(), tripId) != null;
     }
 
     /** What a line counts and bills; the order is the order lines take within an option. */

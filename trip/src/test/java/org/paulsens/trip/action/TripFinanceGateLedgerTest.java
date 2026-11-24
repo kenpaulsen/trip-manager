@@ -62,6 +62,32 @@ public class TripFinanceGateLedgerTest {
         Assert.assertEquals(ledger.tripAndOrgBalances(padded).tripId(), trip.getId());
     }
 
+    @Test
+    public void theReminderGateAndTheLodgingReportsAskTheSameTest() throws IOException {
+        final Trip trip = storedTrip(Person.Id.newInstance());
+        final String padded = " " + trip.getId() + " ";
+        final ReminderGate reminders = new ReminderGate(TenancyFixtures::siteAdminCaller,
+                () -> new TripCommands(TenancyFixtures::asSiteAdmin, TenancyFixtures::siteAdminCaller),
+                TenancyFixtures::asSiteAdmin);
+        // Each kept a copy without the trim, so the id the money pages took was no trip to the Communications page.
+        Assert.assertEquals(reminders.knownTrip(padded).getId(), trip.getId());
+        Assert.assertNull(reminders.knownTrip("  "));
+        Assert.assertNull(reminders.knownTrip(null));
+
+        // The reports' copy dereferenced getTrip's answer: a null from it was a 500, not "no such trip".
+        final ReportCommands reports = new ReportCommands(() -> new NoTrips(), LodgingCommands::new);
+        Assert.assertTrue(reports.roomInvoice(trip.getId()).getSections().isEmpty());
+        Assert.assertTrue(reports.billedVsCost(trip.getId()).getSections().isEmpty());
+    }
+
+    /** Trips that answer null where the real bean answers a blank trip. */
+    private static final class NoTrips extends TripCommands {
+        @Override
+        public Trip getTrip(final String id) {
+            return null;
+        }
+    }
+
     /**
      * Who the Balance page's {@code ?trip=} form opens for (a site admin, the trip's exact Finance Viewer) and whom
      * it is about: someone on the trip, or someone with a row on its books after leaving it.
