@@ -23,6 +23,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.Payment;
 import org.paulsens.trip.model.ProcessorType;
+import org.paulsens.trip.util.Util;
 
 /**
  * Stripe behind the {@link PaymentProcessor} SPI, INLINE-shaped: {@link #createOrder} makes a PaymentIntent
@@ -203,7 +204,7 @@ public final class StripeProcessor implements PaymentProcessor {
                 .setAutomaticPaymentMethods(PaymentIntentCreateParams.AutomaticPaymentMethods.builder()
                         .setEnabled(true)
                         .build())
-                .setDescription(truncate(description, 1000))
+                .setDescription(Util.truncate(description, 1000))
                 .putMetadata("paymentId", payment.getPaymentId())
                 .putMetadata("tripId", payment.getTripId())
                 .putMetadata("sandbox", Boolean.toString(payment.isSandbox()))
@@ -417,12 +418,5 @@ public final class StripeProcessor implements PaymentProcessor {
     /** The methods the intent offers now, as Stripe resolved them from the organization's dashboard. */
     private static String offeredBy(final PaymentIntent intent) {
         return (intent.getPaymentMethodTypes() == null) ? "" : String.join(",", intent.getPaymentMethodTypes());
-    }
-
-    private static String truncate(final String text, final int max) {
-        if (text == null) {
-            return null;
-        }
-        return text.length() <= max ? text : text.substring(0, max);
     }
 }

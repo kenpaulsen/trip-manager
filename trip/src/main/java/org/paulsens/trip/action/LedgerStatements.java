@@ -23,6 +23,7 @@ import org.paulsens.trip.model.CompositeKey;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Transaction;
 import org.paulsens.trip.model.Trip;
+import org.paulsens.trip.util.Util;
 
 /**
  * The per-organization ledger's arithmetic, with no store and no request behind it: the subject(s)' live rows cut
@@ -112,7 +113,7 @@ public final class LedgerStatements {
     }
 
     private void take(final Person.Id subject, final Transaction tx) {
-        final String orgId = blankToNull(tx.getOrgId());
+        final String orgId = Util.blankToNull(tx.getOrgId());
         if (tx.getDeleted() != null || !source.sees(subject, orgId)) {
             return;
         }
@@ -404,9 +405,5 @@ public final class LedgerStatements {
     /** A row's binding key, as {@code BindingDAO} writes it. */
     static String keyOf(final Transaction tx) {
         return CompositeKey.join(tx.getUserId().getValue(), tx.getTxId());
-    }
-
-    private static String blankToNull(final String value) {
-        return value == null || value.isBlank() ? null : value;
     }
 }

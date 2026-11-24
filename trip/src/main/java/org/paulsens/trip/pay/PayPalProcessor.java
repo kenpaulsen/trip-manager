@@ -26,6 +26,7 @@ import java.util.OptionalLong;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.model.Payment;
 import org.paulsens.trip.model.ProcessorType;
+import org.paulsens.trip.util.Util;
 
 /**
  * PayPal Checkout (orders v2) behind the {@link PaymentProcessor} SPI -- constructed PER
@@ -72,7 +73,7 @@ public final class PayPalProcessor implements PaymentProcessor {
                         .referenceId(payment.getPaymentId())
                         .customId(payment.getPaymentId())
                         .invoiceId(payment.getPaymentId())
-                        .description(truncate(description, 127))
+                        .description(Util.truncate(description, 127))
                         .amount(new AmountWithBreakdown.Builder()
                                 .currencyCode(USD)
                                 .value(centsToValue(payment.getTotalChargedCents()))
@@ -266,12 +267,5 @@ public final class PayPalProcessor implements PaymentProcessor {
         } catch (final ArithmeticException | NumberFormatException ex) {
             return null;
         }
-    }
-
-    private static String truncate(final String text, final int max) {
-        if (text == null) {
-            return null;
-        }
-        return text.length() <= max ? text : text.substring(0, max);
     }
 }

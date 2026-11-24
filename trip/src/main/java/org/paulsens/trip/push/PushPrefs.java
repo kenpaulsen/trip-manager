@@ -12,6 +12,7 @@ import java.time.ZoneId;
 import java.time.format.DateTimeParseException;
 import java.util.List;
 import lombok.Value;
+import org.paulsens.trip.util.Util;
 
 /**
  * One person's push notification settings plus their registered devices -- the content of the reserved
@@ -47,9 +48,9 @@ public class PushPrefs implements Serializable {
             @JsonProperty("timeZone") final String timeZone,
             @JsonProperty("devices") final List<PushDevice> devices) {
         this.enabled = enabled == null || enabled;
-        this.quietHoursStart = blankToNull(quietHoursStart);
-        this.quietHoursEnd = blankToNull(quietHoursEnd);
-        this.timeZone = blankToNull(timeZone);
+        this.quietHoursStart = Util.trimToNull(quietHoursStart);
+        this.quietHoursEnd = Util.trimToNull(quietHoursEnd);
+        this.timeZone = Util.trimToNull(timeZone);
         this.devices = devices == null ? List.of()
                 : devices.stream().filter(device -> device != null && device.getKind() != null).toList();
     }
@@ -136,9 +137,5 @@ public class PushPrefs implements Serializable {
         } catch (final java.time.DateTimeException ex) {
             return null;
         }
-    }
-
-    private static String blankToNull(final String value) {
-        return value == null || value.isBlank() ? null : value.trim();
     }
 }

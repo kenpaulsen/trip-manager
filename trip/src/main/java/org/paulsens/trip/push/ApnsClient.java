@@ -12,6 +12,7 @@ import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.ConfigCommands;
 import org.paulsens.trip.config.KnownSettings;
+import org.paulsens.trip.util.Util;
 
 /**
  * Direct APNs over HTTP/2 with token auth (an ES256 JWT from the {@code .p8} key), no SDK
@@ -118,7 +119,7 @@ public final class ApnsClient implements PushGateway {
         }
         final int at = body.indexOf("\"reason\"");
         if (at < 0) {
-            return body.length() > 200 ? body.substring(0, 200) : body;
+            return Util.truncate(body, 200);
         }
         final int open = body.indexOf('"', body.indexOf(':', at) + 1);
         final int close = open < 0 ? -1 : body.indexOf('"', open + 1);

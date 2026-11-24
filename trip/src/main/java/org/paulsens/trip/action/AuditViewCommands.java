@@ -23,6 +23,7 @@ import org.paulsens.trip.model.AuditScope;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.site.SiteContext;
+import org.paulsens.trip.util.Util;
 
 /**
  * Reads the audit trail for the admin page, as {@code #{auditView}}.
@@ -164,12 +165,12 @@ public class AuditViewCommands {
         final AuditQuery query = AuditQuery.builder()
                 .scope(scopeFor(orgId))
                 .before(before)
-                .actor(blankToNull(actor))
+                .actor(Util.blankToNull(actor))
                 // Parsed leniently: these come from EL, where an unset dropdown is "" rather than null, and a
                 // stale bookmarked value must not throw on a page render.
                 .action(parseAction(action))
                 .outcome(parseOutcome(outcome))
-                .text(blankToNull(text))
+                .text(Util.blankToNull(text))
                 .limit(limit <= 0 ? AuditQuery.DEFAULT_LIMIT : limit)
                 .build();
         try {
@@ -233,10 +234,10 @@ public class AuditViewCommands {
         final AuditQuery query = AuditQuery.builder()
                 .scope(scopeFor(orgId))
                 .before(before)
-                .actor(blankToNull(actor))
+                .actor(Util.blankToNull(actor))
                 .action(parseAction(action))
                 .outcome(parseOutcome(outcome))
-                .text(blankToNull(text))
+                .text(Util.blankToNull(text))
                 .build();
         final List<AuditEvent> events;
         try {
@@ -295,9 +296,5 @@ public class AuditViewCommands {
         }
         final AuditOutcome outcome = AuditOutcome.from(value);
         return (outcome == AuditOutcome.UNKNOWN && !"UNKNOWN".equalsIgnoreCase(value.trim())) ? null : outcome;
-    }
-
-    private static String blankToNull(final String value) {
-        return (value == null || value.isBlank()) ? null : value;
     }
 }

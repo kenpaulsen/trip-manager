@@ -26,6 +26,26 @@ public final class Util {
         return String.join(", ", names.subList(0, names.size() - 1)) + ", and " + names.get(names.size() - 1);
     }
 
+    /** The value, or null when it is null or blank. NOT trimmed: see {@link #trimToNull}. */
+    public static String blankToNull(final String value) {
+        return (value == null || value.isBlank()) ? null : value;
+    }
+
+    /** The value trimmed, or null when it is null or blank. */
+    public static String trimToNull(final String value) {
+        return (value == null || value.isBlank()) ? null : value.trim();
+    }
+
+    /** The value trimmed, or {@code ""} for null. */
+    public static String trimmed(final String value) {
+        return (value == null) ? "" : value.trim();
+    }
+
+    /** At most {@code max} characters of the text, cut without a marker; null stays null. */
+    public static String truncate(final String text, final int max) {
+        return (text == null || text.length() <= max) ? text : text.substring(0, max);
+    }
+
     /**
      * Checks if a string is null, empty, or blank (spaces only).
      */

@@ -4,6 +4,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
+import org.paulsens.trip.util.Util;
 
 /**
  * How a flight or a ground leg becomes an event's title and notes: {@code "PDX -> FCO"} and
@@ -56,10 +57,10 @@ public final class TripEventComposer {
      */
     private static String composeLegNotes(final String label, final LocalDateTime start, final LocalDateTime end,
             final String duration) {
-        final String head = trimmed(label).isEmpty() ? "" : trimmed(label) + ": ";
+        final String head = Util.trimmed(label).isEmpty() ? "" : Util.trimmed(label) + ": ";
         final String overnight = (start != null && end != null && end.toLocalDate().isAfter(start.toLocalDate()))
                 ? " +1" : "";
-        final String tail = trimmed(duration).isEmpty() ? "" : " (" + trimmed(duration) + ")";
+        final String tail = Util.trimmed(duration).isEmpty() ? "" : " (" + Util.trimmed(duration) + ")";
         return head + clock(start) + " -> " + clock(end) + overnight + tail;
     }
 
@@ -78,15 +79,11 @@ public final class TripEventComposer {
     }
 
     private static String endpoint(final String place, final boolean airportCode) {
-        return airportCode ? trimmed(place).toUpperCase(Locale.ROOT) : trimmed(place);
+        return airportCode ? Util.trimmed(place).toUpperCase(Locale.ROOT) : Util.trimmed(place);
     }
 
     /** Wall-clock half of a time, lowercased: {@code 8:15am}. */
     private static String clock(final LocalDateTime when) {
         return when == null ? "" : CLOCK.format(when).toLowerCase(Locale.ROOT);
-    }
-
-    private static String trimmed(final String value) {
-        return value == null ? "" : value.trim();
     }
 }

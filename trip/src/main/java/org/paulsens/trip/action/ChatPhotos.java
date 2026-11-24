@@ -42,6 +42,7 @@ import org.paulsens.trip.model.chat.ChatPage;
 import org.paulsens.trip.model.chat.ChatMessage;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.i18n.Text;
+import org.paulsens.trip.util.Util;
 
 /**
  * Chat photo storage, exposed to pages as {@code #{chatPhotos}}. Sits between the upload servlet / send path
@@ -226,7 +227,7 @@ public class ChatPhotos {
                     .orElseThrow(() -> new PhotoRejectedException(
                             Text.get("feedback.chatPhotos.attachedPhotoGone")));
             attachments.add(new ChatAttachment("image", staged.key(), staged.contentType(), staged.size(),
-                    staged.width(), staged.height(), staged.smallKey(), blankToNull(ref.title()),
+                    staged.width(), staged.height(), staged.smallKey(), Util.trimToNull(ref.title()),
                     ref.hidden()));
         }
         return attachments;
@@ -289,7 +290,7 @@ public class ChatPhotos {
                 // The DISPLAY key, never a bare getSmallKey(): a photo small enough to need no reduced copy has
                 // none in its album row, and an attachment with no thumbnail key is one the chat page cannot draw.
                 original.map(ChatAttachment::getHeight).orElse(null), photo.getDisplayKey(),
-                blankToNull(ref.title()), null, null, null, photo.getRev(), Boolean.TRUE);
+                Util.trimToNull(ref.title()), null, null, null, photo.getRev(), Boolean.TRUE);
     }
 
     /**
@@ -840,9 +841,5 @@ public class ChatPhotos {
             suffix.append(alphabet[random.nextInt(alphabet.length)]);
         }
         return suffix.toString();
-    }
-
-    private static String blankToNull(final String value) {
-        return (value == null || value.isBlank()) ? null : value.trim();
     }
 }

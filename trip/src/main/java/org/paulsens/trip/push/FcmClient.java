@@ -14,6 +14,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.function.LongConsumer;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.util.Util;
 
 /**
  * Firebase Cloud Messaging over the HTTP v1 API, no SDK ({@code docs/push-notifications.md} "Gateways"): one
@@ -149,7 +150,7 @@ public final class FcmClient implements PushGateway {
         } catch (final IOException ex) {
             // Not JSON: fall through to the raw body.
         }
-        return body.length() > 200 ? body.substring(0, 200) : body;
+        return Util.truncate(body, 200);
     }
 
     /** Package-private so the test can exercise the interrupted branch without a real send. */

@@ -27,6 +27,7 @@ import org.paulsens.trip.model.Language;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.SettingDef;
 import org.paulsens.trip.site.SiteContext;
+import org.paulsens.trip.util.Util;
 import org.paulsens.trip.web.Sessions;
 
 /**
@@ -746,9 +747,9 @@ public class BrandCommands {
         copyTranslations(edited, out, OrgSettingsTabs.appearanceDefs());
         final String mode = backgroundMode(edited);
         out.put(KnownSettings.SITE_BACKGROUND_COLOR.getName(), BG_MODE_COLOR.equals(mode)
-                ? trimmed(edited.get(KnownSettings.SITE_BACKGROUND_COLOR.getName())) : "");
+                ? Util.trimmed(edited.get(KnownSettings.SITE_BACKGROUND_COLOR.getName())) : "");
         out.put(KnownSettings.SITE_BACKGROUND_URL.getName(), BG_MODE_IMAGE.equals(mode)
-                ? trimmed(edited.get(KnownSettings.SITE_BACKGROUND_URL.getName())) : "");
+                ? Util.trimmed(edited.get(KnownSettings.SITE_BACKGROUND_URL.getName())) : "");
         return out;
     }
 
@@ -937,12 +938,12 @@ public class BrandCommands {
         if (BG_MODE_IMAGE.equals(chosen) || BG_MODE_COLOR.equals(chosen) || BG_MODE_PALETTE.equals(chosen)) {
             return chosen;
         }
-        if (!trimmed(values.get(KnownSettings.SITE_BACKGROUND_URL.getName())).isEmpty()) {
+        if (!Util.trimmed(values.get(KnownSettings.SITE_BACKGROUND_URL.getName())).isEmpty()) {
             return BG_MODE_IMAGE;
         }
         // Blank IS the palette choice, which is how a stored blank round-trips through a picker that can
         // never hold one.
-        return trimmed(values.get(KnownSettings.SITE_BACKGROUND_COLOR.getName())).isEmpty()
+        return Util.trimmed(values.get(KnownSettings.SITE_BACKGROUND_COLOR.getName())).isEmpty()
                 ? BG_MODE_PALETTE : BG_MODE_COLOR;
     }
 
@@ -953,7 +954,7 @@ public class BrandCommands {
      * dropping it.
      */
     private static String cleaned(final SettingDef def, final String raw) {
-        final String value = trimmed(raw);
+        final String value = Util.trimmed(raw);
         if (!def.isHexColor() || value.isEmpty()) {
             return value;
         }
@@ -973,17 +974,13 @@ public class BrandCommands {
             final boolean ours = SettingDef.languageOfKey(entry.getKey()).isPresent()
                     && defs.stream().anyMatch(def -> def.isTranslatable() && def.getName().equals(base));
             if (ours) {
-                to.put(entry.getKey(), trimmed(entry.getValue()));
+                to.put(entry.getKey(), Util.trimmed(entry.getValue()));
             }
         }
     }
 
     private static String storedOverride(final Optional<Organization> org, final SettingDef def) {
         return org.map(row -> row.settingOverride(def.getName())).map(String::trim).orElse("");
-    }
-
-    private static String trimmed(final String value) {
-        return (value == null) ? "" : value.trim();
     }
 
     // --- plumbing ---

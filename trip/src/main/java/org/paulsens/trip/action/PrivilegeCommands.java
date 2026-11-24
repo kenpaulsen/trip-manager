@@ -17,6 +17,7 @@ import org.paulsens.trip.model.Person;
 import org.paulsens.trip.site.SiteContext;
 import org.paulsens.trip.model.Privilege;
 import org.paulsens.trip.cache.Cached;
+import org.paulsens.trip.util.Util;
 
 /**
  * Developer-facing privilege API. Every accessor takes the privilege's base {@code name} plus a {@code scopeId}
@@ -222,7 +223,7 @@ public class PrivilegeCommands {
      * says "trip" for EL-compatibility reasons, but any scope id works -- an org id lists that org's partition.
      */
     public List<Privilege> getTripPrivileges(final String scopeId) {
-        final String scope = blankToNull(scopeId);
+        final String scope = Util.blankToNull(scopeId);
         return sorted(scope == null ? dao.getGlobalPrivileges(Cached.NO) : dao.getTripPrivileges(scope, Cached.NO));
     }
 
@@ -234,13 +235,13 @@ public class PrivilegeCommands {
         if (name == null) {
             return Privilege.NONE;
         }
-        return getPrivilegeById(Privilege.idFor(name, blankToNull(scopeId))).orElse(Privilege.NONE);
+        return getPrivilegeById(Privilege.idFor(name, Util.blankToNull(scopeId))).orElse(Privilege.NONE);
     }
 
     /** The named privilege if it exists, otherwise a new (unsaved) one with the given description. */
     public Privilege getOrCreate(final String name, final String scopeId, final String description) {
-        Privilege.requireStorableScope(blankToNull(scopeId));
-        final String id = Privilege.idFor(name, blankToNull(scopeId));
+        Privilege.requireStorableScope(Util.blankToNull(scopeId));
+        final String id = Privilege.idFor(name, Util.blankToNull(scopeId));
         return getPrivilegeById(id).orElseGet(() -> new Privilege(id, description, List.of()));
     }
 
@@ -325,7 +326,7 @@ public class PrivilegeCommands {
         if (name == null || name.isBlank()) {
             return false;
         }
-        final String id = Privilege.idFor(name, blankToNull(scopeId));
+        final String id = Privilege.idFor(name, Util.blankToNull(scopeId));
         final Privilege stored = getPrivilegeById(id).orElse(null);
         if (stored == null) {
             return false;
@@ -351,7 +352,7 @@ public class PrivilegeCommands {
         if (name == null || personId == null) {
             return false;
         }
-        return getPrivilegeById(Privilege.idFor(name, blankToNull(scopeId)))
+        return getPrivilegeById(Privilege.idFor(name, Util.blankToNull(scopeId)))
                 .map(priv -> priv.getPeople().contains(personId))
                 .orElse(false);
     }
@@ -396,11 +397,11 @@ public class PrivilegeCommands {
      *         failure rather than returned as a quiet false a caller would read as "already held".
      */
     public boolean add(final String name, final String scopeId, final Person.Id personId) {
-        Privilege.requireStorableScope(blankToNull(scopeId));
+        Privilege.requireStorableScope(Util.blankToNull(scopeId));
         if (check(name, scopeId, personId)) {
             return false;
         }
-        final String id = Privilege.idFor(name, blankToNull(scopeId));
+        final String id = Privilege.idFor(name, Util.blankToNull(scopeId));
         final Privilege stored = getPrivilegeById(id).orElse(null);
         if (stored == null) {
             log.error("Grant of '{}' to {} did NOT happen: no privilege named '{}' has been saved.",
@@ -420,7 +421,7 @@ public class PrivilegeCommands {
      * not "they held it a moment ago". False means the privilege itself does not exist.
      */
     public boolean remove(final String name, final String scopeId, final Person.Id personId) {
-        return getPrivilegeById(Privilege.idFor(name, blankToNull(scopeId)))
+        return getPrivilegeById(Privilege.idFor(name, Util.blankToNull(scopeId)))
                 .map(priv -> priv.withoutPerson(personId))
                 .map(this::savePrivilege)
                 .orElse(false);
@@ -445,8 +446,8 @@ public class PrivilegeCommands {
         final PersonCommands personCommands = PersonCommands.getPersonCommands();
         final Person currUser = personCommands.getCurrentPerson();
         final boolean result;
-        final String requiredRole = blankToNull(role);
-        final String requiredPriv = blankToNull(privName);
+        final String requiredRole = Util.blankToNull(role);
+        final String requiredPriv = Util.blankToNull(privName);
         if (personCommands.hasRole(requiredRole)) {
             result = true;
         } else if (personCommands.canAccessUserId(currUser, requiredUser)) {
@@ -465,7 +466,7 @@ public class PrivilegeCommands {
      */
     public List<Person.Id> getPeopleWithPriv(final List<String> names, final String scopeId) {
         final PersonCommands people = PersonCommands.getPersonCommands();
-        final String scope = blankToNull(scopeId);
+        final String scope = Util.blankToNull(scopeId);
         return names.stream()
                 .map(name -> Privilege.idFor(name, scope))
                 .map(this::getPrivilegeById)
@@ -508,10 +509,6 @@ public class PrivilegeCommands {
             log.debug("Unknown privilege '" + id + "'!");
         }
         return priv;
-    }
-
-    private static String blankToNull(final String value) {
-        return (value == null || value.isBlank()) ? null : value;
     }
 
     private <T> T logAndReturn(final Throwable ex, final T result) {

@@ -47,6 +47,7 @@ import org.paulsens.trip.model.TripEvent;
 import org.paulsens.trip.model.TripPageOptions;
 import org.paulsens.trip.pay.MoneyMath;
 import org.paulsens.trip.site.ListingScope;
+import org.paulsens.trip.util.Util;
 
 /**
  * A trip's public page, every kind (docs/conference.md, "The trip page"): its look, seeding, the legacy
@@ -169,7 +170,7 @@ public class TripPageCommands {
         final String time = sameDayEnd ? start + " - " + timeFormat.format(event.getEnd()) : start;
         return new AgendaItem(time, event.getTitle(), event.detail(TripEvent.Detail.PRESENTER),
                 event.detail(TripEvent.Detail.LOCATION), event.detail(TripEvent.Detail.TRACK),
-                blankToNull(RichTextHtml.cleanEventNote(event.getNotes())));
+                Util.blankToNull(RichTextHtml.cleanEventNote(event.getNotes())));
     }
 
     // ------------------------------------------------------------------ the registration block
@@ -254,7 +255,7 @@ public class TripPageCommands {
         final Phase phase = phaseOf(trip, seatsLeft, now);
         final LocalDate opensOn = phase == Phase.NOT_OPEN ? trip.getCheckout().getOpensAt().toLocalDate() : null;
         return new RegistrationInfo(phase, started, opensOn, taken, limit, seatsLeft, priceGroups(trip),
-                blankToNull(trip.getEstimatedPrice()), trip.getStartDateIso(), registerUrl(trip),
+                Util.blankToNull(trip.getEstimatedPrice()), trip.getStartDateIso(), registerUrl(trip),
                 trip.getKind().getRegisterLabel());
     }
 
@@ -775,10 +776,6 @@ public class TripPageCommands {
     }
 
     // ------------------------------------------------------------------ helpers
-
-    private static String blankToNull(final String text) {
-        return (text == null || text.isBlank()) ? null : text;
-    }
 
     private <T> T memo(final String key, final Supplier<T> compute) {
         return RequestMemo.get(requestMap.get(), key, compute);
