@@ -135,7 +135,7 @@ public final class PhotoProcessor {
         }
         final BufferedImage bounded = fitWithin(oriented, maxSide, maxSide);
         return (format == ImageFormat.PNG || format == ImageFormat.GIF)
-                ? croppedPngRenditions(bounded) : croppedJpegRenditions(bounded);
+                ? pngRenditions(bounded) : jpegRenditions(bounded);
     }
 
     /**
@@ -411,33 +411,32 @@ public final class PhotoProcessor {
         final BufferedImage oriented = decodeOriented(original, format);
         final BufferedImage cropped = crop(oriented, clamp(rect, oriented.getWidth(), oriented.getHeight()));
         return (format == ImageFormat.PNG || format == ImageFormat.GIF)
-                ? croppedPngRenditions(cropped) : croppedJpegRenditions(cropped);
+                ? pngRenditions(cropped) : jpegRenditions(cropped);
     }
 
-    private static ProcessedPhoto croppedJpegRenditions(final BufferedImage cropped) {
-        final byte[] full = encodeJpeg(cropped, FULL_JPEG_QUALITY);
-        if (cropped.getWidth() <= MAX_SMALL_WIDTH) {
-            return new ProcessedPhoto(full, ImageFormat.JPEG.getContentType(), ImageFormat.JPEG.getExtension(),
-                    full, ImageFormat.JPEG.getContentType(), ImageFormat.JPEG.getExtension(),
-                    cropped.getWidth(), cropped.getHeight());
-        }
-        final byte[] small = encodeJpeg(resizeToWidth(cropped, MAX_SMALL_WIDTH), SMALL_JPEG_QUALITY);
-        return new ProcessedPhoto(full, ImageFormat.JPEG.getContentType(), ImageFormat.JPEG.getExtension(),
-                small, ImageFormat.JPEG.getContentType(), ImageFormat.JPEG.getExtension(),
-                cropped.getWidth(), cropped.getHeight());
+    /** A re-encoded JPEG pair: full size, and the display copy (the SAME bytes when the image is already small). */
+    private static ProcessedPhoto jpegRenditions(final BufferedImage image) {
+        final byte[] full = encodeJpeg(image, FULL_JPEG_QUALITY);
+        final byte[] small = image.getWidth() <= MAX_SMALL_WIDTH ? full
+                : encodeJpeg(resizeToWidth(image, MAX_SMALL_WIDTH), SMALL_JPEG_QUALITY);
+        return renditions(full, ImageFormat.JPEG, small, ImageFormat.JPEG, image);
     }
 
-    private static ProcessedPhoto croppedPngRenditions(final BufferedImage cropped) {
-        final byte[] full = encodePng(cropped);
-        if (cropped.getWidth() <= MAX_SMALL_WIDTH) {
-            return new ProcessedPhoto(full, ImageFormat.PNG.getContentType(), ImageFormat.PNG.getExtension(),
-                    full, ImageFormat.PNG.getContentType(), ImageFormat.PNG.getExtension(),
-                    cropped.getWidth(), cropped.getHeight());
-        }
-        final byte[] small = encodePng(resizeToWidth(cropped, MAX_SMALL_WIDTH));
-        return new ProcessedPhoto(full, ImageFormat.PNG.getContentType(), ImageFormat.PNG.getExtension(),
-                small, ImageFormat.PNG.getContentType(), ImageFormat.PNG.getExtension(),
-                cropped.getWidth(), cropped.getHeight());
+    private static ProcessedPhoto pngRenditions(final BufferedImage image) {
+        final byte[] full = encodePng(image);
+        final byte[] small = image.getWidth() <= MAX_SMALL_WIDTH ? full
+                : encodePng(resizeToWidth(image, MAX_SMALL_WIDTH));
+        return renditions(full, ImageFormat.PNG, small, ImageFormat.PNG, image);
+    }
+
+    /**
+     * The two renditions with their formats and the pixel size of {@code image}. Handing in the SAME array twice
+     * is how a caller says "one object": {@link ProcessedPhoto#smallIsFull} compares identity.
+     */
+    private static ProcessedPhoto renditions(final byte[] full, final ImageFormat fullFormat, final byte[] small,
+            final ImageFormat smallFormat, final BufferedImage image) {
+        return new ProcessedPhoto(full, fullFormat.getContentType(), fullFormat.getExtension(),
+                small, smallFormat.getContentType(), smallFormat.getExtension(), image.getWidth(), image.getHeight());
     }
 
     /** Decode + orientation in one step; the space every crop coordinate refers to. */
@@ -579,9 +578,7 @@ public final class PhotoProcessor {
             return passThrough(original, ImageFormat.JPEG, oriented);
         }
         final byte[] small = encodeJpeg(resizeToWidth(oriented, MAX_SMALL_WIDTH), SMALL_JPEG_QUALITY);
-        return new ProcessedPhoto(original, ImageFormat.JPEG.getContentType(), ImageFormat.JPEG.getExtension(),
-                small, ImageFormat.JPEG.getContentType(), ImageFormat.JPEG.getExtension(),
-                oriented.getWidth(), oriented.getHeight());
+        return renditions(original, ImageFormat.JPEG, small, ImageFormat.JPEG, oriented);
     }
 
     private ProcessedPhoto processPng(final byte[] original) {
@@ -590,9 +587,7 @@ public final class PhotoProcessor {
             return passThrough(original, ImageFormat.PNG, decoded);
         }
         final byte[] small = encodePng(resizeToWidth(decoded, MAX_SMALL_WIDTH));
-        return new ProcessedPhoto(original, ImageFormat.PNG.getContentType(), ImageFormat.PNG.getExtension(),
-                small, ImageFormat.PNG.getContentType(), ImageFormat.PNG.getExtension(),
-                decoded.getWidth(), decoded.getHeight());
+        return renditions(original, ImageFormat.PNG, small, ImageFormat.PNG, decoded);
     }
 
     private ProcessedPhoto processGif(final byte[] original) {
@@ -605,31 +600,17 @@ public final class PhotoProcessor {
             return passThrough(original, ImageFormat.GIF, decoded);
         }
         final byte[] small = encodePng(resizeToWidth(decoded, MAX_SMALL_WIDTH));
-        return new ProcessedPhoto(original, ImageFormat.GIF.getContentType(), ImageFormat.GIF.getExtension(),
-                small, ImageFormat.PNG.getContentType(), ImageFormat.PNG.getExtension(),
-                decoded.getWidth(), decoded.getHeight());
+        return renditions(original, ImageFormat.GIF, small, ImageFormat.PNG, decoded);
     }
 
     private ProcessedPhoto processHeic(final byte[] original) {
-        final BufferedImage decoded = decodeHeic(original);
-        final byte[] full = encodeJpeg(decoded, FULL_JPEG_QUALITY);
-        if (decoded.getWidth() <= MAX_SMALL_WIDTH) {
-            return new ProcessedPhoto(full, ImageFormat.JPEG.getContentType(), ImageFormat.JPEG.getExtension(),
-                    full, ImageFormat.JPEG.getContentType(), ImageFormat.JPEG.getExtension(),
-                    decoded.getWidth(), decoded.getHeight());
-        }
-        final byte[] small = encodeJpeg(resizeToWidth(decoded, MAX_SMALL_WIDTH), SMALL_JPEG_QUALITY);
-        return new ProcessedPhoto(full, ImageFormat.JPEG.getContentType(), ImageFormat.JPEG.getExtension(),
-                small, ImageFormat.JPEG.getContentType(), ImageFormat.JPEG.getExtension(),
-                decoded.getWidth(), decoded.getHeight());
+        return jpegRenditions(decodeHeic(original));
     }
 
     /** Both renditions are the untouched original; the caller stores one object. */
     private static ProcessedPhoto passThrough(final byte[] original, final ImageFormat format,
             final BufferedImage oriented) {
-        return new ProcessedPhoto(original, format.getContentType(), format.getExtension(),
-                original, format.getContentType(), format.getExtension(),
-                oriented.getWidth(), oriented.getHeight());
+        return renditions(original, format, original, format, oriented);
     }
 
     /**
