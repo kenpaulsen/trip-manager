@@ -242,7 +242,7 @@ public class HotelCommands {
             return refuse(Text.get("feedback.shared.savedBySomeoneElse"));
         } catch (final IOException ex) {
             log.error("Unable to save room block {}", block.getId(), ex);
-            return refuse(Text.get("feedback.hotelCommands.blockNotSavedBecause", ex.getMessage()));
+            return refuse(Text.get("feedback.hotelCommands.blockNotSaved"));
         }
     }
 

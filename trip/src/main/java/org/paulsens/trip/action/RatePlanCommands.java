@@ -657,7 +657,7 @@ public class RatePlanCommands {
             return refuseInto(form, Text.get("feedback.shared.savedBySomeoneElse"));
         } catch (final IOException ex) {
             log.error("Unable to save rate plan {}", plan.getId(), ex);
-            return refuseInto(form, Text.get("feedback.ratePlanCommands.saveFailed", ex.getMessage()));
+            return refuseInto(form, Text.get("feedback.ratePlanCommands.notSaved"));
         }
     }
 

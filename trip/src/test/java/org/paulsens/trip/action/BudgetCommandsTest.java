@@ -5,6 +5,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import org.mockito.Mockito;
 import org.paulsens.trip.action.BudgetViews.BudgetPage;
 import org.paulsens.trip.action.BudgetViews.InputsForm;
 import org.paulsens.trip.action.BudgetViews.LineForm;
@@ -109,6 +110,17 @@ public class BudgetCommandsTest {
 
     private static BudgetCommands as(final Person.Id who) {
         return new BudgetCommands(() -> TestCallers.person(who));
+    }
+
+    /** A budget whose put fails shows the dialog its own sentence, never the store's words. */
+    @Test
+    public void aFailedPutSaysNothingOfTheStores() throws IOException {
+        final String id = newTrip(4).getId();
+        final LineForm form = line("SHARED", "GENERAL", "Bus", 5000.0, null);
+        StoreFailures.growlsOfFailed(
+                dao -> Mockito.doThrow(StoreFailures.storeDown()).when(dao).saveTripBudget(Mockito.any()),
+                () -> admin.saveLine(id, form));
+        assertEquals(form.getProblem(), "The budget could not be saved.");
     }
 
     private static LineForm line(final String kind, final String category, final String name, final Double amount,

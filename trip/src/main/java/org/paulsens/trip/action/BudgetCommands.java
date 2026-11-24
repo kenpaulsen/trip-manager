@@ -972,7 +972,7 @@ public class BudgetCommands {
             return refuseInto(refusal, Text.get("feedback.budgetCommands.tooLarge"));
         } catch (final IOException ex) {
             log.error("Unable to save the budget of trip {}", trip.getId(), ex);
-            return refuseInto(refusal, Text.get("feedback.budgetCommands.notSavedBecause", ex.getMessage()));
+            return refuseInto(refusal, Text.get("feedback.budgetCommands.notSaved"));
         }
         auditSource.get().budget(trip.getId(), trip.getOrgId(), "Budget of '" + trip.getTitle() + "': " + what,
                 caller().auditActor());

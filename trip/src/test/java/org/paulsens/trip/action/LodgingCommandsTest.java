@@ -5,6 +5,8 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
+import org.mockito.Mockito;
 import org.paulsens.trip.action.LodgingFixtures.RecordingAudit;
 import org.paulsens.trip.action.LodgingViews.AccommodationForm;
 import org.paulsens.trip.action.LodgingViews.AssignOutcome;
@@ -593,6 +595,47 @@ public class LodgingCommandsTest {
         assertFalse(new LodgingCommands(() -> TestCallers.person(one.getId()))
                 .place(own.getId(), admin.placementFormFor(own.getId(), stay.accId(), three.getId().getValue(),
                         stay.r102())).isAssigned(), "Not a manager");
+    }
+
+    /** A put that fails tells the page a fixed sentence: never the store's own words, never a row id. */
+    @Test
+    public void aFailedPutSaysItsOwnSentenceAndNothingOfTheStores() throws IOException {
+        final Person guest = savedPerson("Gus");
+        final Trip own = ownTrip("Failed puts trip", guest);
+        final Stay stay = stay(true, own);
+        final String offerId = stay.offer().getId().getValue();
+        final ReservationForm create = admin.reservationFormFor(own.getId(), null);
+        create.setOfferId(offerId);
+        create.setPersonIds(new ArrayList<>(List.of(guest.getId().getValue())));
+        assertEquals(admin.createReservations(own.getId(), create), 1);
+        final String resId = reservationOf(own, guest, offerId).getId().getValue();
+
+        final Accommodation acc = admin.findAccommodation(stay.accId());
+        StoreFailures.assertSays(StoreFailures.growlsOfFailed(
+                dao -> Mockito.doThrow(StoreFailures.storeDown()).when(dao).saveAccommodation(Mockito.any()),
+                () -> admin.store(acc)), "The accommodation could not be saved.");
+        final List<String> tooLarge = StoreFailures.growlsOfFailed(
+                dao -> Mockito.doThrow(new IllegalArgumentException("Accommodation " + stay.accId() + " is too "
+                        + "large to store (400000 bytes; max 350000).")).when(dao).saveAccommodation(Mockito.any()),
+                () -> admin.store(acc));
+        assertEquals(tooLarge, List.of("The accommodation is too large to save: split the property or shorten its "
+                + "room notes."));
+
+        final OfferForm offerForm = admin.offerFormFor(own.getId(), offerId);
+        StoreFailures.assertSays(StoreFailures.growlsOfFailed(
+                dao -> Mockito.doThrow(StoreFailures.storeDown()).when(dao).saveReservationOffer(Mockito.any()),
+                () -> admin.saveOffer(own.getId(), offerForm)), "The lodging option could not be saved.");
+
+        final ReservationForm edit = admin.reservationFormFor(own.getId(), resId);
+        edit.setNotes("Late flight");
+        StoreFailures.assertSays(StoreFailures.growlsOfFailed(
+                dao -> Mockito.doThrow(StoreFailures.storeDown()).when(dao).saveReservation(Mockito.any()),
+                () -> admin.updateReservation(own.getId(), edit)), "The reservation could not be saved.");
+        StoreFailures.assertSays(StoreFailures.growlsOfFailed(
+                dao -> Mockito.doThrow(StoreFailures.storeDown()).when(dao).saveReservation(Mockito.any()),
+                () -> admin.cancelReservationWithFee(own.getId(), resId, false, null, "test")),
+                "The cancellation could not be saved.");
+        assertTrue(admin.findReservation(own.getId(), resId).isActive(), "nothing was cancelled");
     }
 
     @Test

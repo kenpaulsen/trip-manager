@@ -8,6 +8,9 @@ import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
+import org.mockito.Mockito;
+import org.paulsens.trip.action.LodgingViews.AccommodationForm;
 import org.paulsens.trip.action.LodgingViews.BlockForm;
 import org.paulsens.trip.action.LodgingViews.BlockRow;
 import org.paulsens.trip.action.LodgingViews.ConcessionForm;
@@ -56,6 +59,19 @@ public class HotelCommandsTest {
                 .createOrganization("Hotel " + RandomData.genAlpha(8), "HTL", null);
         assertNotNull(org);
         orgId = org.getId().getValue();
+    }
+
+    /** A block whose put fails tells the page its own sentence, never the store's words. */
+    @Test
+    public void aFailedBlockPutSaysNothingOfTheStores() {
+        final String accId = hotelWithRooms();
+        final BlockForm form = new BlockForm();
+        form.setRoomIds(List.of(roomId(accId, 0)));
+        form.setRange(List.of(LocalDate.of(2027, 9, 22), LocalDate.of(2027, 9, 24)));
+        StoreFailures.assertSays(StoreFailures.growlsOfFailed(
+                dao -> Mockito.doThrow(StoreFailures.storeDown()).when(dao).saveRoomBlock(Mockito.any()),
+                () -> hotel.saveBlock(accId, form)), "The block could not be saved.");
+        assertTrue(hotel.blockRows(accId).isEmpty());
     }
 
     @Test

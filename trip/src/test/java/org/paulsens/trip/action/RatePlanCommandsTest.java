@@ -7,7 +7,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
+import org.mockito.Mockito;
 import org.paulsens.trip.action.LodgingFixtures.RecordingAudit;
+import org.paulsens.trip.action.LodgingViews.AccommodationForm;
 import org.paulsens.trip.action.LodgingViews.CostExtraForm;
 import org.paulsens.trip.action.LodgingViews.OfferForm;
 import org.paulsens.trip.action.LodgingViews.OfferRow;
@@ -68,6 +71,21 @@ public class RatePlanCommandsTest {
     }
 
     // ------------------------------------------------------------------ who sees and sets what
+
+    /** A plan whose put fails shows the dialog its own sentence, never the store's words. */
+    @Test
+    public void aFailedPlanPutSaysNothingOfTheStores() {
+        final String accId = hotel();
+        final RatePlanForm form = plans.planFormFor(accId, null);
+        form.setName("Unsaved rate");
+        form.setRoomTypeIds(List.of(typeId(accId, 0)));
+        form.setCostNightlyPrice(50.0);
+        StoreFailures.growlsOfFailed(
+                dao -> Mockito.doThrow(StoreFailures.storeDown()).when(dao).saveRatePlan(Mockito.any()),
+                () -> plans.savePlan(form));
+        assertEquals(form.getProblem(), "The rate plan could not be saved.");
+        assertTrue(plans.rows(accId).isEmpty());
+    }
 
     /** A plan is the hotel's side only: its operator states the cost, and every reader sees the same row. */
     @Test

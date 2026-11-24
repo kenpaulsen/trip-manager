@@ -1201,7 +1201,7 @@ public class LodgingCommands {
             return refuse(Text.get("feedback.shared.savedBySomeoneElse"));
         } catch (final IOException ex) {
             log.error("Unable to save offer {}", offer.getId(), ex);
-            return refuse(Text.get("feedback.lodgingCommands.optionNotSavedBecause", ex.getMessage()));
+            return refuse(Text.get("feedback.lodgingCommands.optionNotSaved"));
         }
     }
 
@@ -2218,7 +2218,7 @@ public class LodgingCommands {
             return refuse(Text.get("feedback.shared.savedBySomeoneElse"));
         } catch (final IOException ex) {
             log.error("Unable to save reservation {}", res.getId(), ex);
-            return refuse(Text.get("feedback.lodgingCommands.reservationNotSavedBecause", ex.getMessage()));
+            return refuse(Text.get("feedback.lodgingCommands.reservationNotSaved"));
         }
         if (offer != null && offer.getTripEventId() != null) {
             tripSource.get().updateEventParticipants(trip, offer.getTripEventId(), res.getOccupants(), List.of());
@@ -2327,7 +2327,7 @@ public class LodgingCommands {
             return refuse(Text.get("feedback.shared.savedBySomeoneElse"));
         } catch (final IOException ex) {
             log.error("Unable to cancel reservation {}", res.getId(), ex);
-            return refuse(Text.get("feedback.lodgingCommands.cancellationNotSavedBecause", ex.getMessage()));
+            return refuse(Text.get("feedback.lodgingCommands.cancellationNotSaved"));
         }
         leaveEventIfLast(trip, offer, res.getOccupants(), res.getId());
         String creditNote = "no credit";
@@ -2899,10 +2899,11 @@ public class LodgingCommands {
         } catch (final ConditionalCheckFailedException ex) {
             return refuse(Text.get("feedback.shared.savedBySomeoneElse"));
         } catch (final IllegalArgumentException ex) {
-            return refuse(ex.getMessage());
+            // The DAO's row-size refusal: its message names the row id and byte counts, which are not the page's.
+            return refuse(Text.get("feedback.lodgingCommands.accommodationTooLarge"));
         } catch (final IOException ex) {
             log.error("Unable to save accommodation {}", acc.getId(), ex);
-            return refuse(Text.get("feedback.lodgingCommands.accommodationNotSavedBecause", ex.getMessage()));
+            return refuse(Text.get("feedback.lodgingCommands.accommodationNotSaved"));
         }
     }
 
