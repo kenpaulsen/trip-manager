@@ -202,9 +202,7 @@ public class LodgingResource extends BaseResource {
             return error(404, ApiErrors.NOT_FOUND, Text.get("api.lodging.noSuchAccommodation"));
         }
         final String personId = JsonBody.str(body, "personId");
-        if (personId == null || personId.isBlank() || findPerson(Person.Id.from(personId)) == null) {
-            return error(404, ApiErrors.NOT_FOUND, Text.get("api.shared.noSuchPerson"));
-        }
+        requireSubject((personId == null || personId.isBlank()) ? null : Person.Id.from(personId));
         return lodging.addManagerById(accId, personId) ? ok(Map.of("ok", true))
                 : error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.lodging.operatorNotAdded"));
     }

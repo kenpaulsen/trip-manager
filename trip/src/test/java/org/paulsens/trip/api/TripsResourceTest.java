@@ -377,7 +377,7 @@ public class TripsResourceTest extends ResourceTestSupport {
         signedInAsSiteAdmin(ME);
         Mockito.when(trips.getTrip("gone")).thenReturn(Trip.builder().build());
 
-        assertError(resource.update("gone", CSRF_OK, null), 404, ApiErrors.NOT_FOUND);
+        assertThrown(() -> resource.update("gone", CSRF_OK, null), 404, ApiErrors.NOT_FOUND);
         Mockito.verify(trips, Mockito.never()).saveTrip(ArgumentMatchers.any(), ArgumentMatchers.any());
     }
 
@@ -1097,7 +1097,7 @@ public class TripsResourceTest extends ResourceTestSupport {
 
         signedInAsSiteAdmin(ME);
         resource = resource(new TripsResource());
-        assertError(resource.updateEvent("gone", "evt-1", CSRF_OK, body), 404, ApiErrors.NOT_FOUND);
+        assertThrown(() -> resource.updateEvent("gone", "evt-1", CSRF_OK, body), 404, ApiErrors.NOT_FOUND);
         assertError(resource.updateEvent(TRIP_ID, "evt-9", CSRF_OK, body), 404, ApiErrors.NOT_FOUND);
         assertError(resource.updateEvent(TRIP_ID, "evt-1", CSRF_OK, null), 400, ApiErrors.BAD_REQUEST);
         final TripEventDto badType = new TripEventDto(null, "teleport", null, null, null, null, null, null, null, null);
@@ -1854,9 +1854,9 @@ public class TripsResourceTest extends ResourceTestSupport {
         other.getPrivacy().setItineraryShared(false);
         sharingTrip(true, other);
         assertError(resource.sharedItinerary(TRIP_ID, OTHER.getValue()), 403, ApiErrors.ITINERARY_NOT_SHARED);
-        assertError(resource.sharedItinerary("no-such-trip", OTHER.getValue()), 404, ApiErrors.NOT_FOUND);
+        assertThrown(() -> resource.sharedItinerary("no-such-trip", OTHER.getValue()), 404, ApiErrors.NOT_FOUND);
         Mockito.when(people.getPerson(Person.Id.from("nobody"))).thenReturn(new Person());
-        assertError(resource.sharedItinerary(TRIP_ID, "nobody"), 404, ApiErrors.NOT_FOUND);
+        assertThrown(() -> resource.sharedItinerary(TRIP_ID, "nobody"), 404, ApiErrors.NOT_FOUND);
     }
 
     @Test
@@ -1998,8 +1998,8 @@ public class TripsResourceTest extends ResourceTestSupport {
                 ApiErrors.CSRF);
 
         // An unknown trip and a caller who may not edit it are answered before a byte of the body is read.
-        assertError(resource.addPicture("no-such-trip", CSRF_OK, null, null, null, null, null, null, unreadBody()),
-                404, ApiErrors.NOT_FOUND);
+        assertThrown(() -> resource.addPicture("no-such-trip", CSRF_OK, null, null, null, null, null, null,
+                unreadBody()), 404, ApiErrors.NOT_FOUND);
         final Trip trip = trip(TRIP_ID, ME);
         tripExists(trip);
         assertError(resource.addPicture(TRIP_ID, CSRF_OK, null, null, null, null, null, null, unreadBody()), 403,

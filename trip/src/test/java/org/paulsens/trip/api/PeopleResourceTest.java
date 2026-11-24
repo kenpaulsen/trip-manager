@@ -153,7 +153,7 @@ public class PeopleResourceTest extends ResourceTestSupport {
         signedInAsSiteAdmin(ME);
         Mockito.when(people.getPerson(ArgumentMatchers.any())).thenReturn(new Person());
 
-        assertError(resource.get(OTHER.getValue(), null), 404, ApiErrors.NOT_FOUND);
+        assertThrown(() -> resource.get(OTHER.getValue(), null), 404, ApiErrors.NOT_FOUND);
     }
 
     @Test
@@ -161,7 +161,7 @@ public class PeopleResourceTest extends ResourceTestSupport {
         signedInAsSiteAdmin(ME);
         Mockito.when(people.getPerson(ArgumentMatchers.any())).thenReturn(new Person());
 
-        assertError(resource.update(OTHER.getValue(), CSRF_OK, null), 404, ApiErrors.NOT_FOUND);
+        assertThrown(() -> resource.update(OTHER.getValue(), CSRF_OK, null), 404, ApiErrors.NOT_FOUND);
         Mockito.verify(people, Mockito.never()).savePerson(ArgumentMatchers.any());
         Mockito.verify(people, Mockito.never()).savePerson(ArgumentMatchers.any(), ArgumentMatchers.any());
     }
@@ -590,7 +590,7 @@ public class PeopleResourceTest extends ResourceTestSupport {
         final byte[] bytes = org.paulsens.trip.media.PhotoFixtures.jpeg(60, 40);
         assertError(resource.uploadPhoto(ME.getValue(), null, null, null, null, null, null, null, bodyOf(bytes)),
                 403, ApiErrors.CSRF);
-        assertError(resource.uploadPhoto(OTHER.getValue(), CSRF_OK, null, null, null, null, null, null,
+        assertThrown(() -> resource.uploadPhoto(OTHER.getValue(), CSRF_OK, null, null, null, null, null, null,
                 bodyOf(bytes)), 404, ApiErrors.NOT_FOUND);
 
         final ProfilePhotoCommands commands = photoCommandsAllowing(false);
@@ -660,7 +660,7 @@ public class PeopleResourceTest extends ResourceTestSupport {
         exists(person(ME, "Me"));
         final org.paulsens.trip.api.dto.RotateRequest left = new org.paulsens.trip.api.dto.RotateRequest("left");
         assertError(resource.rotatePhoto(ME.getValue(), 1, null, left), 403, ApiErrors.CSRF);
-        assertError(resource.rotatePhoto(OTHER.getValue(), 1, CSRF_OK, left), 404, ApiErrors.NOT_FOUND);
+        assertThrown(() -> resource.rotatePhoto(OTHER.getValue(), 1, CSRF_OK, left), 404, ApiErrors.NOT_FOUND);
         assertError(resource.rotatePhoto(ME.getValue(), 0, CSRF_OK, left), 400, ApiErrors.VALIDATION_FAILED);
         assertError(resource.rotatePhoto(ME.getValue(), 1, CSRF_OK, null), 400, ApiErrors.VALIDATION_FAILED);
         assertError(resource.rotatePhoto(ME.getValue(), 1, CSRF_OK,
@@ -702,7 +702,7 @@ public class PeopleResourceTest extends ResourceTestSupport {
         Mockito.when(photos.hasPhoto(ME.getValue())).thenReturn(false);
 
         assertError(resource.deletePhoto(ME.getValue(), 1, null), 403, ApiErrors.CSRF);
-        assertError(resource.deletePhoto(OTHER.getValue(), 1, CSRF_OK), 404, ApiErrors.NOT_FOUND);
+        assertThrown(() -> resource.deletePhoto(OTHER.getValue(), 1, CSRF_OK), 404, ApiErrors.NOT_FOUND);
         assertError(resource.deletePhoto(ME.getValue(), 0, CSRF_OK), 400, ApiErrors.VALIDATION_FAILED);
         assertError(resource.deletePhoto(ME.getValue(), 3, CSRF_OK), 404, ApiErrors.NOT_FOUND);
 
@@ -726,7 +726,8 @@ public class PeopleResourceTest extends ResourceTestSupport {
         Mockito.when(people.selectProfilePhoto(me, 2)).thenReturn(true);
 
         assertError(resource.selectPhoto(ME.getValue(), null, Map.of("slot", 2)), 403, ApiErrors.CSRF);
-        assertError(resource.selectPhoto(OTHER.getValue(), CSRF_OK, Map.of("slot", 2)), 404, ApiErrors.NOT_FOUND);
+        assertThrown(() -> resource.selectPhoto(OTHER.getValue(), CSRF_OK, Map.of("slot", 2)),
+                404, ApiErrors.NOT_FOUND);
         assertError(resource.selectPhoto(ME.getValue(), CSRF_OK, Map.of()), 400, ApiErrors.VALIDATION_FAILED);
         assertError(resource.selectPhoto(ME.getValue(), CSRF_OK, Map.of("slot", "two")), 400,
                 ApiErrors.VALIDATION_FAILED);

@@ -334,8 +334,8 @@ public class LodgingResourceTest extends ResourceTestSupport {
         assertTrue(DAO.getInstance().saveTrip(own));
         final String[] a = offerAtNewHotel(own.getId(), "Operator Pansion", "Double room");
         final String[] b = offerAtNewHotel(own.getId(), "Operator Berulia", "Double room");
-        assertError(resource.addOperator(a[0], CSRF_OK, Map.of("personId", "nobody")), 404, ApiErrors.NOT_FOUND);
-        assertError(resource.addOperator(a[0], CSRF_OK, Map.of()), 404, ApiErrors.NOT_FOUND);
+        assertThrown(() -> resource.addOperator(a[0], CSRF_OK, Map.of("personId", "nobody")), 404, ApiErrors.NOT_FOUND);
+        assertThrown(() -> resource.addOperator(a[0], CSRF_OK, Map.of()), 404, ApiErrors.NOT_FOUND);
         assertError(resource.addOperator("no-such-hotel", CSRF_OK, Map.of("personId", keeper.getId().getValue())),
                 404, ApiErrors.NOT_FOUND);
         final Response added = resource.addOperator(a[0], CSRF_OK, Map.of("personId", keeper.getId().getValue()));

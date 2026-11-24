@@ -115,10 +115,7 @@ public class PeopleResource extends BaseResource {
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response get(@PathParam("id") final String id, @QueryParam("trip") final String tripId) {
         final Person.Id personId = Person.Id.from(id);
-        final Person person = findPerson(personId);
-        if (person == null) {
-            return error(404, ApiErrors.NOT_FOUND, Text.get("api.shared.noSuchPerson"));
-        }
+        final Person person = requireSubject(personId);
         return ok(dto(person, levelFor(personId, tripId)));
     }
 
@@ -187,12 +184,9 @@ public class PeopleResource extends BaseResource {
         final PersonCommands people = Beans.get(PersonCommands.class);
         final Person.Id personId = Person.Id.from(id);
         // The object that gets saved must be the object that was read: a DAO read returns a COPY, so mutating
-        // anything else and saving reports success while writing nothing. findPerson rather than getPerson --
+        // anything else and saving reports success while writing nothing. requireSubject rather than getPerson --
         // the latter invents a blank Person on a miss, which this would then populate and save as a junk row.
-        final Person person = findPerson(personId);
-        if (person == null) {
-            return error(404, ApiErrors.NOT_FOUND, Text.get("api.shared.noSuchPerson"));
-        }
+        final Person person = requireSubject(personId);
         final AccessLevel level = levelFor(personId, null);
         if (!canEdit(level)) {
             return error(403, ApiErrors.FORBIDDEN, Text.get("api.people.editNotPermitted"));
@@ -288,9 +282,7 @@ public class PeopleResource extends BaseResource {
         if (!personId.equals(personId())) {
             return error(403, ApiErrors.FORBIDDEN, Text.get("api.people.orgIsOwnChoice"));
         }
-        if (findPerson(personId) == null) {
-            return error(404, ApiErrors.NOT_FOUND, Text.get("api.shared.noSuchPerson"));
-        }
+        requireSubject(personId);
         final String orgId = body == null || body.get("orgId") == null ? null : String.valueOf(body.get("orgId"));
         if (orgId == null || orgId.isBlank()) {
             return error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.people.orgIdRequired"));
@@ -304,10 +296,7 @@ public class PeopleResource extends BaseResource {
         }
         // Re-read AFTER the join: the membership write updates the person's derived orgIds, and saving the
         // copy read before it would put the stale list back.
-        final Person person = findPerson(personId);
-        if (person == null) {
-            return error(404, ApiErrors.NOT_FOUND, Text.get("api.shared.noSuchPerson"));
-        }
+        final Person person = requireSubject(personId);
         person.setDefaultOrgId(Organization.Id.from(orgId));
         final PersonCommands people = Beans.get(PersonCommands.class);
         if (!people.savePerson(person)) {
@@ -351,10 +340,7 @@ public class PeopleResource extends BaseResource {
         if (csrfMissing(csrf)) {
             return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
-        final Person subject = findPerson(Person.Id.from(id));
-        if (subject == null) {
-            return error(404, ApiErrors.NOT_FOUND, Text.get("api.shared.noSuchPerson"));
-        }
+        final Person subject = requireSubject(Person.Id.from(id));
         final ProfilePhotoCommands photos = Beans.get(ProfilePhotoCommands.class);
         if (!photos.mayEdit(caller(), subject)) {
             return error(403, ApiErrors.FORBIDDEN, Text.get("api.people.photoNotPermitted"));
@@ -399,10 +385,7 @@ public class PeopleResource extends BaseResource {
         if (csrfMissing(csrf)) {
             return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
-        final Person subject = findPerson(Person.Id.from(id));
-        if (subject == null) {
-            return error(404, ApiErrors.NOT_FOUND, Text.get("api.shared.noSuchPerson"));
-        }
+        final Person subject = requireSubject(Person.Id.from(id));
         if (slot < 1 || slot > ProfilePhotos.MAX_SLOTS) {
             return error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.people.slotInvalid", ProfilePhotos.MAX_SLOTS));
         }
@@ -432,10 +415,7 @@ public class PeopleResource extends BaseResource {
         if (csrfMissing(csrf)) {
             return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
-        final Person subject = findPerson(Person.Id.from(id));
-        if (subject == null) {
-            return error(404, ApiErrors.NOT_FOUND, Text.get("api.shared.noSuchPerson"));
-        }
+        final Person subject = requireSubject(Person.Id.from(id));
         if (slot < 1 || slot > ProfilePhotos.MAX_SLOTS) {
             return error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.people.slotInvalid", ProfilePhotos.MAX_SLOTS));
         }
@@ -463,10 +443,7 @@ public class PeopleResource extends BaseResource {
         if (csrfMissing(csrf)) {
             return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
-        final Person subject = findPerson(Person.Id.from(id));
-        if (subject == null) {
-            return error(404, ApiErrors.NOT_FOUND, Text.get("api.shared.noSuchPerson"));
-        }
+        final Person subject = requireSubject(Person.Id.from(id));
         if (!Beans.get(ProfilePhotoCommands.class).mayEdit(caller(), subject)) {
             return error(403, ApiErrors.FORBIDDEN, Text.get("api.people.photoNotPermitted"));
         }

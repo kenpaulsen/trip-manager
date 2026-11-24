@@ -496,14 +496,8 @@ public class TripsResource extends BaseResource {
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response sharedItinerary(@PathParam("tripId") final String tripId,
             @PathParam("personId") final String personIdParam) {
-        final Trip trip = findTrip(tripId);
-        if (trip == null) {
-            return error(404, ApiErrors.NOT_FOUND, Text.get("api.shared.noSuchTrip"));
-        }
-        final Person subject = findPerson(Person.Id.from(personIdParam));
-        if (subject == null) {
-            return error(404, ApiErrors.NOT_FOUND, Text.get("api.shared.noSuchPerson"));
-        }
+        final Trip trip = requireTrip(tripId);
+        final Person subject = requireSubject(Person.Id.from(personIdParam));
         final ItineraryAccess.Level level = ItineraryAccess.of(caller(), findPerson(personId()), trip, subject,
                 () -> new OrgCommands(this::caller).canManageOrg(trip.getOrgId()));
         if (level == ItineraryAccess.Level.NONE) {
@@ -617,10 +611,7 @@ public class TripsResource extends BaseResource {
         }
         // Load, mutate, save the SAME object: a DAO read hands back a copy, so editing anything else and saving
         // its parent writes nothing while reporting success.
-        final Trip trip = findTrip(tripId);
-        if (trip == null) {
-            return error(404, ApiErrors.NOT_FOUND, Text.get("api.shared.noSuchTrip"));
-        }
+        final Trip trip = requireTrip(tripId);
         if (eventsCarryIds(body)) {
             return error(400, ApiErrors.VALIDATION_FAILED, Text.get("api.trips.eventsAppendOnly"));
         }
@@ -754,10 +745,7 @@ public class TripsResource extends BaseResource {
         if (!privileges().has(ApiPrivileges.TRIP_MGR, tripId)) {
             return error(403, ApiErrors.FORBIDDEN, Text.get("api.shared.tripManagerRequired"));
         }
-        final Trip trip = findTrip(tripId);
-        if (trip == null) {
-            return error(404, ApiErrors.NOT_FOUND, Text.get("api.shared.noSuchTrip"));
-        }
+        final Trip trip = requireTrip(tripId);
         // The trip's OWN instance, for the same reason setParticipation resolves ids: a copy saves nothing.
         final TripEvent event = trip.getTripEvent(eventId);
         if (event == null) {
@@ -1320,10 +1308,7 @@ public class TripsResource extends BaseResource {
         }
         // Refuse before buffering up to 16 MB: otherwise anyone signed in could hold that much memory per request
         // for a trip that does not exist or is not theirs. add() asks again on the row it saves.
-        final Trip trip = findTrip(tripId);
-        if (trip == null) {
-            return error(404, ApiErrors.NOT_FOUND, Text.get("api.shared.noSuchTrip"));
-        }
+        final Trip trip = requireTrip(tripId);
         final TripPictureCommands pictures = Beans.get(TripPictureCommands.class);
         if (!pictures.mayEdit(caller(), trip)) {
             return error(403, ApiErrors.FORBIDDEN, Text.get("api.trips.picturesNotPermitted"));
