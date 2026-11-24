@@ -40,6 +40,16 @@ final class OrgOwnedLists {
         return clean.isEmpty() || clean.length() > max ? null : clean;
     }
 
+    /** Where the item with this id sits in {@code items}, or -1 when none has it. */
+    static <T> int indexOf(final List<T> items, final Function<T, String> idOf, final String id) {
+        for (int i = 0; i < items.size(); i++) {
+            if (idOf.apply(items.get(i)).equals(id)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
     /** Whether no item but {@code exceptId} (null: none) already has {@code name}, compared without case. */
     static <T> boolean free(final List<T> items, final Function<T, String> idOf, final Function<T, String> nameOf,
             final String name, final String exceptId) {

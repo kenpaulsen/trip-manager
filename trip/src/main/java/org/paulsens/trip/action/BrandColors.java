@@ -167,7 +167,7 @@ public class BrandColors {
         }
         final List<BrandColor> colors = new ArrayList<>(colorsOf(fresh));
         final boolean adding = id == null || id.isBlank();
-        final int index = adding ? -1 : indexOf(colors, id);
+        final int index = adding ? -1 : OrgOwnedLists.indexOf(colors, BrandColor::id, id);
         if (!adding && index < 0) {
             return PageFeedback.refuse(Text.get("feedback.brandColors.unknownColor"),
                     Text.get("feedback.brandColors.colorGone"));
@@ -219,7 +219,7 @@ public class BrandColors {
             return false;
         }
         final List<BrandColor> colors = new ArrayList<>(colorsOf(fresh));
-        final int index = indexOf(colors, id);
+        final int index = OrgOwnedLists.indexOf(colors, BrandColor::id, id);
         if (index < 0) {
             return PageFeedback.refuse(Text.get("feedback.brandColors.unknownColor"),
                     Text.get("feedback.brandColors.colorGone"));
@@ -253,14 +253,5 @@ public class BrandColors {
 
     private static boolean nameFree(final List<BrandColor> colors, final String name, final String exceptId) {
         return OrgOwnedLists.free(colors, BrandColor::id, BrandColor::name, name, exceptId);
-    }
-
-    private static int indexOf(final List<BrandColor> colors, final String id) {
-        for (int i = 0; i < colors.size(); i++) {
-            if (colors.get(i).id().equals(id)) {
-                return i;
-            }
-        }
-        return -1;
     }
 }

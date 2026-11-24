@@ -585,7 +585,7 @@ public class CustomPalettes {
             return false;
         }
         final List<CustomPalette> palettes = new ArrayList<>(palettesOf(fresh));
-        final int index = indexOf(palettes, id);
+        final int index = OrgOwnedLists.indexOf(palettes, CustomPalette::id, id);
         if (index < 0) {
             return PageFeedback.refuse(Text.get("feedback.customPalettes.unknownPalette"),
                     Text.get("feedback.customPalettes.noLongerExists"));
@@ -656,7 +656,7 @@ public class CustomPalettes {
             return null;
         }
         final List<CustomPalette> palettes = new ArrayList<>(palettesOf(fresh));
-        final int index = indexOf(palettes, id);
+        final int index = OrgOwnedLists.indexOf(palettes, CustomPalette::id, id);
         if (index < 0) {
             PageFeedback.refuse(Text.get("feedback.customPalettes.unknownPalette"),
                     Text.get("feedback.customPalettes.noLongerExists"));
@@ -794,15 +794,6 @@ public class CustomPalettes {
             name = trimmed + " " + n;
         }
         return name;
-    }
-
-    private static int indexOf(final List<CustomPalette> palettes, final String id) {
-        for (int i = 0; i < palettes.size(); i++) {
-            if (palettes.get(i).id().equals(id)) {
-                return i;
-            }
-        }
-        return -1;
     }
 
     private static boolean same(final String a, final String b) {

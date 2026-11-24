@@ -19,7 +19,6 @@ import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.Audit;
 import org.paulsens.trip.audit.AuditEventBuilder;
-import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.content.ContentRenderer;
 import org.paulsens.trip.content.HtmlCheck;
 import org.paulsens.trip.content.PageVersions;
@@ -1201,7 +1200,7 @@ public class TemplateCommands {
     }
 
     private int retainCount() {
-        return config.getInt(KnownSettings.CONTENT_VERSIONS_RETAINED, 0, 50);
+        return ContentCommands.retainCount(config);
     }
 
     private void audit(final Caller caller, final String id, final String message) {

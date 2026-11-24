@@ -31,6 +31,14 @@ public class OrgOwnedListsTest {
     }
 
     @Test
+    public void anItemIsFoundByItsIdOrNotAtAll() {
+        final List<String[]> items = List.<String[]>of(new String[] {"a", "Sea"}, new String[] {"b", "Sky"});
+        Assert.assertEquals(OrgOwnedLists.indexOf(items, item -> item[0], "b"), 1);
+        Assert.assertEquals(OrgOwnedLists.indexOf(items, item -> item[0], "z"), -1);
+        Assert.assertEquals(OrgOwnedLists.indexOf(items, item -> item[0], null), -1);
+    }
+
+    @Test
     public void aNameIsTrimmedCollapsedAndCappedAndUniqueWithoutCase() {
         Assert.assertEquals(OrgOwnedLists.clean("  Sea   blue ", 20), "Sea blue");
         Assert.assertNull(OrgOwnedLists.clean("   ", 20));

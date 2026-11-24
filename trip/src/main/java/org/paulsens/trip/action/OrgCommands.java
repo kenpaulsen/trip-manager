@@ -1869,7 +1869,7 @@ public class OrgCommands {
         if (!DAO.getInstance().getContentForSection(pageKey, Cached.NO).isEmpty()) {
             return true;
         }
-        final int retain = new ConfigCommands().getInt(KnownSettings.CONTENT_VERSIONS_RETAINED, 0, 50);
+        final int retain = ContentCommands.retainCount(new ConfigCommands());
         for (final ContentInstance row : rows) {
             if (!DAO.getInstance().saveContent(row, retain)) {
                 return false;

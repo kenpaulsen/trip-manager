@@ -2439,6 +2439,11 @@ public class ContentCommands {
     }
 
     private int retainCount() {
+        return retainCount(config);
+    }
+
+    /** How many previous versions a content or template row keeps: THE one read of the setting and its ceiling. */
+    static int retainCount(final ConfigCommands config) {
         return config.getInt(KnownSettings.CONTENT_VERSIONS_RETAINED, 0, MAX_RETAINED_VERSIONS);
     }
 
