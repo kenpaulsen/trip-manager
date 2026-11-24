@@ -10,9 +10,7 @@ import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
 import org.testng.Assert;
 import org.testng.annotations.Test;
-import software.amazon.awssdk.http.SdkHttpResponse;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
-import software.amazon.awssdk.services.dynamodb.model.PutItemResponse;
 
 /**
  * The org DAOs' failure tails: corrupt rows are filtered rather than fatal, transport failures answer
@@ -75,10 +73,7 @@ public class OrgDaoFailureTailsTest {
         Assert.assertTrue(dao.getConfigs(orgId).isEmpty(), "A corrupt config row is skipped");
 
         // Refused put: false + version restored, like the org DAO.
-        final PutItemResponse.Builder refused = PutItemResponse.builder();
-        refused.sdkHttpResponse(SdkHttpResponse.builder().statusCode(500).build());
-        final Persistence refusing = Mockito.mock(Persistence.class);
-        Mockito.when(refusing.putItem(ArgumentMatchers.any())).thenReturn(refused.build());
+        final Persistence refusing = RefusingPersistence.refusingPuts();
         final org.paulsens.trip.model.PaymentProcessorConfig config =
                 org.paulsens.trip.model.PaymentProcessorConfig.builder()
                         .orgId(orgId).label("Refused")
@@ -122,10 +117,7 @@ public class OrgDaoFailureTailsTest {
 
     @Test
     public void anUnsuccessfulPutMapsToFalseAndRestoresTheVersion() throws Exception {
-        final PutItemResponse.Builder refused = PutItemResponse.builder();
-        refused.sdkHttpResponse(SdkHttpResponse.builder().statusCode(500).build());
-        final Persistence refusing = Mockito.mock(Persistence.class);
-        Mockito.when(refusing.putItem(ArgumentMatchers.any())).thenReturn(refused.build());
+        final Persistence refusing = RefusingPersistence.refusingPuts();
 
         final Organization org = Organization.builder().name("Refused").build();
         final OrganizationDAO orgDao = new OrganizationDAO(mapper, refusing, new InMemoryCacheClient());

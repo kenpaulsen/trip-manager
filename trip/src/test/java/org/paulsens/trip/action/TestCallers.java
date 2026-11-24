@@ -4,6 +4,7 @@ import org.mockito.Mockito;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.util.TestPeople;
+import org.testng.Assert;
 
 /** Callers for tests of beans whose writes re-check the caller (the {@code callerSource} seam). */
 public final class TestCallers {
@@ -52,5 +53,16 @@ public final class TestCallers {
     public static Caller siteAdminHoldingNothing() {
         return new Caller(Person.Id.from("admin-" + TestPeople.unique()), true, new AuditActor("admin@test", "admin"),
                 grantsNothing());
+    }
+
+    /**
+     * A new person id holding the named privilege in that scope, granted through the real privilege store:
+     * for a test of what a trip- or org-scoped role may do.
+     */
+    public static Person.Id grant(final String name, final String scope) {
+        final Person.Id who = Person.Id.newInstance();
+        final PrivilegeCommands priv = new PrivilegeCommands();
+        Assert.assertTrue(priv.savePrivilege(priv.getOrCreate(name, scope, name).withNewPerson(who)));
+        return who;
     }
 }

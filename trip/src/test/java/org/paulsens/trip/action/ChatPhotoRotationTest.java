@@ -4,8 +4,6 @@ import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.time.Instant;
-import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -23,7 +21,6 @@ import org.paulsens.trip.media.QuarterTurn;
 import org.paulsens.trip.media.RotationGuard;
 import org.paulsens.trip.model.MediaItem;
 import org.paulsens.trip.model.Person;
-import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.chat.ChatAttachment;
 import org.paulsens.trip.model.chat.ChatChannel;
 import org.paulsens.trip.model.chat.ChatMessage;
@@ -53,10 +50,7 @@ public class ChatPhotoRotationTest {
         tripId = UUID.randomUUID().toString();
         member = person("Turner");
         final Person.Id adminId = person("Moderator");
-        final Trip trip = Trip.builder().id(tripId).title("Rotate trip").openToPublic(false)
-                .startDate(LocalDateTime.now()).endDate(LocalDateTime.now().plusDays(14))
-                .people(new ArrayList<>(List.of(member, adminId))).build();
-        Assert.assertTrue(DAO.getInstance().saveTrip(trip));
+        ChatTrips.save(tripId, "Rotate trip", member, adminId);
         chat = new ChatCommands(new ChatRateLimiter(new InMemoryCacheClient()));
         photos = ChatPhotos.getChatPhotos();
         actor = new AuditActor("chatmgr@test", adminId.getValue());

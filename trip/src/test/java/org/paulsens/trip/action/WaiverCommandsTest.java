@@ -24,6 +24,7 @@ import org.paulsens.trip.util.RandomData;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
+import static org.paulsens.trip.action.TestCallers.grant;
 import static org.paulsens.trip.util.TestPeople.savedPerson;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
@@ -87,13 +88,6 @@ public class WaiverCommandsTest {
         final WaiverCommands.Result result = as(orgAdmin).createDocument(orgId, title, BODY, null);
         assertTrue(result.ok(), result.message());
         return result.document();
-    }
-
-    private static Person.Id grant(final String name, final String scope) {
-        final Person.Id who = Person.Id.newInstance();
-        final PrivilegeCommands priv = new PrivilegeCommands();
-        assertTrue(priv.savePrivilege(priv.getOrCreate(name, scope, name).withNewPerson(who)));
-        return who;
     }
 
     private static Trip reread(final Trip trip) {

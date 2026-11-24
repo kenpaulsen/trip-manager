@@ -10,6 +10,7 @@ import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
 import org.paulsens.trip.action.MailCommands;
 import org.paulsens.trip.action.OrgCommands;
+import org.paulsens.trip.action.TestMail;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.chat.MailTemplates;
 import org.paulsens.trip.dynamo.DAO;
@@ -31,11 +32,7 @@ public class PaymentMailerTest {
 
     @Test
     public void sendsThroughTheEffectiveConfigWithTheOrgBcc() {
-        final MailCommands mail = Mockito.mock(MailCommands.class);
-        Mockito.when(mail.sendManagedTemplateForOrg(ArgumentMatchers.anyString(), ArgumentMatchers.any(),
-                ArgumentMatchers.any(),
-                ArgumentMatchers.anyMap(), ArgumentMatchers.anyString(), ArgumentMatchers.anyString(),
-                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any())).thenReturn(true);
+        final MailCommands mail = TestMail.accepting();
         final Person payer = person("Joe", "joe@example.com");
         final PaymentMailer mailer = new PaymentMailer(mail, id -> payer);
 
@@ -58,11 +55,7 @@ public class PaymentMailerTest {
 
     @Test
     public void theFailureNoticeUsesTheFixedStarterAndCarriesTheReason() {
-        final MailCommands mail = Mockito.mock(MailCommands.class);
-        Mockito.when(mail.sendManagedTemplateForOrg(ArgumentMatchers.anyString(), ArgumentMatchers.any(),
-                ArgumentMatchers.any(),
-                ArgumentMatchers.anyMap(), ArgumentMatchers.anyString(), ArgumentMatchers.anyString(),
-                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any())).thenReturn(true);
+        final MailCommands mail = TestMail.accepting();
         final Person payer = person("Joe", "joe@example.com");
         final PaymentMailer mailer = new PaymentMailer(mail, id -> payer);
         final TripPaymentConfig effective = TripPaymentConfig.builder()
@@ -93,11 +86,7 @@ public class PaymentMailerTest {
      */
     @Test
     public void theOrganizationThreadedIntoTheSendComesFromThePayment() {
-        final MailCommands mail = Mockito.mock(MailCommands.class);
-        Mockito.when(mail.sendManagedTemplateForOrg(ArgumentMatchers.anyString(), ArgumentMatchers.any(),
-                ArgumentMatchers.any(),
-                ArgumentMatchers.anyMap(), ArgumentMatchers.anyString(), ArgumentMatchers.anyString(),
-                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any())).thenReturn(true);
+        final MailCommands mail = TestMail.accepting();
         final Person payer = person("Joe", "joe@example.com");
         final Payment ownedPayment = payment(payer);
         ownedPayment.setOrgId("org-of-the-payment");
@@ -128,11 +117,7 @@ public class PaymentMailerTest {
     @Test
     public void aFromTheTripsOrganizationMayNotUseFallsBackToTheSites() {
         DAO.getInstance();
-        final MailCommands mail = Mockito.mock(MailCommands.class);
-        Mockito.when(mail.sendManagedTemplateForOrg(ArgumentMatchers.anyString(), ArgumentMatchers.any(),
-                ArgumentMatchers.any(),
-                ArgumentMatchers.anyMap(), ArgumentMatchers.anyString(), ArgumentMatchers.anyString(),
-                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any())).thenReturn(true);
+        final MailCommands mail = TestMail.accepting();
         final Person payer = person("Joe", "joe@example.com");
         final PaymentMailer mailer = new PaymentMailer(mail, id -> payer);
         final Trip moved = trip();
@@ -234,11 +219,7 @@ public class PaymentMailerTest {
 
     @Test
     public void bccCombinationsAndNameFallbacksHold() {
-        final MailCommands mail = Mockito.mock(MailCommands.class);
-        Mockito.when(mail.sendManagedTemplateForOrg(ArgumentMatchers.anyString(), ArgumentMatchers.any(),
-                ArgumentMatchers.any(),
-                ArgumentMatchers.anyMap(), ArgumentMatchers.anyString(), ArgumentMatchers.anyString(),
-                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any())).thenReturn(true);
+        final MailCommands mail = TestMail.accepting();
         final Person payer = person("Joe", "joe@example.com");
         final PaymentMailer mailer = new PaymentMailer(mail,
                 id -> id.equals(payer.getId()) ? payer : null);
@@ -268,11 +249,7 @@ public class PaymentMailerTest {
     /** A checkout's confirmation lists each registrant with type, price, status and (when confirmed) ticket. */
     @Test
     public void aCheckoutConfirmationListsEveryRegistrant() {
-        final MailCommands mail = Mockito.mock(MailCommands.class);
-        Mockito.when(mail.sendManagedTemplateForOrg(ArgumentMatchers.anyString(), ArgumentMatchers.any(),
-                ArgumentMatchers.any(),
-                ArgumentMatchers.anyMap(), ArgumentMatchers.anyString(), ArgumentMatchers.anyString(),
-                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any())).thenReturn(true);
+        final MailCommands mail = TestMail.accepting();
         final Person payer = person("Ann", "ann@example.com");
         final Person kid = person("Kid", "kid@example.com");
         final java.util.Map<org.paulsens.trip.model.Person.Id, Person> people =

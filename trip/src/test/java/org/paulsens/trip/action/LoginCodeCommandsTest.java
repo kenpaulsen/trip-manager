@@ -11,13 +11,13 @@ import org.paulsens.trip.cache.CacheClient;
 import org.paulsens.trip.cache.InMemoryCacheClient;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.model.Creds;
+import org.paulsens.trip.util.TestPeople;
 import org.paulsens.trip.web.FakeSessions;
 import org.paulsens.trip.web.Sessions;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
-import org.paulsens.trip.cache.Cached;
 
 /**
  * {@link LoginCodeCommands} against local-mode fake data, where the code is always
@@ -166,7 +166,7 @@ public class LoginCodeCommandsTest {
         person.setLast("Pilgrim");
         person.setEmail("user-imported-" + System.nanoTime() + "@example.org");
         Assert.assertTrue(people.savePerson(person));
-        waitForEmailIndex(person.getEmail());
+        TestPeople.awaitEmailIndex(person.getEmail());
 
         Assert.assertTrue(commands.requestCode(person.getEmail()));
         final Creds creds = commands.verifyAndLogin(person.getEmail(), LoginCodeCommands.LOCAL_MODE_CODE,
@@ -200,20 +200,6 @@ public class LoginCodeCommandsTest {
     @Test
     public void theDefaultConstructorWiresItself() {
         Assert.assertTrue(new LoginCodeCommands().requestCode("  "));
-    }
-
-    private static void waitForEmailIndex(final String email) {
-        // The email index is written asynchronously behind savePerson; the code flow resolves the person BY
-        // EMAIL, so wait for the mapping rather than racing it (same idiom as PassCommandsTailsTest).
-        final long deadline = System.currentTimeMillis() + 5_000;
-        try {
-            while (org.paulsens.trip.dynamo.DAO.getInstance().getPersonByEmail(email, Cached.NO) == null) {
-                Assert.assertTrue(System.currentTimeMillis() < deadline, "email mapping never appeared");
-                Thread.sleep(20);
-            }
-        } catch (final InterruptedException ex) {
-            throw new IllegalStateException(ex);
-        }
     }
 
     private static HttpServletRequest requestWith(final Map<String, Object> attrs) {

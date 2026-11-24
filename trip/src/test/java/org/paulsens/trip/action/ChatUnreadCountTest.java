@@ -2,8 +2,6 @@ package org.paulsens.trip.action;
 
 import java.io.IOException;
 import java.time.Instant;
-import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import org.paulsens.trip.audit.AuditActor;
@@ -14,7 +12,6 @@ import org.paulsens.trip.cache.InMemoryCacheClient;
 import org.paulsens.trip.chat.ChatRateLimiter;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Person;
-import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.chat.ChatChannel;
 import org.paulsens.trip.model.chat.ChatMembership;
 import org.paulsens.trip.model.chat.ChatMessage;
@@ -40,15 +37,7 @@ public class ChatUnreadCountTest {
         tripId = UUID.randomUUID().toString();
         reader = person("Reader");
         writer = person("Writer");
-        final Trip trip = Trip.builder()
-                .id(tripId)
-                .title("Unread trip")
-                .openToPublic(false)
-                .startDate(LocalDateTime.now())
-                .endDate(LocalDateTime.now().plusDays(14))
-                .people(new ArrayList<>(List.of(reader, writer)))
-                .build();
-        Assert.assertTrue(DAO.getInstance().saveTrip(trip), "test setup: save dedicated trip");
+        ChatTrips.save(tripId, "Unread trip", reader, writer);
         chat = new ChatCommands(new ChatRateLimiter(new InMemoryCacheClient()));
     }
 

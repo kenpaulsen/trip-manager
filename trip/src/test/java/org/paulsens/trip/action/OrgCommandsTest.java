@@ -742,11 +742,7 @@ public class OrgCommandsTest {
     public void testSendFollowsTheEffectiveConfigAndRefusesLoudly() throws IOException {
         final Person acmeAdmin = savedPerson();
         final Organization acme = orgWithAdmin(acmeAdmin);
-        final org.paulsens.trip.action.MailCommands mail =
-                Mockito.mock(org.paulsens.trip.action.MailCommands.class);
-        Mockito.when(mail.sendManagedTemplateForOrg(Mockito.anyString(), Mockito.any(), Mockito.any(), Mockito.anyMap(),
-                Mockito.anyString(), Mockito.anyString(), Mockito.any(), Mockito.any(), Mockito.any()))
-                .thenReturn(true);
+        final MailCommands mail = TestMail.accepting();
         final OrgCommands cmds = new OrgCommands(callerOf(acmeAdmin), () -> mail);
 
         final org.paulsens.trip.model.Trip trip = org.paulsens.trip.model.Trip.builder()
@@ -2025,10 +2021,7 @@ public class OrgCommandsTest {
         assertNull(admin().sendablePaymentFrom(trip, org.paulsens.trip.model.TripPaymentConfig.builder().build()),
                 "no From stays no From");
 
-        final org.paulsens.trip.action.MailCommands mail = Mockito.mock(org.paulsens.trip.action.MailCommands.class);
-        Mockito.when(mail.sendManagedTemplateForOrg(Mockito.anyString(), Mockito.any(), Mockito.any(), Mockito.anyMap(),
-                Mockito.anyString(), Mockito.anyString(), Mockito.any(), Mockito.any(), Mockito.any()))
-                .thenReturn(true);
+        final MailCommands mail = TestMail.accepting();
         assertTrue(new OrgCommands(callerOf(acmeAdmin), () -> mail).sendPaymentTestMail(trip, "tester@example.org"));
         Mockito.verify(mail).sendManagedTemplateForOrg(Mockito.anyString(), Mockito.eq(orgId), Mockito.any(),
                 Mockito.anyMap(), Mockito.eq("tester@example.org"), Mockito.eq(inherited), Mockito.any(), Mockito.any(),

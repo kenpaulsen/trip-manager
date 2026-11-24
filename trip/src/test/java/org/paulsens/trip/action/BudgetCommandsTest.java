@@ -32,6 +32,7 @@ import org.paulsens.trip.util.RandomData;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
+import static org.paulsens.trip.action.TestCallers.grant;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotEquals;
@@ -104,13 +105,6 @@ public class BudgetCommandsTest {
                 .build();
         assertTrue(DAO.getInstance().saveReservationOffer(offer));
         return offer;
-    }
-
-    private static Person.Id grant(final String name, final String scope) {
-        final Person.Id who = Person.Id.newInstance();
-        final PrivilegeCommands priv = new PrivilegeCommands();
-        assertTrue(priv.savePrivilege(priv.getOrCreate(name, scope, name).withNewPerson(who)));
-        return who;
     }
 
     private static BudgetCommands as(final Person.Id who) {

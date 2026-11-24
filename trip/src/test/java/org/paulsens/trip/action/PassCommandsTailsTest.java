@@ -5,6 +5,7 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 import org.paulsens.trip.model.Creds;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.util.TestPeople;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 import org.paulsens.trip.cache.Cached;
@@ -24,18 +25,8 @@ public class PassCommandsTailsTest {
         person.setLast(first + "Last");
         person.setEmail(first.toLowerCase() + "-" + System.nanoTime() + "@example.org");
         Assert.assertTrue(people.savePerson(person));
-        // The email index is written asynchronously behind savePerson; the flows under test resolve the
-        // person BY EMAIL, so wait for the mapping rather than racing it.
-        final long deadline = System.currentTimeMillis() + 5_000;
-        try {
-            while (org.paulsens.trip.dynamo.DAO.getInstance()
-                    .getPersonByEmail(person.getEmail(), Cached.NO) == null) {
-                Assert.assertTrue(System.currentTimeMillis() < deadline, "email mapping never appeared");
-                Thread.sleep(20);
-            }
-        } catch (final InterruptedException ex) {
-            throw new IllegalStateException(ex);
-        }
+        // The flows under test resolve the person BY EMAIL.
+        TestPeople.awaitEmailIndex(person.getEmail());
         Assert.assertNotNull(pass.createCreds(person.getEmail(), "secret-1-" + first));
         return person;
     }

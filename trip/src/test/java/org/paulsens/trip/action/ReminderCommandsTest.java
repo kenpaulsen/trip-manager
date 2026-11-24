@@ -39,6 +39,7 @@ import org.slf4j.LoggerFactory;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
+import static org.paulsens.trip.action.TestCallers.grant;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotNull;
@@ -146,13 +147,6 @@ public class ReminderCommandsTest {
 
     private static TripReminder stored(final Trip trip, final String id) {
         return DAO.getInstance().getReminderPlan(trip.getId()).orElseThrow().reminder(id);
-    }
-
-    private static Person.Id grant(final String name, final String scope) {
-        final Person.Id who = Person.Id.newInstance();
-        final PrivilegeCommands priv = new PrivilegeCommands();
-        assertTrue(priv.savePrivilege(priv.getOrCreate(name, scope, name).withNewPerson(who)));
-        return who;
     }
 
     /** Approves the way the page does: with the hash of what the review dialog just showed. */

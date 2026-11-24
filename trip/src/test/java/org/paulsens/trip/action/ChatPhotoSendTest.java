@@ -1,7 +1,6 @@
 package org.paulsens.trip.action;
 
 import java.io.IOException;
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import org.paulsens.trip.audit.AuditActor;
@@ -11,7 +10,6 @@ import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.media.PhotoFixtures;
 import org.paulsens.trip.model.MediaItem;
 import org.paulsens.trip.model.Person;
-import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.chat.ChatAttachment;
 import org.paulsens.trip.model.chat.ChatChannel;
 import org.paulsens.trip.model.chat.ChatMessage;
@@ -57,15 +55,7 @@ public class ChatPhotoSendTest {
     }
 
     private void seedTrip() throws IOException {
-        final Trip trip = Trip.builder()
-                .id(tripId)
-                .title("Photo trip")
-                .openToPublic(false)
-                .startDate(LocalDateTime.now())
-                .endDate(LocalDateTime.now().plusDays(14))
-                .people(new ArrayList<>(List.of(member, adminId)))
-                .build();
-        Assert.assertTrue(DAO.getInstance().saveTrip(trip), "test setup: save dedicated trip");
+        ChatTrips.save(tripId, "Photo trip", member, adminId);
     }
 
     private ChatPhotos.StagedPhoto stageOne() {

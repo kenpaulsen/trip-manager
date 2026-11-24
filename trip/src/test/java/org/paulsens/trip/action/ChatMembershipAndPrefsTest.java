@@ -1,8 +1,6 @@
 package org.paulsens.trip.action;
 
 import java.io.IOException;
-import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.List;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.cache.InMemoryCacheClient;
@@ -10,7 +8,6 @@ import org.paulsens.trip.chat.ChatRateLimiter;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.chat.ChatNotifyPref;
-import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.chat.ChatChannel;
 import org.paulsens.trip.model.chat.ChatMembership;
 import org.paulsens.trip.model.chat.ChatMessage;
@@ -56,15 +53,7 @@ public class ChatMembershipAndPrefsTest {
     }
 
     private void seedTrip() throws IOException {
-        final Trip trip = Trip.builder()
-                .id(tripId)
-                .title("Chat prefs trip")
-                .openToPublic(false)
-                .startDate(LocalDateTime.now())
-                .endDate(LocalDateTime.now().plusDays(14))
-                .people(new ArrayList<>(List.of(member, adminId)))
-                .build();
-        Assert.assertTrue(DAO.getInstance().saveTrip(trip), "test setup: save dedicated trip");
+        ChatTrips.save(tripId, "Chat prefs trip", member, adminId);
     }
 
     // --- read access ---

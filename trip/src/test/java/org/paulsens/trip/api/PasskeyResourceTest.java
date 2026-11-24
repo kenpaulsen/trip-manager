@@ -8,6 +8,7 @@ import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.PasskeyCredential;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.util.RandomData;
+import org.paulsens.trip.util.TestPeople;
 import org.testng.Assert;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
@@ -42,18 +43,9 @@ public class PasskeyResourceTest extends ResourceTestSupport {
         person.setLast("Passkey");
         person.setEmail("user-" + tag.toLowerCase(java.util.Locale.ROOT) + "-" + System.nanoTime()
                 + "@example.org");
-        try {
-            Assert.assertTrue(DAO.getInstance().savePerson(person));
-            // savePerson writes the email index asynchronously and these flows resolve BY email; wait for the
-            // mapping rather than racing it.
-            final long deadline = System.currentTimeMillis() + 5_000;
-            while (DAO.getInstance().getPersonByEmail(person.getEmail(), Cached.NO) == null) {
-                Assert.assertTrue(System.currentTimeMillis() < deadline, "email mapping never appeared");
-                Thread.sleep(20);
-            }
-        } catch (final java.io.IOException | InterruptedException ex) {
-            throw new IllegalStateException(ex);
-        }
+        TestPeople.save(person);
+        // These flows resolve the person BY email.
+        TestPeople.awaitEmailIndex(person.getEmail());
         return person;
     }
 

@@ -2,8 +2,6 @@ package org.paulsens.trip.action;
 
 import java.io.IOException;
 import java.time.Instant;
-import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.List;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.cache.InMemoryCacheClient;
@@ -51,15 +49,7 @@ public class ChatDraftTest {
     }
 
     private void seedTrip() throws IOException {
-        final Trip trip = Trip.builder()
-                .id(tripId)
-                .title("Draft trip")
-                .openToPublic(false)
-                .startDate(LocalDateTime.now())
-                .endDate(LocalDateTime.now().plusDays(14))
-                .people(new ArrayList<>(List.of(member)))
-                .build();
-        Assert.assertTrue(DAO.getInstance().saveTrip(trip), "test setup: save dedicated trip");
+        ChatTrips.save(tripId, "Draft trip", member);
     }
 
     private ChatPhotos.StagedPhoto stageOne(final Person.Id uploader) {

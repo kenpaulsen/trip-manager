@@ -4,8 +4,6 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import org.mockito.ArgumentMatchers;
-import org.mockito.Mockito;
 import org.paulsens.trip.cache.CacheKeys;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.cache.InMemoryCacheClient;
@@ -14,10 +12,8 @@ import org.paulsens.trip.model.BudgetLine;
 import org.paulsens.trip.model.TripBudget;
 import org.paulsens.trip.util.RandomData;
 import org.testng.annotations.Test;
-import software.amazon.awssdk.http.SdkHttpResponse;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
-import software.amazon.awssdk.services.dynamodb.model.PutItemResponse;
 
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
@@ -100,10 +96,7 @@ public class BudgetDAOTest {
 
     @Test
     public void aRefusedPutRestoresTheVersion() throws IOException {
-        final Persistence refusing = Mockito.mock(Persistence.class);
-        final PutItemResponse failed = (PutItemResponse) PutItemResponse.builder()
-                .sdkHttpResponse(SdkHttpResponse.builder().statusCode(500).build()).build();
-        Mockito.when(refusing.putItem(ArgumentMatchers.any())).thenReturn(failed);
+        final Persistence refusing = RefusingPersistence.refusingPuts();
         final BudgetDAO dao = new BudgetDAO(DAO.getInstance().getMapper(), refusing, new NoopCacheClient());
         final TripBudget budget = budget();
         assertFalse(dao.saveBudget(budget));

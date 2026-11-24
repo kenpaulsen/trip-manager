@@ -23,6 +23,7 @@ import org.paulsens.trip.security.TicketCodes;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
+import static org.paulsens.trip.action.TestCallers.grant;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotNull;
@@ -88,13 +89,6 @@ public class CheckinCommandsTest {
                 new Registration(trip.getId(), person.getId(), START.minusDays(30), status, answers));
         assertTrue(DAO.getInstance().saveRegistration(reg));
         return reg;
-    }
-
-    private static Person.Id grant(final String name, final String scope) {
-        final Person.Id who = Person.Id.newInstance();
-        final PrivilegeCommands priv = new PrivilegeCommands();
-        assertTrue(priv.savePrivilege(priv.getOrCreate(name, scope, name).withNewPerson(who)));
-        return who;
     }
 
     private static CheckinCommands as(final Person.Id who) {
