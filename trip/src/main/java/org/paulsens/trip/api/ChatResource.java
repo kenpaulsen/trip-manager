@@ -14,6 +14,7 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.NotAuthorizedException;
+import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.Response;
 import java.io.IOException;
 import java.io.InputStream;
@@ -109,6 +110,7 @@ public class ChatResource extends BaseResource {
             final Long rver,
             final Long mver) {
         final Person.Id me = personId();
+        // Answered, not thrown (requireTripIdOf): feed() turns every RuntimeException into a 500.
         final String tripId = tripIdOf(channelId);
         if (tripId == null) {
             return error(400, ChatErrors.BAD_CHANNEL, Text.get("api.chat.invalidChannel"));
@@ -290,10 +292,7 @@ public class ChatResource extends BaseResource {
             return error(415, ChatErrors.UNSUPPORTED_MEDIA_TYPE, Text.get("api.chat.wrongContentType"));
         }
         final Person.Id me = personId();
-        final String tripId = tripIdOf(channelId);
-        if (tripId == null) {
-            return error(400, ChatErrors.BAD_CHANNEL, Text.get("api.chat.invalidChannel"));
-        }
+        final String tripId = requireTripIdOf(channelId);
         final String text = JsonBody.str(body, "body");
         final String clientMessageId = JsonBody.str(body, "clientMessageId");
         final String replyTo = JsonBody.str(body, "replyTo");
@@ -362,10 +361,7 @@ public class ChatResource extends BaseResource {
         if (csrfMissing(csrf)) {
             return error(403, ChatErrors.CSRF, Text.get("api.shared.csrfMissing", ChatCommands.CSRF_HEADER));
         }
-        final String tripId = tripIdOf(channelId);
-        if (tripId == null) {
-            return error(400, ChatErrors.BAD_CHANNEL, Text.get("api.chat.invalidChannel"));
-        }
+        final String tripId = requireTripIdOf(channelId);
         final Person.Id me = personId();
         final PhotoProcessor.CropRect rect;
         try {
@@ -439,10 +435,7 @@ public class ChatResource extends BaseResource {
     @Path("album-sources")
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response albumSources(@PathParam("channelId") final String channelId) {
-        final String tripId = tripIdOf(channelId);
-        if (tripId == null) {
-            return error(400, ChatErrors.BAD_CHANNEL, Text.get("api.chat.invalidChannel"));
-        }
+        final String tripId = requireTripIdOf(channelId);
         final ChatCommands.AttachGate gate = ChatCommands.getChatCommands().checkAttach(tripId, personId());
         if (gate.denial() != null) {
             return attachRefusal(gate);
@@ -464,10 +457,7 @@ public class ChatResource extends BaseResource {
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response albumPhotos(@PathParam("channelId") final String channelId,
             @PathParam("albumTripId") final String albumTripId) {
-        final String tripId = tripIdOf(channelId);
-        if (tripId == null) {
-            return error(400, ChatErrors.BAD_CHANNEL, Text.get("api.chat.invalidChannel"));
-        }
+        final String tripId = requireTripIdOf(channelId);
         final ChatCommands.AttachGate gate = ChatCommands.getChatCommands().checkAttach(tripId, personId());
         if (gate.denial() != null) {
             return attachRefusal(gate);
@@ -527,10 +517,7 @@ public class ChatResource extends BaseResource {
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response draft(@PathParam("channelId") final String channelId) {
         final Person.Id me = personId();
-        final String tripId = tripIdOf(channelId);
-        if (tripId == null) {
-            return error(400, ChatErrors.BAD_CHANNEL, Text.get("api.chat.invalidChannel"));
-        }
+        final String tripId = requireTripIdOf(channelId);
         final ChatCommands.DraftView view = ChatCommands.getChatCommands().draftForTrip(tripId, me);
         if (view == null) {
             return ok(Map.of("body", "", "attachments", List.of(), "pruned", 0));
@@ -554,10 +541,7 @@ public class ChatResource extends BaseResource {
             return error(403, ChatErrors.CSRF, Text.get("api.shared.csrfMissing", ChatCommands.CSRF_HEADER));
         }
         final Person.Id me = personId();
-        final String tripId = tripIdOf(channelId);
-        if (tripId == null) {
-            return error(400, ChatErrors.BAD_CHANNEL, Text.get("api.chat.invalidChannel"));
-        }
+        final String tripId = requireTripIdOf(channelId);
         final String text = JsonBody.str(body, "body");
         final List<ChatPhotos.AttachmentRef> attachments =
                 parseAttachments(body == null ? null : body.get("attachments"));
@@ -587,10 +571,7 @@ public class ChatResource extends BaseResource {
             return error(403, ChatErrors.CSRF, Text.get("api.shared.csrfMissing", ChatCommands.CSRF_HEADER));
         }
         final Person.Id me = personId();
-        final String tripId = tripIdOf(channelId);
-        if (tripId == null) {
-            return error(400, ChatErrors.BAD_CHANNEL, Text.get("api.chat.invalidChannel"));
-        }
+        final String tripId = requireTripIdOf(channelId);
         ChatCommands.getChatCommands().clearDraft(tripId, me);
         return ok(Map.of("cleared", true));
     }
@@ -606,10 +587,7 @@ public class ChatResource extends BaseResource {
             return error(403, ChatErrors.CSRF, Text.get("api.shared.csrfMissing", ChatCommands.CSRF_HEADER));
         }
         final Person.Id me = personId();
-        final String tripId = tripIdOf(channelId);
-        if (tripId == null) {
-            return error(400, ChatErrors.BAD_CHANNEL, Text.get("api.chat.invalidChannel"));
-        }
+        final String tripId = requireTripIdOf(channelId);
         final ChatCommands chat = ChatCommands.getChatCommands();
         // An author may remove their own; anyone else needs to administer the chat. The bean re-derives both from
         // the stored message rather than trusting anything here, so this only shapes the error the client sees.
@@ -642,10 +620,7 @@ public class ChatResource extends BaseResource {
             return error(403, ChatErrors.CSRF, Text.get("api.shared.csrfMissing", ChatCommands.CSRF_HEADER));
         }
         final Person.Id me = personId();
-        final String tripId = tripIdOf(channelId);
-        if (tripId == null) {
-            return error(400, ChatErrors.BAD_CHANNEL, Text.get("api.chat.invalidChannel"));
-        }
+        final String tripId = requireTripIdOf(channelId);
         if (key == null || key.isBlank()) {
             return error(400, ChatErrors.BAD_ATTACHMENT, Text.get("api.chat.photoKeyMissing"));
         }
@@ -685,10 +660,7 @@ public class ChatResource extends BaseResource {
             return error(403, ChatErrors.CSRF, Text.get("api.shared.csrfMissing", ChatCommands.CSRF_HEADER));
         }
         final Person.Id me = personId();
-        final String tripId = tripIdOf(channelId);
-        if (tripId == null) {
-            return error(400, ChatErrors.BAD_CHANNEL, Text.get("api.chat.invalidChannel"));
-        }
+        final String tripId = requireTripIdOf(channelId);
         if (key == null || key.isBlank()) {
             return error(400, ChatErrors.BAD_ATTACHMENT, Text.get("api.chat.photoKeyMissing"));
         }
@@ -730,10 +702,7 @@ public class ChatResource extends BaseResource {
         if (csrfMissing(csrf)) {
             return error(403, ChatErrors.CSRF, Text.get("api.shared.csrfMissing", ChatCommands.CSRF_HEADER));
         }
-        final String tripId = tripIdOf(channelId);
-        if (tripId == null) {
-            return error(400, ChatErrors.BAD_CHANNEL, Text.get("api.chat.invalidChannel"));
-        }
+        final String tripId = requireTripIdOf(channelId);
         if (key == null || key.isBlank()) {
             return error(400, ChatErrors.BAD_ATTACHMENT, Text.get("api.chat.photoKeyMissing"));
         }
@@ -795,10 +764,7 @@ public class ChatResource extends BaseResource {
             return error(403, ChatErrors.CSRF, Text.get("api.shared.csrfMissing", ChatCommands.CSRF_HEADER));
         }
         final Person.Id me = personId();
-        final String tripId = tripIdOf(channelId);
-        if (tripId == null) {
-            return error(400, ChatErrors.BAD_CHANNEL, Text.get("api.chat.invalidChannel"));
-        }
+        final String tripId = requireTripIdOf(channelId);
         final ChatCommands chat = ChatCommands.getChatCommands();
         final ChatCommands.ReactResult result = chat.editMessage(
                 tripId, me, ChatMessage.Id.from(msgId), JsonBody.str(body, "body"));
@@ -843,10 +809,7 @@ public class ChatResource extends BaseResource {
         if (csrfMissing(csrf)) {
             return error(403, ChatErrors.CSRF, Text.get("api.shared.csrfMissing", ChatCommands.CSRF_HEADER));
         }
-        final String tripId = tripIdOf(channelId);
-        if (tripId == null) {
-            return error(400, ChatErrors.BAD_CHANNEL, Text.get("api.chat.invalidChannel"));
-        }
+        final String tripId = requireTripIdOf(channelId);
         final String cursor = JsonBody.str(body, "cursor");
         if (cursor == null || cursor.isBlank()) {
             return error(400, ChatErrors.BAD_CHANNEL, Text.get("api.chat.cursorRequired"));
@@ -894,10 +857,7 @@ public class ChatResource extends BaseResource {
             return error(403, ChatErrors.CSRF, Text.get("api.shared.csrfMissing", ChatCommands.CSRF_HEADER));
         }
         final Person.Id me = personId();
-        final String tripId = tripIdOf(channelId);
-        if (tripId == null) {
-            return error(400, ChatErrors.BAD_CHANNEL, Text.get("api.chat.invalidChannel"));
-        }
+        final String tripId = requireTripIdOf(channelId);
         final ChatCommands chat = ChatCommands.getChatCommands();
         final ChatMessage.Id target = ChatMessage.Id.from(msgId);
         final ChatCommands.ReactResult result = add
@@ -943,10 +903,7 @@ public class ChatResource extends BaseResource {
             @QueryParam("from") final String from,
             @QueryParam("to") final String to) {
         final Person.Id me = personId();
-        final String tripId = tripIdOf(channelId);
-        if (tripId == null) {
-            return error(400, ChatErrors.BAD_CHANNEL, Text.get("api.chat.invalidChannel"));
-        }
+        final String tripId = requireTripIdOf(channelId);
         if (from == null || from.isBlank() || to == null || to.isBlank()) {
             return error(400, ChatErrors.BAD_CHANNEL, Text.get("api.chat.fromAndToRequired"));
         }
@@ -987,10 +944,7 @@ public class ChatResource extends BaseResource {
         if (csrfMissing(csrf)) {
             return error(403, ChatErrors.CSRF, Text.get("api.shared.csrfMissing", ChatCommands.CSRF_HEADER));
         }
-        final String tripId = tripIdOf(channelId);
-        if (tripId == null) {
-            return error(400, ChatErrors.BAD_CHANNEL, Text.get("api.chat.invalidChannel"));
-        }
+        final String tripId = requireTripIdOf(channelId);
         final boolean ok = ChatCommands.getChatCommands().rejoin(tripId, personId(), actor());
         return ok ? ok(Map.of("joined", true))
                 : error(403, ChatErrors.REMOVED_FROM_CHANNEL, Text.get("api.chat.adminMustReAdd"));
@@ -1005,10 +959,7 @@ public class ChatResource extends BaseResource {
         if (csrfMissing(csrf)) {
             return error(403, ChatErrors.CSRF, Text.get("api.shared.csrfMissing", ChatCommands.CSRF_HEADER));
         }
-        final String tripId = tripIdOf(channelId);
-        if (tripId == null) {
-            return error(400, ChatErrors.BAD_CHANNEL, Text.get("api.chat.invalidChannel"));
-        }
+        final String tripId = requireTripIdOf(channelId);
         final boolean ok = ChatCommands.getChatCommands().leave(tripId, personId(), actor());
         return ok ? ok(Map.of("left", true)) : error(500, ChatErrors.INTERNAL, Text.get("api.chat.leaveFailed"));
     }
@@ -1024,10 +975,7 @@ public class ChatResource extends BaseResource {
     @Path("invite")
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response inviteAvailability(@PathParam("channelId") final String channelId) {
-        final String tripId = tripIdOf(channelId);
-        if (tripId == null) {
-            return error(400, ChatErrors.BAD_CHANNEL, Text.get("api.chat.invalidChannel"));
-        }
+        final String tripId = requireTripIdOf(channelId);
         final ChatCommands chat = ChatCommands.getChatCommands();
         final Map<String, Object> result = new LinkedHashMap<>();
         result.put("enabled", chat.invitesEnabled());
@@ -1054,10 +1002,7 @@ public class ChatResource extends BaseResource {
         if (csrfMissing(csrf)) {
             return error(403, ChatErrors.CSRF, Text.get("api.shared.csrfMissing", ChatCommands.CSRF_HEADER));
         }
-        final String tripId = tripIdOf(channelId);
-        if (tripId == null) {
-            return error(400, ChatErrors.BAD_CHANNEL, Text.get("api.chat.invalidChannel"));
-        }
+        final String tripId = requireTripIdOf(channelId);
         final ChatCommands chat = ChatCommands.getChatCommands();
         final Person.Id me = personId();
         if (!chat.canInvite(tripId, me)) {
@@ -1078,10 +1023,7 @@ public class ChatResource extends BaseResource {
             @PathParam("channelId") final String channelId,
             @QueryParam("limit") @DefaultValue("500") final int limit) {
         final Person.Id me = personId();
-        final String tripId = tripIdOf(channelId);
-        if (tripId == null) {
-            return error(400, ChatErrors.BAD_CHANNEL, Text.get("api.chat.invalidChannel"));
-        }
+        final String tripId = requireTripIdOf(channelId);
         final ChatCommands chat = ChatCommands.getChatCommands();
         if (!chat.canAdminister(tripId, caller())) {
             return error(403, ChatErrors.FORBIDDEN, Text.get("api.chat.managerRequired"));
@@ -1104,10 +1046,7 @@ public class ChatResource extends BaseResource {
     @Path("roster")
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response roster(@PathParam("channelId") final String channelId) {
-        final String tripId = tripIdOf(channelId);
-        if (tripId == null) {
-            return error(400, ChatErrors.BAD_CHANNEL, Text.get("api.chat.invalidChannel"));
-        }
+        final String tripId = requireTripIdOf(channelId);
         final ChatCommands chat = ChatCommands.getChatCommands();
         if (!chat.canParticipate(tripId, personId())) {
             return error(403, ChatErrors.NOT_A_TRIP_MEMBER, Text.get("api.shared.notTripMember"));
@@ -1120,10 +1059,7 @@ public class ChatResource extends BaseResource {
     @Path("prefs")
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response prefs(@PathParam("channelId") final String channelId) {
-        final String tripId = tripIdOf(channelId);
-        if (tripId == null) {
-            return error(400, ChatErrors.BAD_CHANNEL, Text.get("api.chat.invalidChannel"));
-        }
+        final String tripId = requireTripIdOf(channelId);
         final ChatCommands chat = ChatCommands.getChatCommands();
         final Person.Id me = personId();
         final Map<String, Object> result = new LinkedHashMap<>();
@@ -1144,10 +1080,7 @@ public class ChatResource extends BaseResource {
         if (csrfMissing(csrf)) {
             return error(403, ChatErrors.CSRF, Text.get("api.shared.csrfMissing", ChatCommands.CSRF_HEADER));
         }
-        final String tripId = tripIdOf(channelId);
-        if (tripId == null) {
-            return error(400, ChatErrors.BAD_CHANNEL, Text.get("api.chat.invalidChannel"));
-        }
+        final String tripId = requireTripIdOf(channelId);
         final ChatCommands chat = ChatCommands.getChatCommands();
         final Person.Id me = personId();
         final boolean mention = JsonBody.bool(body, "mentionEmail", chat.mentionEmailForTrip(tripId, me));
@@ -1196,10 +1129,7 @@ public class ChatResource extends BaseResource {
         if (csrfMissing(csrf)) {
             return error(403, ChatErrors.CSRF, Text.get("api.shared.csrfMissing", ChatCommands.CSRF_HEADER));
         }
-        final String tripId = tripIdOf(channelId);
-        if (tripId == null) {
-            return error(400, ChatErrors.BAD_CHANNEL, Text.get("api.chat.invalidChannel"));
-        }
+        final String tripId = requireTripIdOf(channelId);
         final ModerationCommands.ReportOutcome outcome = Beans.get(ModerationCommands.class).report(
                 ModerationCommands.ReportTarget.message(tripId, ChatMessage.Id.from(msgId)),
                 JsonBody.str(body, "reason"), caller());
@@ -1242,10 +1172,7 @@ public class ChatResource extends BaseResource {
         if (csrfMissing(csrf)) {
             return error(403, ChatErrors.CSRF, Text.get("api.shared.csrfMissing", ChatCommands.CSRF_HEADER));
         }
-        final String tripId = tripIdOf(channelId);
-        if (tripId == null) {
-            return error(400, ChatErrors.BAD_CHANNEL, Text.get("api.chat.invalidChannel"));
-        }
+        final String tripId = requireTripIdOf(channelId);
         final int minutes = JsonBody.intOf(body, "minutes", 0);
         if (minutes <= 0) {
             return error(400, ChatErrors.FORBIDDEN, Text.get("api.chat.minutesRequired"));
@@ -1270,10 +1197,7 @@ public class ChatResource extends BaseResource {
         if (csrfMissing(csrf)) {
             return error(403, ChatErrors.CSRF, Text.get("api.shared.csrfMissing", ChatCommands.CSRF_HEADER));
         }
-        final String tripId = tripIdOf(channelId);
-        if (tripId == null) {
-            return error(400, ChatErrors.BAD_CHANNEL, Text.get("api.chat.invalidChannel"));
-        }
+        final String tripId = requireTripIdOf(channelId);
         final boolean ok = ChatCommands.getChatCommands()
                 .unmute(tripId, Person.Id.from(targetId), caller());
         return ok ? ok(Map.of("unmuted", true))
@@ -1292,10 +1216,7 @@ public class ChatResource extends BaseResource {
         if (csrfMissing(csrf)) {
             return error(403, ChatErrors.CSRF, Text.get("api.shared.csrfMissing", ChatCommands.CSRF_HEADER));
         }
-        final String tripId = tripIdOf(channelId);
-        if (tripId == null) {
-            return error(400, ChatErrors.BAD_CHANNEL, Text.get("api.chat.invalidChannel"));
-        }
+        final String tripId = requireTripIdOf(channelId);
         final boolean ok = ChatCommands.getChatCommands()
                 .removeMember(tripId, Person.Id.from(targetId), reason, caller());
         return ok ? ok(Map.of("removed", true))
@@ -1321,10 +1242,7 @@ public class ChatResource extends BaseResource {
         if (csrfMissing(csrf)) {
             return error(403, ChatErrors.CSRF, Text.get("api.shared.csrfMissing", ChatCommands.CSRF_HEADER));
         }
-        final String tripId = tripIdOf(channelId);
-        if (tripId == null) {
-            return error(400, ChatErrors.BAD_CHANNEL, Text.get("api.chat.invalidChannel"));
-        }
+        final String tripId = requireTripIdOf(channelId);
         final String acknowledgement = JsonBody.str(body, "acknowledgement");
         final boolean ok = ChatCommands.getChatCommands()
                 .addMember(tripId, Person.Id.from(targetId), acknowledgement, caller());
@@ -1360,5 +1278,14 @@ public class ChatResource extends BaseResource {
         }
         final String tripId = channelId.substring("trip:".length());
         return tripId.isBlank() ? null : tripId;
+    }
+
+    /** {@link #tripIdOf}, or a 400 {@code BAD_CHANNEL} out of the whole request for an id that names no trip. */
+    private String requireTripIdOf(final String channelId) {
+        final String tripId = tripIdOf(channelId);
+        if (tripId == null) {
+            throw new WebApplicationException(error(400, ChatErrors.BAD_CHANNEL, Text.get("api.chat.invalidChannel")));
+        }
+        return tripId;
     }
 }

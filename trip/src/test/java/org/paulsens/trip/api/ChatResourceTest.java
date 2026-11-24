@@ -511,7 +511,7 @@ public class ChatResourceTest extends ResourceTestSupport {
     @Test
     public void rotationRefusalsMapOntoTheContractStatuses() {
         assertError(resource.rotatePhoto(CHANNEL, KEY, null, turn("left", null)), 403, ChatErrors.CSRF);
-        assertError(resource.rotatePhoto("support:main", KEY, CSRF_OK, turn("left", null)), 400,
+        assertThrown(() -> resource.rotatePhoto("support:main", KEY, CSRF_OK, turn("left", null)), 400,
                 ChatErrors.BAD_CHANNEL);
         assertError(resource.rotatePhoto(CHANNEL, " ", CSRF_OK, turn("left", null)), 400, ChatErrors.BAD_ATTACHMENT);
         assertError(resource.rotatePhoto(CHANNEL, KEY, CSRF_OK, null), 400, ChatErrors.BAD_ATTACHMENT);
@@ -666,7 +666,7 @@ public class ChatResourceTest extends ResourceTestSupport {
         Assert.assertEquals(off.get("enabled"), Boolean.FALSE);
         Assert.assertEquals(off.get("canInvite"), Boolean.FALSE);
 
-        assertError(resource.inviteAvailability("dm:a:b"), 400, ChatErrors.BAD_CHANNEL);
+        assertThrown(() -> resource.inviteAvailability("dm:a:b"), 400, ChatErrors.BAD_CHANNEL);
         Mockito.verify(chat, Mockito.never()).mintInvite(ArgumentMatchers.any(), ArgumentMatchers.any(),
                 ArgumentMatchers.any());
     }
@@ -709,7 +709,7 @@ public class ChatResourceTest extends ResourceTestSupport {
     @Test
     public void createInviteRequiresTheCsrfHeaderAndATripChannel() {
         assertError(resource.createInvite(CHANNEL, null), 403, ChatErrors.CSRF);
-        assertError(resource.createInvite("dm:a:b", CSRF_OK), 400, ChatErrors.BAD_CHANNEL);
+        assertThrown(() -> resource.createInvite("dm:a:b", CSRF_OK), 400, ChatErrors.BAD_CHANNEL);
         Mockito.verify(chat, Mockito.never()).mintInvite(ArgumentMatchers.any(), ArgumentMatchers.any(),
                 ArgumentMatchers.any());
     }
@@ -855,7 +855,7 @@ public class ChatResourceTest extends ResourceTestSupport {
 
         assertOk(response);
         Assert.assertSame(response.getEntity(), view);
-        assertError(resource.draft("not-a-trip-channel"), 400, ChatErrors.BAD_CHANNEL);
+        assertThrown(() -> resource.draft("not-a-trip-channel"), 400, ChatErrors.BAD_CHANNEL);
     }
 
     @Test
@@ -905,7 +905,7 @@ public class ChatResourceTest extends ResourceTestSupport {
         assertError(resource.saveDraft(CHANNEL, CSRF_OK, Map.of("body", "x")), 403,
                 ChatErrors.NOT_A_TRIP_MEMBER);
         assertError(resource.saveDraft(CHANNEL, CSRF_OK, Map.of("body", "x")), 500, ChatErrors.INTERNAL);
-        assertError(resource.saveDraft("junk-channel", CSRF_OK, Map.of()), 400, ChatErrors.BAD_CHANNEL);
+        assertThrown(() -> resource.saveDraft("junk-channel", CSRF_OK, Map.of()), 400, ChatErrors.BAD_CHANNEL);
     }
 
     @Test
@@ -915,7 +915,7 @@ public class ChatResourceTest extends ResourceTestSupport {
         assertOk(resource.deleteDraft(CHANNEL, CSRF_OK));
 
         Mockito.verify(chat).clearDraft(TRIP_ID, ME);
-        assertError(resource.deleteDraft("junk-channel", CSRF_OK), 400, ChatErrors.BAD_CHANNEL);
+        assertThrown(() -> resource.deleteDraft("junk-channel", CSRF_OK), 400, ChatErrors.BAD_CHANNEL);
     }
 
 
@@ -996,8 +996,8 @@ public class ChatResourceTest extends ResourceTestSupport {
 
         assertError(uploader.uploadPhoto(CHANNEL, null, null, null, null, null, null, bodyOf(bytes)),
                 403, ChatErrors.CSRF);
-        assertError(uploader.uploadPhoto("dm:x", CSRF_OK, null, null, null, null, null, bodyOf(bytes)),
-                400, ChatErrors.BAD_CHANNEL);
+        assertThrown(() -> uploader.uploadPhoto("dm:x", CSRF_OK, null, null, null, null, null, bodyOf(bytes)), 400,
+                ChatErrors.BAD_CHANNEL);
         assertError(uploader.uploadPhoto(CHANNEL, CSRF_OK, null, 1, null, null, null, bodyOf(bytes)),
                 400, ChatErrors.BAD_ATTACHMENT);
         Mockito.verify(chat, Mockito.never()).checkAttach(ArgumentMatchers.any(), ArgumentMatchers.any());
@@ -1072,7 +1072,7 @@ public class ChatResourceTest extends ResourceTestSupport {
         final org.paulsens.trip.action.ModerationCommands moderation =
                 bindMock(org.paulsens.trip.action.ModerationCommands.class);
         assertError(resource.report(CHANNEL, "m1", null, Map.of()), 403, ChatErrors.CSRF);
-        assertError(resource.report("bad", "m1", CSRF_OK, Map.of()), 400, ChatErrors.BAD_CHANNEL);
+        assertThrown(() -> resource.report("bad", "m1", CSRF_OK, Map.of()), 400, ChatErrors.BAD_CHANNEL);
         Mockito.when(moderation.report(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
                 .thenReturn(new org.paulsens.trip.action.ModerationCommands.ReportOutcome(false,
                         org.paulsens.trip.action.ModerationCommands.REFUSED_NOT_FOUND, "gone", 0));
@@ -1186,8 +1186,8 @@ public class ChatResourceTest extends ResourceTestSupport {
                 Mockito.mock(org.paulsens.trip.action.AlbumPhotoSource.class);
         final ChatResource listing = albumsResource(albums, null);
 
-        assertError(listing.albumSources("dm:x"), 400, ChatErrors.BAD_CHANNEL);
-        assertError(listing.albumPhotos("trip:", "older"), 400, ChatErrors.BAD_CHANNEL);
+        assertThrown(() -> listing.albumSources("dm:x"), 400, ChatErrors.BAD_CHANNEL);
+        assertThrown(() -> listing.albumPhotos("trip:", "older"), 400, ChatErrors.BAD_CHANNEL);
         Mockito.when(chat.checkAttach(TRIP_ID, ME))
                 .thenReturn(new ChatCommands.AttachGate(null, "muted", "You are muted."))
                 .thenReturn(new ChatCommands.AttachGate(null, "attachment", "Photos are turned off for this chat."));

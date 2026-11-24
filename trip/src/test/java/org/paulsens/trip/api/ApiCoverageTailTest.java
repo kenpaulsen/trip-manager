@@ -58,22 +58,23 @@ public class ApiCoverageTailTest extends ResourceTestSupport {
 
     @Test
     public void everyChatEndpointRefusesANonTripChannelId() {
-        assertError(chatResource.send(BAD, CSRF_OK, ApiMediaTypes.CHAT_V1, Map.of()), 400, ChatErrors.BAD_CHANNEL);
-        assertError(chatResource.delete(BAD, "m1", CSRF_OK), 400, ChatErrors.BAD_CHANNEL);
-        assertError(chatResource.edit(BAD, "m1", CSRF_OK, Map.of()), 400, ChatErrors.BAD_CHANNEL);
-        assertError(chatResource.markRead(BAD, CSRF_OK, Map.of("cursor", "m1")), 400, ChatErrors.BAD_CHANNEL);
-        assertError(chatResource.react(BAD, "m1", "x", CSRF_OK), 400, ChatErrors.BAD_CHANNEL);
-        assertError(chatResource.reactions(BAD, "m1", "m2"), 400, ChatErrors.BAD_CHANNEL);
-        assertError(chatResource.join(BAD, CSRF_OK), 400, ChatErrors.BAD_CHANNEL);
-        assertError(chatResource.leave(BAD, CSRF_OK), 400, ChatErrors.BAD_CHANNEL);
-        assertError(chatResource.export(BAD, 10), 400, ChatErrors.BAD_CHANNEL);
-        assertError(chatResource.roster(BAD), 400, ChatErrors.BAD_CHANNEL);
-        assertError(chatResource.prefs(BAD), 400, ChatErrors.BAD_CHANNEL);
-        assertError(chatResource.savePrefs(BAD, CSRF_OK, Map.of()), 400, ChatErrors.BAD_CHANNEL);
-        assertError(chatResource.mute(BAD, "t", CSRF_OK, Map.of("minutes", 5)), 400, ChatErrors.BAD_CHANNEL);
-        assertError(chatResource.unmute(BAD, "t", CSRF_OK), 400, ChatErrors.BAD_CHANNEL);
-        assertError(chatResource.removeMember(BAD, "t", null, CSRF_OK), 400, ChatErrors.BAD_CHANNEL);
-        assertError(chatResource.addMember(BAD, "t", CSRF_OK, Map.of()), 400, ChatErrors.BAD_CHANNEL);
+        assertThrown(() -> chatResource.send(BAD, CSRF_OK, ApiMediaTypes.CHAT_V1, Map.of()), 400,
+                ChatErrors.BAD_CHANNEL);
+        assertThrown(() -> chatResource.delete(BAD, "m1", CSRF_OK), 400, ChatErrors.BAD_CHANNEL);
+        assertThrown(() -> chatResource.edit(BAD, "m1", CSRF_OK, Map.of()), 400, ChatErrors.BAD_CHANNEL);
+        assertThrown(() -> chatResource.markRead(BAD, CSRF_OK, Map.of("cursor", "m1")), 400, ChatErrors.BAD_CHANNEL);
+        assertThrown(() -> chatResource.react(BAD, "m1", "x", CSRF_OK), 400, ChatErrors.BAD_CHANNEL);
+        assertThrown(() -> chatResource.reactions(BAD, "m1", "m2"), 400, ChatErrors.BAD_CHANNEL);
+        assertThrown(() -> chatResource.join(BAD, CSRF_OK), 400, ChatErrors.BAD_CHANNEL);
+        assertThrown(() -> chatResource.leave(BAD, CSRF_OK), 400, ChatErrors.BAD_CHANNEL);
+        assertThrown(() -> chatResource.export(BAD, 10), 400, ChatErrors.BAD_CHANNEL);
+        assertThrown(() -> chatResource.roster(BAD), 400, ChatErrors.BAD_CHANNEL);
+        assertThrown(() -> chatResource.prefs(BAD), 400, ChatErrors.BAD_CHANNEL);
+        assertThrown(() -> chatResource.savePrefs(BAD, CSRF_OK, Map.of()), 400, ChatErrors.BAD_CHANNEL);
+        assertThrown(() -> chatResource.mute(BAD, "t", CSRF_OK, Map.of("minutes", 5)), 400, ChatErrors.BAD_CHANNEL);
+        assertThrown(() -> chatResource.unmute(BAD, "t", CSRF_OK), 400, ChatErrors.BAD_CHANNEL);
+        assertThrown(() -> chatResource.removeMember(BAD, "t", null, CSRF_OK), 400, ChatErrors.BAD_CHANNEL);
+        assertThrown(() -> chatResource.addMember(BAD, "t", CSRF_OK, Map.of()), 400, ChatErrors.BAD_CHANNEL);
         Mockito.verifyNoInteractions(chat);
     }
 
