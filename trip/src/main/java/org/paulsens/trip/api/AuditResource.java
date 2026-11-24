@@ -164,8 +164,4 @@ public class AuditResource extends BaseResource {
     private boolean mayRead(final String org) {
         return AuditViewCommands.canView(privileges().caller(), blankToNull(org));
     }
-
-    private static String blankToNull(final String value) {
-        return (value == null || value.isBlank()) ? null : value.trim();
-    }
 }

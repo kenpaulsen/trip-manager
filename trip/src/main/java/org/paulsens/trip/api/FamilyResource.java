@@ -79,10 +79,9 @@ public class FamilyResource extends BaseResource {
             return error(400, ApiErrors.VALIDATION_FAILED,
                     Text.get("api.family.memberIncomplete"));
         }
-        final Person.Sex sex;
-        try {
-            sex = parseSex(body.sex());
-        } catch (final IllegalArgumentException ex) {
+        // Blank is "not given" (the bean refuses it with SEX_REQUIRED); anything else must be a known value.
+        final Person.Sex sex = parseSex(body.sex());
+        if (sex == null && body.sex() != null && !body.sex().isBlank()) {
             return error(422, ApiErrors.VALIDATION_FAILED, Text.get("api.shared.sexInvalid"));
         }
         final FamilyCommands family = commands();
@@ -180,19 +179,6 @@ public class FamilyResource extends BaseResource {
                 member.getLast(), row != null && row.isManager(member.getId()),
                 family.missingProfileFields(member), blocked,
                 PersonMapper.INSTANCE.toDto(member).redactedFor(level));
-    }
-
-    /** Blank is "not given" (the bean refuses it with SEX_REQUIRED); anything else must be a known value. */
-    private static Person.Sex parseSex(final String value) {
-        if (value == null || value.isBlank()) {
-            return null;
-        }
-        for (final Person.Sex sex : Person.Sex.values()) {
-            if (sex.name().equalsIgnoreCase(value.trim())) {
-                return sex;
-            }
-        }
-        throw new IllegalArgumentException(value);
     }
 
     /**

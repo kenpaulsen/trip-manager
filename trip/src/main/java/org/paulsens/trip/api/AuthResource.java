@@ -306,15 +306,6 @@ public class AuthResource extends BaseResource {
         return value == null || value.isBlank();
     }
 
-    private static Person.Sex parseSex(final String value) {
-        for (final Person.Sex sex : Person.Sex.values()) {
-            if (sex.name().equalsIgnoreCase(value.trim())) {
-                return sex;
-            }
-        }
-        return null;
-    }
-
     private static void fill(final Person person, final RegisterAccountRequest body, final String email) {
         person.setEmail(email);
         person.setNickname(trimmed(body.nickname()));
@@ -566,7 +557,7 @@ public class AuthResource extends BaseResource {
     }
 
     /** The minimum a client needs to proceed after a successful login. */
-    private Map<String, Object> identity(final Creds creds) {
+    static Map<String, Object> identity(final Creds creds) {
         final Map<String, Object> result = new LinkedHashMap<>();
         result.put("userId", creds.getUserId() == null ? null : creds.getUserId().getValue());
         result.put("role", creds.getPriv());

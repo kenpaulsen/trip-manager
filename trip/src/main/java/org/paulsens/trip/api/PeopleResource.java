@@ -651,15 +651,6 @@ public class PeopleResource extends BaseResource {
         return body != null && body.sex() != null && parseSex(body.sex()) == null;
     }
 
-    private static Person.Sex parseSex(final String value) {
-        for (final Person.Sex sex : Person.Sex.values()) {
-            if (sex.name().equalsIgnoreCase(value.trim())) {
-                return sex;
-            }
-        }
-        return null;
-    }
-
     private static void set(final String value, final Consumer<String> setter) {
         if (value != null) {
             setter.accept(value);

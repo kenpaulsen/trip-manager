@@ -51,6 +51,28 @@ public class ApiSmallPiecesTest {
         Assert.assertNull(mappers.toPersonIds(null));
     }
 
+    // --- BaseResource's wire parsers ---
+
+    /**
+     * One parse for the three endpoints that take a {@code sex} (profile, sign-up, family): they each had a copy,
+     * one of which threw on a value the other two answered null for. What each endpoint does with null is its own.
+     */
+    @Test
+    public void sexParsesByNameInAnyCaseAndEverythingElseIsNull() {
+        Assert.assertEquals(BaseResource.parseSex("Male"), Person.Sex.Male);
+        Assert.assertEquals(BaseResource.parseSex(" female "), Person.Sex.Female);
+        Assert.assertNull(BaseResource.parseSex(null));
+        Assert.assertNull(BaseResource.parseSex(" "));
+        Assert.assertNull(BaseResource.parseSex("M"));
+    }
+
+    @Test
+    public void blankTextIsStoredAsNullAndTheRestTrimmed() {
+        Assert.assertNull(BaseResource.blankToNull(null));
+        Assert.assertNull(BaseResource.blankToNull("  "));
+        Assert.assertEquals(BaseResource.blankToNull(" a b "), "a b");
+    }
+
     // --- ObjectMapperProvider ---
 
     /** The provider must answer the DAO's configured mapper, not a fresh default one; see its class comment. */

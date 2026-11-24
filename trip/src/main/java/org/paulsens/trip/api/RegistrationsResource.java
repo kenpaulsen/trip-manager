@@ -531,14 +531,7 @@ public class RegistrationsResource extends BaseResource {
         if (started.completion() != null) {
             return ok(completionOf(started.completion()));
         }
-        final PaymentCommands.Start start = started.start();
-        final Map<String, Object> result = new LinkedHashMap<>();
-        result.put("paymentId", start.getPaymentId());
-        result.put("approvalUrl", start.getApprovalUrl());
-        result.put("publishableKey", start.getPublishableKey());
-        result.put("clientSecret", start.getClientSecret());
-        result.put("merchantName", start.getMerchantName());
-        return ok(result);
+        return ok(PaymentsResource.startBody(started.start()));
     }
 
     /**

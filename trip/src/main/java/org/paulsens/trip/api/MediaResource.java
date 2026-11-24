@@ -494,12 +494,6 @@ public class MediaResource extends BaseResource {
         return null;
     }
 
-    /** Who to stamp on rows and audit records; the email, matching what the admin page records. */
-    private String requestedBy() {
-        final String email = actor().email();
-        return email == null ? "api" : email;
-    }
-
     /**
      * Both URLs carry the item's cache buster: a rotated picture keeps its key, so only the query moves. Also the
      * shape of an album photo the chat's album sources answer ({@code ChatResource.albumPhotos}), and the start of

@@ -191,11 +191,7 @@ public class PasskeyResource extends BaseResource {
                 .actor(creds.getEmail(), creds.getUserId() == null ? null : creds.getUserId().getValue())
                 .message("Logged in via passkey")
                 .log();
-        final Map<String, Object> result = new LinkedHashMap<>();
-        result.put("userId", creds.getUserId() == null ? null : creds.getUserId().getValue());
-        result.put("role", creds.getPriv());
-        result.put("csrfHeader", CSRF_HEADER);
-        return ok(result);
+        return ok(AuthResource.identity(creds));
     }
 
     @DELETE

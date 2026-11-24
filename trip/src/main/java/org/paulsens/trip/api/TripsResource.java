@@ -1056,10 +1056,6 @@ public class TripsResource extends BaseResource {
         }
     }
 
-    private static String blankToNull(final String value) {
-        return (value == null || value.isBlank()) ? null : value.trim();
-    }
-
     /** A kind off the wire, by constant name; null for one that names no kind ({@link #badEnumValue} refuses it). */
     static TripKind parseKind(final String raw) {
         return parseEnum(TripKind.class, raw);

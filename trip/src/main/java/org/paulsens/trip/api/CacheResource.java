@@ -83,10 +83,4 @@ public class CacheResource extends BaseResource {
     private static String scopeNames() {
         return String.join(", ", Arrays.stream(DAO.CacheScope.values()).map(Enum::name).toList());
     }
-
-    /** Who to stamp on the audit row; matches what the settings page records. */
-    private String requestedBy() {
-        final String email = actor().email();
-        return email == null ? "api" : email;
-    }
 }

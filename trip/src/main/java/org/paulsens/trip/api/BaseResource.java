@@ -189,6 +189,15 @@ public abstract class BaseResource {
         throw new NotAuthorizedException(Text.get("api.shared.signInRequired"));
     }
 
+    /**
+     * Who to stamp on rows and audit records a write leaves behind: the caller's email, which is what the admin
+     * pages record, or "api" for a caller with none.
+     */
+    protected String requestedBy() {
+        final String email = actor().email();
+        return email == null ? "api" : email;
+    }
+
     /** What an endpoint that manages the caller's own sign-in answers while an administrator is viewing as them. */
     protected static String viewAsRefusedMessage() {
         return Text.get("api.shared.viewAsRefused");
@@ -282,6 +291,28 @@ public abstract class BaseResource {
         final Person person = findPerson(personId);
         return person == null ? Set.of()
                 : person.getOrgIds().stream().map(Organization.Id::getValue).collect(Collectors.toSet());
+    }
+
+    /**
+     * A {@code sex} off the wire, by constant name in any case ("Male", "female"); null for null, blank, or
+     * anything else. What an endpoint does with null is its own contract (profile and sign-up refuse a value that
+     * names neither; the family form reads a blank as "not given"), so the parse is shared and the answer is not.
+     */
+    protected static Person.Sex parseSex(final String value) {
+        if (value == null) {
+            return null;
+        }
+        for (final Person.Sex sex : Person.Sex.values()) {
+            if (sex.name().equalsIgnoreCase(value.trim())) {
+                return sex;
+            }
+        }
+        return null;
+    }
+
+    /** Trimmed text, or null for null and blank: how an optional text field off the wire is stored. */
+    protected static String blankToNull(final String value) {
+        return (value == null || value.isBlank()) ? null : value.trim();
     }
 
     /** The subject of a person-scoped read or write: {@code ?personId=} when given, else the caller. */

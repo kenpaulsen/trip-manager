@@ -88,13 +88,22 @@ public class PaymentsResource extends BaseResource {
             return error(400, ApiErrors.BAD_REQUEST,
                     Text.get("api.payments.notStarted"));
         }
+        return ok(startBody(start));
+    }
+
+    /**
+     * How a started payment is completed, as both doors that start one answer it (this resource and the priced
+     * checkout): {@code approvalUrl} for a redirect processor, or {@code publishableKey} + {@code clientSecret}
+     * for an inline one. The keys and their order are the wire contract the apps decode.
+     */
+    static Map<String, Object> startBody(final org.paulsens.trip.action.PaymentCommands.Start start) {
         final Map<String, Object> result = new LinkedHashMap<>();
         result.put("paymentId", start.getPaymentId());
         result.put("approvalUrl", start.getApprovalUrl());
         result.put("publishableKey", start.getPublishableKey());
         result.put("clientSecret", start.getClientSecret());
         result.put("merchantName", start.getMerchantName());
-        return ok(result);
+        return result;
     }
 
     /** Completes an approved payment (capture + record + mail); safe to retry. */
