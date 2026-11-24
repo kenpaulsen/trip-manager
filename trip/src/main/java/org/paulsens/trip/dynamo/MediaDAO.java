@@ -141,12 +141,7 @@ public class MediaDAO {
 
     private List<MediaItem> loadAllMedia() {
         // A consistent scan: the rebuild REMOVES what this does not return (PartitionScanCache's loader).
-        return persistence.scanAll(b -> b.consistentRead(true).limit(1000).tableName(MEDIA_TABLE).build())
-                .stream()
-                .map(it -> it.get(CONTENT))
-                .filter(content -> content != null)
-                .map(content -> rows.parse(MediaItem.class, content.s()))
-                .filter(item -> item != null)
-                .toList();
+        return rows.parseAll(MediaItem.class,
+                persistence.scanAll(b -> b.consistentRead(true).limit(1000).tableName(MEDIA_TABLE).build()));
     }
 }

@@ -2,7 +2,11 @@ package org.paulsens.trip.dynamo;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import lombok.extern.slf4j.Slf4j;
+import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 
 /**
  * The one JSON codec every DAO uses for its {@code content} attribute. Each DAO once carried its own
@@ -14,6 +18,9 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 final class JsonRows {
+    /** Every table keeps the row's JSON in this attribute. */
+    private static final String CONTENT = "content";
+
     private final ObjectMapper mapper;
 
     JsonRows(final ObjectMapper mapper) {
@@ -28,6 +35,19 @@ final class JsonRows {
             log.error("Unable to parse {} record: {}", type.getSimpleName(), json, ex);
             return null;
         }
+    }
+
+    /**
+     * The rows a query or scan answered, each as a {@code type}. A row with no {@code content} attribute and a row
+     * whose content does not parse are both skipped: one mangled row must not empty the list it is in.
+     */
+    <T> List<T> parseAll(final Class<T> type, final List<Map<String, AttributeValue>> items) {
+        return items.stream()
+                .map(item -> item.get(CONTENT))
+                .filter(Objects::nonNull)
+                .map(content -> parse(type, content.s()))
+                .filter(Objects::nonNull)
+                .toList();
     }
 
     /**

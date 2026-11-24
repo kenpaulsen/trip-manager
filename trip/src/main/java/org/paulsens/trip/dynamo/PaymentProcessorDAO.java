@@ -118,12 +118,7 @@ public class PaymentProcessorDAO {
     }
 
     private List<PaymentProcessorConfig> loadConfigs(final Organization.Id orgId) {
-        return persistence.queryAll(qb -> configsByOrgId(qb, orgId)).stream()
-                .map(item -> item.get(CONTENT))
-                .filter(content -> content != null)
-                .map(content -> rows.parse(PaymentProcessorConfig.class, content.s()))
-                .filter(config -> config != null)
-                .toList();
+        return rows.parseAll(PaymentProcessorConfig.class, persistence.queryAll(qb -> configsByOrgId(qb, orgId)));
     }
 
     private void configsByOrgId(final QueryRequest.Builder qb, final Organization.Id orgId) {

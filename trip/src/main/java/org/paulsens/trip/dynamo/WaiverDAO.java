@@ -6,7 +6,6 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import org.paulsens.trip.cache.CacheClient;
 import org.paulsens.trip.cache.CacheKeys;
@@ -139,12 +138,8 @@ public class WaiverDAO {
     }
 
     private List<WaiverDocument> loadDocuments(final String orgId) {
-        return persistence.queryAll(qb -> partitionQuery(qb, WAIVERS_TABLE, ORG_ID, orgId)).stream()
-                .map(item -> item.get(CONTENT))
-                .filter(Objects::nonNull)
-                .map(content -> rows.parse(WaiverDocument.class, content.s()))
-                .filter(Objects::nonNull)
-                .toList();
+        return rows.parseAll(WaiverDocument.class,
+                persistence.queryAll(qb -> partitionQuery(qb, WAIVERS_TABLE, ORG_ID, orgId)));
     }
 
     private static String sortTitle(final WaiverDocument doc) {
@@ -179,11 +174,9 @@ public class WaiverDAO {
         if (tripId == null || tripId.isBlank()) {
             return List.of();
         }
-        return persistence.queryAll(qb -> partitionQuery(qb, ACCEPTANCES_TABLE, TRIP_ID, tripId)).stream()
-                .map(item -> item.get(CONTENT))
-                .filter(Objects::nonNull)
-                .map(content -> rows.parse(WaiverAcceptance.class, content.s()))
-                .filter(Objects::nonNull)
+        return rows.parseAll(WaiverAcceptance.class,
+                persistence.queryAll(qb -> partitionQuery(qb, ACCEPTANCES_TABLE, TRIP_ID, tripId)))
+                .stream()
                 .sorted(Comparator.comparing(WaiverAcceptance::getSortKey))
                 .toList();
     }

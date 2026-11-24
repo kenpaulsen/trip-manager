@@ -7,7 +7,6 @@ import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
@@ -138,10 +137,7 @@ public class RegistrationDAO {
 
     private List<Registration> loadTripRegData(final String tripId) {
         log.info("Cache miss for registration data for tripId: {}", tripId);
-        return persistence.queryAll(qb -> registrationsByTripId(qb, tripId)).stream()
-                .map(m -> toRegistration(m.get(CONTENT)))
-                .filter(Objects::nonNull)
-                .toList();
+        return rows.parseAll(Registration.class, persistence.queryAll(qb -> registrationsByTripId(qb, tripId)));
     }
 
     private void registrationsByTripId(final QueryRequest.Builder qb, final String tripId) {
@@ -149,9 +145,5 @@ public class RegistrationDAO {
                 .keyConditionExpression(TRIP_ID + " = :tripIdVal")
                 .expressionAttributeValues(
                         Map.of(":tripIdVal", AttributeValue.builder().s(tripId).build()));
-    }
-
-    private Registration toRegistration(final AttributeValue content) {
-        return (content == null) ? null : rows.parse(Registration.class, content.s());
     }
 }

@@ -8,6 +8,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.cache.CacheClient;
@@ -159,13 +160,8 @@ public class ContentDAO {
      * content still points at. A raw scan on purpose: it runs on an admin click, never on a page render.
      */
     protected List<ContentRecord> getAllContentRecords() {
-        return persistence.scanAll(b -> b.consistentRead(false).limit(1000).tableName(CONTENT_TABLE).build())
-                .stream()
-                .map(it -> it.get(CONTENT))
-                .filter(content -> content != null)
-                .map(content -> rows.parse(ContentRecord.class, content.s()))
-                .filter(rec -> rec != null)
-                .toList();
+        return rows.parseAll(ContentRecord.class,
+                persistence.scanAll(b -> b.consistentRead(false).limit(1000).tableName(CONTENT_TABLE).build()));
     }
 
     /** The whole row -- current plus history -- for the undo dialog. Uncached (admin path). */
@@ -226,13 +222,11 @@ public class ContentDAO {
 
     private List<ContentInstance> loadAllCurrent() {
         // A consistent scan: the rebuild REMOVES what this does not return (PartitionScanCache's loader).
-        return persistence.scanAll(b -> b.consistentRead(true).limit(1000).tableName(CONTENT_TABLE).build())
+        return rows.parseAll(ContentRecord.class,
+                persistence.scanAll(b -> b.consistentRead(true).limit(1000).tableName(CONTENT_TABLE).build()))
                 .stream()
-                .map(it -> it.get(CONTENT))
-                .filter(content -> content != null)
-                .map(content -> rows.parse(ContentRecord.class, content.s()))
-                .filter(rec -> rec != null && rec.getCurrent() != null)
                 .map(ContentRecord::getCurrent)
+                .filter(Objects::nonNull)
                 .toList();
     }
 }

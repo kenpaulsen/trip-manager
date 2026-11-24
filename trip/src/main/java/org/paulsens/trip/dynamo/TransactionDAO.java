@@ -86,14 +86,9 @@ public class TransactionDAO {
 
     private List<Transaction> loadUserTxData(final Person.Id userId) {
         log.info("Cache Miss for tx data for userId: {}", userId.getValue());
-        return persistence.queryAll(qb -> txByUserId(qb, userId)).stream()
-                .map(m -> toTransaction(m.get(CONTENT)))
-                .filter(tx -> (tx != null) && (tx.getDeleted() == null))
+        return rows.parseAll(Transaction.class, persistence.queryAll(qb -> txByUserId(qb, userId))).stream()
+                .filter(tx -> tx.getDeleted() == null)
                 .toList();
-    }
-
-    private Transaction toTransaction(final AttributeValue content) {
-        return (content == null) ? null : rows.parse(Transaction.class, content.s());
     }
 
     private void txByUserId(final QueryRequest.Builder qb, final Person.Id userId) {

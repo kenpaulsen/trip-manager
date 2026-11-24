@@ -240,19 +240,13 @@ public class LodgingDAO {
             return List.of();
         }
         final String low = (endingAfter == null) ? "" : endingAfter.format(STAY_KEY);
-        return persistence.queryAll(qb -> qb.tableName(RESERVATIONS_TABLE)
-                        .indexName(BY_ACCOMMODATION)
-                        .keyConditionExpression("accommodationId = :a AND stayEnd BETWEEN :lo AND :hi")
-                        .expressionAttributeValues(Map.of(
-                                ":a", AttributeValue.builder().s(accId.getValue()).build(),
-                                ":lo", AttributeValue.builder().s(low).build(),
-                                ":hi", AttributeValue.builder().s(FOREVER).build()))
-                        .build()).stream()
-                .map(item -> item.get(CONTENT))
-                .filter(content -> content != null)
-                .map(content -> rows.parse(Reservation.class, content.s()))
-                .filter(res -> res != null)
-                .toList();
+        return rows.parseAll(Reservation.class, persistence.queryAll(qb -> qb.tableName(RESERVATIONS_TABLE)
+                .indexName(BY_ACCOMMODATION)
+                .keyConditionExpression("accommodationId = :a AND stayEnd BETWEEN :lo AND :hi")
+                .expressionAttributeValues(Map.of(
+                        ":a", AttributeValue.builder().s(accId.getValue()).build(),
+                        ":lo", AttributeValue.builder().s(low).build(),
+                        ":hi", AttributeValue.builder().s(FOREVER).build()))));
     }
 
     protected List<Reservation> getReservations(final String tripId) {
@@ -356,15 +350,9 @@ public class LodgingDAO {
 
     /** One hotel's partition of a table keyed (accommodationId, id): blocks and rate plans share the shape. */
     private <T> List<T> loadByAccommodation(final String table, final String accId, final Class<T> type) {
-        return persistence.queryAll(qb -> qb.tableName(table)
-                        .keyConditionExpression("accommodationId = :c")
-                        .expressionAttributeValues(Map.of(":c", AttributeValue.builder().s(accId).build()))
-                        .build()).stream()
-                .map(item -> item.get(CONTENT))
-                .filter(content -> content != null)
-                .map(content -> rows.parse(type, content.s()))
-                .filter(row -> row != null)
-                .toList();
+        return rows.parseAll(type, persistence.queryAll(qb -> qb.tableName(table)
+                .keyConditionExpression("accommodationId = :c")
+                .expressionAttributeValues(Map.of(":c", AttributeValue.builder().s(accId).build()))));
     }
 
     /**
@@ -461,12 +449,7 @@ public class LodgingDAO {
     }
 
     private <T> List<T> loadRows(final String table, final String tripId, final Class<T> type) {
-        return persistence.queryAll(qb -> byTripId(qb, table, tripId)).stream()
-                .map(item -> item.get(CONTENT))
-                .filter(content -> content != null)
-                .map(content -> rows.parse(type, content.s()))
-                .filter(row -> row != null)
-                .toList();
+        return rows.parseAll(type, persistence.queryAll(qb -> byTripId(qb, table, tripId)));
     }
 
     private void byTripId(final QueryRequest.Builder qb, final String table, final String tripId) {
@@ -489,12 +472,7 @@ public class LodgingDAO {
 
     private List<Accommodation> loadAllAccommodations() {
         // A consistent scan: the rebuild REMOVES what this does not return (PartitionScanCache's loader).
-        return persistence.scanAll(b -> b.consistentRead(true).limit(1000).tableName(ACCOMMODATIONS_TABLE).build())
-                .stream()
-                .map(item -> item.get(CONTENT))
-                .filter(content -> content != null)
-                .map(content -> rows.parse(Accommodation.class, content.s()))
-                .filter(acc -> acc != null)
-                .toList();
+        return rows.parseAll(Accommodation.class,
+                persistence.scanAll(b -> b.consistentRead(true).limit(1000).tableName(ACCOMMODATIONS_TABLE).build()));
     }
 }

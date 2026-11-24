@@ -139,13 +139,8 @@ public class PrivilegesDAO {
 
     private List<Privilege> loadAllPrivileges() {
         // A consistent scan: the rebuild REMOVES what this does not return (PartitionScanCache's loader).
-        return persistence.scanAll(b -> b.consistentRead(true).limit(1000).tableName(PRIVILEGE_TABLE).build())
-                .stream()
-                .map(it -> it.get(CONTENT))
-                .filter(content -> content != null)
-                .map(content -> rows.parse(Privilege.class, content.s()))
-                .filter(priv -> priv != null)
-                .toList();
+        return rows.parseAll(Privilege.class,
+                persistence.scanAll(b -> b.consistentRead(true).limit(1000).tableName(PRIVILEGE_TABLE).build()));
     }
 
     private Optional<Privilege> logAndReturnEmpty(final Throwable ex, final String id) {

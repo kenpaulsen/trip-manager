@@ -83,12 +83,7 @@ public class OrgMemberDAO {
     }
 
     private List<OrgMember> loadMembers(final Organization.Id orgId) {
-        return persistence.queryAll(qb -> membersByOrgId(qb, orgId)).stream()
-                .map(item -> item.get(CONTENT))
-                .filter(content -> content != null)
-                .map(content -> rows.parse(OrgMember.class, content.s()))
-                .filter(member -> member != null)
-                .toList();
+        return rows.parseAll(OrgMember.class, persistence.queryAll(qb -> membersByOrgId(qb, orgId)));
     }
 
     private void membersByOrgId(final QueryRequest.Builder qb, final Organization.Id orgId) {

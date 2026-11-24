@@ -8,7 +8,6 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
@@ -151,10 +150,8 @@ public class PersonDataValueDAO {
 
     private List<PersonDataValue> loadPersonDataValues(final Person.Id pid) {
         log.info("Cache miss for person data values for person id: {}", pid);
-        return persistence.queryAll(qb -> queryPersonDataValuesByPerson(qb, pid)).stream()
-                .map(m -> toPersonDataValue(m.get(CONTENT)))
-                .filter(Objects::nonNull)
-                .toList();
+        return rows.parseAll(PersonDataValue.class,
+                persistence.queryAll(qb -> queryPersonDataValuesByPerson(qb, pid)));
     }
 
     private void queryPersonDataValuesByPerson(final QueryRequest.Builder qb, final Person.Id pid) {
@@ -162,9 +159,5 @@ public class PersonDataValueDAO {
                 .keyConditionExpression(USER_ID + " = :pid")
                 .expressionAttributeValues(
                         Map.of(":pid", AttributeValue.builder().s(pid.getValue()).build()));
-    }
-
-    private PersonDataValue toPersonDataValue(final AttributeValue content) {
-        return (content == null) ? null : rows.parse(PersonDataValue.class, content.s());
     }
 }

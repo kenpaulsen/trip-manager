@@ -246,13 +246,8 @@ public class TemplateDAO {
 
     private List<TemplateRecord> loadAllRecords() {
         // A consistent scan: the rebuild REMOVES what this does not return (PartitionScanCache's loader).
-        return persistence.scanAll(b -> b.consistentRead(true).limit(1000).tableName(TEMPLATES_TABLE).build())
-                .stream()
-                .map(it -> it.get(CONTENT))
-                .filter(content -> content != null)
-                .map(content -> rows.parse(TemplateRecord.class, content.s()))
-                .filter(rec -> rec != null)
-                .toList();
+        return rows.parseAll(TemplateRecord.class,
+                persistence.scanAll(b -> b.consistentRead(true).limit(1000).tableName(TEMPLATES_TABLE).build()));
     }
 
     private static List<ContentTemplate> templatesOf(final List<Entry> entries) {

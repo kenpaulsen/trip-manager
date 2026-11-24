@@ -126,12 +126,7 @@ public class OrganizationDAO {
 
     private List<Organization> loadAllOrganizations() {
         // A consistent scan: the rebuild REMOVES what this does not return (PartitionScanCache's loader).
-        return persistence.scanAll(b -> b.consistentRead(true).limit(1000).tableName(ORG_TABLE).build())
-                .stream()
-                .map(item -> item.get(CONTENT))
-                .filter(content -> content != null)
-                .map(content -> rows.parse(Organization.class, content.s()))
-                .filter(org -> org != null)
-                .toList();
+        return rows.parseAll(Organization.class,
+                persistence.scanAll(b -> b.consistentRead(true).limit(1000).tableName(ORG_TABLE).build()));
     }
 }

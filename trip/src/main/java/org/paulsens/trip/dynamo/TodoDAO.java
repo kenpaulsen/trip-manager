@@ -8,7 +8,6 @@ import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
@@ -120,10 +119,7 @@ public class TodoDAO {
 
     private List<TodoItem> loadTodoItems(final String tripId) {
         log.info("Cache miss for todo items for tripId: {}", tripId);
-        return persistence.queryAll(qb -> queryTodoItemsByTrip(qb, tripId)).stream()
-                .map(m -> toTodoItem(m.get(CONTENT)))
-                .filter(Objects::nonNull)
-                .toList();
+        return rows.parseAll(TodoItem.class, persistence.queryAll(qb -> queryTodoItemsByTrip(qb, tripId)));
     }
 
     private void queryTodoItemsByTrip(final QueryRequest.Builder qb, final String tripId) {
@@ -131,9 +127,5 @@ public class TodoDAO {
                 .keyConditionExpression(TRIP_ID + " = :tripIdVal")
                 .expressionAttributeValues(
                         Map.of(":tripIdVal", AttributeValue.builder().s(tripId).build()));
-    }
-
-    private TodoItem toTodoItem(final AttributeValue content) {
-        return (content == null) ? null : rows.parse(TodoItem.class, content.s());
     }
 }
