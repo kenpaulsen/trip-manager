@@ -56,13 +56,6 @@ public class PageFeedbackTest {
         PageFeedback.alsoRender("form:x");
     }
 
-    /** {@code FacesContext.setCurrentInstance} is protected, so reach it from a subclass. */
-    private abstract static class Faces extends FacesContext {
-        static void set(final FacesContext context) {
-            setCurrentInstance(context);
-        }
-    }
-
     /**
      * On a faces thread: a message is kept for the page a redirect leads to, and a region is added to what an
      * ajax request redraws only when the request IS ajax.
@@ -78,7 +71,7 @@ public class PageFeedbackTest {
         Mockito.when(external.getFlash()).thenReturn(flash);
         Mockito.when(context.getPartialViewContext()).thenReturn(partial);
         Mockito.when(partial.getRenderIds()).thenReturn(redrawn);
-        Faces.set(context);
+        TestFaces.install(context);
         try {
             PageFeedback.keepForNextPage();
             Mockito.verify(flash).setKeepMessages(true);
@@ -91,7 +84,7 @@ public class PageFeedbackTest {
             PageFeedback.alsoRender("form:contentDlg");
             Assert.assertEquals(redrawn, List.of("form:contentDlg"));
         } finally {
-            Faces.set(null);
+            TestFaces.clear();
         }
     }
 }

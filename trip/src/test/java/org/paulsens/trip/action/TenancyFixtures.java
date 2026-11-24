@@ -1,6 +1,8 @@
 package org.paulsens.trip.action;
 
 import java.io.IOException;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
@@ -135,10 +137,26 @@ public final class TenancyFixtures {
         return trip.getId();
     }
 
+    /**
+     * A saved trip a month out that can carry ledger rows (it has an organization, the seeded CFPW one), with
+     * this roster: for a test of who may read or write a trip's books.
+     */
+    public static Trip ledgerTrip(final Person.Id... roster) {
+        final Trip trip = Trip.builder().id(UUID.randomUUID().toString()).title("Books " + unique())
+                .startDate(LocalDateTime.now().plusDays(30)).people(new ArrayList<>(List.of(roster))).build();
+        trip.setOrgId(FakeData.CFPW_ORG_ID);
+        try {
+            assertTrue(DAO.getInstance().saveTrip(trip));
+        } catch (final IOException ex) {
+            throw new IllegalStateException(ex);
+        }
+        return trip;
+    }
+
     /** A saved trip owned by the org (a canonical UUID id: privilege scopes refuse anything else). */
     public static Trip tripOwnedBy(final Organization owner, final Person... roster) {
         final Trip trip = Trip.builder().id(UUID.randomUUID().toString()).title("Trip " + unique())
-                .people(new java.util.ArrayList<>(List.of(roster).stream().map(Person::getId).toList())).build();
+                .people(new ArrayList<>(List.of(roster).stream().map(Person::getId).toList())).build();
         trip.setOrgId(owner.getId().getValue());
         try {
             assertTrue(DAO.getInstance().saveTrip(trip));

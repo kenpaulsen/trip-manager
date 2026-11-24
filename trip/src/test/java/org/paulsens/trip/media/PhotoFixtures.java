@@ -163,4 +163,23 @@ public final class PhotoFixtures {
         }
         return bytes.toByteArray();
     }
+
+    /** 4x4, quadrants: RED GREEN / BLUE WHITE, so any turn or flip is told from every other. */
+    public static BufferedImage quadrantMarker() {
+        final BufferedImage img = new BufferedImage(4, 4, BufferedImage.TYPE_INT_RGB);
+        final Graphics2D g = img.createGraphics();
+        try {
+            g.setColor(Color.RED);
+            g.fillRect(0, 0, 2, 2);
+            g.setColor(Color.GREEN);
+            g.fillRect(2, 0, 2, 2);
+            g.setColor(Color.BLUE);
+            g.fillRect(0, 2, 2, 2);
+            g.setColor(Color.WHITE);
+            g.fillRect(2, 2, 2, 2);
+        } finally {
+            g.dispose();
+        }
+        return img;
+    }
 }

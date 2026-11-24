@@ -1,8 +1,6 @@
 package org.paulsens.trip.action;
 
 import java.io.IOException;
-import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.UUID;
@@ -17,20 +15,14 @@ import org.paulsens.trip.model.Trip;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
+import static org.paulsens.trip.action.TenancyFixtures.ledgerTrip;
+
 /**
  * The ledger half of {@link TripFinanceGate} (audit 2026-11-11, F3): a finance role is a role on ONE trip, and
  * it reaches a ledger row only when the row is on that trip's books. {@code TransactionsResourceTest} drives
  * the same rule through the endpoints; this pins the rule itself, including the corners no endpoint reaches.
  */
 public class TripFinanceGateLedgerTest {
-
-    private static Trip storedTrip(final Person.Id... roster) throws IOException {
-        final Trip trip = Trip.builder().id(UUID.randomUUID().toString()).title("Gate " + System.nanoTime())
-                .startDate(LocalDateTime.now().plusDays(30)).people(new ArrayList<>(List.of(roster))).build();
-        trip.setOrgId(FakeData.CFPW_ORG_ID);     // a ledger row needs a trip that has an organization
-        Assert.assertTrue(DAO.getInstance().saveTrip(trip));
-        return trip;
-    }
 
     private static TripFinanceGate gateFor(final String privilege, final Trip trip) {
         final Person.Id who = Person.Id.newInstance();
@@ -51,7 +43,7 @@ public class TripFinanceGateLedgerTest {
     @Test
     public void theMoneyPagesAgreeOnWhatIsATripHere() throws IOException {
         final Person.Id traveler = Person.Id.newInstance();
-        final Trip trip = storedTrip(traveler);
+        final Trip trip = ledgerTrip(traveler);
         final String padded = " " + trip.getId() + " ";
         final TripCommands trips = new TripCommands(TenancyFixtures::asSiteAdmin, TenancyFixtures::siteAdminCaller);
         for (final String none : new String[] {null, "", "  ", UUID.randomUUID().toString()}) {
@@ -78,7 +70,7 @@ public class TripFinanceGateLedgerTest {
     public void theTripLedgerFormOpensForTheTripsFinanceViewerAndReachesWhoeverIsOnItsBooks() throws IOException {
         final Person.Id traveler = Person.Id.newInstance();
         final Person.Id withdrawn = Person.Id.newInstance();
-        final Trip trip = storedTrip(traveler);
+        final Trip trip = ledgerTrip(traveler);
         Assert.assertTrue(gateFor(PrivilegeCommands.TRIP_FIN_VIEW, trip).opensTripLedger(trip.getId()));
         Assert.assertFalse(gateFor(PrivilegeCommands.TRIP_FIN_ADMIN, trip).opensTripLedger(trip.getId()),
                 "Finance Admin does not imply the viewer role");
@@ -100,8 +92,8 @@ public class TripFinanceGateLedgerTest {
     @Test
     public void aFinanceRoleReachesOnlyTheRowsOnItsOwnTripsBooks() throws IOException {
         final Person.Id traveler = Person.Id.newInstance();
-        final Trip mine = storedTrip(traveler);
-        final Trip other = storedTrip(traveler);
+        final Trip mine = ledgerTrip(traveler);
+        final Trip other = ledgerTrip(traveler);
         final Transaction here = rowOnBooks(traveler, mine);
         final Transaction elsewhere = rowOnBooks(traveler, other);
         final Transaction unbound = new Transaction(traveler, null, null);
@@ -132,8 +124,8 @@ public class TripFinanceGateLedgerTest {
     public void theTransactionPagesHoldATripsFinanceStaffToThatTripsBooks() throws IOException {
         final Person.Id traveler = Person.Id.newInstance();
         final Person.Id stranger = Person.Id.newInstance();
-        final Trip mine = storedTrip(traveler);
-        final Trip other = storedTrip(traveler, stranger);
+        final Trip mine = ledgerTrip(traveler);
+        final Trip other = ledgerTrip(traveler, stranger);
         final Transaction here = saved(rowOnBooks(traveler, mine));
         final Transaction elsewhere = saved(rowOnBooks(traveler, other));
         final TripFinanceGate admin = gateFor(PrivilegeCommands.TRIP_FIN_ADMIN, mine);
@@ -172,8 +164,8 @@ public class TripFinanceGateLedgerTest {
     public void thePageSavePutsARowOnlyOnBooksTheCallerAdministers() throws IOException {
         final Person.Id traveler = Person.Id.newInstance();
         final Person.Id stranger = Person.Id.newInstance();
-        final Trip mine = storedTrip(traveler);
-        final Trip other = storedTrip(traveler, stranger);
+        final Trip mine = ledgerTrip(traveler);
+        final Trip other = ledgerTrip(traveler, stranger);
         final TripFinanceGate admin = gateFor(PrivilegeCommands.TRIP_FIN_ADMIN, mine);
         final TransactionsCommands transactions = new TransactionsCommands();
 
@@ -216,8 +208,8 @@ public class TripFinanceGateLedgerTest {
     /** The trip's own ledger keys its rows by the trip id (the page's "trip as person"): those are its books. */
     @Test
     public void theTripsOwnLedgerRowsAreOnItsBooks() throws IOException {
-        final Trip mine = storedTrip();
-        final Trip other = storedTrip();
+        final Trip mine = ledgerTrip();
+        final Trip other = ledgerTrip();
         final Transaction tripsOwn = new Transaction(Person.Id.from(mine.getId()), null, null);
         final TripFinanceGate admin = gateFor(PrivilegeCommands.TRIP_FIN_ADMIN, mine);
 
@@ -234,7 +226,7 @@ public class TripFinanceGateLedgerTest {
         final Person.Id onRoster = Person.Id.newInstance();
         final Person.Id pending = Person.Id.newInstance();
         final Person.Id stranger = Person.Id.newInstance();
-        final Trip mine = storedTrip(onRoster);
+        final Trip mine = ledgerTrip(onRoster);
         Assert.assertTrue(DAO.getInstance().saveRegistration(new Registration(mine.getId(), pending, null,
                 Registration.Status.PENDING, new HashMap<>())));
         final TripFinanceGate admin = gateFor(PrivilegeCommands.TRIP_FIN_ADMIN, mine);

@@ -3,7 +3,6 @@ package org.paulsens.trip.api;
 import jakarta.ws.rs.core.Response;
 import java.io.IOException;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -29,6 +28,8 @@ import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
+
+import static org.paulsens.trip.action.TenancyFixtures.ledgerTrip;
 
 /**
  * {@link TransactionsResource}: money owed and money paid.
@@ -466,14 +467,6 @@ public class TransactionsResourceTest extends ResourceTestSupport {
 
     // ------------------------------------------------------------------ the books rule (F3)
 
-    private static Trip storedTrip(final Person.Id... roster) throws IOException {
-        final Trip trip = Trip.builder().id(UUID.randomUUID().toString()).title("Books " + System.nanoTime())
-                .startDate(LocalDateTime.now().plusDays(30)).people(new ArrayList<>(List.of(roster))).build();
-        trip.setOrgId(FakeData.CFPW_ORG_ID);     // a ledger row needs a trip that has an organization
-        Assert.assertTrue(DAO.getInstance().saveTrip(trip));
-        return trip;
-    }
-
     private static Person.Id holderOf(final String privilege, final Trip trip) {
         final Person.Id who = Person.Id.newInstance();
         final PrivilegeCommands priv = new PrivilegeCommands();
@@ -511,8 +504,8 @@ public class TransactionsResourceTest extends ResourceTestSupport {
     @Test
     public void aFinanceAdminOfOneTripCannotReachARowOnAnotherTripsBooks() throws IOException {
         final Person.Id traveler = Person.Id.newInstance();
-        final Trip mine = storedTrip();
-        final Trip theirs = storedTrip(traveler);
+        final Trip mine = ledgerTrip();
+        final Trip theirs = ledgerTrip(traveler);
         final Transaction row = rowOnBooks(traveler, theirs);
         Mockito.when(transactions.getTransactions(traveler)).thenReturn(List.of(row));
         final TransactionsResource admin = as(holderOf(PrivilegeCommands.TRIP_FIN_ADMIN, mine));
@@ -546,7 +539,7 @@ public class TransactionsResourceTest extends ResourceTestSupport {
     @Test
     public void aFinanceAdminWorksTheRowsOnTheirOwnTripsBooks() throws IOException {
         final Person.Id traveler = Person.Id.newInstance();
-        final Trip mine = storedTrip(traveler);
+        final Trip mine = ledgerTrip(traveler);
         final Transaction row = rowOnBooks(traveler, mine);
         bind(BindingCommands.class, new BindingCommands());     // the real binding, so the DTO names the trip
         Mockito.when(transactions.saveOnTrip(ArgumentMatchers.same(row), tripWithId(mine.getId()),
@@ -570,8 +563,8 @@ public class TransactionsResourceTest extends ResourceTestSupport {
     @Test
     public void aFinanceViewerReadsOnlyTheRowsOnTheirTripsBooksAndWritesNothing() throws IOException {
         final Person.Id traveler = Person.Id.newInstance();
-        final Trip mine = storedTrip(traveler);
-        final Trip other = storedTrip(traveler);
+        final Trip mine = ledgerTrip(traveler);
+        final Trip other = ledgerTrip(traveler);
         final Transaction here = rowOnBooks(traveler, mine);
         final Transaction elsewhere = rowOnBooks(traveler, other);
         final Transaction unbound = new Transaction(traveler, null, null);
@@ -596,9 +589,9 @@ public class TransactionsResourceTest extends ResourceTestSupport {
     /** A person acting for themselves keeps their whole ledger, whatever {@code ?trip=} says. */
     @Test
     public void yourOwnLedgerIsWholeEvenWhenYouAreFinanceStaffSomewhere() throws IOException {
-        final Trip mine = storedTrip();
+        final Trip mine = ledgerTrip();
         final Person.Id me = holderOf(PrivilegeCommands.TRIP_FIN_VIEW, mine);
-        final Trip other = storedTrip(me);
+        final Trip other = ledgerTrip(me);
         final Transaction shared = new Transaction(me, "group-own", Transaction.Type.Shared);
         shared.setGroupPeople(List.of(me, OTHER));
         final BindingCommands real = new BindingCommands();
@@ -624,7 +617,7 @@ public class TransactionsResourceTest extends ResourceTestSupport {
         final Person.Id pending = Person.Id.newInstance();
         final Person.Id withdrawn = Person.Id.newInstance();
         final Person.Id stranger = Person.Id.newInstance();
-        final Trip mine = storedTrip(onRoster);
+        final Trip mine = ledgerTrip(onRoster);
         Assert.assertTrue(DAO.getInstance().saveRegistration(new Registration(mine.getId(), pending, null,
                 Registration.Status.PENDING, new HashMap<>())));
         Assert.assertTrue(DAO.getInstance().saveRegistration(new Registration(mine.getId(), withdrawn, null,
@@ -648,8 +641,8 @@ public class TransactionsResourceTest extends ResourceTestSupport {
     @Test
     public void anUpdateNeverMovesARowBetweenTripsBooks() throws IOException {
         final Person.Id traveler = Person.Id.newInstance();
-        final Trip home = storedTrip(traveler);
-        final Trip named = storedTrip();
+        final Trip home = ledgerTrip(traveler);
+        final Trip named = ledgerTrip();
         final Transaction row = rowOnBooks(traveler, home);
         bind(BindingCommands.class, new BindingCommands());
         Mockito.when(transactions.saveOnTrip(ArgumentMatchers.same(row), ArgumentMatchers.any(),
@@ -671,8 +664,8 @@ public class TransactionsResourceTest extends ResourceTestSupport {
     @Test
     public void anUpdateBindsATripLessRowOnlyToARealTripOfItsOwnOrganization() throws IOException {
         final Person.Id traveler = Person.Id.newInstance();
-        final Trip home = storedTrip(traveler);
-        final Trip foreign = storedTrip(traveler);
+        final Trip home = ledgerTrip(traveler);
+        final Trip foreign = ledgerTrip(traveler);
         foreign.setOrgId(FakeData.ACME_ORG_ID);
         Assert.assertTrue(DAO.getInstance().saveTrip(foreign));
         final Trip orgless = Trip.builder().id(UUID.randomUUID().toString()).title("No org").build();
@@ -708,8 +701,8 @@ public class TransactionsResourceTest extends ResourceTestSupport {
     public void aGroupSaveIsHeldToTheTripsRosterAndBooks() throws IOException {
         final Person.Id member = Person.Id.newInstance();
         final Person.Id stranger = Person.Id.newInstance();
-        final Trip mine = storedTrip(member);
-        final Trip theirs = storedTrip(stranger);
+        final Trip mine = ledgerTrip(member);
+        final Trip theirs = ledgerTrip(stranger);
         final Transaction foreign = new Transaction(stranger, "group-theirs", Transaction.Type.Shared);
         final BindingCommands real = new BindingCommands();
         real.setBindings(real.key(stranger.getValue(), foreign.getTxId()), BindingType.TRANSACTION,

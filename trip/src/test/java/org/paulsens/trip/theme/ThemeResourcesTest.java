@@ -11,6 +11,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import org.mockito.Mockito;
+import org.paulsens.trip.action.TestFaces;
 import org.testng.annotations.Test;
 
 /**
@@ -28,12 +29,12 @@ public class ThemeResourcesTest {
                 .thenReturn(new ByteArrayInputStream("{\"from\":\"app\"}".getBytes(StandardCharsets.UTF_8)));
         final FacesContext ctx = Mockito.mock(FacesContext.class);
         Mockito.when(ctx.getExternalContext()).thenReturn(external);
-        Faces.set(ctx);
+        TestFaces.install(ctx);
         try {
             assertEquals(ThemeResources.read(MANIFEST), "{\"from\":\"app\"}");
             assertNull(ThemeResources.read("missing/file.txt"), "app, then class path: neither has it");
         } finally {
-            Faces.set(null);
+            TestFaces.clear();
         }
     }
 
@@ -62,11 +63,11 @@ public class ThemeResourcesTest {
         Mockito.when(external.getResourceAsStream("/broken.txt")).thenReturn(new FailingStream());
         final FacesContext ctx = Mockito.mock(FacesContext.class);
         Mockito.when(ctx.getExternalContext()).thenReturn(external);
-        Faces.set(ctx);
+        TestFaces.install(ctx);
         try {
             assertNull(ThemeResources.read("broken.txt"));
         } finally {
-            Faces.set(null);
+            TestFaces.clear();
         }
     }
 
@@ -75,13 +76,6 @@ public class ThemeResourcesTest {
         @Override
         public int read() throws IOException {
             throw new IOException("truncated");
-        }
-    }
-
-    /** {@code FacesContext.setCurrentInstance} is protected, so reach it from a subclass. */
-    private abstract static class Faces extends FacesContext {
-        static void set(final FacesContext ctx) {
-            FacesContext.setCurrentInstance(ctx);
         }
     }
 }

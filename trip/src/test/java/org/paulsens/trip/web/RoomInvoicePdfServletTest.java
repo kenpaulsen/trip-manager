@@ -14,18 +14,19 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
+import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
-import org.paulsens.trip.action.Caller;
 import org.paulsens.trip.action.LodgingCommands;
 import org.paulsens.trip.action.LodgingFixtures;
 import org.paulsens.trip.action.LodgingViews;
 import org.paulsens.trip.action.LodgingViews.OfferForm;
 import org.paulsens.trip.action.OrgCommands;
+import org.paulsens.trip.action.PdfText;
 import org.paulsens.trip.action.PersonCommands;
 import org.paulsens.trip.action.PrivilegeCommands;
 import org.paulsens.trip.action.ReportCommands;
+import org.paulsens.trip.action.TestCallers;
 import org.paulsens.trip.action.TripCommands;
-import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.FakeData;
@@ -153,8 +154,8 @@ public class RoomInvoicePdfServletTest {
      */
     @Test
     public void anOperatorGetsTheirHotelsPartAndAFinanceViewerGetsEveryHotel() throws IOException {
-        final LodgingCommands admin = new LodgingCommands(RoomInvoicePdfServletTest::siteAdmin);
-        final Organization org = new OrgCommands(RoomInvoicePdfServletTest::siteAdmin)
+        final LodgingCommands admin = new LodgingCommands(TestCallers::siteAdmin);
+        final Organization org = new OrgCommands(TestCallers::siteAdmin)
                 .createOrganization("Invoice " + RandomData.genAlpha(8), "INV", null);
         Assert.assertNotNull(org);
         final Person guestA = savedPerson("Ava");
@@ -267,16 +268,8 @@ public class RoomInvoicePdfServletTest {
     private static final LocalDateTime CHECK_IN = LocalDateTime.of(2027, 11, 2, 15, 0);
     private static final LocalDateTime CHECK_OUT = LocalDateTime.of(2027, 11, 5, 10, 0);
 
-    /** The fixture's writer: a site administrator, so the fixture is not itself a test of authorization. */
-    private static Caller siteAdmin() {
-        final Person.Id id = Person.Id.from("test-site-admin");
-        return new Caller(id, true, new AuditActor("site-admin@example.com", id.getValue()), new PrivilegeCommands());
-    }
-
     private static String text(final byte[] pdf) throws IOException {
-        try (PDDocument doc = Loader.loadPDF(pdf)) {
-            return new PDFTextStripper().getText(doc);
-        }
+        return String.join("", PdfText.pages(pdf));
     }
 
     private static Person savedPerson(final String first) throws IOException {

@@ -1,7 +1,6 @@
 package org.paulsens.trip.media;
 
 import java.awt.Color;
-import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -215,7 +214,7 @@ public class PhotoProcessorTest {
 
     private void assertQuadrants(final int orientation, final Color topLeft, final Color topRight,
             final Color bottomLeft, final Color bottomRight) {
-        final BufferedImage marker = quadrantMarker();
+        final BufferedImage marker = PhotoFixtures.quadrantMarker();
         final BufferedImage out = PhotoProcessor.applyOrientation(marker, orientation);
         final String label = "orientation " + orientation;
         assertEquals(new Color(out.getRGB(1, 1)), topLeft, label + " top-left");
@@ -223,25 +222,6 @@ public class PhotoProcessorTest {
         assertEquals(new Color(out.getRGB(1, out.getHeight() - 2)), bottomLeft, label + " bottom-left");
         assertEquals(new Color(out.getRGB(out.getWidth() - 2, out.getHeight() - 2)), bottomRight,
                 label + " bottom-right");
-    }
-
-    /** 4x4, quadrants: RED GREEN / BLUE WHITE. */
-    private BufferedImage quadrantMarker() {
-        final BufferedImage img = new BufferedImage(4, 4, BufferedImage.TYPE_INT_RGB);
-        final Graphics2D g = img.createGraphics();
-        try {
-            g.setColor(Color.RED);
-            g.fillRect(0, 0, 2, 2);
-            g.setColor(Color.GREEN);
-            g.fillRect(2, 0, 2, 2);
-            g.setColor(Color.BLUE);
-            g.fillRect(0, 2, 2, 2);
-            g.setColor(Color.WHITE);
-            g.fillRect(2, 2, 2, 2);
-        } finally {
-            g.dispose();
-        }
-        return img;
     }
 
     @Test

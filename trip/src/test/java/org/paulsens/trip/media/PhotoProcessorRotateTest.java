@@ -1,7 +1,6 @@
 package org.paulsens.trip.media;
 
 import java.awt.Color;
-import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -48,7 +47,7 @@ public class PhotoProcessorRotateTest {
     /** R G / B W turned right is B R / W G; turned left it is G W / R B (the EXIF 6 and 8 rows). */
     @Test
     public void everyQuadrantLandsWhereTheTurnPutsIt() {
-        final byte[] marker = PhotoProcessor.encodePng(quadrantMarker());
+        final byte[] marker = PhotoProcessor.encodePng(PhotoFixtures.quadrantMarker());
         assertQuadrants(decode(processor.rotate(marker, QuarterTurn.RIGHT).bytes()),
                 Color.BLUE, Color.RED, Color.WHITE, Color.GREEN);
         assertQuadrants(decode(processor.rotate(marker, QuarterTurn.LEFT).bytes()),
@@ -122,25 +121,6 @@ public class PhotoProcessorRotateTest {
         assertEquals(new Color(out.getRGB(out.getWidth() - 2, 1)), topRight, "top-right");
         assertEquals(new Color(out.getRGB(1, out.getHeight() - 2)), bottomLeft, "bottom-left");
         assertEquals(new Color(out.getRGB(out.getWidth() - 2, out.getHeight() - 2)), bottomRight, "bottom-right");
-    }
-
-    /** 4x4, quadrants: RED GREEN / BLUE WHITE. PNG so the colors survive exactly. */
-    private static BufferedImage quadrantMarker() {
-        final BufferedImage img = new BufferedImage(4, 4, BufferedImage.TYPE_INT_RGB);
-        final Graphics2D g = img.createGraphics();
-        try {
-            g.setColor(Color.RED);
-            g.fillRect(0, 0, 2, 2);
-            g.setColor(Color.GREEN);
-            g.fillRect(2, 0, 2, 2);
-            g.setColor(Color.BLUE);
-            g.fillRect(0, 2, 2, 2);
-            g.setColor(Color.WHITE);
-            g.fillRect(2, 2, 2, 2);
-        } finally {
-            g.dispose();
-        }
-        return img;
     }
 
     private static BufferedImage decode(final byte[] bytes) {

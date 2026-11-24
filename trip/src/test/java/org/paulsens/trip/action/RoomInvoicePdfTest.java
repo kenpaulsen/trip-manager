@@ -2,17 +2,16 @@ package org.paulsens.trip.action;
 
 import java.io.IOException;
 import java.time.LocalDate;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.font.PDType0Font;
-import org.apache.pdfbox.text.PDFTextStripper;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.audit.RequestContext;
 import org.testng.Assert;
 import org.testng.annotations.Test;
+
+import static org.paulsens.trip.action.PdfText.pages;
 
 /**
  * The Room Invoice PDF, read back as text: each accommodation on a page of its own, the lines and totals the
@@ -105,19 +104,6 @@ public class RoomInvoicePdfTest {
         invoice.setRooms(5);
         invoice.setAmount("$4,080.00");
         return invoice;
-    }
-
-    private static List<String> pages(final byte[] pdf) throws IOException {
-        try (PDDocument doc = Loader.loadPDF(pdf)) {
-            final List<String> pages = new ArrayList<>();
-            final PDFTextStripper stripper = new PDFTextStripper();
-            for (int i = 1; i <= doc.getNumberOfPages(); i++) {
-                stripper.setStartPage(i);
-                stripper.setEndPage(i);
-                pages.add(stripper.getText(doc));
-            }
-            return pages;
-        }
     }
 
     @Test
