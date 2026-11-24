@@ -26,7 +26,7 @@ import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedExce
  */
 public class FamilyDAO {
     static final String FAMILY_TABLE = "family";
-    static final String VERSION_ATTR = "version";
+    static final String VERSION_ATTR = VersionedWrites.VERSION;
     private static final String ID = "id";
     private static final String CONTENT = "content";
 
@@ -62,18 +62,9 @@ public class FamilyDAO {
         map.put(CONTENT, AttributeValue.builder().s(mapper.writeValueAsString(family)).build());
         map.put(VERSION_ATTR, AttributeValue.builder().n(Long.toString(family.getVersion())).build());
         try {
-            final boolean saved = persistence.putItem(b -> {
-                b.tableName(FAMILY_TABLE).item(map);
-                if (expected == 0L) {
-                    b.conditionExpression("attribute_not_exists(#i)")
-                            .expressionAttributeNames(Map.of("#i", ID));
-                } else {
-                    b.conditionExpression("#v = :expected")
-                            .expressionAttributeNames(Map.of("#v", VERSION_ATTR))
-                            .expressionAttributeValues(Map.of(
-                                    ":expected", AttributeValue.builder().n(Long.toString(expected)).build()));
-                }
-            }).sdkHttpResponse().isSuccessful();
+            final boolean saved = persistence.putItem(
+                    b -> VersionedWrites.conditionalPut(b, FAMILY_TABLE, map, ID, expected))
+                    .sdkHttpResponse().isSuccessful();
             if (saved) {
                 cache.put(family.getId().getValue(), family);
             } else {

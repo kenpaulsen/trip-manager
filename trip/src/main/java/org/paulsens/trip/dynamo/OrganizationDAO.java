@@ -27,7 +27,7 @@ import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedExce
 public class OrganizationDAO {
     /** Package-visible so {@link InMemoryPersistence} can register the table for local mode. */
     static final String ORG_TABLE = "organizations";
-    static final String VERSION_ATTR = "version";
+    static final String VERSION_ATTR = VersionedWrites.VERSION;
     private static final String ID = "id";
     private static final String CONTENT = "content";
 
@@ -68,18 +68,9 @@ public class OrganizationDAO {
         map.put(CONTENT, AttributeValue.builder().s(mapper.writeValueAsString(org)).build());
         map.put(VERSION_ATTR, AttributeValue.builder().n(Long.toString(org.getVersion())).build());
         try {
-            final boolean saved = persistence.putItem(b -> {
-                b.tableName(ORG_TABLE).item(map);
-                if (expected == 0L) {
-                    b.conditionExpression("attribute_not_exists(#i)")
-                            .expressionAttributeNames(Map.of("#i", ID));
-                } else {
-                    b.conditionExpression("#v = :expected")
-                            .expressionAttributeNames(Map.of("#v", VERSION_ATTR))
-                            .expressionAttributeValues(Map.of(
-                                    ":expected", AttributeValue.builder().n(Long.toString(expected)).build()));
-                }
-            }).sdkHttpResponse().isSuccessful();
+            final boolean saved = persistence.putItem(
+                    b -> VersionedWrites.conditionalPut(b, ORG_TABLE, map, ID, expected))
+                    .sdkHttpResponse().isSuccessful();
             if (saved) {
                 cache.put(org);
             } else {

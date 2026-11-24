@@ -28,7 +28,7 @@ public class PaymentProcessorDAO {
     static final String PROCESSORS_TABLE = "payment_processors";
     static final String ORG_ID = "orgId";
     static final String CONFIG_ID = "id";
-    static final String VERSION_ATTR = "version";
+    static final String VERSION_ATTR = VersionedWrites.VERSION;
     private static final String CONTENT = "content";
 
     private final ObjectMapper mapper;
@@ -67,18 +67,9 @@ public class PaymentProcessorDAO {
         map.put(CONTENT, AttributeValue.builder().s(mapper.writeValueAsString(config)).build());
         map.put(VERSION_ATTR, AttributeValue.builder().n(Long.toString(config.getVersion())).build());
         try {
-            final boolean saved = persistence.putItem(b -> {
-                b.tableName(PROCESSORS_TABLE).item(map);
-                if (expected == 0L) {
-                    b.conditionExpression("attribute_not_exists(#i)")
-                            .expressionAttributeNames(Map.of("#i", CONFIG_ID));
-                } else {
-                    b.conditionExpression("#v = :expected")
-                            .expressionAttributeNames(Map.of("#v", VERSION_ATTR))
-                            .expressionAttributeValues(Map.of(
-                                    ":expected", AttributeValue.builder().n(Long.toString(expected)).build()));
-                }
-            }).sdkHttpResponse().isSuccessful();
+            final boolean saved = persistence.putItem(
+                    b -> VersionedWrites.conditionalPut(b, PROCESSORS_TABLE, map, CONFIG_ID, expected))
+                    .sdkHttpResponse().isSuccessful();
             if (saved) {
                 cache.put(config.getOrgId().getValue(), config);
             } else {

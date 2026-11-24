@@ -14,7 +14,6 @@ import org.paulsens.trip.model.ReminderSend;
 import org.paulsens.trip.model.TripReminderPlan;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
-import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
 
 /**
  * {@code trip_reminders} (PK tripId, SK sk): a trip's scheduled messages and the record of what was sent
@@ -37,7 +36,7 @@ public class ReminderDAO {
     static final String REMINDERS_TABLE = "trip_reminders";
     static final String TRIP_ID = "tripId";
     static final String ITEM = "sk";
-    static final String VERSION_ATTR = "version";
+    static final String VERSION_ATTR = VersionedWrites.VERSION;
     private static final String CONTENT = "content";
     /** Below DynamoDB's 400 KB item cap with room for the key attributes. */
     static final int MAX_PLAN_BYTES = 350_000;
@@ -73,7 +72,8 @@ public class ReminderDAO {
         item.put(CONTENT, str(mapper.writeValueAsString(plan)));
         item.put(VERSION_ATTR, AttributeValue.builder().n(Long.toString(plan.getVersion())).build());
         try {
-            final boolean saved = persistence.putItem(b -> versionedPut(b, item, expected))
+            final boolean saved = persistence.putItem(
+                    b -> VersionedWrites.conditionalPut(b, REMINDERS_TABLE, item, ITEM, expected))
                     .sdkHttpResponse().isSuccessful();
             if (!saved) {
                 plan.setVersion(expected);
@@ -82,19 +82,6 @@ public class ReminderDAO {
         } catch (final ConditionalCheckFailedException ex) {
             plan.setVersion(expected);
             throw ex;
-        }
-    }
-
-    private static void versionedPut(final PutItemRequest.Builder b, final Map<String, AttributeValue> item,
-            final long expected) {
-        b.tableName(REMINDERS_TABLE).item(item);
-        if (expected == 0L) {
-            b.conditionExpression("attribute_not_exists(#i)").expressionAttributeNames(Map.of("#i", ITEM));
-        } else {
-            b.conditionExpression("#v = :expected")
-                    .expressionAttributeNames(Map.of("#v", VERSION_ATTR))
-                    .expressionAttributeValues(Map.of(
-                            ":expected", AttributeValue.builder().n(Long.toString(expected)).build()));
         }
     }
 

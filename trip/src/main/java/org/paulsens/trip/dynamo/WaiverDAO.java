@@ -16,7 +16,6 @@ import org.paulsens.trip.model.WaiverAcceptance;
 import org.paulsens.trip.model.WaiverDocument;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
-import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
 
 /**
  * The two waiver tables (see {@code docs/waivers.md}).
@@ -41,7 +40,7 @@ public class WaiverDAO {
     static final String ID = "id";
     static final String TRIP_ID = "tripId";
     static final String SK = "sk";
-    static final String VERSION_ATTR = "version";
+    static final String VERSION_ATTR = VersionedWrites.VERSION;
     private static final String CONTENT = "content";
     /** Below DynamoDB's 400 KB item cap with room for the key attributes; every version counts toward it. */
     static final int MAX_DOCUMENT_BYTES = 350_000;
@@ -91,7 +90,8 @@ public class WaiverDAO {
         item.put(CONTENT, str(mapper.writeValueAsString(doc)));
         item.put(VERSION_ATTR, AttributeValue.builder().n(Long.toString(doc.getVersion())).build());
         try {
-            final boolean saved = persistence.putItem(b -> versionedPut(b, item, expected))
+            final boolean saved = persistence.putItem(
+                    b -> VersionedWrites.conditionalPut(b, WAIVERS_TABLE, item, ID, expected))
                     .sdkHttpResponse().isSuccessful();
             if (saved) {
                 cache.put(doc.getOrgId(), doc);
@@ -121,19 +121,6 @@ public class WaiverDAO {
             return Optional.empty();
         }
         return cache.getOne(orgId, id, () -> loadDocuments(orgId));
-    }
-
-    private void versionedPut(final PutItemRequest.Builder b, final Map<String, AttributeValue> item,
-            final long expected) {
-        b.tableName(WAIVERS_TABLE).item(item);
-        if (expected == 0L) {
-            b.conditionExpression("attribute_not_exists(#i)").expressionAttributeNames(Map.of("#i", ID));
-        } else {
-            b.conditionExpression("#v = :expected")
-                    .expressionAttributeNames(Map.of("#v", VERSION_ATTR))
-                    .expressionAttributeValues(Map.of(
-                            ":expected", AttributeValue.builder().n(Long.toString(expected)).build()));
-        }
     }
 
     private List<WaiverDocument> loadDocuments(final String orgId) {

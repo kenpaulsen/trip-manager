@@ -26,7 +26,7 @@ import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedExce
 public class BudgetDAO {
     static final String BUDGETS_TABLE = "trip_budgets";
     static final String TRIP_ID = "tripId";
-    static final String VERSION_ATTR = "version";
+    static final String VERSION_ATTR = VersionedWrites.VERSION;
     private static final String CONTENT = "content";
     /** Below DynamoDB's 400 KB item cap with room for the attribute names and the version. */
     static final int MAX_BUDGET_BYTES = 350_000;
@@ -69,18 +69,9 @@ public class BudgetDAO {
         map.put(CONTENT, AttributeValue.builder().s(mapper.writeValueAsString(budget)).build());
         map.put(VERSION_ATTR, AttributeValue.builder().n(Long.toString(budget.getVersion())).build());
         try {
-            final boolean saved = persistence.putItem(b -> {
-                b.tableName(BUDGETS_TABLE).item(map);
-                if (expected == 0L) {
-                    b.conditionExpression("attribute_not_exists(#i)")
-                            .expressionAttributeNames(Map.of("#i", TRIP_ID));
-                } else {
-                    b.conditionExpression("#v = :expected")
-                            .expressionAttributeNames(Map.of("#v", VERSION_ATTR))
-                            .expressionAttributeValues(Map.of(
-                                    ":expected", AttributeValue.builder().n(Long.toString(expected)).build()));
-                }
-            }).sdkHttpResponse().isSuccessful();
+            final boolean saved = persistence.putItem(
+                    b -> VersionedWrites.conditionalPut(b, BUDGETS_TABLE, map, TRIP_ID, expected))
+                    .sdkHttpResponse().isSuccessful();
             if (saved) {
                 cache.put(budget.getTripId(), budget);
             } else {

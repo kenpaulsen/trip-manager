@@ -12,7 +12,6 @@ import org.paulsens.trip.cache.PointCache;
 import org.paulsens.trip.model.TripExpenseReport;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
-import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
 
 /**
  * {@code trip_expense_reports} (PK tripId): ONE {@link TripExpenseReport} per trip, currencies and lines inline,
@@ -25,7 +24,7 @@ import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
 public class ExpenseReportDAO {
     static final String EXPENSES_TABLE = "trip_expense_reports";
     static final String TRIP_ID = "tripId";
-    static final String VERSION_ATTR = "version";
+    static final String VERSION_ATTR = VersionedWrites.VERSION;
     private static final String CONTENT = "content";
     /** Below DynamoDB's 400 KB item cap with room for the attribute names and the version. */
     static final int MAX_REPORT_BYTES = 350_000;
@@ -69,7 +68,8 @@ public class ExpenseReportDAO {
         map.put(CONTENT, AttributeValue.builder().s(mapper.writeValueAsString(report)).build());
         map.put(VERSION_ATTR, AttributeValue.builder().n(Long.toString(report.getVersion())).build());
         try {
-            final boolean saved = persistence.putItem(b -> conditionalPut(b, map, expected))
+            final boolean saved = persistence.putItem(
+                    b -> VersionedWrites.conditionalPut(b, EXPENSES_TABLE, map, TRIP_ID, expected))
                     .sdkHttpResponse().isSuccessful();
             if (saved) {
                 cache.put(report.getTripId(), report);
@@ -98,20 +98,6 @@ public class ExpenseReportDAO {
         final boolean deleted = persistence.deleteItem(b -> b.tableName(EXPENSES_TABLE).key(key))
                 .sdkHttpResponse().isSuccessful();
         return cache.remove(tripId) && deleted;
-    }
-
-    /** Version 0 may only create; any other version may only replace that exact stored version. */
-    private static void conditionalPut(final PutItemRequest.Builder b, final Map<String, AttributeValue> item,
-            final long expected) {
-        b.tableName(EXPENSES_TABLE).item(item);
-        if (expected == 0L) {
-            b.conditionExpression("attribute_not_exists(#i)").expressionAttributeNames(Map.of("#i", TRIP_ID));
-        } else {
-            b.conditionExpression("#v = :expected")
-                    .expressionAttributeNames(Map.of("#v", VERSION_ATTR))
-                    .expressionAttributeValues(Map.of(
-                            ":expected", AttributeValue.builder().n(Long.toString(expected)).build()));
-        }
     }
 
     private TripExpenseReport loadReport(final String tripId) {

@@ -5,6 +5,7 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 import lombok.extern.slf4j.Slf4j;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
+import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
 
 /**
  * What the versioned DAOs share (family, budget, expense report, organization, payment processor config, waiver
@@ -16,7 +17,32 @@ final class VersionedWrites {
     /** Every versioned table keeps the row's JSON in this attribute. */
     private static final String CONTENT = "content";
 
+    /** Every versioned table duplicates the row's version top-level, beside the JSON, so a condition can see it. */
+    static final String VERSION = "version";
+
     private VersionedWrites() {
+    }
+
+    /**
+     * The put every versioned save makes. Version 0 may only CREATE: refused when {@code createAttr} already
+     * exists on a stored row with this key. Any other version may only replace that exact stored version. Both
+     * names are aliased, sidestepping any reserved-word concern.
+     *
+     * @param createAttr a key attribute of the table, the one each DAO has always named. It is the sort key
+     *                   where there is one, and any key attribute says the same thing: a row with this key exists.
+     * @param expected   the version the caller's object was loaded with ({@code item} carries the next one).
+     */
+    static void conditionalPut(final PutItemRequest.Builder b, final String table,
+            final Map<String, AttributeValue> item, final String createAttr, final long expected) {
+        b.tableName(table).item(item);
+        if (expected == 0L) {
+            b.conditionExpression("attribute_not_exists(#i)").expressionAttributeNames(Map.of("#i", createAttr));
+        } else {
+            b.conditionExpression("#v = :expected")
+                    .expressionAttributeNames(Map.of("#v", VERSION))
+                    .expressionAttributeValues(Map.of(
+                            ":expected", AttributeValue.builder().n(Long.toString(expected)).build()));
+        }
     }
 
     /**

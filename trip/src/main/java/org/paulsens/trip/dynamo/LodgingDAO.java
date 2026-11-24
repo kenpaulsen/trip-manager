@@ -24,7 +24,6 @@ import org.paulsens.trip.model.ReservationOffer;
 import org.paulsens.trip.model.RoomBlock;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
-import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
 
 /**
  * The lodging tables (one class, the {@link ChatDAO} precedent):
@@ -65,7 +64,7 @@ public class LodgingDAO {
     /** The {@code by-accommodation} GSI's sort key: the stay's end, so a window read is a bounded query. */
     static final String STAY_END = "stayEnd";
     static final String BY_ACCOMMODATION = "by-accommodation";
-    static final String VERSION_ATTR = "version";
+    static final String VERSION_ATTR = VersionedWrites.VERSION;
     private static final String CONTENT = "content";
     /** Below DynamoDB's 400 KB item cap with room for the attribute names and the version. */
     static final int MAX_ACCOMMODATION_BYTES = 350_000;
@@ -391,7 +390,8 @@ public class LodgingDAO {
         map.put(VERSION_ATTR, AttributeValue.builder().n(Long.toString(expected + 1)).build());
         map.put(CONTENT, AttributeValue.builder().s(mapper.writeValueAsString(row)).build());
         try {
-            final boolean saved = persistence.putItem(b -> conditionalPut(b, table, map, expected))
+            final boolean saved = persistence.putItem(
+                    b -> VersionedWrites.conditionalPut(b, table, map, ID, expected))
                     .sdkHttpResponse().isSuccessful();
             if (saved) {
                 cachePut.run();
@@ -410,19 +410,6 @@ public class LodgingDAO {
     private <T> void recacheStored(final String table, final Map<String, AttributeValue> key, final Class<T> type,
             final Consumer<T> cachePut) {
         VersionedWrites.recacheStored(persistence, table, key, json -> rows.parse(type, json), cachePut);
-    }
-
-    private void conditionalPut(final PutItemRequest.Builder b, final String table,
-            final Map<String, AttributeValue> map, final long expected) {
-        b.tableName(table).item(map);
-        if (expected == 0L) {
-            b.conditionExpression("attribute_not_exists(#i)").expressionAttributeNames(Map.of("#i", ID));
-        } else {
-            b.conditionExpression("#v = :expected")
-                    .expressionAttributeNames(Map.of("#v", VERSION_ATTR))
-                    .expressionAttributeValues(Map.of(
-                            ":expected", AttributeValue.builder().n(Long.toString(expected)).build()));
-        }
     }
 
     private boolean deleteRow(final String table, final String tripId, final String id) {
