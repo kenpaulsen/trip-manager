@@ -5,7 +5,6 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.faces.application.FacesMessage;
 import jakarta.faces.context.FacesContext;
 import jakarta.inject.Named;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -59,19 +58,9 @@ public class TodoCommands {
     public boolean saveTodo(final TodoItem todo) {
         // Typed HTML that the to-do page writes unescaped (medjugorje#158): every save path meets the allowlist.
         todo.setMoreDetails(PageHtml.cleanOrNull(todo.getMoreDetails()));
-        boolean result;
-        try {
-            result = DAO.getInstance().saveTodo(todo);
-        } catch (final RuntimeException ex) {
-            PageFeedback.failure(Text.get("feedback.todoCommands.saveError", todo.getDescription(), todo.getTripId()));
-            log.error("Error while saving todo: ", ex);
-            result = false;
-        } catch (final IOException ex) {
-            PageFeedback.failure(Text.get("feedback.todoCommands.saveFailed", todo.getDescription(), todo.getTripId()));
-            log.warn("Error while saving todo: ", ex);
-            result = false;
-        }
-        return result;
+        return PageSaves.saveOrGrowl(() -> DAO.getInstance().saveTodo(todo),
+                () -> Text.get("feedback.todoCommands.saveError", todo.getDescription(), todo.getTripId()),
+                () -> Text.get("feedback.todoCommands.saveFailed", todo.getDescription(), todo.getTripId()), "todo");
     }
 
     public List<TodoItem> getTodos(final String tripId) {

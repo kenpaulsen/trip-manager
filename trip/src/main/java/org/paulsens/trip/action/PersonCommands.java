@@ -4,7 +4,6 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.faces.context.FacesContext;
 import jakarta.inject.Named;
 import jakarta.servlet.http.HttpSession;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -115,19 +114,9 @@ public class PersonCommands {
                     Text.get("feedback.personCommands.emailInUseDetail", person.getEmail()));
             return false;
         }
-        boolean result;
-        try {
-            result = DAO.getInstance().savePerson(person);
-        } catch (final RuntimeException ex) {
-            PageFeedback.failure(Text.get("feedback.personCommands.errorSaving", person.getFirst(), person.getLast()));
-            log.error("Error while saving user: ", ex);
-            result = false;
-        } catch (final IOException ex) {
-            PageFeedback.failure(Text.get("feedback.personCommands.unableToSave", person.getFirst(), person.getLast()));
-            log.error("Error while saving user: ", ex);
-            result = false;
-        }
-        return result;
+        return PageSaves.saveOrGrowl(() -> DAO.getInstance().savePerson(person),
+                () -> Text.get("feedback.personCommands.errorSaving", person.getFirst(), person.getLast()),
+                () -> Text.get("feedback.personCommands.unableToSave", person.getFirst(), person.getLast()), "user");
     }
 
     /**

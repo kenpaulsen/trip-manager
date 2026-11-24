@@ -2,7 +2,6 @@ package org.paulsens.trip.action;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Named;
-import java.io.IOException;
 import java.io.Serial;
 import java.io.Serializable;
 import java.time.LocalDateTime;
@@ -143,22 +142,11 @@ public class RegistrationCommands {
     }
 
     public boolean saveRegistration(final Registration reg) {
-        boolean result;
-        try {
-            // The backstop for the CONFIRMED => ticket invariant: whatever path confirmed it, the stored row has one.
-            result = DAO.getInstance().saveRegistration(withTicket(reg));
-        } catch (final RuntimeException ex) {
-            PageFeedback.failure(Text.get("feedback.registrationCommands.errorSaving",
-                    String.valueOf(reg.getUserId()), reg.getTripId()));
-            log.error("Error while saving registration: ", ex);
-            result = false;
-        } catch (final IOException ex) {
-            PageFeedback.failure(Text.get("feedback.registrationCommands.unableToSave",
-                    String.valueOf(reg.getUserId()), reg.getTripId()));
-            log.warn("Error while saving registration: ", ex);
-            result = false;
-        }
-        return result;
+        final String who = String.valueOf(reg.getUserId());
+        // The backstop for the CONFIRMED => ticket invariant: whatever path confirmed it, the stored row has one.
+        return PageSaves.saveOrGrowl(() -> DAO.getInstance().saveRegistration(withTicket(reg)),
+                () -> Text.get("feedback.registrationCommands.errorSaving", who, reg.getTripId()),
+                () -> Text.get("feedback.registrationCommands.unableToSave", who, reg.getTripId()), "registration");
     }
 
     /**

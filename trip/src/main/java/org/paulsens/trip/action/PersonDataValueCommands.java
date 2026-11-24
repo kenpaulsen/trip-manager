@@ -2,7 +2,6 @@ package org.paulsens.trip.action;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Named;
-import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
@@ -33,22 +32,13 @@ public class PersonDataValueCommands {
                 .build();
     }
 
+    private static String saveError(final PersonDataValue pdv) {
+        return Text.get("feedback.personDataValueCommands.saveError", pdv.getDataId(), pdv.getType(), pdv.getUserId());
+    }
+
     public static boolean savePersonDataValue(final PersonDataValue pdv) {
-        boolean result;
-        try {
-            result = DAO.getInstance().savePersonDataValue(pdv);
-        } catch (final RuntimeException ex) {
-            PageFeedback.failure(Text.get("feedback.personDataValueCommands.saveError", pdv.getDataId(), pdv.getType(),
-                    pdv.getUserId()));
-            log.error("Error while saving PersonDataValue: ", ex);
-            result = false;
-        } catch (final IOException ex) {
-            PageFeedback.failure(Text.get("feedback.personDataValueCommands.saveError", pdv.getDataId(), pdv.getType(),
-                    pdv.getUserId()));
-            log.warn("Error while saving PersonDataValue: ", ex);
-            result = false;
-        }
-        return result;
+        return PageSaves.saveOrGrowl(() -> DAO.getInstance().savePersonDataValue(pdv), () -> saveError(pdv),
+                () -> saveError(pdv), "PersonDataValue");
     }
 
     public static Map<DataId, PersonDataValue> getPersonDataValues(final Person.Id userId) {

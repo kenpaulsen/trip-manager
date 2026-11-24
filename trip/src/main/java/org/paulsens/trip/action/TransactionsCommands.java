@@ -3,7 +3,6 @@ package org.paulsens.trip.action;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.inject.Named;
-import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -252,19 +251,9 @@ public class TransactionsCommands {
         // FIXME: Maybe move sending email to here? Be careful on batch Tx to not spam yourself!
         // FIXME: Look where this is called from
         // FIXME: Add Validations
-        boolean result;
-        try {
-            result = DAO.getInstance().saveTransaction(tx);
-        } catch (final RuntimeException ex) {
-            PageFeedback.failure(Text.get("feedback.transactionsCommands.saveFailed", tx.getUserId().getValue()));
-            log.error("Error while saving transaction: ", ex);
-            result = false;
-        } catch (final IOException ex) {
-            PageFeedback.failure(Text.get("feedback.transactionsCommands.saveFailed", tx.getUserId().getValue()));
-            log.error("Error while saving transaction: ", ex);
-            result = false;
-        }
-        return result;
+        final Supplier<String> failed =
+                () -> Text.get("feedback.transactionsCommands.saveFailed", tx.getUserId().getValue());
+        return PageSaves.saveOrGrowl(() -> DAO.getInstance().saveTransaction(tx), failed, failed, "transaction");
     }
 
     /**

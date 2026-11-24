@@ -314,7 +314,6 @@ public class TripCommands {
         // what the stored row has.
         trip.setLedgerMoveFrom(ledgerMove != null ? ledgerMove.marker() : pendingMoveOf(trip, stored,
                 before.readable()));
-        boolean result;
         // Read the roster BEFORE the write, so anyone dropped in this edit can be taken off the chat too. Done
         // here rather than at each Remove button because there are several ways off a trip and they must all
         // agree: a chat still listing people who are no longer on the trip is the wrong answer everywhere.
@@ -322,20 +321,12 @@ public class TripCommands {
         syncProviderFromOrg(trip);
         keepStoredPictures(trip, stored);
         normalizePlace(trip, TripTags.current());
-        try {
-            result = DAO.getInstance().saveTrip(sortTripPeople(trip));
-        } catch (final RuntimeException ex) {
-            PageFeedback.failure(Text.get("feedback.tripCommands.errorSaving", trip.getId(), trip.getTitle()));
-            log.error("Error while saving trip: ", ex);
-            result = false;
-        } catch (final IOException ex) {
-            PageFeedback.failure(Text.get("feedback.tripCommands.unableToSave", trip.getId(), trip.getTitle()));
-            log.warn("Error while saving trip: ", ex);
-            result = false;
-        }
         // The trip row is written: what follows it (the chat roster, the trip's page) happens whether or not every
         // ledger row then moves. A failed row used to answer false before them, and they were skipped for good.
-        final boolean tripSaved = result;
+        final boolean tripSaved = PageSaves.saveOrGrowl(() -> DAO.getInstance().saveTrip(sortTripPeople(trip)),
+                () -> Text.get("feedback.tripCommands.errorSaving", trip.getId(), trip.getTitle()),
+                () -> Text.get("feedback.tripCommands.unableToSave", trip.getId(), trip.getTitle()), "trip");
+        boolean result = tripSaved;
         if (tripSaved && ledgerMove != null) {
             result = ledgerMove.rowKeys().isEmpty() || restampLedger(trip, ledgerMove);
             if (result) {
