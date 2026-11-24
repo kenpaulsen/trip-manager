@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -62,8 +63,10 @@ import org.paulsens.trip.util.Util;
  * <p>Only the reservation being priced gets lines; its co-occupants are re-priced by their own recompute.
  */
 public final class LodgingPricing {
-    private static final DateTimeFormatter MONTH_DAY = DateTimeFormatter.ofPattern("MMM d");
-    private static final DateTimeFormatter MONTH_DAY_YEAR = DateTimeFormatter.ofPattern("MMM d, yyyy");
+    // English by NAME, not the JVM's default: these dates go into the stored bill note, which a recompute
+    // compares byte for byte, so a server started in another language would rewrite every lodging bill.
+    private static final DateTimeFormatter MONTH_DAY = DateTimeFormatter.ofPattern("MMM d", Locale.ENGLISH);
+    private static final DateTimeFormatter MONTH_DAY_YEAR = DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.ENGLISH);
 
     private LodgingPricing() {
     }
