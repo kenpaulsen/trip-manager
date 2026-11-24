@@ -149,12 +149,9 @@ public class LodgingDAO {
      * @throws IllegalArgumentException when the serialized row would not fit the DynamoDB item cap.
      */
     protected Boolean saveAccommodation(final Accommodation acc) throws IOException {
-        final String json = mapper.writeValueAsString(acc);
-        if (json.length() > MAX_ACCOMMODATION_BYTES) {
-            throw new IllegalArgumentException("Accommodation " + acc.getId().getValue() + " is too large to "
-                    + "store (" + json.length() + " bytes; max " + MAX_ACCOMMODATION_BYTES + "). Split the "
-                    + "property or trim room notes.");
-        }
+        VersionedWrites.requireFits(mapper.writeValueAsString(acc), MAX_ACCOMMODATION_BYTES,
+                size -> "Accommodation " + acc.getId().getValue() + " is too large to store (" + size
+                        + " bytes; max " + MAX_ACCOMMODATION_BYTES + "). Split the property or trim room notes.");
         final Map<String, AttributeValue> map = new HashMap<>();
         map.put(ID, AttributeValue.builder().s(acc.getId().getValue()).build());
         return versionedPut(acc, acc.getVersion(), acc::setVersion, map, ACCOMMODATIONS_TABLE,

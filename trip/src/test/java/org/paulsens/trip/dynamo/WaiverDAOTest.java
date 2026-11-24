@@ -46,6 +46,19 @@ public class WaiverDAOTest {
         assertEquals(DAO.getInstance().invalidate(DAO.CacheScope.WAIVER), List.of(CacheKeys.WAIVER_PREFIX));
     }
 
+    /**
+     * The cap is DynamoDB's, and DynamoDB counts UTF-8 BYTES. 200,000 two-byte letters are under the limit as
+     * characters and over it as bytes; counted as characters the row passed this guard and the store refused it
+     * with a raw error.
+     */
+    @Test
+    public void aDocumentOversizedOnlyInBytesIsRefusedBeforeTheStore() {
+        final WaiverDocument huge = document("org-" + RandomData.genAlpha(8), "Huge");
+        huge.getVersions().add(WaiverVersion.builder().number(2).bodyHtml("\u010d".repeat(200_000)).build());
+        assertThrows(IllegalArgumentException.class, () -> DAO.getInstance().saveWaiverDocument(huge));
+        assertEquals(huge.getVersion(), 0L);
+    }
+
     @Test
     public void anOversizedDocumentIsRefusedBeforeTheStore() {
         final WaiverDocument huge = document("org-" + RandomData.genAlpha(8), "Huge");

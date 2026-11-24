@@ -57,11 +57,9 @@ public class BudgetDAO {
      */
     protected Boolean saveBudget(final TripBudget budget) throws IOException {
         // Sized before the bump so a refused row keeps the version it was loaded with.
-        final int size = mapper.writeValueAsString(budget).length();
-        if (size > MAX_BUDGET_BYTES) {
-            throw new IllegalArgumentException("The budget for trip " + budget.getTripId() + " is too large to "
-                    + "store (" + size + " bytes; max " + MAX_BUDGET_BYTES + ").");
-        }
+        VersionedWrites.requireFits(mapper.writeValueAsString(budget), MAX_BUDGET_BYTES,
+                size -> "The budget for trip " + budget.getTripId() + " is too large to store (" + size
+                        + " bytes; max " + MAX_BUDGET_BYTES + ").");
         final long expected = budget.getVersion();
         budget.setVersion(expected + 1);
         final Map<String, AttributeValue> map = new HashMap<>();

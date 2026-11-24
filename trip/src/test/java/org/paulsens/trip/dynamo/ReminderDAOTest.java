@@ -59,6 +59,20 @@ public class ReminderDAOTest {
         assertEquals(again.getVersion(), 0L);
     }
 
+    /**
+     * The cap is DynamoDB's, and DynamoDB counts UTF-8 BYTES. 200,000 two-byte letters are under the limit as
+     * characters and over it as bytes; counted as characters the row passed this guard and the store refused it
+     * with a raw error.
+     */
+    @Test
+    public void aPlanOversizedOnlyInBytesIsRefusedBeforeTheStore() {
+        final TripReminderPlan huge = plan();
+        huge.getReminders().add(TripReminder.builder().id("big").body("\u010d".repeat(200_000)).build());
+        assertThrows(IllegalArgumentException.class, () -> DAO.getInstance().saveReminderPlan(huge));
+        assertEquals(huge.getVersion(), 0L);
+        assertTrue(DAO.getInstance().getReminderPlan(huge.getTripId()).isEmpty());
+    }
+
     @Test
     public void anOversizedPlanIsRefusedBeforeTheStore() {
         final TripReminderPlan huge = plan();

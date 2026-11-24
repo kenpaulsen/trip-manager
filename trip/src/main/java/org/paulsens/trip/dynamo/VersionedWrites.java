@@ -1,8 +1,10 @@
 package org.paulsens.trip.dynamo;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.IntFunction;
 import lombok.extern.slf4j.Slf4j;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
@@ -21,6 +23,21 @@ final class VersionedWrites {
     static final String VERSION = "version";
 
     private VersionedWrites() {
+    }
+
+    /**
+     * Refuses a row too large to store, before the store does. DynamoDB caps an item at 400 KB of UTF-8 BYTES,
+     * so bytes are what is counted: a guard that counted characters let through a row of Croatian text (two
+     * bytes a letter) that the store then refused with a raw error.
+     *
+     * @param refusal the message for a row of that many bytes; it reaches the page, so each DAO words its own.
+     * @throws IllegalArgumentException when {@code json} is over {@code maxBytes}.
+     */
+    static void requireFits(final String json, final int maxBytes, final IntFunction<String> refusal) {
+        final int size = json.getBytes(StandardCharsets.UTF_8).length;
+        if (size > maxBytes) {
+            throw new IllegalArgumentException(refusal.apply(size));
+        }
     }
 
     /**

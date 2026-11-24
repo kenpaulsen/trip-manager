@@ -61,11 +61,9 @@ public class ReminderDAO {
      */
     protected Boolean savePlan(final TripReminderPlan plan) throws IOException {
         // Sized before the bump so a refused row keeps the version it was loaded with.
-        final int size = mapper.writeValueAsString(plan).length();
-        if (size > MAX_PLAN_BYTES) {
-            throw new IllegalArgumentException("The messages for trip " + plan.getTripId() + " are too large to "
-                    + "store (" + size + " bytes; max " + MAX_PLAN_BYTES + ").");
-        }
+        VersionedWrites.requireFits(mapper.writeValueAsString(plan), MAX_PLAN_BYTES,
+                size -> "The messages for trip " + plan.getTripId() + " are too large to store (" + size
+                        + " bytes; max " + MAX_PLAN_BYTES + ").");
         final long expected = plan.getVersion();
         plan.setVersion(expected + 1);
         final Map<String, AttributeValue> item = key(plan.getTripId(), TripReminderPlan.SORT_KEY);

@@ -60,6 +60,20 @@ public class LodgingDAOTest {
         assertEquals(imposter.getVersion(), 0L);
     }
 
+    /**
+     * The cap is DynamoDB's, and DynamoDB counts UTF-8 BYTES. 200,000 two-byte letters are under the limit as
+     * characters and over it as bytes; counted as characters the row passed this guard and the store refused it
+     * with a raw error.
+     */
+    @Test
+    public void anAccommodationOversizedOnlyInBytesIsRefusedBeforeTheStore() {
+        final Accommodation huge = accommodation("Huge");
+        huge.setRooms(List.of(Room.builder().roomNumber("1").notes("\u010d".repeat(200_000)).build()));
+        assertThrows(IllegalArgumentException.class, () -> DAO.getInstance().saveAccommodation(huge));
+        assertEquals(huge.getVersion(), 0L, "Refused before the version bump: the object is untouched");
+        assertTrue(DAO.getInstance().getAccommodation(huge.getId(), Cached.NO).isEmpty());
+    }
+
     @Test
     public void oversizedAccommodationIsRefusedBeforeTheStore() {
         final Accommodation huge = accommodation("Huge");

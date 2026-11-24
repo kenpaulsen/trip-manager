@@ -49,6 +49,20 @@ public class BudgetDAOTest {
         assertEquals(again.getVersion(), 0L);
     }
 
+    /**
+     * The cap is DynamoDB's, and DynamoDB counts UTF-8 BYTES. 200,000 two-byte letters are under the limit as
+     * characters and over it as bytes; counted as characters the row passed this guard and the store refused it
+     * with a raw error.
+     */
+    @Test
+    public void aBudgetOversizedOnlyInBytesIsRefusedBeforeTheStore() {
+        final TripBudget huge = budget();
+        huge.getLines().add(BudgetLine.builder().name("Vodi\u010d").note("\u010d".repeat(200_000)).build());
+        assertThrows(IllegalArgumentException.class, () -> DAO.getInstance().saveTripBudget(huge));
+        assertEquals(huge.getVersion(), 0L, "Refused before the version bump");
+        assertTrue(DAO.getInstance().getTripBudget(huge.getTripId(), Cached.NO).isEmpty());
+    }
+
     @Test
     public void oversizedBudgetIsRefusedBeforeTheStore() {
         final TripBudget huge = budget();

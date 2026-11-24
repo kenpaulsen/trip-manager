@@ -56,11 +56,9 @@ public class ExpenseReportDAO {
      */
     protected Boolean saveReport(final TripExpenseReport report) throws IOException {
         // Sized before the bump so a refused row keeps the version it was loaded with.
-        final int size = mapper.writeValueAsString(report).length();
-        if (size > MAX_REPORT_BYTES) {
-            throw new IllegalArgumentException("The expense report for trip " + report.getTripId() + " is too "
-                    + "large to store (" + size + " bytes; max " + MAX_REPORT_BYTES + ").");
-        }
+        VersionedWrites.requireFits(mapper.writeValueAsString(report), MAX_REPORT_BYTES,
+                size -> "The expense report for trip " + report.getTripId() + " is too large to store (" + size
+                        + " bytes; max " + MAX_REPORT_BYTES + ").");
         final long expected = report.getVersion();
         report.setVersion(expected + 1);
         final Map<String, AttributeValue> map = new HashMap<>();

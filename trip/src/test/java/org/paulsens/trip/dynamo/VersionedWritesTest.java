@@ -11,6 +11,7 @@ import software.amazon.awssdk.services.dynamodb.model.GetItemResponse;
 
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertTrue;
+import static org.testng.Assert.expectThrows;
 
 /**
  * The one conflict recache every versioned DAO shares. What each DAO does with it is in that DAO's own test
@@ -19,6 +20,16 @@ import static org.testng.Assert.assertTrue;
 public class VersionedWritesTest {
     private static final String TABLE = FamilyDAO.FAMILY_TABLE;
     private static final Map<String, AttributeValue> KEY = Map.of("id", AttributeValue.builder().s("row-1").build());
+
+    /** Bytes, not characters: one Croatian letter is one character and two bytes, and the store's cap counts bytes. */
+    @Test
+    public void requireFitsCountsUtf8Bytes() {
+        VersionedWrites.requireFits("x".repeat(10), 10, size -> "never");
+        VersionedWrites.requireFits("\u010d".repeat(5), 10, size -> "never");
+        final IllegalArgumentException refused = expectThrows(IllegalArgumentException.class,
+                () -> VersionedWrites.requireFits("\u010d".repeat(6), 10, size -> "too large: " + size));
+        assertEquals(refused.getMessage(), "too large: 12");
+    }
 
     /**
      * The in-memory fake is always consistent, so only the request can show this: a default read may land on

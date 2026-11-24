@@ -77,11 +77,9 @@ public class WaiverDAO {
      */
     protected Boolean saveDocument(final WaiverDocument doc) throws IOException {
         // Sized before the bump so a refused row keeps the version it was loaded with.
-        final int size = mapper.writeValueAsString(doc).length();
-        if (size > MAX_DOCUMENT_BYTES) {
-            throw new IllegalArgumentException("The document '" + doc.getTitle() + "' is too large to store ("
-                    + size + " bytes with every version; max " + MAX_DOCUMENT_BYTES + ").");
-        }
+        VersionedWrites.requireFits(mapper.writeValueAsString(doc), MAX_DOCUMENT_BYTES,
+                size -> "The document '" + doc.getTitle() + "' is too large to store (" + size
+                        + " bytes with every version; max " + MAX_DOCUMENT_BYTES + ").");
         final long expected = doc.getVersion();
         doc.setVersion(expected + 1);
         final Map<String, AttributeValue> item = new HashMap<>();
