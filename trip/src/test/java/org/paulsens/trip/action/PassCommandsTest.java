@@ -11,6 +11,7 @@ import org.mockito.Mockito;
 import org.paulsens.trip.dynamo.CredentialsDAO;
 import org.paulsens.trip.model.Creds;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.web.FakeSessions;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
@@ -177,7 +178,7 @@ public class PassCommandsTest {
     @Test
     public void setPassAfterCodeLoginHonoursOnlyTheOneShotFlag() {
         final java.util.Map<String, Object> attrs = new java.util.HashMap<>();
-        final jakarta.servlet.http.HttpSession session = sessionOver(attrs);
+        final jakarta.servlet.http.HttpSession session = FakeSessions.over(attrs);
         final HttpServletRequest request = Mockito.mock(HttpServletRequest.class);
         Mockito.when(request.getSession(false)).thenReturn(session);
 
@@ -250,7 +251,7 @@ public class PassCommandsTest {
     public void loginSessionRotatesTheSessionAndSetsTheAttributes() {
         final jakarta.servlet.http.HttpSession oldSession = Mockito.mock(jakarta.servlet.http.HttpSession.class);
         final java.util.Map<String, Object> attrs = new java.util.HashMap<>();
-        final jakarta.servlet.http.HttpSession newSession = sessionOver(attrs);
+        final jakarta.servlet.http.HttpSession newSession = FakeSessions.over(attrs);
         final HttpServletRequest request = Mockito.mock(HttpServletRequest.class);
         Mockito.when(request.getSession(false)).thenReturn(oldSession);
         Mockito.when(request.getSession(true)).thenReturn(newSession);
@@ -277,7 +278,7 @@ public class PassCommandsTest {
 
     @Test
     public void logoutInvalidatesTheSessionForReal() {
-        final jakarta.servlet.http.HttpSession session = sessionOver(new java.util.HashMap<>());
+        final jakarta.servlet.http.HttpSession session = FakeSessions.over(new java.util.HashMap<>());
         Mockito.when(session.getAttribute(org.paulsens.trip.web.Sessions.LOGIN_EMAIL)).thenReturn("admin");
         final HttpServletRequest request = Mockito.mock(HttpServletRequest.class);
         Mockito.when(request.getSession(false)).thenReturn(session);
@@ -295,16 +296,6 @@ public class PassCommandsTest {
         try (MockedStatic<FacesContext> ignored = facesWithRequest(request)) {
             commands.logout();
         }
-    }
-
-    /** A session whose attributes live in the given map, so tests can assert on the map directly. */
-    private static jakarta.servlet.http.HttpSession sessionOver(final java.util.Map<String, Object> attrs) {
-        final jakarta.servlet.http.HttpSession session = Mockito.mock(jakarta.servlet.http.HttpSession.class);
-        Mockito.when(session.getAttribute(ArgumentMatchers.anyString()))
-                .thenAnswer(call -> attrs.get(call.<String>getArgument(0)));
-        Mockito.doAnswer(call -> attrs.put(call.getArgument(0), call.getArgument(1)))
-                .when(session).setAttribute(ArgumentMatchers.anyString(), ArgumentMatchers.any());
-        return session;
     }
 
     private static MockedStatic<FacesContext> facesWithRequest(final HttpServletRequest request) {

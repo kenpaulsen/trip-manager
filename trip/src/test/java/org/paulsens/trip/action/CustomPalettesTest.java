@@ -24,6 +24,7 @@ import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.theme.ThemeColorMath;
 import org.paulsens.trip.util.RandomData;
+import org.paulsens.trip.web.FakeSessions;
 import org.testng.annotations.Test;
 
 /**
@@ -286,7 +287,7 @@ public class CustomPalettesTest {
 
         // The delete drops the palette from this admin's unsaved Appearance preview, whichever page it came from.
         final BrandCommands brand = new BrandCommands();
-        final HttpSession session = OrgAppearancePreviewTest.fakeSession();
+        final HttpSession session = FakeSessions.fresh();
         brand.setSessionSource(() -> session);
         brand.preview(orgId, new HashMap<>(Map.of("site.theme.palette", made.ref())), null);
         palettes.setBrandSource(() -> brand);

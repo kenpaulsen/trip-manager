@@ -11,6 +11,7 @@ import org.paulsens.trip.cache.CacheClient;
 import org.paulsens.trip.cache.InMemoryCacheClient;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.model.Creds;
+import org.paulsens.trip.web.FakeSessions;
 import org.paulsens.trip.web.Sessions;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
@@ -216,11 +217,7 @@ public class LoginCodeCommandsTest {
     }
 
     private static HttpServletRequest requestWith(final Map<String, Object> attrs) {
-        final HttpSession session = Mockito.mock(HttpSession.class);
-        Mockito.when(session.getAttribute(ArgumentMatchers.anyString()))
-                .thenAnswer(call -> attrs.get(call.<String>getArgument(0)));
-        Mockito.doAnswer(call -> attrs.put(call.getArgument(0), call.getArgument(1)))
-                .when(session).setAttribute(ArgumentMatchers.anyString(), ArgumentMatchers.any());
+        final HttpSession session = FakeSessions.over(attrs);
         final HttpServletRequest request = Mockito.mock(HttpServletRequest.class);
         Mockito.when(request.getSession(true)).thenReturn(session);
         return request;

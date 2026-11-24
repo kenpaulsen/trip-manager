@@ -16,6 +16,7 @@ import org.paulsens.trip.model.BrandColor;
 import org.paulsens.trip.model.CustomPalette;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.site.SiteContext;
+import org.paulsens.trip.web.FakeSessions;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
@@ -198,7 +199,7 @@ public class BrandCommandsCustomPaletteTest {
 
     @Test
     public void deletingThePreviewedPaletteDropsItFromTheUnsavedPreview() {
-        final HttpSession session = OrgAppearancePreviewTest.fakeSession();
+        final HttpSession session = FakeSessions.fresh();
         brand.setSessionSource(() -> session);
         final String orgId = org.getId().getValue();
         brand.preview(orgId, new java.util.HashMap<>(Map.of(SETTING, OURS.ref(), "site.logo.url",

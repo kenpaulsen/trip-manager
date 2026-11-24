@@ -74,7 +74,7 @@ public class RememberMeFilterTest {
         final HttpServletRequest req = request(null, COOKIE);
         // Built OUTSIDE the when(): stubbing a new mock inside another stubbing is the classic
         // UnfinishedStubbingException.
-        final HttpSession fresh = sessionOver(newAttrs);
+        final HttpSession fresh = FakeSessions.over(newAttrs);
         Mockito.when(req.getSession(true)).thenReturn(fresh);
         Mockito.when(req.getRequestURI()).thenReturn("/trip/itinerary.jsf");
         Mockito.when(req.getQueryString()).thenReturn("id=who");
@@ -96,7 +96,7 @@ public class RememberMeFilterTest {
                 .thenReturn(new Creds("who@example.com", Person.Id.from("who"), "user", "x", null));
         final RememberMeFilter filter = new RememberMeFilter(service);
         final HttpServletRequest req = request(null, COOKIE);
-        final HttpSession fresh = sessionOver(new HashMap<>());
+        final HttpSession fresh = FakeSessions.over(new HashMap<>());
         Mockito.when(req.getSession(true)).thenReturn(fresh);
         // A protocol-relative path would otherwise bounce the just-restored session to evil.example.
         Mockito.when(req.getRequestURI()).thenReturn("//evil.example/x");
@@ -115,7 +115,7 @@ public class RememberMeFilterTest {
                 .thenReturn(new Creds("who@example.com", Person.Id.from("who"), "user", "x", null));
         final RememberMeFilter filter = new RememberMeFilter(service);
         final HttpServletRequest req = request(null, COOKIE);
-        final HttpSession fresh = sessionOver(new HashMap<>());
+        final HttpSession fresh = FakeSessions.over(new HashMap<>());
         Mockito.when(req.getSession(true)).thenReturn(fresh);
         Mockito.when(req.getRequestURI()).thenReturn("/api/auth/me");
         final HttpServletResponse res = Mockito.mock(HttpServletResponse.class);
@@ -243,15 +243,6 @@ public class RememberMeFilterTest {
     private static HttpSession sessionWithUser() {
         final HttpSession session = Mockito.mock(HttpSession.class);
         Mockito.when(session.getAttribute(PersonCommands.ACTIVE_USER_ID)).thenReturn(Person.Id.from("x"));
-        return session;
-    }
-
-    private static HttpSession sessionOver(final Map<String, Object> attrs) {
-        final HttpSession session = Mockito.mock(HttpSession.class);
-        Mockito.when(session.getAttribute(ArgumentMatchers.anyString()))
-                .thenAnswer(call -> attrs.get(call.<String>getArgument(0)));
-        Mockito.doAnswer(call -> attrs.put(call.getArgument(0), call.getArgument(1)))
-                .when(session).setAttribute(ArgumentMatchers.anyString(), ArgumentMatchers.any());
         return session;
     }
 

@@ -1,12 +1,10 @@
 package org.paulsens.trip.action;
 
 import jakarta.servlet.http.HttpSession;
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
-import org.mockito.Mockito;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.web.FakeSessions;
 import org.paulsens.trip.web.Sessions;
 import org.testng.Assert;
 import org.testng.annotations.Test;
@@ -36,7 +34,7 @@ public class PersonViewAsTest {
         attrs.put(Sessions.LOGIN_EMAIL, "va-admin@example.com");
         attrs.put(Sessions.ADMIN_USER, adminId);
         attrs.put("resumeRegTrip", "some-trip");
-        final HttpSession session = sessionOver(attrs);
+        final HttpSession session = FakeSessions.over(attrs);
         final PersonCommands people = new PersonCommands();
 
         Assert.assertTrue(people.viewAs(session, targetId));
@@ -56,23 +54,9 @@ public class PersonViewAsTest {
         final Map<String, Object> attrs = new HashMap<>();
         attrs.put(PersonCommands.ACTIVE_USER_ID, Person.Id.from("plain"));
         attrs.put(PersonCommands.ACTIVE_USER_ROLE, "user");
-        final HttpSession session = sessionOver(attrs);
+        final HttpSession session = FakeSessions.over(attrs);
 
         Assert.assertFalse(new PersonCommands().viewAs(session, Person.Id.from("someone")));
         Assert.assertEquals(attrs.get(PersonCommands.ACTIVE_USER_ID), Person.Id.from("plain"));
-    }
-
-    /** The SessionsTest pattern: a session whose attributes live in the given map. */
-    private static HttpSession sessionOver(final Map<String, Object> attrs) {
-        final HttpSession session = Mockito.mock(HttpSession.class);
-        Mockito.when(session.getAttribute(Mockito.anyString()))
-                .thenAnswer(call -> attrs.get(call.<String>getArgument(0)));
-        Mockito.doAnswer(call -> attrs.put(call.getArgument(0), call.getArgument(1)))
-                .when(session).setAttribute(Mockito.anyString(), Mockito.any());
-        Mockito.doAnswer(call -> attrs.remove(call.<String>getArgument(0)))
-                .when(session).removeAttribute(Mockito.anyString());
-        Mockito.when(session.getAttributeNames())
-                .thenAnswer(call -> Collections.enumeration(new ArrayList<>(attrs.keySet())));
-        return session;
     }
 }

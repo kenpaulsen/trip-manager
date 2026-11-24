@@ -4,8 +4,6 @@ import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import org.mockito.ArgumentCaptor;
@@ -32,9 +30,9 @@ public class SessionsTest {
         final Map<String, Object> oldAttrs = new HashMap<>();
         oldAttrs.put(Sessions.AFTER_LOGIN_URL, "/trip/tripContacts.jsf?id=abc");
         oldAttrs.put(Sessions.DARK, Boolean.TRUE);
-        final HttpSession oldSession = sessionOver(oldAttrs);
+        final HttpSession oldSession = FakeSessions.over(oldAttrs);
         final Map<String, Object> newAttrs = new HashMap<>();
-        final HttpSession newSession = sessionOver(newAttrs);
+        final HttpSession newSession = FakeSessions.over(newAttrs);
         final HttpServletRequest request = requestWith(oldSession, newSession);
         final Person.Id userId = Person.Id.from("someone");
         final Creds creds = new Creds("who@example.com", userId, "user", "pw", null);
@@ -54,7 +52,7 @@ public class SessionsTest {
     @Test
     public void establishSetsAdminUserForAdmins() {
         final Map<String, Object> newAttrs = new HashMap<>();
-        final HttpSession newSession = sessionOver(newAttrs);
+        final HttpSession newSession = FakeSessions.over(newAttrs);
         final HttpServletRequest request = requestWith(null, newSession);
         final Person.Id adminId = Person.Id.from("the-admin");
         final Creds creds = new Creds("admin@example.com", adminId, "admin", "pw", null);
@@ -71,7 +69,7 @@ public class SessionsTest {
         Mockito.when(oldSession.getAttribute(Mockito.anyString()))
                 .thenThrow(new RuntimeException("stale serialized state"));
         final Map<String, Object> newAttrs = new HashMap<>();
-        final HttpSession newSession = sessionOver(newAttrs);
+        final HttpSession newSession = FakeSessions.over(newAttrs);
         final HttpServletRequest request = requestWith(oldSession, newSession);
         final Creds creds = new Creds("who@example.com", Person.Id.from("someone"), "user", "pw", null);
 
@@ -84,9 +82,9 @@ public class SessionsTest {
 
     @Test
     public void establishSurvivesAnAlreadyInvalidOldSession() {
-        final HttpSession oldSession = sessionOver(new HashMap<>());
+        final HttpSession oldSession = FakeSessions.over(new HashMap<>());
         Mockito.doThrow(new IllegalStateException("already invalidated")).when(oldSession).invalidate();
-        final HttpSession newSession = sessionOver(new HashMap<>());
+        final HttpSession newSession = FakeSessions.over(new HashMap<>());
         final HttpServletRequest request = requestWith(oldSession, newSession);
         final Creds creds = new Creds("who@example.com", Person.Id.from("someone"), "user", "pw", null);
 
@@ -97,7 +95,7 @@ public class SessionsTest {
 
     @Test
     public void logoutInvalidatesTheSession() {
-        final HttpSession session = sessionOver(new HashMap<>());
+        final HttpSession session = FakeSessions.over(new HashMap<>());
         final HttpServletRequest request = requestWith(session, null);
 
         Sessions.logout(request);
@@ -108,7 +106,7 @@ public class SessionsTest {
     /** Off a bound request the site is SHARED: one ordinary (processor-routed) deletion, no raw sweep. */
     @Test
     public void logoutWithAResponseExpiresTheSessionCookieOnASharedHost() {
-        final HttpSession session = sessionOver(new HashMap<>());
+        final HttpSession session = FakeSessions.over(new HashMap<>());
         final HttpServletRequest request = requestWith(session, null);
         Mockito.when(request.getContextPath()).thenReturn("");
         Mockito.when(request.isSecure()).thenReturn(true);
@@ -131,7 +129,7 @@ public class SessionsTest {
     /** On an org-site host the raw host-only deletions go out too (the pre-SSO shadow cookies). */
     @Test
     public void logoutOnAnOrgSiteAlsoSweepsTheHostOnlyShadowCookies() throws Exception {
-        final HttpSession session = sessionOver(new HashMap<>());
+        final HttpSession session = FakeSessions.over(new HashMap<>());
         final HttpServletRequest request = requestWith(session, null);
         Mockito.when(request.getContextPath()).thenReturn(null);
         final HttpServletResponse response = Mockito.mock(HttpServletResponse.class);
@@ -153,7 +151,7 @@ public class SessionsTest {
 
     @Test
     public void logoutWithoutAResponseOnlyInvalidates() {
-        final HttpSession session = sessionOver(new HashMap<>());
+        final HttpSession session = FakeSessions.over(new HashMap<>());
         Sessions.logout(requestWith(session, null), null);
         Mockito.verify(session).invalidate();
     }
@@ -164,7 +162,7 @@ public class SessionsTest {
         Mockito.when(none.getSession(false)).thenReturn(null);
         Sessions.logout(none); // no session at all: nothing thrown
 
-        final HttpSession session = sessionOver(new HashMap<>());
+        final HttpSession session = FakeSessions.over(new HashMap<>());
         Mockito.doThrow(new IllegalStateException("already invalidated")).when(session).invalidate();
         Sessions.logout(requestWith(session, null)); // races another logout: nothing thrown
     }
@@ -180,7 +178,7 @@ public class SessionsTest {
         attrs.put(Sessions.CODE_LOGIN, Boolean.TRUE);
         attrs.put(Sessions.AFTER_LOGIN_URL, "/somewhere.jsf");
         attrs.put(PersonCommands.ACTING_FOR, Person.Id.from("kid"));
-        final HttpSession session = sessionOver(attrs);
+        final HttpSession session = FakeSessions.over(attrs);
 
         Assert.assertTrue(Sessions.pushViewAs(session, targetId));
 
@@ -204,7 +202,7 @@ public class SessionsTest {
         final Map<String, Object> attrs = new HashMap<>();
         attrs.put(PersonCommands.ACTIVE_USER_ID, Person.Id.from("someone"));
         attrs.put("resumeRegTrip", "trip-1");
-        final HttpSession session = sessionOver(attrs);
+        final HttpSession session = FakeSessions.over(attrs);
 
         Assert.assertFalse(Sessions.pushViewAs(session, Person.Id.from("target")));
         Assert.assertEquals(attrs.get("resumeRegTrip"), "trip-1", "a refused push must change nothing");
@@ -217,7 +215,7 @@ public class SessionsTest {
         final Person.Id adminId = Person.Id.from("the-admin");
         final Map<String, Object> attrs = adminSession(adminId);
         attrs.put("resumeRegTrip", "admins-own-trip");
-        final HttpSession session = sessionOver(attrs);
+        final HttpSession session = FakeSessions.over(attrs);
         Assert.assertTrue(Sessions.pushViewAs(session, Person.Id.from("the-user")));
         // State picked up WHILE impersonating must not follow the admin back.
         attrs.put("resumeRegTrip", "users-trip");
@@ -235,7 +233,7 @@ public class SessionsTest {
     @Test
     public void viewAsPopWithoutAPushDoesNothing() {
         final Map<String, Object> attrs = adminSession(Person.Id.from("the-admin"));
-        Assert.assertFalse(Sessions.popViewAs(sessionOver(attrs)));
+        Assert.assertFalse(Sessions.popViewAs(FakeSessions.over(attrs)));
         Assert.assertFalse(Sessions.popViewAs(null));
         Assert.assertEquals(attrs.get(PersonCommands.ACTIVE_USER_ROLE), "admin");
     }
@@ -244,7 +242,7 @@ public class SessionsTest {
     public void nestedViewAsUnwindsOneLevelPerPop() {
         final Person.Id adminId = Person.Id.from("the-admin");
         final Map<String, Object> attrs = adminSession(adminId);
-        final HttpSession session = sessionOver(attrs);
+        final HttpSession session = FakeSessions.over(attrs);
         Assert.assertTrue(Sessions.pushViewAs(session, Person.Id.from("first")));
         Assert.assertTrue(Sessions.pushViewAs(session, Person.Id.from("second")));
 
@@ -262,10 +260,10 @@ public class SessionsTest {
     @Test
     public void isViewAsIsTrueOnlyBetweenAPushAndItsPop() {
         final Map<String, Object> attrs = adminSession(Person.Id.from("the-admin"));
-        final HttpSession session = sessionOver(attrs);
+        final HttpSession session = FakeSessions.over(attrs);
         Assert.assertFalse(Sessions.isViewAs(session), "an administrator's own session");
         Assert.assertFalse(Sessions.isViewAs(null), "no session, nobody viewing as anyone");
-        Assert.assertFalse(Sessions.isViewAs(sessionOver(new HashMap<>())), "an ordinary session");
+        Assert.assertFalse(Sessions.isViewAs(FakeSessions.over(new HashMap<>())), "an ordinary session");
 
         Assert.assertTrue(Sessions.pushViewAs(session, Person.Id.from("the-user")));
         Assert.assertTrue(Sessions.isViewAs(session));
@@ -289,20 +287,6 @@ public class SessionsTest {
         attrs.put(Sessions.ADMIN_USER, adminId);
         attrs.put(Sessions.DARK, Boolean.TRUE);
         return attrs;
-    }
-
-    /** A session whose attributes live in the given map, so tests can assert on the map directly. */
-    private static HttpSession sessionOver(final Map<String, Object> attrs) {
-        final HttpSession session = Mockito.mock(HttpSession.class);
-        Mockito.when(session.getAttribute(Mockito.anyString()))
-                .thenAnswer(call -> attrs.get(call.<String>getArgument(0)));
-        Mockito.doAnswer(call -> attrs.put(call.getArgument(0), call.getArgument(1)))
-                .when(session).setAttribute(Mockito.anyString(), Mockito.any());
-        Mockito.doAnswer(call -> attrs.remove(call.<String>getArgument(0)))
-                .when(session).removeAttribute(Mockito.anyString());
-        Mockito.when(session.getAttributeNames())
-                .thenAnswer(call -> Collections.enumeration(new ArrayList<>(attrs.keySet())));
-        return session;
     }
 
     private static HttpServletRequest requestWith(final HttpSession existing, final HttpSession fresh) {

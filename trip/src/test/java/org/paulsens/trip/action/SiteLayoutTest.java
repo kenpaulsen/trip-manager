@@ -2,10 +2,8 @@ package org.paulsens.trip.action;
 
 import jakarta.servlet.http.HttpSession;
 import java.io.IOException;
-import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
-import org.mockito.Mockito;
 import org.paulsens.trip.audit.RequestContext;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.config.KnownSettings;
@@ -14,6 +12,7 @@ import org.paulsens.trip.model.Config;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.site.SiteContext;
 import org.paulsens.trip.util.RandomData;
+import org.paulsens.trip.web.FakeSessions;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.BeforeMethod;
@@ -88,7 +87,7 @@ public class SiteLayoutTest {
     @Test
     public void thePreviewIsHonoredAndTheFieldHasItsOwnControl() throws IOException {
         stored(Map.of());
-        final HttpSession session = fakeSession();
+        final HttpSession session = FakeSessions.fresh();
         brand.setSessionSource(() -> session);
         brand.setAppearanceViewSource(() -> org.getId().getValue());
         brand.preview(org.getId().getValue(), Map.of(LAYOUT, KnownSettings.LAYOUT_FULL_WIDTH), null);
@@ -119,17 +118,5 @@ public class SiteLayoutTest {
 
     private void onSite(final SiteContext site, final Runnable body) {
         ScopedValue.where(RequestContext.SCOPE, RequestContext.of(null, null, site)).run(body);
-    }
-
-    private static HttpSession fakeSession() {
-        final Map<String, Object> attributes = new HashMap<>();
-        final HttpSession session = Mockito.mock(HttpSession.class);
-        Mockito.when(session.getAttribute(Mockito.anyString()))
-                .thenAnswer(call -> attributes.get(call.<String>getArgument(0)));
-        Mockito.doAnswer(call -> attributes.put(call.getArgument(0), call.getArgument(1)))
-                .when(session).setAttribute(Mockito.anyString(), Mockito.any());
-        Mockito.doAnswer(call -> attributes.remove(call.<String>getArgument(0)))
-                .when(session).removeAttribute(Mockito.anyString());
-        return session;
     }
 }

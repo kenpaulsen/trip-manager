@@ -16,6 +16,7 @@ import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.media.PendingUploads;
 import org.paulsens.trip.media.PhotoFixtures;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.web.FakeSessions;
 import org.primefaces.event.FileUploadEvent;
 import org.primefaces.model.CroppedImage;
 import org.primefaces.model.file.UploadedFile;
@@ -72,7 +73,7 @@ public class BrandingUploadCommandsTest {
         };
         set(BrandingPhotos.class, photos, "media", media);
 
-        final HttpSession httpSession = fakeSession();
+        final HttpSession httpSession = FakeSessions.fresh();
         brand = new BrandCommands();
         brand.setSessionSource(() -> httpSession);
         brand.setOrgSource(id -> Optional.empty());
@@ -130,19 +131,6 @@ public class BrandingUploadCommandsTest {
         final Field declared = type.getDeclaredField(field);
         declared.setAccessible(true);
         declared.set(target, value);
-    }
-
-    /** A session that really holds what is put on it, so the preview can be read back as the page reads it. */
-    private static HttpSession fakeSession() {
-        final Map<String, Object> attributes = new HashMap<>();
-        final HttpSession session = Mockito.mock(HttpSession.class);
-        Mockito.when(session.getAttribute(ArgumentMatchers.anyString()))
-                .thenAnswer(call -> attributes.get(call.<String>getArgument(0)));
-        Mockito.doAnswer(call -> attributes.put(call.getArgument(0), call.getArgument(1)))
-                .when(session).setAttribute(ArgumentMatchers.anyString(), ArgumentMatchers.any());
-        Mockito.doAnswer(call -> attributes.remove(call.<String>getArgument(0)))
-                .when(session).removeAttribute(ArgumentMatchers.anyString());
-        return session;
     }
 
     private static FileUploadEvent uploadOf(final byte[] bytes) {

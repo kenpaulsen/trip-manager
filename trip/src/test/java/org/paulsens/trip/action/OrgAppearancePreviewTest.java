@@ -22,6 +22,7 @@ import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.SettingDef;
 import org.paulsens.trip.site.SiteContext;
 import org.paulsens.trip.util.RandomData;
+import org.paulsens.trip.web.FakeSessions;
 import org.paulsens.trip.web.Sessions;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
@@ -155,7 +156,7 @@ public class OrgAppearancePreviewTest {
     @Test
     public void aPreviewAppliesToItsOwnPageAndToNothingElse() throws IOException {
         stored(Map.of(PALETTE, "blue"));
-        final HttpSession session = fakeSession();
+        final HttpSession session = FakeSessions.fresh();
         brand.setSessionSource(() -> session);
         onAppearancePageOf(org.getId().getValue());
         brand.preview(org.getId().getValue(), Map.of(PALETTE, "red", BG_COLOR, "#00ff00"), null);
@@ -217,7 +218,7 @@ public class OrgAppearancePreviewTest {
     @Test
     public void cancelRestoresTheStoredValuesAndSaveIsWhatChangesThem() throws IOException {
         stored(Map.of(PALETTE, "blue"));
-        final HttpSession session = fakeSession();
+        final HttpSession session = FakeSessions.fresh();
         brand.setSessionSource(() -> session);
         onAppearancePageOf(org.getId().getValue());
 
@@ -241,7 +242,7 @@ public class OrgAppearancePreviewTest {
         brand.setSessionSource(() -> null);
         brand.preview(org.getId().getValue(), Map.of(PALETTE, "red"), null);       // no session: no-op
         brand.clearPreview();
-        final HttpSession session = fakeSession();
+        final HttpSession session = FakeSessions.fresh();
         brand.setSessionSource(() -> session);
         brand.preview(null, Map.of(PALETTE, "red"), null);
         brand.preview("  ", Map.of(PALETTE, "red"), null);
@@ -262,7 +263,7 @@ public class OrgAppearancePreviewTest {
     public void theTriggerIsTheViewIdAndTheOrgParameterAndItNeverCreatesASession() {
         final FacesContext ctx = Mockito.mock(FacesContext.class, Mockito.RETURNS_DEEP_STUBS);
         final UIViewRoot view = Mockito.mock(UIViewRoot.class);
-        final HttpSession session = fakeSession();
+        final HttpSession session = FakeSessions.fresh();
         final Map<String, String> params = new HashMap<>();
         Mockito.when(ctx.getViewRoot()).thenReturn(view);
         final Map<String, Object> viewScope = new HashMap<>(Map.of("theOrgId", org.getId().getValue()));
@@ -445,7 +446,7 @@ public class OrgAppearancePreviewTest {
     /** A preview whose image is switched off by the mode shows the color, and keeps the URL for a switch back. */
     @Test
     public void theModeDecidesWhichBackgroundThePreviewPaints() {
-        final HttpSession session = fakeSession();
+        final HttpSession session = FakeSessions.fresh();
         brand.setSessionSource(() -> session);
         onAppearancePageOf(org.getId().getValue());
         final Map<String, String> vals = new LinkedHashMap<>();
@@ -480,22 +481,6 @@ public class OrgAppearancePreviewTest {
 
     private void onSite(final SiteContext site, final Runnable body) {
         ScopedValue.where(RequestContext.SCOPE, RequestContext.of(null, null, site)).run(body);
-    }
-
-    /**
-     * A session that really holds what is put on it (get, set and remove), so the preview can be read back as the
-     * page reads it. Shared with the palette tests that need one.
-     */
-    static HttpSession fakeSession() {
-        final Map<String, Object> attributes = new HashMap<>();
-        final HttpSession session = Mockito.mock(HttpSession.class);
-        Mockito.when(session.getAttribute(Mockito.anyString()))
-                .thenAnswer(call -> attributes.get(call.<String>getArgument(0)));
-        Mockito.doAnswer(call -> attributes.put(call.getArgument(0), call.getArgument(1)))
-                .when(session).setAttribute(Mockito.anyString(), Mockito.any());
-        Mockito.doAnswer(call -> attributes.remove(call.<String>getArgument(0)))
-                .when(session).removeAttribute(Mockito.anyString());
-        return session;
     }
 
     /** Guards the settings page's generic tabs against silently gaining a look-and-feel row. */
