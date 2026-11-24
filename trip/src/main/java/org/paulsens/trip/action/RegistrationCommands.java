@@ -24,6 +24,7 @@ import org.paulsens.trip.model.Registration;
 import org.paulsens.trip.model.RegistrationOption;
 import org.paulsens.trip.security.TicketCodes;
 import org.paulsens.trip.cache.Cached;
+import org.paulsens.trip.util.PersonNames;
 
 @Slf4j
 @Named("reg")
@@ -650,8 +651,7 @@ public class RegistrationCommands {
             final List<Person> travelers) {
         final StringBuilder block = new StringBuilder("<ul>");
         for (final Person traveler : travelers) {
-            block.append("<li>").append(org.paulsens.trip.chat.MailTemplates.escape(
-                    traveler.getPreferredName() + " " + (traveler.getLast() == null ? "" : traveler.getLast())))
+            block.append("<li>").append(org.paulsens.trip.chat.MailTemplates.escape(PersonNames.display(traveler)))
                     .append("</li>");
         }
         block.append("</ul>");
@@ -748,7 +748,7 @@ public class RegistrationCommands {
         if (person == null) {
             return "";
         }
-        final String name = displayName(person);
+        final String name = PersonNames.display(person);
         if (org.paulsens.trip.util.EmailAddresses.isValid(person.getEmail())) {
             return Text.get("feedback.registrationCommands.approvalEmailTo", name, person.getEmail());
         }
@@ -763,12 +763,7 @@ public class RegistrationCommands {
     }
 
     private String nameAndAddress(final Person manager) {
-        return displayName(manager) + " (" + manager.getEmail() + ")";
-    }
-
-    private static String displayName(final Person person) {
-        final String last = person.getLast();
-        return person.getPreferredName() + ((last == null || last.isBlank()) ? "" : " " + last);
+        return PersonNames.display(manager) + " (" + manager.getEmail() + ")";
     }
 
     /** One source with the display fallback ({@code PersonCommands.contactEmail}) -- they must not drift. */

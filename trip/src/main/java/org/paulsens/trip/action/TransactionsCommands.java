@@ -29,6 +29,7 @@ import org.paulsens.trip.model.Transaction.Type;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.site.ListingScope;
+import org.paulsens.trip.util.PersonNames;
 
 @Slf4j
 @Named("txCmds")
@@ -436,9 +437,7 @@ public class TransactionsCommands {
     }
 
     private static String nameOf(final Person.Id id) {
-        return DAO.getInstance().getPerson(id, Cached.YES)
-                .map(person -> person.getPreferredName() + " " + person.getLast())
-                .orElse(id.getValue());
+        return PersonNames.displayOr(DAO.getInstance().getPerson(id, Cached.YES).orElse(null), id.getValue());
     }
 
     /**

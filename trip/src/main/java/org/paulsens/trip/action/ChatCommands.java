@@ -58,6 +58,7 @@ import org.paulsens.trip.util.RandomData;
 import org.paulsens.trip.util.ScopeUtil;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.site.ListingScope;
+import org.paulsens.trip.util.PersonNames;
 
 /**
  * Chat operations for both JSF pages and the JAX-RS resource. Capture {@link AuditActor} at the top of any
@@ -612,10 +613,7 @@ public class ChatCommands {
 
     /** Preferred name plus last name -- how the dropdown reads when nothing needs disambiguating. */
     private static String preferredLabel(final Person person) {
-        final String preferred = person.getPreferredName() == null || person.getPreferredName().isBlank()
-                ? (person.getFirst() == null ? "" : person.getFirst()) : person.getPreferredName();
-        final String last = person.getLast() == null ? "" : person.getLast();
-        return (preferred + " " + last).trim();
+        return PersonNames.display(person);
     }
 
     private static Map<String, String> rosterEntry(final Person person, final String label) {

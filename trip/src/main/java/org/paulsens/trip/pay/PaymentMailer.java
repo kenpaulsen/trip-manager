@@ -24,6 +24,7 @@ import org.paulsens.trip.security.TicketCodes;
 import org.paulsens.trip.model.Registration;
 import org.paulsens.trip.model.TripPaymentConfig;
 import org.paulsens.trip.site.SiteUrls;
+import org.paulsens.trip.util.PersonNames;
 
 /**
  * The payment confirmation email: fills the trip's configured MAIL template ({@code payment-confirmation}
@@ -235,7 +236,7 @@ public class PaymentMailer {
         final Locale locale = ReaderLanguage.of(payer, trip);
         final Map<String, Object> values = new HashMap<>();
         effective.getExtraTokens().forEach(values::put);
-        values.put("payerName", payer.getPreferredName() + " " + payer.getLast());
+        values.put("payerName", PersonNames.display(payer));
         values.put("tripTitle", (trip == null || trip.getTitle() == null) ? "" : trip.getTitle());
         values.put("totalPaid", MoneyMath.formatCents(payment.getTotalChargedCents()));
         values.put("feeNote", feeNote(payment, orgName, processorName, locale));
@@ -279,8 +280,7 @@ public class PaymentMailer {
 
     private String nameOf(final Person.Id personId) {
         final Person person = people.apply(personId);
-        return (person == null) ? personId.getValue()
-                : person.getPreferredName() + " " + person.getLast();
+        return PersonNames.displayOr(person, personId.getValue());
     }
 
     private static String joinAddresses(final String a, final String b) {

@@ -29,6 +29,7 @@ import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripEvent;
 import org.paulsens.trip.pay.MoneyMath;
 import org.paulsens.trip.site.ListingScope;
+import org.paulsens.trip.util.PersonNames;
 
 /**
  * The per-organization ledger ({@code #{ledger}}): every balance and statement this bean answers names exactly
@@ -962,9 +963,8 @@ public class LedgerCommands {
     }
 
     private static String personName(final Person.Id personId) {
-        return DAO.getInstance().getPerson(personId, Cached.YES)
-                .map(person -> (person.getPreferredName() + " " + person.getLast()).trim())
-                .orElse(personId.getValue());
+        return PersonNames.displayOr(DAO.getInstance().getPerson(personId, Cached.YES).orElse(null),
+                personId.getValue());
     }
 
     private static String preferredName(final Person.Id personId) {

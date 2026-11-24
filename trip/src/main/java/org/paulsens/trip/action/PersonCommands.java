@@ -27,6 +27,7 @@ import org.paulsens.trip.util.EmailAddresses;
 import org.paulsens.trip.util.ScopeUtil;
 import org.paulsens.trip.web.Sessions;
 import org.paulsens.trip.cache.Cached;
+import org.paulsens.trip.util.PersonNames;
 
 @Slf4j
 @Named("people")
@@ -448,7 +449,7 @@ public class PersonCommands {
         if (person == null) {
             return "";
         }
-        final String name = (person.getPreferredName() + " " + person.getLast()).trim();
+        final String name = PersonNames.display(person);
         return EmailAddresses.isValid(person.getEmail()) ? name + " (" + person.getEmail() + ")" : name;
     }
 

@@ -51,6 +51,7 @@ import org.paulsens.trip.pay.StripeDomains;
 import org.paulsens.trip.security.ProcessorSecrets;
 import org.paulsens.trip.site.SiteUrls;
 import org.paulsens.trip.util.EmailAddresses;
+import org.paulsens.trip.util.PersonNames;
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
 
 /**
@@ -1395,7 +1396,7 @@ public class OrgCommands {
         final PersonCommands people = PersonCommands.getPersonCommands();
         final List<String> holders = privCommands().getPeopleWithPriv(List.of(base), orgId).stream()
                 .map(people::getPerson)
-                .map(person -> person.getPreferredName() + " " + person.getLast())
+                .map(PersonNames::display)
                 .toList();
         return new OrgPrivilegeRow(base, orgPrivName(base),
                 PrivilegeCommands.canonicalDescription(base), holders);
@@ -2716,7 +2717,7 @@ public class OrgCommands {
         final Organization owner = ownerOf(trip);
         final Map<String, Object> values = new java.util.HashMap<>();
         effective.getExtraTokens().forEach(values::put);
-        values.put("payerName", me.getPreferredName() + " " + me.getLast());
+        values.put("payerName", PersonNames.display(me));
         values.put("tripTitle", (trip == null || trip.getTitle() == null) ? "Sample Trip" : trip.getTitle());
         values.put("totalPaid", "$2,500.00 (SAMPLE)");
         values.put("feeNote", "Includes a $75.00 processor fee for the trip portion (sample).");
@@ -2727,8 +2728,8 @@ public class OrgCommands {
         values.put("paymentDate", java.time.LocalDate.now().toString());
         values.put("orgName", (owner == null) ? "the organization" : owner.getName());
         values.put("amountsBlock", new org.paulsens.trip.chat.MailTemplates.Raw(
-                "<ul><li>" + org.paulsens.trip.chat.MailTemplates.escape(
-                        me.getPreferredName() + " " + me.getLast()) + ": $475.00 (sample)</li></ul>"));
+                "<ul><li>" + org.paulsens.trip.chat.MailTemplates.escape(PersonNames.display(me))
+                        + ": $475.00 (sample)</li></ul>"));
         return values;
     }
 
@@ -2978,7 +2979,7 @@ public class OrgCommands {
     }
 
     private static String describe(final Person person) {
-        return person.getPreferredName() + " " + person.getLast() + " (" + person.getId().getValue() + ")";
+        return PersonNames.display(person) + " (" + person.getId().getValue() + ")";
     }
 
     private boolean fail(final String summary, final String detail) {

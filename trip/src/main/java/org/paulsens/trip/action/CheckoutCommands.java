@@ -45,6 +45,7 @@ import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripPaymentConfig;
 import org.paulsens.trip.pay.Bills;
 import org.paulsens.trip.pay.MoneyMath;
+import org.paulsens.trip.util.PersonNames;
 
 /**
  * Priced checkout (docs/checkout.md): a family registers and pays in one step, priced by the trip's typed
@@ -546,7 +547,7 @@ public class CheckoutCommands {
                 own.addAll(startProblems(trip, person, existing));
             }
             final PriceBreakdown breakdown = CheckoutPricing.price(trip, person.getBirthdate(), answers, code, now);
-            persons.add(new PersonQuote(pid, person.getPreferredName() + " " + person.getLast(), breakdown, own));
+            persons.add(new PersonQuote(pid, PersonNames.display(person), breakdown, own));
             partyAnswers.add(answers);
             if (breakdown.getInputs().getCodeText() != null) {
                 codeUses.merge(breakdown.getInputs().getCodeText(), 1, Integer::sum);
@@ -708,9 +709,8 @@ public class CheckoutCommands {
     }
 
     private static String nameOf(final Person.Id personId) {
-        return DAO.getInstance().getPerson(personId, Cached.YES)
-                .map(person -> person.getPreferredName() + " " + person.getLast())
-                .orElse(personId.getValue());
+        return PersonNames.displayOr(DAO.getInstance().getPerson(personId, Cached.YES).orElse(null),
+                personId.getValue());
     }
 
     // ================================================================== page view helpers
@@ -838,7 +838,7 @@ public class CheckoutCommands {
     private static ResultRow resultRow(final Trip trip, final Person person) {
         final Registration reg = DAO.getInstance().getRegistration(trip.getId(), person.getId(), Cached.NO)
                 .orElse(null);
-        final String name = person.getPreferredName() + " " + person.getLast();
+        final String name = PersonNames.display(person);
         if (reg == null) {
             return new ResultRow(person.getId().getValue(), name, "", "",
                     Registration.Status.NOT_REGISTERED.getLabel(), "");
@@ -1066,7 +1066,7 @@ public class CheckoutCommands {
         }
         final List<String> attestations = new ArrayList<>();
         reg.getAttestations().forEach((id, text) -> attestations.add(choiceLabelOf(trip, id) + ": " + text));
-        return new RegDetails(person == null ? userId : person.getPreferredName() + " " + person.getLast(),
+        return new RegDetails(PersonNames.displayOr(person, userId),
                 blank(reg.getRegistrationType()), inputs == null ? null : inputs.getAgeAtStart(),
                 person == null ? null : person.getBirthdate(), choices,
                 inputs == null ? "" : blank(inputs.getCodeText()), attestations, breakdownLines(breakdown),

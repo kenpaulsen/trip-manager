@@ -36,6 +36,7 @@ import org.paulsens.trip.pay.MoneyMath;
 import org.paulsens.trip.security.TicketCodes;
 import org.paulsens.trip.site.SiteUrls;
 import org.paulsens.trip.util.Ages;
+import org.paulsens.trip.util.PersonNames;
 import org.paulsens.trip.util.TicketQr;
 
 /**
@@ -1130,9 +1131,7 @@ public class CheckinCommands {
 
     /** "Preferred Last", the name a badge and a growl use. */
     public static String displayName(final Person person) {
-        final String first = person.getPreferredName() == null ? "" : person.getPreferredName();
-        final String last = person.getLast() == null ? "" : person.getLast();
-        return (first + " " + last).trim();
+        return PersonNames.display(person);
     }
 
     /** "Last, Preferred", the order staff search a list in. */
