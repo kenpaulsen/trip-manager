@@ -314,8 +314,8 @@ public class ApiCoverageTailTest extends ResourceTestSupport {
         final TripsResource resource = resource(new TripsResource());
 
         Mockito.when(trips.getTrip("gone")).thenReturn(Trip.builder().build());
-        assertError(resource.setParticipation("gone", CSRF_OK, null, Map.of()), 404, ApiErrors.NOT_FOUND);
-        assertError(resource.saveNote("gone", "e1", CSRF_OK, null, Map.of()), 404, ApiErrors.NOT_FOUND);
+        assertThrown(() -> resource.setParticipation("gone", CSRF_OK, null, Map.of()), 404, ApiErrors.NOT_FOUND);
+        assertThrown(() -> resource.saveNote("gone", "e1", CSRF_OK, null, Map.of()), 404, ApiErrors.NOT_FOUND);
 
         final Trip trip = Trip.builder().id("t1").people(List.of(ME)).build();
         trip.getTripEvents().add(new org.paulsens.trip.model.TripEvent("e1", null, "T", null,

@@ -402,8 +402,8 @@ public class TodosResourceTest extends ResourceTestSupport {
         tripWith("trip-of-others", OTHER);
         signedInAs(ME);
 
-        assertError(resource.list("trip-of-others"), 403, ApiErrors.FORBIDDEN);
-        assertError(resource.get("trip-of-others", "d1"), 403, ApiErrors.FORBIDDEN);
+        assertThrown(() -> resource.list("trip-of-others"), 403, ApiErrors.FORBIDDEN);
+        assertThrown(() -> resource.get("trip-of-others", "d1"), 403, ApiErrors.FORBIDDEN);
         Mockito.verify(todos, Mockito.never()).getTodos(ArgumentMatchers.any());
         Mockito.verify(todos, Mockito.never()).getTodo(ArgumentMatchers.any(), ArgumentMatchers.any());
         // A trip nobody created is a 404, not an empty list.

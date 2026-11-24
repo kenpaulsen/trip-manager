@@ -11,6 +11,7 @@ import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
+import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.io.IOException;
@@ -275,17 +276,8 @@ public class TripsResource extends BaseResource {
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response get(@PathParam("tripId") final String tripId,
             @QueryParam("personId") final String personIdParam) {
-        final Trip trip = findTrip(tripId);
-        if (trip == null) {
-            return error(404, ApiErrors.NOT_FOUND, Text.get("api.shared.noSuchTrip"));
-        }
-        if (!canReadTrip(trip)) {
-            return error(403, ApiErrors.FORBIDDEN, Text.get("api.shared.notTripMember"));
-        }
-        final Person.Id subject = subjectOf(personIdParam);
-        if (!canActFor(subject, tripId)) {
-            return error(403, ApiErrors.FORBIDDEN, Text.get("api.trips.itineraryViewNotPermitted"));
-        }
+        final Trip trip = requireReadableTrip(tripId);
+        final Person.Id subject = requireActingFor(personIdParam, tripId, "api.trips.itineraryViewNotPermitted");
         // The page options are the managers' business; the payment settings (processor, who pays fees, the
         // mail addresses) are the organization's payments admins', exactly whom the trip editor shows its
         // Payment Settings to. A manager without that grant neither reads nor writes them.
@@ -308,17 +300,8 @@ public class TripsResource extends BaseResource {
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response events(@PathParam("tripId") final String tripId,
             @QueryParam("personId") final String personIdParam) {
-        final Trip trip = findTrip(tripId);
-        if (trip == null) {
-            return error(404, ApiErrors.NOT_FOUND, Text.get("api.shared.noSuchTrip"));
-        }
-        if (!canReadTrip(trip)) {
-            return error(403, ApiErrors.FORBIDDEN, Text.get("api.shared.notTripMember"));
-        }
-        final Person.Id subject = subjectOf(personIdParam);
-        if (!canActFor(subject, tripId)) {
-            return error(403, ApiErrors.FORBIDDEN, Text.get("api.trips.itineraryViewNotPermitted"));
-        }
+        final Trip trip = requireReadableTrip(tripId);
+        final Person.Id subject = requireActingFor(personIdParam, tripId, "api.trips.itineraryViewNotPermitted");
         return ok(eventDtos(trip, subject));
     }
 
@@ -328,17 +311,8 @@ public class TripsResource extends BaseResource {
     public Response event(
             @PathParam("tripId") final String tripId, @PathParam("eventId") final String eventId,
             @QueryParam("personId") final String personIdParam) {
-        final Trip trip = findTrip(tripId);
-        if (trip == null) {
-            return error(404, ApiErrors.NOT_FOUND, Text.get("api.shared.noSuchTrip"));
-        }
-        if (!canReadTrip(trip)) {
-            return error(403, ApiErrors.FORBIDDEN, Text.get("api.shared.notTripMember"));
-        }
-        final Person.Id subject = subjectOf(personIdParam);
-        if (!canActFor(subject, tripId)) {
-            return error(403, ApiErrors.FORBIDDEN, Text.get("api.trips.itineraryViewNotPermitted"));
-        }
+        final Trip trip = requireReadableTrip(tripId);
+        final Person.Id subject = requireActingFor(personIdParam, tripId, "api.trips.itineraryViewNotPermitted");
         final TripEvent event = trip.getTripEvent(eventId);
         if (event == null) {
             return error(404, ApiErrors.NOT_FOUND, Text.get("api.trips.noSuchEvent"));
@@ -362,17 +336,8 @@ public class TripsResource extends BaseResource {
     public Response lodging(
             @PathParam("tripId") final String tripId, @PathParam("eventId") final String eventId,
             @QueryParam("personId") final String personIdParam) {
-        final Trip trip = findTrip(tripId);
-        if (trip == null) {
-            return error(404, ApiErrors.NOT_FOUND, Text.get("api.shared.noSuchTrip"));
-        }
-        if (!canReadTrip(trip)) {
-            return error(403, ApiErrors.FORBIDDEN, Text.get("api.shared.notTripMember"));
-        }
-        final Person.Id subject = subjectOf(personIdParam);
-        if (!canActFor(subject, tripId)) {
-            return error(403, ApiErrors.FORBIDDEN, Text.get("api.trips.itineraryViewNotPermitted"));
-        }
+        final Trip trip = requireReadableTrip(tripId);
+        final Person.Id subject = requireActingFor(personIdParam, tripId, "api.trips.itineraryViewNotPermitted");
         final TripEvent event = trip.getTripEvent(eventId);
         if (event == null) {
             return error(404, ApiErrors.NOT_FOUND, Text.get("api.trips.noSuchEvent"));
@@ -422,13 +387,7 @@ public class TripsResource extends BaseResource {
     @Path("{tripId}/roster")
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response roster(@PathParam("tripId") final String tripId) {
-        final Trip trip = findTrip(tripId);
-        if (trip == null) {
-            return error(404, ApiErrors.NOT_FOUND, Text.get("api.shared.noSuchTrip"));
-        }
-        if (!canReadTrip(trip)) {
-            return error(403, ApiErrors.FORBIDDEN, Text.get("api.shared.notTripMember"));
-        }
+        final Trip trip = requireReadableTrip(tripId);
         final List<Person.Id> directors = trip.getDirectorIds() == null ? List.of() : trip.getDirectorIds();
         final List<Person.Id> facilitators = trip.getFacilitatorIds() == null ? List.of() : trip.getFacilitatorIds();
         final Set<Person.Id> everyone = new LinkedHashSet<>(trip.getPeople());
@@ -812,19 +771,10 @@ public class TripsResource extends BaseResource {
         if (csrfMissing(csrf)) {
             return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
-        final Trip trip = findTrip(tripId);
-        if (trip == null) {
-            return error(404, ApiErrors.NOT_FOUND, Text.get("api.shared.noSuchTrip"));
-        }
         // The trip gate first, as on every itinerary read: acting "for yourself" is always allowed, so by
         // itself it let any signed-in account join the events of a trip it has nothing to do with.
-        if (!canReadTrip(trip)) {
-            return error(403, ApiErrors.FORBIDDEN, Text.get("api.shared.notTripMember"));
-        }
-        final Person.Id subject = subjectOf(personIdParam);
-        if (!canActFor(subject, tripId)) {
-            return error(403, ApiErrors.FORBIDDEN, Text.get("api.trips.itineraryChangeNotPermitted"));
-        }
+        final Trip trip = requireReadableTrip(tripId);
+        final Person.Id subject = requireActingFor(personIdParam, tripId, "api.trips.itineraryChangeNotPermitted");
         final List<TripEvent> selected = new ArrayList<>();
         for (final String eventId : eventIds(body)) {
             final TripEvent event = trip.getTripEvent(eventId);
@@ -854,22 +804,13 @@ public class TripsResource extends BaseResource {
         if (csrfMissing(csrf)) {
             return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
-        final Trip trip = findTrip(tripId);
-        if (trip == null) {
-            return error(404, ApiErrors.NOT_FOUND, Text.get("api.shared.noSuchTrip"));
-        }
         // Before the event lookup, so a stranger learns nothing about which event ids exist.
-        if (!canReadTrip(trip)) {
-            return error(403, ApiErrors.FORBIDDEN, Text.get("api.shared.notTripMember"));
-        }
+        final Trip trip = requireReadableTrip(tripId);
         final TripEvent event = trip.getTripEvent(eventId);
         if (event == null) {
             return error(404, ApiErrors.NOT_FOUND, Text.get("api.trips.noSuchEvent"));
         }
-        final Person.Id subject = subjectOf(personIdParam);
-        if (!canActFor(subject, tripId)) {
-            return error(403, ApiErrors.FORBIDDEN, Text.get("api.trips.noteWriteNotPermitted"));
-        }
+        final Person.Id subject = requireActingFor(personIdParam, tripId, "api.trips.noteWriteNotPermitted");
         final Object note = body == null ? null : body.get("note");
         if (!Beans.get(TripCommands.class).saveEventNote(trip, event, subject, note == null ? "" : note.toString())) {
             return error(500, ApiErrors.STORE_FAILED, Text.get("api.trips.noteNotSaved"));
@@ -884,6 +825,18 @@ public class TripsResource extends BaseResource {
      */
     private boolean canActFor(final Person.Id subject, final String tripId) {
         return actsFor(subject) || privileges().has(ApiPrivileges.TRIP_MGR, tripId);
+    }
+
+    /**
+     * The subject of a person-scoped itinerary call ({@code ?personId=}, else the caller), or a 403 out of the
+     * whole request, with the endpoint's own sentence, when the caller may not act for them on this trip.
+     */
+    private Person.Id requireActingFor(final String personIdParam, final String tripId, final String deniedKey) {
+        final Person.Id subject = subjectOf(personIdParam);
+        if (!canActFor(subject, tripId)) {
+            throw new WebApplicationException(error(403, ApiErrors.FORBIDDEN, Text.get(deniedKey)));
+        }
+        return subject;
     }
 
     @SuppressWarnings("unchecked")

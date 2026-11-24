@@ -315,6 +315,19 @@ public abstract class BaseResource {
     }
 
     /**
+     * The trip with this id, for a caller who may read it: {@link #requireTrip}'s 404 for an unknown trip, THEN a
+     * 403 for a caller {@link #canReadTrip} does not admit. That order is the contract of every endpoint hanging
+     * off a trip (the trip, its itinerary, its roster, its to-do's), and each of them spelled the pair by hand.
+     */
+    protected Trip requireReadableTrip(final String tripId) {
+        final Trip trip = requireTrip(tripId);
+        if (!canReadTrip(trip)) {
+            throw new WebApplicationException(error(403, ApiErrors.FORBIDDEN, Text.get("api.shared.notTripMember")));
+        }
+        return trip;
+    }
+
+    /**
      * The person with this id, or a 404 out of the whole request.
      *
      * <p>The same guard as {@link #requireTrip}, for the personId half of the invented-record trap: several

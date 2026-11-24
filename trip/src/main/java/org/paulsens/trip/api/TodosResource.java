@@ -60,9 +60,7 @@ public class TodosResource extends BaseResource {
     @GET
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response list(@PathParam("tripId") final String tripId) {
-        if (!canReadTrip(requireTrip(tripId))) {
-            return error(403, ApiErrors.FORBIDDEN, Text.get("api.shared.notTripMember"));
-        }
+        requireReadableTrip(tripId);
         return ok(Beans.get(TodoCommands.class).getTodos(tripId).stream()
                 .map(TodoMapper.INSTANCE::toDto)
                 .toList());
@@ -72,9 +70,7 @@ public class TodosResource extends BaseResource {
     @Path("{dataId}")
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response get(@PathParam("tripId") final String tripId, @PathParam("dataId") final String dataId) {
-        if (!canReadTrip(requireTrip(tripId))) {
-            return error(403, ApiErrors.FORBIDDEN, Text.get("api.shared.notTripMember"));
-        }
+        requireReadableTrip(tripId);
         final TodoItem todo = Beans.get(TodoCommands.class).getTodo(tripId, DataId.from(dataId));
         if (todo == null) {
             return error(404, ApiErrors.NOT_FOUND, Text.get("api.todos.noSuchTodo"));

@@ -303,10 +303,10 @@ public class TripsResourceTest extends ResourceTestSupport {
         signedInAs(ME);
         tripExists(trip(TRIP_ID, ME, OTHER));
 
-        assertError(resource.get(TRIP_ID, OTHER.getValue()), 403, ApiErrors.FORBIDDEN);
-        assertError(resource.events(TRIP_ID, OTHER.getValue()), 403, ApiErrors.FORBIDDEN);
-        assertError(resource.event(TRIP_ID, "evt-1", OTHER.getValue()), 403, ApiErrors.FORBIDDEN);
-        assertError(resource.lodging(TRIP_ID, "evt-1", OTHER.getValue()), 403, ApiErrors.FORBIDDEN);
+        assertThrown(() -> resource.get(TRIP_ID, OTHER.getValue()), 403, ApiErrors.FORBIDDEN);
+        assertThrown(() -> resource.events(TRIP_ID, OTHER.getValue()), 403, ApiErrors.FORBIDDEN);
+        assertThrown(() -> resource.event(TRIP_ID, "evt-1", OTHER.getValue()), 403, ApiErrors.FORBIDDEN);
+        assertThrown(() -> resource.lodging(TRIP_ID, "evt-1", OTHER.getValue()), 403, ApiErrors.FORBIDDEN);
     }
 
     @Test
@@ -368,8 +368,8 @@ public class TripsResourceTest extends ResourceTestSupport {
         signedInAs(ME);
         Mockito.when(trips.getTrip("gone")).thenReturn(Trip.builder().build());
 
-        assertError(resource.get("gone", null), 404, ApiErrors.NOT_FOUND);
-        assertError(resource.events("gone", null), 404, ApiErrors.NOT_FOUND);
+        assertThrown(() -> resource.get("gone", null), 404, ApiErrors.NOT_FOUND);
+        assertThrown(() -> resource.events("gone", null), 404, ApiErrors.NOT_FOUND);
     }
 
     @Test
@@ -386,10 +386,10 @@ public class TripsResourceTest extends ResourceTestSupport {
         signedInAs(ME);
         tripExists(trip(TRIP_ID, OTHER));
 
-        assertError(resource.get(TRIP_ID, null), 403, ApiErrors.FORBIDDEN);
-        assertError(resource.events(TRIP_ID, null), 403, ApiErrors.FORBIDDEN);
-        assertError(resource.event(TRIP_ID, "evt-1", null), 403, ApiErrors.FORBIDDEN);
-        assertError(resource.lodging(TRIP_ID, "evt-1", null), 403, ApiErrors.FORBIDDEN);
+        assertThrown(() -> resource.get(TRIP_ID, null), 403, ApiErrors.FORBIDDEN);
+        assertThrown(() -> resource.events(TRIP_ID, null), 403, ApiErrors.FORBIDDEN);
+        assertThrown(() -> resource.event(TRIP_ID, "evt-1", null), 403, ApiErrors.FORBIDDEN);
+        assertThrown(() -> resource.lodging(TRIP_ID, "evt-1", null), 403, ApiErrors.FORBIDDEN);
     }
 
     @Test
@@ -1112,10 +1112,8 @@ public class TripsResourceTest extends ResourceTestSupport {
         signedInAs(ME);
         tripExists(trip(TRIP_ID, ME, OTHER));
 
-        final Response response = resource.setParticipation(TRIP_ID, CSRF_OK, OTHER.getValue(),
-                Map.of("eventIds", List.of("evt-1")));
-
-        assertError(response, 403, ApiErrors.FORBIDDEN);
+        assertThrown(() -> resource.setParticipation(TRIP_ID, CSRF_OK, OTHER.getValue(),
+                Map.of("eventIds", List.of("evt-1"))), 403, ApiErrors.FORBIDDEN);
     }
 
     @Test
@@ -1134,8 +1132,8 @@ public class TripsResourceTest extends ResourceTestSupport {
         signedInAs(ME);
         tripExists(trip(TRIP_ID, ME, OTHER));
 
-        assertError(resource.saveNote(TRIP_ID, "evt-1", CSRF_OK, OTHER.getValue(), Map.of("note", "x")),
-                403, ApiErrors.FORBIDDEN);
+        assertThrown(() -> resource.saveNote(TRIP_ID, "evt-1", CSRF_OK, OTHER.getValue(), Map.of("note", "x")), 403,
+                ApiErrors.FORBIDDEN);
         Mockito.verify(trips, Mockito.never()).saveEventNote(ArgumentMatchers.any(), ArgumentMatchers.any(),
                 ArgumentMatchers.any(), ArgumentMatchers.anyString());
     }
@@ -1447,12 +1445,12 @@ public class TripsResourceTest extends ResourceTestSupport {
         signedInAs(ME);
         tripExists(trip(TRIP_ID, OTHER));
 
-        assertError(resource.setParticipation(TRIP_ID, CSRF_OK, null, Map.of("eventIds", List.of("evt-1"))),
-                403, ApiErrors.FORBIDDEN);
-        assertError(resource.saveNote(TRIP_ID, "evt-1", CSRF_OK, null, Map.of("note", "hello")),
-                403, ApiErrors.FORBIDDEN);
-        assertError(resource.saveNote(TRIP_ID, "no-such-event", CSRF_OK, null, Map.of("note", "hello")),
-                403, ApiErrors.FORBIDDEN);
+        assertThrown(() -> resource.setParticipation(TRIP_ID, CSRF_OK, null, Map.of("eventIds", List.of("evt-1"))), 403,
+                ApiErrors.FORBIDDEN);
+        assertThrown(() -> resource.saveNote(TRIP_ID, "evt-1", CSRF_OK, null, Map.of("note", "hello")), 403,
+                ApiErrors.FORBIDDEN);
+        assertThrown(() -> resource.saveNote(TRIP_ID, "no-such-event", CSRF_OK, null, Map.of("note", "hello")), 403,
+                ApiErrors.FORBIDDEN);
         Mockito.verify(trips, Mockito.never()).setEventParticipation(ArgumentMatchers.any(),
                 ArgumentMatchers.anyList(), ArgumentMatchers.any());
         Mockito.verify(trips, Mockito.never()).saveEventNote(ArgumentMatchers.any(), ArgumentMatchers.any(),
@@ -1740,8 +1738,8 @@ public class TripsResourceTest extends ResourceTestSupport {
         final TripsResource asStranger = resource(new TripsResource());
         final Trip closed = trip("trip-2", ME);
         tripExists(closed);
-        assertError(asStranger.roster("trip-2"), 403, ApiErrors.FORBIDDEN);
-        assertError(asStranger.roster("no-such-trip"), 404, ApiErrors.NOT_FOUND);
+        assertThrown(() -> asStranger.roster("trip-2"), 403, ApiErrors.FORBIDDEN);
+        assertThrown(() -> asStranger.roster("no-such-trip"), 404, ApiErrors.NOT_FOUND);
     }
 
     /** A roster id whose person no longer exists is skipped, never an NPE or a blank stranger. */
