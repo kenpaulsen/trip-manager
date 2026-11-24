@@ -3,6 +3,7 @@ package org.paulsens.trip.action;
 import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
 import org.paulsens.trip.cache.Cached;
@@ -216,7 +217,7 @@ public class RegistrationStatusChangeTest {
 
     private Trip newTrip(final int startsInDays) throws IOException {
         final Trip trip = Trip.builder()
-                .id("status-" + RandomData.genAlpha(8))
+                .id(UUID.randomUUID().toString())
                 .title("Status Trip " + RandomData.genAlpha(4))
                 .startDate(LocalDateTime.now().plusDays(startsInDays))
                 .endDate(LocalDateTime.now().plusDays(startsInDays + 10))

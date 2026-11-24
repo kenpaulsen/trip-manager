@@ -7,6 +7,7 @@ import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 import org.paulsens.trip.audit.AuditActor;
@@ -320,7 +321,7 @@ public class RegistrationDraftTest {
         // Already on the roster of a trip that has STARTED: canJoin is false on both counts, and the
         // roster bypass is what keeps the registration row maintainable (the pre-merge single page
         // never checked canJoin at all).
-        final Trip trip = Trip.builder().id("draft-trip-" + RandomData.genAlpha(8)).title("Started Trip")
+        final Trip trip = Trip.builder().id(UUID.randomUUID().toString()).title("Started Trip")
                 .startDate(LocalDateTime.now().minusDays(1)).endDate(LocalDateTime.now().plusDays(5))
                 .people(new java.util.ArrayList<>(List.of(me.getId())))
                 .build();
@@ -376,7 +377,7 @@ public class RegistrationDraftTest {
     }
 
     private Trip savedTrip() throws IOException {
-        final Trip trip = Trip.builder().id("draft-trip-" + RandomData.genAlpha(8)).title("Draft Trip")
+        final Trip trip = Trip.builder().id(UUID.randomUUID().toString()).title("Draft Trip")
                 .startDate(LocalDateTime.now().plusDays(30)).endDate(LocalDateTime.now().plusDays(40))
                 .build();
         assertTrue(dao.saveTrip(trip));
@@ -384,7 +385,7 @@ public class RegistrationDraftTest {
     }
 
     private Trip savedTripWithOption() throws IOException {
-        final Trip trip = Trip.builder().id("draft-trip-" + RandomData.genAlpha(8)).title("Draft Trip")
+        final Trip trip = Trip.builder().id(UUID.randomUUID().toString()).title("Draft Trip")
                 .startDate(LocalDateTime.now().plusDays(30)).endDate(LocalDateTime.now().plusDays(40))
                 .regOptions(new java.util.ArrayList<>(List.of(
                         new org.paulsens.trip.model.RegistrationOption(1, "Seat", "Seat preference", true))))

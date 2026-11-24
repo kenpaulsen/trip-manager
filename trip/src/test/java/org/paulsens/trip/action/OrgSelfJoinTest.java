@@ -2,6 +2,7 @@ package org.paulsens.trip.action;
 
 import java.io.IOException;
 import java.time.LocalDateTime;
+import java.util.UUID;
 import org.mockito.Mockito;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.audit.RequestContext;
@@ -169,7 +170,7 @@ public class OrgSelfJoinTest {
     }
 
     private Trip savedTrip(final String orgId) throws IOException {
-        final Trip trip = Trip.builder().id("join-" + RandomData.genAlpha(8)).title("Join Trip")
+        final Trip trip = Trip.builder().id(UUID.randomUUID().toString()).title("Join Trip")
                 .startDate(LocalDateTime.now().plusDays(30)).endDate(LocalDateTime.now().plusDays(40))
                 .build();
         trip.setOrgId(orgId);

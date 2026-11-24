@@ -6,6 +6,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.UUID;
 import org.mockito.ArgumentCaptor;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
@@ -598,7 +599,7 @@ public class AccountDeletionCommandsTest {
             ids.add(person.getId());
         }
         final Trip trip = Trip.builder()
-                .id("del-" + RandomData.genAlpha(8))
+                .id(UUID.randomUUID().toString())
                 .title(title)
                 .openToPublic(false)
                 .startDate(LocalDateTime.now().plusDays(startInDays))

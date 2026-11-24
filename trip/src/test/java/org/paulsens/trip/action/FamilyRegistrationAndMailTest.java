@@ -6,6 +6,7 @@ import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import org.paulsens.trip.chat.MailTemplates;
 import org.paulsens.trip.content.StarterTemplates;
 import org.paulsens.trip.dynamo.DAO;
@@ -125,7 +126,7 @@ public class FamilyRegistrationAndMailTest {
                 "A traveler outside the caller's reach is refused");
 
         // A trip that already started cannot be joined.
-        final Trip started = Trip.builder().id("started-" + RandomData.genAlpha(8)).title("Started")
+        final Trip started = Trip.builder().id(UUID.randomUUID().toString()).title("Started")
                 .startDate(LocalDateTime.now().minusDays(1)).endDate(LocalDateTime.now().plusDays(5))
                 .build();
         assertTrue(dao.saveTrip(started));
@@ -323,7 +324,7 @@ public class FamilyRegistrationAndMailTest {
         assertNotNull(kid);
         final Person stranger = savedPerson("str");
         final Trip trip = savedTrip();
-        final Trip started = Trip.builder().id("started-" + RandomData.genAlpha(8)).title("Started")
+        final Trip started = Trip.builder().id(UUID.randomUUID().toString()).title("Started")
                 .startDate(LocalDateTime.now().minusDays(1)).endDate(LocalDateTime.now().plusDays(4)).build();
         assertTrue(dao.saveTrip(started));
 
@@ -419,7 +420,7 @@ public class FamilyRegistrationAndMailTest {
     }
 
     private Trip savedTrip() throws IOException {
-        final Trip trip = Trip.builder().id("party-" + RandomData.genAlpha(8)).title("Party Trip")
+        final Trip trip = Trip.builder().id(UUID.randomUUID().toString()).title("Party Trip")
                 .startDate(LocalDateTime.now().plusDays(30)).endDate(LocalDateTime.now().plusDays(40))
                 .build();
         assertTrue(dao.saveTrip(trip));
