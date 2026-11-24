@@ -83,9 +83,9 @@ public class WaiverDAO {
         final long expected = doc.getVersion();
         doc.setVersion(expected + 1);
         final Map<String, AttributeValue> item = new HashMap<>();
-        item.put(ORG_ID, str(doc.getOrgId()));
-        item.put(ID, str(doc.getId()));
-        item.put(CONTENT, str(mapper.writeValueAsString(doc)));
+        item.put(ORG_ID, persistence.toStrAttr(doc.getOrgId()));
+        item.put(ID, persistence.toStrAttr(doc.getId()));
+        item.put(CONTENT, persistence.toStrAttr(mapper.writeValueAsString(doc)));
         item.put(VERSION_ATTR, AttributeValue.builder().n(Long.toString(doc.getVersion())).build());
         try {
             final boolean saved = persistence.putItem(
@@ -140,9 +140,9 @@ public class WaiverDAO {
      */
     protected boolean saveAcceptance(final WaiverAcceptance acceptance) throws IOException {
         final Map<String, AttributeValue> item = new HashMap<>();
-        item.put(TRIP_ID, str(acceptance.getTripId()));
-        item.put(SK, str(acceptance.getSortKey()));
-        item.put(CONTENT, str(mapper.writeValueAsString(acceptance)));
+        item.put(TRIP_ID, persistence.toStrAttr(acceptance.getTripId()));
+        item.put(SK, persistence.toStrAttr(acceptance.getSortKey()));
+        item.put(CONTENT, persistence.toStrAttr(mapper.writeValueAsString(acceptance)));
         try {
             return persistence.putItem(b -> b.tableName(ACCEPTANCES_TABLE).item(item)
                     .conditionExpression("attribute_not_exists(#s)")
@@ -171,11 +171,5 @@ public class WaiverDAO {
             return List.of();
         }
         return getAcceptances(tripId).stream().filter(a -> personId.equals(a.getPersonId())).toList();
-    }
-
-    // ================================================================== plumbing
-
-    private static AttributeValue str(final String value) {
-        return AttributeValue.builder().s(value).build();
     }
 }

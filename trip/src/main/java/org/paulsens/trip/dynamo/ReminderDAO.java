@@ -67,7 +67,7 @@ public class ReminderDAO {
         final long expected = plan.getVersion();
         plan.setVersion(expected + 1);
         final Map<String, AttributeValue> item = key(plan.getTripId(), TripReminderPlan.SORT_KEY);
-        item.put(CONTENT, str(mapper.writeValueAsString(plan)));
+        item.put(CONTENT, persistence.toStrAttr(mapper.writeValueAsString(plan)));
         item.put(VERSION_ATTR, AttributeValue.builder().n(Long.toString(plan.getVersion())).build());
         try {
             final boolean saved = persistence.putItem(
@@ -206,18 +206,14 @@ public class ReminderDAO {
 
     private Map<String, AttributeValue> sendItem(final ReminderSend send) throws IOException {
         final Map<String, AttributeValue> item = key(send.getTripId(), send.getSortKey());
-        item.put(CONTENT, str(mapper.writeValueAsString(send)));
+        item.put(CONTENT, persistence.toStrAttr(mapper.writeValueAsString(send)));
         return item;
     }
 
-    private static Map<String, AttributeValue> key(final String tripId, final String sortKey) {
+    private Map<String, AttributeValue> key(final String tripId, final String sortKey) {
         final Map<String, AttributeValue> key = new HashMap<>();
-        key.put(TRIP_ID, str(tripId));
-        key.put(ITEM, str(sortKey));
+        key.put(TRIP_ID, persistence.toStrAttr(tripId));
+        key.put(ITEM, persistence.toStrAttr(sortKey));
         return key;
-    }
-
-    private static AttributeValue str(final String value) {
-        return AttributeValue.builder().s(value).build();
     }
 }
