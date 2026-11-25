@@ -1128,6 +1128,11 @@ public final class DAO {
         personDao.forgetSearchLoad(prefixes);
     }
 
+    /** How many clears covering the people search reached it: for the tests that pin both ways one arrives. */
+    long peopleSearchClears() {
+        return personDao.searchIndexClears();
+    }
+
     private List<String> clearScope(final CacheScope scope) {
         return switch (scope) {
             case PERSON -> clearPersonScope();

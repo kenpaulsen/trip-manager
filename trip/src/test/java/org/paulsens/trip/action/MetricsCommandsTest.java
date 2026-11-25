@@ -21,6 +21,7 @@ import org.paulsens.trip.cache.CacheKeys;
 import org.paulsens.trip.cache.InMemoryCacheClient;
 import org.paulsens.trip.content.MetricGraphType;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.metrics.MetricCatalog;
 import org.paulsens.trip.metrics.MetricsStore;
 import org.paulsens.trip.metrics.MetricsWriter;
@@ -28,6 +29,7 @@ import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.util.RandomData;
+import org.paulsens.trip.util.TestWaits;
 import org.testng.annotations.Test;
 
 /**
@@ -166,9 +168,15 @@ public class MetricsCommandsTest {
         assertTrue(new OrgCommands(TestCallers::siteAdminHoldingNothing).saveOrgEdits(orgId, org.getName(), null,
                 null, null, null, slug));
         assertEquals(admin.hubUrl(orgId), "https://" + slug + ".unitetrip.com/page.jsf?name=metrics");
-        assertFalse(new SitePageCommands(() -> TestCallers.holdingNothing(orgAdmin)).addPage(orgId, "Metrics",
-                "metrics", "ABOUT"), "the dashboard holds the address, though the org admin's list does not show it");
+        final String held = TestWaits.captureStdout(() -> assertFalse(new SitePageCommands(
+                () -> TestCallers.holdingNothing(orgAdmin)).addPage(orgId, "Metrics", "metrics", "ABOUT"),
+                "the dashboard holds the address, though the org admin's list does not show it"));
+        assertTrue(held.contains(Text.get("feedback.sitePageCommands.addressHeld")), held);
+        assertFalse(held.contains("/page.jsf?name=metrics"), "no link to a page that would only refuse them: " + held);
         final SitePageCommands siteAdmin = new SitePageCommands(TestCallers::siteAdminHoldingNothing);
+        final String inUse = TestWaits.captureStdout(() -> assertFalse(siteAdmin.addPage(orgId, "Metrics", "metrics",
+                "ABOUT")));
+        assertTrue(inUse.contains("/page.jsf?name=metrics"), "a site admin's own clash names the page: " + inUse);
         assertTrue(siteAdmin.deletePage(orgId, "metrics"));
         assertNull(admin.hubUrl(orgId), "its dashboard deleted");
         assertTrue(siteAdmin.addPage(orgId, "Metrics", "metrics", "ABOUT"));

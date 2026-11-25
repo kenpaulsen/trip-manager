@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import org.paulsens.trip.cache.InMemoryCacheClient;
+import org.paulsens.trip.cache.NearCacheClient;
 import org.paulsens.trip.cache.NoopCacheClient;
 import org.paulsens.trip.security.PasswordHasher;
 import org.paulsens.trip.security.Pepper;
@@ -125,6 +126,8 @@ public class DeepHealthTest {
         Assert.assertEquals(DeepHealth.cache(false, new NoopCacheClient()), Status.NOT_CONFIGURED);
         Assert.assertEquals(DeepHealth.cache(true, new InMemoryCacheClient()), Status.OK, "local mode's own cache");
         Assert.assertEquals(DeepHealth.cache(true, new NoopCacheClient()), Status.FAIL, "it remembers nothing");
+        Assert.assertEquals(DeepHealth.cache(false, new NearCacheClient(new InMemoryCacheClient(), null)), Status.OK,
+                "the shared cache, as production builds it (a near cache over Valkey), passes");
     }
 
     @Test

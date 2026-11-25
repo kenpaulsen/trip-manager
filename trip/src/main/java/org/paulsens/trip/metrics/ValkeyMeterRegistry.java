@@ -48,7 +48,8 @@ final class ValkeyMeterRegistry extends StepMeterRegistry {
 
     @Override
     protected void publish() {
-        // Sample first, always: it drains the minute's peaks, which must not carry into the next minute.
+        // Sample first, always: a minute-end sample drains the peaks, which must not carry into the next minute. The
+        // first publish after start only peeks: the minute-end publish then overwrites its partial minute.
         final Map<String, Map<String, Number>> records = current ? sampler.peek(this) : sampler.sample(this);
         if (records.isEmpty() || !enabled.getAsBoolean()) {
             return;

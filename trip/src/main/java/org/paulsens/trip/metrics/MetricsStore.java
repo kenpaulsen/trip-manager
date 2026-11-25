@@ -23,8 +23,8 @@ import org.paulsens.trip.metrics.MetricCatalog.Metric;
 import org.paulsens.trip.metrics.MetricCatalog.Rollup;
 
 /**
- * Reads a metric back for a graph: one field over a range, folded into buckets, either one line per server (ECS
- * task) or one combined line. Reads only; the writer is {@link MetricsWriter}.
+ * Reads a metric back for a graph: one field over a range, folded into buckets, one line per server (ECS task), which
+ * {@link #combinedLine} folds into the one combined line. Reads only; the writer is {@link MetricsWriter}.
  *
  * <p>A server's minutes are read in day-sized chunks ({@value #CHUNK} fields per HMGET): a whole week in one
  * HGETALL costs under a millisecond of server time (measured), but a chunk keeps every command far from the

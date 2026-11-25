@@ -14,6 +14,7 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Supplier;
@@ -98,6 +99,7 @@ public final class SearchIndex {
      * map that nobody is reading; a cleared reference just means the next cold search scans.
      */
     private final AtomicReference<SoftReference<Load>> lastLoad = new AtomicReference<>(new SoftReference<>(null));
+    private final AtomicLong coveringClears = new AtomicLong();
 
     /**
      * One full load: when it was read, its entries by partition, and whether THIS call ran the scan (only that
@@ -184,7 +186,16 @@ public final class SearchIndex {
     public void forgetLoadIfCleared(final Collection<String> prefixes) {
         if (prefixes.stream().anyMatch(key::startsWith)) {
             lastLoad.set(new SoftReference<>(null));
+            coveringClears.incrementAndGet();
         }
+    }
+
+    /**
+     * How many clears covering this index reached it since start: observable for the tests that pin both ways a
+     * clear arrives (this instance's own, and another's by broadcast), whether or not a load was held.
+     */
+    public long coveringClears() {
+        return coveringClears.get();
     }
 
     private String partsKey() {

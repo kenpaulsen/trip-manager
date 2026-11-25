@@ -64,8 +64,9 @@ cache's paid minimum.
 ## The publisher (`ValkeyMeterRegistry`, `TripMetrics`, `MetricsLifecycleListener`)
 
 - A Micrometer `StepMeterRegistry` with a one-minute step. `publish()` samples every catalog metric
-  (`MetricsSampler`, which drains each `MinuteMax` whether or not the minute is then written) and writes the records
-  under the minute that just ended.
+  (`MetricsSampler.sample`, which drains each `MinuteMax` whether or not the minute is then written) and writes the
+  records under the minute that just ended. Only that minute-end publish drains: the first publish after start
+  peeks (`MetricsSampler.peek`), so the peaks it reads are still there for the whole minute that overwrites it.
 - It runs on OUR schedule, one second past each wall-clock minute (`TripMetrics.delayToNextMinute`), never
   Micrometer's `start()`: Micrometer publishes at a random point in the first 80% of each step
   (`PushMeterRegistry.calculateInitialDelay`, read from the 1.18.0 bytecode). Its step counts stay exact either
@@ -81,7 +82,8 @@ cache's paid minimum.
   the next minute, then at most once an hour while such failures go on.
 - `MetricsLifecycleListener` (declared in the live `web.xml` after `TripBootstrapListener`) starts it, binds the JVM
   meters, and publishes one sample right away under the current minute, so a fresh server has something to show at
-  once; the first regular publish overwrites that partial minute with the whole one. At shutdown the last publish
+  once; that sample peeks rather than drains, and the first regular publish overwrites the partial minute with the
+  whole one. At shutdown the last publish
   holds the current partial minute, so it never overwrites the complete minute before it. A failure to start is
   logged and never stops the site.
 - Kill switch: the `metrics.enabled` setting (on by default, Settings, "Performance"), read once a minute by the
@@ -89,10 +91,11 @@ cache's paid minimum.
 
 ## Reading it back (`MetricsStore`)
 
-`read(metric, field, range, bucket, rollup, perTask)` lists the servers seen in the range, reads their minutes in
+`read(metric, field, range, bucket, rollup)` lists the servers seen in the range, reads their minutes in
 day-sized chunks, skips records whose `t` falls outside the range, folds minutes into buckets, and answers every
 bucket from the range's first to its last, null where there was no sample (a graph draws a gap, never a zero).
-`combinedLine` folds the per-server lines into one by the field's `Combine`, so one read serves both views.
+A read always answers one line per server; `combinedLine` folds them into one by the field's `Combine`, so one read
+serves both views.
 A server's records of a metric are read and parsed ONCE per request (the dashboard passes its `RequestMemo` as the
 store's `Memo`) and kept as columns, so every graph of that metric, and a graph's limit line, share the read: the
 starter dashboard's nine graphs read four hashes per server, not twelve.

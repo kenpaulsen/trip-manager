@@ -43,6 +43,9 @@ import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
 import org.paulsens.trip.cache.Cached;
+import org.paulsens.trip.util.TestWaits;
+import org.paulsens.trip.web.CacheInvalidationListener;
+import org.testng.Assert;
 
 public class DAOTest {
     private static DAO dbUtils;
@@ -58,6 +61,30 @@ public class DAOTest {
     @BeforeMethod
     public void setupTest() {
         dbUtils.clearAllCaches();
+    }
+
+    /**
+     * A whole-cache clear, this instance's or another's by broadcast, drops the people search's reusable load: a
+     * load reused after it would hide the out-of-band edits the clear was for (review F27).
+     */
+    @Test
+    public void aWholeCacheClearDropsThePeopleSearchLoadHereAndByBroadcast() throws Exception {
+        final long before = dbUtils.peopleSearchClears();
+        dbUtils.invalidate(DAO.CacheScope.TRIP);
+        Assert.assertEquals(dbUtils.peopleSearchClears(), before, "a clear of other keys leaves the search alone");
+        dbUtils.invalidate(DAO.CacheScope.ALL);
+        Assert.assertEquals(dbUtils.peopleSearchClears(), before + 1, "this instance's whole-cache clear reaches it");
+
+        final CacheInvalidationListener listener = new CacheInvalidationListener();
+        listener.contextInitialized(null);
+        try {
+            dbUtils.getCacheClient().publish(org.paulsens.trip.cache.CacheKeys.CACHE_INVAL_CHANNEL,
+                    "{\"origin\":\"another-jvm\",\"prefixes\":[\"t1:\"]}");
+            TestWaits.awaitTrue(() -> dbUtils.peopleSearchClears() == before + 2, "another instance's clear does too");
+        } finally {
+            listener.contextDestroyed(null);
+            FakeData.addFakeData();
+        }
     }
 
     /** Scope invalidation clears the owning DAO's namespaces and broadcasts exactly one event. */

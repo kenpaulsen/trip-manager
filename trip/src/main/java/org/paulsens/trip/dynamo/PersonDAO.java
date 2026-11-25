@@ -169,6 +169,11 @@ public class PersonDAO {
         searchIndex.forgetLoadIfCleared(prefixes);
     }
 
+    /** How many covering clears reached the search index ({@link SearchIndex#coveringClears}). */
+    long searchIndexClears() {
+        return searchIndex.coveringClears();
+    }
+
     public void clearCache() {
         cacheClient.clearNamespace(CacheKeys.PERSON_PREFIX);
         cacheClient.removeKey(CacheKeys.EMAIL_IDX);

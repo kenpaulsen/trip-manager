@@ -308,20 +308,19 @@ shared versions and authors only their own organization's. `OrgSubdomainPwIT` dr
 
 ## Programmatic types
 
-`ProgrammaticContentTemplate` (in `org.paulsens.trip.content`, EL-friendly getter naming):
-`getTypeId()`, `getDisplayName()`, `getDescription()`, `getProperties()` (a `List<Placeholder>` -- the NVP
-prompts the content dialog shows), `getFragmentPath()` (`/WEB-INF/ptypes/*.xhtml` in the medjugorje repo),
-and `choicesFor(prop)` feeding `Placeholder.Type.CHOICE` dropdowns (e.g. the File type's media picker, the
-pilgrimage language menu). Registry: `ProgrammaticTypes.ALL` (KnownSettings pattern). Shipped types:
-`pilgrimages`, `photo-albums`, `file` (one media item by id -- title/size/URL read LIVE from the cached
-media table; hidden or deleted media renders nothing), `person`, the conference page's `trip-schedule` and
-`trip-registration` (`docs/conference.md`), and `metric-graph`, one graph of the app's own metrics, the metrics
-dashboard's building block (`docs/metrics.md`), laid out by the `graph-grid` CONTAINER (four columns; each child
-cell spans its graph's own width and height). `offeredTo(siteAdmin)` (default true) keeps a type out of the Add
-dialog for an editor it does not serve: `metric-graph` is offered to a site admin only, since only a site admin can
-read what it draws. `fitsTripPage()` (default true) keeps a type off a TRIP page's Add
-dialog: `pilgrimages` lists other trips and answers false; `photo-albums` fits, since on a conference's page it shows
-that event's own album (`conference.md`).
+`ProgrammaticContentTemplate` (in `org.paulsens.trip.content`, EL-friendly getter naming): `getTypeId()`,
+`getDisplayName()`, `getDescription()`, `getProperties()` (a `List<Placeholder>` -- the NVP prompts the content dialog
+shows), `getFragmentPath()` (`/WEB-INF/ptypes/*.xhtml` in the medjugorje repo), and `choicesFor(prop)` feeding
+`Placeholder.Type.CHOICE` dropdowns (e.g. the File type's media picker, the pilgrimage language menu). Registry:
+`ProgrammaticTypes.ALL` (KnownSettings pattern). Shipped types: `pilgrimages`, `photo-albums`, `file` (one media item by
+id -- title/size/URL read LIVE from the cached media table; hidden or deleted media renders nothing), `person`, the
+conference page's `trip-schedule` and `trip-registration` (`docs/conference.md`), and `metric-graph`, one graph of the
+app's own metrics, the metrics dashboard's building block (`docs/metrics.md`), laid out by the `graph-grid` CONTAINER
+(four columns; each child cell spans its graph's own width and height). `offeredTo(Caller)` (default true) keeps a type
+out of the Add dialog for an editor it does not serve: `metric-graph` answers with `MetricsCommands.mayViewMetrics`, the
+one rule for who may read what it draws (site admins, for now). `fitsTripPage()` (default true) keeps a type off a TRIP
+page's Add dialog: `pilgrimages` lists other trips and answers false; `photo-albums` fits, since on a conference's page
+it shows that event's own album (`conference.md`).
 
 Fragments are **pure render-time** (cards/galleria/rows only -- no build-time tags) and read the
 hosting instance as `#{instance}`. A template of kind PROGRAMMATIC copies its type's properties into

@@ -33,6 +33,8 @@ public class LodgingWriteGateTest {
     private static final Path ACTION_SOURCES = Path.of("src", "main", "java", "org", "paulsens", "trip", "action");
     /** A method's header at class level: its name, then everything up to the brace that opens its body. */
     private static final Pattern METHOD = Pattern.compile("(?m)^    [\\w<>,.\\[\\] ]+ (\\w+)\\([^;{]*\\{$");
+    /** A call of the one hotel write path, whatever its argument is named; its own declaration does not match. */
+    private static final Pattern STORE_CALL = Pattern.compile("\\bstore\\((?!final )");
     private static final Set<String> STORE_EXCEPTIONS = Set.of("saveAccommodation");
     private static final String NOT_YOURS = "Not allowed: you do not manage this accommodation.";
     private static final String GONE = "This accommodation no longer exists.";
@@ -123,7 +125,7 @@ public class LodgingWriteGateTest {
             final Matcher method = METHOD.matcher(source);
             while (method.find()) {
                 final String body = source.substring(method.end(), source.indexOf("\n    }\n", method.end()));
-                if (body.contains("store(acc") && !STORE_EXCEPTIONS.contains(method.group(1))) {
+                if (STORE_CALL.matcher(body).find() && !STORE_EXCEPTIONS.contains(method.group(1))) {
                     writers.add(method.group(1));
                     addIfUngated(ungated, method.group(1), body);
                 }
