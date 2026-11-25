@@ -126,6 +126,15 @@ public class MailCommands {
         return verifiedDomains;
     }
 
+    /**
+     * For the deep health check: lists one identity, which proves the SES endpoint answers and the task role's
+     * grant works, and throws when either does not. Unlike {@link #verifiedSendingDomains()} nothing is memoized
+     * or swallowed: a stale answer would pass a broken deployment. Sends nothing.
+     */
+    public void probeSes(final Duration timeout) {
+        client.listIdentities(b -> b.maxItems(1).overrideConfiguration(o -> o.apiCallTimeout(timeout)));
+    }
+
     /** Seam: tests shrink the window to force a refresh (and the serve-stale-on-failure branch). */
     long verifiedDomainsTtlMs() {
         return VERIFIED_DOMAINS_TTL_MS;

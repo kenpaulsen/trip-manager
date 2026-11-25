@@ -867,6 +867,10 @@ public final class DAO {
     public Optional<Config> getConfig(final String name, final Cached cached) {
         return NearCacheContext.call(cached, () -> configDao.getConfig(name));
     }
+    /** Throws when the datastore cannot be reached: an uncached read for the deep health check. */
+    public void probeDataStore() {
+        configDao.probeTable();
+    }
     public List<Config> getAllConfig(final Cached cached) {
         return NearCacheContext.call(cached, () -> configDao.getAllConfig());
     }

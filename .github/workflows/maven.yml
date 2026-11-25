@@ -17,6 +17,8 @@ jobs:
       with:
         distribution: 'temurin'
         java-version: '25'
+        # Caches ~/.m2 keyed on the poms: every push used to download the whole dependency tree first.
+        cache: 'maven'
     - name: Install libheif (chat-photo HEIC decode)
       # The HEIC pipeline test runs its real-decode branch only where libheif is present (it degrades to
       # asserting the graceful rejection elsewhere). CI is where the coverage gate blocks, so CI gets the

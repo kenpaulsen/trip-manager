@@ -96,6 +96,18 @@ public class ConfigDAO {
         cache.invalidate();
     }
 
+    /**
+     * One point read straight against the table, for the deep health check: no shared cache in front of it (a
+     * warm cache would answer without DynamoDB) and nothing swallowed, so it throws when the table cannot be
+     * reached. The row never exists; only reaching the table counts.
+     */
+    protected void probeTable() {
+        persistence.getItem(b -> b.tableName(CONFIG_TABLE)
+                .key(Map.of(NAME, AttributeValue.builder().s(PROBE_ROW).build())));
+    }
+
+    static final String PROBE_ROW = "__health_probe__";
+
     private Optional<Config> pointReadConfig(final String name) {
         final Map<String, AttributeValue> key = Map.of(NAME, AttributeValue.builder().s(name).build());
         // A swallowing read on purpose: the caller has a default and the site must keep serving.

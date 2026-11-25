@@ -90,6 +90,11 @@ public final class PasswordHasher {
                 + " (full details were logged once; fix the pepper configuration and restart).");
     }
 
+    /** The version new hashes are stamped with: 0 means no pepper is configured. Never the key itself. */
+    public int pepperVersion() {
+        return pepper.currentVersion();
+    }
+
     /** Hashes a password into the stored envelope, stamped with the pepper's current version. */
     public String hash(final String password) {
         final int version = pepper.currentVersion();

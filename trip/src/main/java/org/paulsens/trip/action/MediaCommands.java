@@ -711,6 +711,22 @@ public class MediaCommands {
                 && item.getContentType().toLowerCase(Locale.ROOT).startsWith("text/css");
     }
 
+    /**
+     * For the deep health check: lists at most one key of the media bucket (the task role's {@code s3:ListBucket}),
+     * and throws when the bucket cannot be reached.
+     *
+     * @return false when no bucket is configured (local runs), so nothing was asked
+     */
+    public boolean probeBucket(final Duration timeout) {
+        final String bucket = bucket();
+        if (bucket == null) {
+            return false;
+        }
+        s3().listObjectsV2(ListObjectsV2Request.builder().bucket(bucket).maxKeys(1)
+                .overrideConfiguration(o -> o.apiCallTimeout(timeout)).build());
+        return true;
+    }
+
     /** @return whether uploads are possible (i.e. a bucket is configured). False locally and in tests. */
     public boolean isUploadEnabled() {
         return bucket() != null;

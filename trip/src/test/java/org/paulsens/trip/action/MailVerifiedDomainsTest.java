@@ -82,6 +82,21 @@ public class MailVerifiedDomainsTest {
                 "a refresh failure serves the previous result rather than emptying the dropdown");
     }
 
+    @Test
+    public void theHealthProbeAsksSesDirectlyAndLetsAFailureThrough() {
+        final SesClient ses = Mockito.mock(SesClient.class);
+        stubPages(ses, page(List.of(), null));
+        new MailCommands(ses).probeSes(java.time.Duration.ofSeconds(1));
+        Mockito.verify(ses).listIdentities(ArgumentMatchers.<Consumer<ListIdentitiesRequest.Builder>>any());
+
+        final SesClient broken = Mockito.mock(SesClient.class);
+        Mockito.when(broken.listIdentities(
+                        ArgumentMatchers.<Consumer<ListIdentitiesRequest.Builder>>any()))
+                .thenThrow(new IllegalStateException("SES down"));
+        Assert.assertThrows(IllegalStateException.class,
+                () -> new MailCommands(broken).probeSes(java.time.Duration.ofSeconds(1)));
+    }
+
     private static void stubPages(final SesClient ses, final ListIdentitiesResponse first,
             final ListIdentitiesResponse... rest) {
         Mockito.when(ses.listIdentities(

@@ -307,6 +307,11 @@ public final class CacheKeys {
         return reminderRunLockKey(day) + ":probe";
     }
 
+    /** The key the deep health check ({@code DeepHealth}) writes and reads back to prove the cache holds state. */
+    public static String deepHealthProbeKey() {
+        return FORMAT_VERSION + "health:deep:probe";
+    }
+
     /** One person's reminder test sends in one clock hour: the counter behind the test-send cap. */
     public static String reminderTestSendsKey(final String personId, final long hour) {
         return FORMAT_VERSION + "reminder:tests:" + personId + ":" + hour;
