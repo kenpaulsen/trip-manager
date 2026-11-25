@@ -17,6 +17,7 @@ import software.amazon.awssdk.services.codepipeline.model.ActionExecution;
 import software.amazon.awssdk.services.codepipeline.model.ActionState;
 import software.amazon.awssdk.services.codepipeline.model.GetPipelineStateRequest;
 import software.amazon.awssdk.services.codepipeline.model.GetPipelineStateResponse;
+import software.amazon.awssdk.services.codepipeline.model.PipelineNotFoundException;
 import software.amazon.awssdk.services.codepipeline.model.StageExecution;
 import software.amazon.awssdk.services.codepipeline.model.StageState;
 import software.amazon.awssdk.services.codepipeline.model.StartPipelineExecutionRequest;
@@ -257,5 +258,32 @@ public class DeployCommandsAwsTest {
         Assert.assertNull(deploy.startFullSuite(new AuditActor("tester@x", "t-id")));
         Mockito.verify(pipeline, Mockito.never())
                 .startPipelineExecution(ArgumentMatchers.<Consumer<StartPipelineExecutionRequest.Builder>>any());
+    }
+
+    @Test
+    public void aMissingSuitePipelineIsNamedAsItselfNotAsTheDeployOne() {
+        System.setProperty(SUITE_PROP, "trip-pipeline-webtest-full");
+        Mockito.when(pipeline.getPipelineState(ArgumentMatchers.<Consumer<GetPipelineStateRequest.Builder>>any()))
+                .thenThrow(PipelineNotFoundException.builder().message("no such pipeline").build());
+
+        final String error = deploy.getFullSuiteStatus().getError();
+        Assert.assertTrue(error.contains("trip-pipeline-webtest-full"), error);
+        Assert.assertFalse(error.contains("'trip-pipeline'"), "it must not blame the deploy pipeline: " + error);
+    }
+
+    @Test
+    public void aFailedFullSuiteStartIsNull() {
+        System.setProperty(SUITE_PROP, "trip-pipeline-webtest-full");
+        pipelineStateAnswers(GetPipelineStateResponse.builder()
+                .stageStates(stage("WebtestFull", "Succeeded", null, null))
+                .build());
+        Mockito.when(pipeline.startPipelineExecution(
+                ArgumentMatchers.<Consumer<StartPipelineExecutionRequest.Builder>>any()))
+                .thenThrow(new IllegalStateException("throttled"));
+
+        final String logged = org.paulsens.trip.util.TestWaits.captureStdout(() -> Assert.assertNull(
+                deploy.startFullSuite(new AuditActor("tester@x", "t-id"))));
+        Assert.assertTrue(logged.contains("Failed to start a full webtest run of 'trip-pipeline-webtest-full'"),
+                "the failure is audited as a test run, naming its pipeline: " + logged);
     }
 }

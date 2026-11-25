@@ -63,6 +63,10 @@ public class DeployCommands {
 
     static final String PIPELINE_VAR = "TRIP_PIPELINE_NAME";
     static final String SUITE_PIPELINE_VAR = "TRIP_WEBTEST_PIPELINE_NAME";
+    static final String REGION_VAR = "TRIP_DYNAMO_REGION";
+    private static final String DEFAULT_REGION = "us-west-2";
+    /** The zone the site operates in; the same one the rest of the admin UI reads dates in. */
+    private static final ZoneId SITE_ZONE = ZoneId.of("America/Los_Angeles");
 
     /** What a start is called in the audit trail and on the page, per pipeline. */
     private record RunKind(String noun, String busy, String busyDetail, String started, String startedDetail,
@@ -77,10 +81,6 @@ public class DeployCommands {
             "feedback.deployCommands.alreadyTesting", "feedback.deployCommands.alreadyTestingDetail",
             "feedback.deployCommands.suiteStarted", "feedback.deployCommands.suiteStartedDetail",
             "feedback.deployCommands.suiteNotStarted");
-    static final String REGION_VAR = "TRIP_DYNAMO_REGION";
-    private static final String DEFAULT_REGION = "us-west-2";
-    /** The zone the site operates in; the same one the rest of the admin UI reads dates in. */
-    private static final ZoneId SITE_ZONE = ZoneId.of("America/Los_Angeles");
 
     private volatile CodePipelineClient client;
 
@@ -198,7 +198,7 @@ public class DeployCommands {
 
     private String startRun(final String name, final AuditActor who, final RunKind kind) {
         if (who == null || !who.isKnown()) {
-            throw new IllegalArgumentException("A deployment must record who started it.");
+            throw new IllegalArgumentException("A pipeline run must record who started it.");
         }
         if (name == null) {
             growl(FacesMessage.SEVERITY_ERROR, Text.get("feedback.deployCommands.noPipeline"),
@@ -342,11 +342,7 @@ public class DeployCommands {
      * granting the task role its pipeline permissions -- without this it reads as a broken feature rather than
      * an undeployed one.
      */
-    static String describe(final RuntimeException ex) {
-        return describe(ex, System.getenv(PIPELINE_VAR));
-    }
-
-    private static String describe(final RuntimeException ex, final String name) {
+    static String describe(final RuntimeException ex, final String name) {
         final String type = ex.getClass().getSimpleName();
         if (type.contains("AccessDenied") || String.valueOf(ex.getMessage()).contains("not authorized")) {
             return Text.get("feedback.deployCommands.notPermitted");

@@ -98,10 +98,13 @@ public enum AuditAction {
      */
     REMINDER,
     /**
-     * A deployment was started from the admin UI.
+     * A pipeline run was started from the admin UI: a deployment, or the full webtest suite (which deploys
+     * nothing; the message says which, "Started a deployment of ..." or "Started a full webtest run of ...").
      *
      * <p>Its own constant rather than {@code ADMIN}: a deployment replaces the running site, so "who released
      * this, and when" is a question worth being able to ask on its own -- usually while something is wrong.
+     * Not a second constant for the test runs: on a blue/green rollback the previous build reads the audit rows,
+     * and a value it does not know would break that read.
      */
     DEPLOY,
     /** An admin acted as another user. */

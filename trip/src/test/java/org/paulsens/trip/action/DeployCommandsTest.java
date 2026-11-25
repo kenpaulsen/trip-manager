@@ -129,14 +129,14 @@ public class DeployCommandsTest {
     public void accessDeniedNamesTheDeployStepThatFixesIt() {
         // The expected state between shipping this page and running 'cdk deploy TripApp'. Without naming it,
         // the page reads as a broken feature rather than an undeployed one.
-        final String message = DeployCommands.describe(new AccessDeniedException("not authorized"));
+        final String message = DeployCommands.describe(new AccessDeniedException("not authorized"), "trip-pipeline");
         Assert.assertTrue(message.contains("cdk deploy TripApp"), "should name the fix; got: " + message);
         Assert.assertTrue(message.contains("codepipeline:StartPipelineExecution"), message);
     }
 
     @Test
     public void anOrdinaryFailureKeepsItsOwnMessage() {
-        final String message = DeployCommands.describe(new IllegalStateException("connection reset"));
+        final String message = DeployCommands.describe(new IllegalStateException("connection reset"), "trip-pipeline");
         Assert.assertTrue(message.contains("connection reset"), message);
     }
 
