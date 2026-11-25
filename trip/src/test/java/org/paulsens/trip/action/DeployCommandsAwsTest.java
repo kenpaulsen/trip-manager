@@ -31,6 +31,7 @@ import software.amazon.awssdk.services.codepipeline.model.StartPipelineExecution
 public class DeployCommandsAwsTest {
 
     private static final String PIPELINE_PROP = "trip.pipeline.name";
+    private static final String SUITE_PROP = "trip.webtest.pipeline.name";
 
     private DeployCommands deploy;
     private CodePipelineClient pipeline;
@@ -48,6 +49,7 @@ public class DeployCommandsAwsTest {
     @AfterMethod(alwaysRun = true)
     public void clearProperty() {
         System.clearProperty(PIPELINE_PROP);
+        System.clearProperty(SUITE_PROP);
     }
 
     private static StageState stage(final String name, final String status, final String summary,
@@ -209,5 +211,51 @@ public class DeployCommandsAwsTest {
     public void localTimeConvertsForDisplay() {
         Assert.assertNull(deploy.localTime(null));
         Assert.assertNotNull(deploy.localTime(Instant.now()));
+    }
+
+    @Test
+    public void theFullSuiteIsAbsentUntilItsPipelineIsNamed() {
+        if (System.getenv(DeployCommands.SUITE_PIPELINE_VAR) != null) {
+            throw new org.testng.SkipException(DeployCommands.SUITE_PIPELINE_VAR + " is set in this environment");
+        }
+        Assert.assertFalse(deploy.isFullSuiteConfigured());
+        Assert.assertFalse(deploy.getFullSuiteStatus().isConfigured());
+        Assert.assertNull(deploy.startFullSuite(new AuditActor("a@x", "id")), "Nothing to start");
+        Mockito.verifyNoInteractions(pipeline);
+    }
+
+    @Test
+    public void theFullSuiteStartsItsOwnPipelineAndNeverTheDeployOne() {
+        System.setProperty(SUITE_PROP, "trip-pipeline-webtest-full");
+        pipelineStateAnswers(GetPipelineStateResponse.builder()
+                .stageStates(stage("WebtestFull", "Succeeded", null, null))
+                .build());
+        Mockito.when(pipeline.startPipelineExecution(
+                ArgumentMatchers.<Consumer<StartPipelineExecutionRequest.Builder>>any()))
+                .thenReturn(StartPipelineExecutionResponse.builder().pipelineExecutionId("exec-50").build());
+
+        Assert.assertTrue(deploy.isFullSuiteConfigured());
+        Assert.assertEquals(deploy.startFullSuite(new AuditActor("tester@x", "t-id")), "exec-50");
+
+        final org.mockito.ArgumentCaptor<Consumer<StartPipelineExecutionRequest.Builder>> started =
+                org.mockito.ArgumentCaptor.forClass(Consumer.class);
+        Mockito.verify(pipeline).startPipelineExecution(started.capture());
+        final StartPipelineExecutionRequest.Builder request = StartPipelineExecutionRequest.builder();
+        started.getValue().accept(request);
+        Assert.assertEquals(request.build().name(), "trip-pipeline-webtest-full",
+                "the button for the test suite must never start a deployment");
+    }
+
+    @Test
+    public void theFullSuiteRefusesAnUnknownActorAndARunInProgress() {
+        System.setProperty(SUITE_PROP, "trip-pipeline-webtest-full");
+        Assert.assertThrows(IllegalArgumentException.class, () -> deploy.startFullSuite(null));
+        pipelineStateAnswers(GetPipelineStateResponse.builder()
+                .stageStates(stage("WebtestFull", "InProgress", null, null))
+                .build());
+        Assert.assertTrue(deploy.getFullSuiteStatus().isRunning());
+        Assert.assertNull(deploy.startFullSuite(new AuditActor("tester@x", "t-id")));
+        Mockito.verify(pipeline, Mockito.never())
+                .startPipelineExecution(ArgumentMatchers.<Consumer<StartPipelineExecutionRequest.Builder>>any());
     }
 }

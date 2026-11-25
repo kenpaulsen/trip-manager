@@ -50,6 +50,11 @@ import software.amazon.awssdk.services.codepipeline.model.StartPipelineExecution
  *
  * <p>The synchronous client, like {@code MediaCommands} and unlike the DAO's async ones: both operations are
  * user-initiated on a request thread that has nothing else to do and must report the outcome in the response.
+ *
+ * <p>A second, optional pipeline runs the FULL browser-test suite on demand ({@code TRIP_WEBTEST_PIPELINE_NAME}):
+ * the deploy pipeline runs only a smoke subset, and the full suite otherwise runs only on a laptop before a push.
+ * It deploys nothing, so it is the same start-and-watch with its own words, and the same refusals: a known actor
+ * is required, a run in progress is never superseded, and every start is audited.
  */
 @Slf4j
 @Named("deploy")
@@ -57,6 +62,21 @@ import software.amazon.awssdk.services.codepipeline.model.StartPipelineExecution
 public class DeployCommands {
 
     static final String PIPELINE_VAR = "TRIP_PIPELINE_NAME";
+    static final String SUITE_PIPELINE_VAR = "TRIP_WEBTEST_PIPELINE_NAME";
+
+    /** What a start is called in the audit trail and on the page, per pipeline. */
+    private record RunKind(String noun, String busy, String busyDetail, String started, String startedDetail,
+            String notStarted) {
+    }
+
+    private static final RunKind DEPLOYMENT = new RunKind("a deployment",
+            "feedback.deployCommands.alreadyDeploying", "feedback.deployCommands.alreadyDeployingDetail",
+            "feedback.deployCommands.started", "feedback.deployCommands.startedDetail",
+            "feedback.deployCommands.notStarted");
+    private static final RunKind FULL_SUITE = new RunKind("a full webtest run",
+            "feedback.deployCommands.alreadyTesting", "feedback.deployCommands.alreadyTestingDetail",
+            "feedback.deployCommands.suiteStarted", "feedback.deployCommands.suiteStartedDetail",
+            "feedback.deployCommands.suiteNotStarted");
     static final String REGION_VAR = "TRIP_DYNAMO_REGION";
     private static final String DEFAULT_REGION = "us-west-2";
     /** The zone the site operates in; the same one the rest of the admin UI reads dates in. */
@@ -83,7 +103,20 @@ public class DeployCommands {
      * which is a deploy step, not a bug -- and the message says so.
      */
     public PipelineStatus getStatus() {
-        final String name = pipelineName();
+        return statusOf(pipelineName());
+    }
+
+    /** Whether this deployment can run the full browser-test suite on demand. */
+    public boolean isFullSuiteConfigured() {
+        return suitePipelineName() != null;
+    }
+
+    /** The full-suite pipeline's stages, read like {@link #getStatus()} (never throws). */
+    public PipelineStatus getFullSuiteStatus() {
+        return statusOf(suitePipelineName());
+    }
+
+    private PipelineStatus statusOf(final String name) {
         if (name == null) {
             return PipelineStatus.unconfigured(FakeData.isLocal());
         }
@@ -91,7 +124,7 @@ public class DeployCommands {
             return toStatus(name, client().getPipelineState(req -> req.name(name)));
         } catch (final RuntimeException ex) {
             log.error("Unable to read the state of pipeline '" + name + "'", ex);
-            return PipelineStatus.failed(name, describe(ex));
+            return PipelineStatus.failed(name, describe(ex, name));
         }
     }
 
@@ -149,10 +182,24 @@ public class DeployCommands {
      * not an acceptable record of it -- and the failure is silent, which is how it would survive review.
      */
     public String start(final AuditActor who) {
+        return startRun(pipelineName(), who, DEPLOYMENT);
+    }
+
+    /**
+     * Starts the full browser-test suite on behalf of a named actor, with the same refusals as {@link
+     * #start(AuditActor)}: no unattributed run, none while one is in progress. It tests the newest image built
+     * from the current {@code main} and deploys nothing.
+     *
+     * @return the new execution id, or null if nothing was started.
+     */
+    public String startFullSuite(final AuditActor who) {
+        return startRun(suitePipelineName(), who, FULL_SUITE);
+    }
+
+    private String startRun(final String name, final AuditActor who, final RunKind kind) {
         if (who == null || !who.isKnown()) {
             throw new IllegalArgumentException("A deployment must record who started it.");
         }
-        final String name = pipelineName();
         if (name == null) {
             growl(FacesMessage.SEVERITY_ERROR, Text.get("feedback.deployCommands.noPipeline"),
                     Text.get("feedback.deployCommands.noPipelineDetail"));
@@ -161,10 +208,9 @@ public class DeployCommands {
         // No fallback to AuditActor.current(): the guard above already required a known actor, and a fallback
         // here is exactly how an unattributed deploy would creep back in.
         final AuditActor actor = who;
-        final PipelineStatus current = getStatus();
+        final PipelineStatus current = statusOf(name);
         if (current.isRunning()) {
-            growl(FacesMessage.SEVERITY_WARN, Text.get("feedback.deployCommands.alreadyDeploying"),
-                    Text.get("feedback.deployCommands.alreadyDeployingDetail"));
+            growl(FacesMessage.SEVERITY_WARN, Text.get(kind.busy()), Text.get(kind.busyDetail()));
             return null;
         }
         try {
@@ -173,10 +219,9 @@ public class DeployCommands {
             Audit.builder(AuditAction.DEPLOY, AuditOutcome.SUCCESS)
                     .actor(actor)
                     .target(AuditEventBuilder.TARGET_PIPELINE, name)
-                    .message("Started a deployment of '" + name + "'; execution " + executionId)
+                    .message("Started " + kind.noun() + " of '" + name + "'; execution " + executionId)
                     .log();
-            growl(FacesMessage.SEVERITY_INFO, Text.get("feedback.deployCommands.started"),
-                    Text.get("feedback.deployCommands.startedDetail", executionId));
+            growl(FacesMessage.SEVERITY_INFO, Text.get(kind.started()), Text.get(kind.startedDetail(), executionId));
             return executionId;
         } catch (final RuntimeException ex) {
             log.error("Unable to start pipeline '" + name + "'", ex);
@@ -185,9 +230,9 @@ public class DeployCommands {
             Audit.builder(AuditAction.DEPLOY, AuditOutcome.FAILURE)
                     .actor(actor)
                     .target(AuditEventBuilder.TARGET_PIPELINE, name)
-                    .message("Failed to start a deployment of '" + name + "': " + ex.getMessage())
+                    .message("Failed to start " + kind.noun() + " of '" + name + "': " + ex.getMessage())
                     .log();
-            growl(FacesMessage.SEVERITY_ERROR, Text.get("feedback.deployCommands.notStarted"), describe(ex));
+            growl(FacesMessage.SEVERITY_ERROR, Text.get(kind.notStarted()), describe(ex, name));
             return null;
         }
     }
@@ -298,12 +343,16 @@ public class DeployCommands {
      * an undeployed one.
      */
     static String describe(final RuntimeException ex) {
+        return describe(ex, System.getenv(PIPELINE_VAR));
+    }
+
+    private static String describe(final RuntimeException ex, final String name) {
         final String type = ex.getClass().getSimpleName();
         if (type.contains("AccessDenied") || String.valueOf(ex.getMessage()).contains("not authorized")) {
             return Text.get("feedback.deployCommands.notPermitted");
         }
         if (type.contains("PipelineNotFound")) {
-            return Text.get("feedback.deployCommands.pipelineNotFound", System.getenv(PIPELINE_VAR));
+            return Text.get("feedback.deployCommands.pipelineNotFound", name);
         }
         return type + ": " + ex.getMessage();
     }
@@ -314,6 +363,10 @@ public class DeployCommands {
 
     private static String pipelineName() {
         return Env.setting(PIPELINE_VAR);
+    }
+
+    private static String suitePipelineName() {
+        return Env.setting(SUITE_PIPELINE_VAR);
     }
 
     private CodePipelineClient client() {
