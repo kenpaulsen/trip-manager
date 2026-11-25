@@ -120,7 +120,7 @@ public class OrgWaiversResource extends BaseResource {
         if (csrfMissing(csrf)) {
             return error(403, ApiErrors.CSRF, Text.get("api.shared.csrfMissing", CSRF_HEADER));
         }
-        return answer(waivers().setRetired(orgId, id, Boolean.TRUE.equals(body == null ? null : body.get("retired"))));
+        return answer(waivers().setRetired(orgId, id, JsonBody.bool(body, "retired", false)));
     }
 
     private Response answer(final WaiverCommands.Result result) {

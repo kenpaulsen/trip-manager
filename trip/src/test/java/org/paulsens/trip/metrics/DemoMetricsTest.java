@@ -26,14 +26,14 @@ public class DemoMetricsTest {
         DemoMetrics.seed(cache, NOW);
         final MetricsStore store = new MetricsStore(() -> cache, Clock.fixed(NOW, ZoneOffset.UTC));
         final MetricCatalog.Metric pool = MetricCatalog.DDB_POOL;
-        final Series week = store.read(pool, pool.field("max").orElseThrow(), Duration.ofDays(7), null, null, true);
+        final Series week = store.read(pool, pool.field("max").orElseThrow(), Duration.ofDays(7), null, null);
         assertEquals(week.lines().stream().map(Line::task).sorted().toList(),
                 List.of(DemoMetrics.OLD_TASK, DemoMetrics.NEW_TASK));
         final Line combined = store.combinedLine(week);
         assertTrue(combined.points().stream().filter(point -> point.value() != null).count() > 900,
                 "a sample in nearly every bucket");
         for (final MetricCatalog.Metric metric : MetricCatalog.ALL) {
-            assertFalse(store.read(metric, metric.fields().get(0), Duration.ofHours(6), null, null, false).isEmpty(),
+            assertFalse(store.read(metric, metric.fields().get(0), Duration.ofHours(6), null, null).isEmpty(),
                     metric.name() + " has a demo week");
         }
         DemoMetrics.seedOnce(new InMemoryCacheClient(), NOW);

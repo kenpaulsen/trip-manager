@@ -63,6 +63,42 @@ public class JsonRowsTest {
         };
     }
 
+    /**
+     * A stored row that does not parse names the row (its id-like keys, never an address or a name) and the path of
+     * known properties to the failure, so it can be found rather than just vanishing from every list.
+     */
+    @Test
+    public void aStoredRowThatDoesNotParseNamesItsKeysAndPathButNotItsText() {
+        final Map<String, AttributeValue> item = Map.of(
+                "id", AttributeValue.fromS("row-7"),
+                "tripId", AttributeValue.fromS("trip-9"),
+                "email", AttributeValue.fromS("zagreb@example.com"),
+                "userId", AttributeValue.fromS("zagreb@example.com"),
+                "label", AttributeValue.fromS("Zagreb office"),
+                "content", AttributeValue.fromS("{\"name\":\"n\",\"modified\":\"Zagreb o'clock\"}"));
+        final String out = TestWaits.captureStdout(() -> Assert.assertNull(rows.parseItem(Config.class, item)));
+        Assert.assertTrue(out.contains("Unable to parse Config record (id=row-7, tripId=trip-9)"), out);
+        Assert.assertTrue(out.contains(" in modified"), "the property it failed in: " + out);
+        Assert.assertFalse(out.contains("Zagreb") || out.contains("zagreb"), "nothing the row holds: " + out);
+        final String unknown = TestWaits.captureStdout(() -> Assert.assertNull(rows.parse(Config.class,
+                "{\"name\":\"n\",\"ZagrebField\":1}")));
+        Assert.assertFalse(unknown.contains("Zagreb"), "an unknown property's name is the row's own text: " + unknown);
+    }
+
+    /** A map key on the path is "{key}": a key can be an address. */
+    @Test
+    public void aMapKeyOnThePathIsNotNamed() {
+        final String out = TestWaits.captureStdout(() -> Assert.assertNull(rows.parse(Counts.class,
+                "{\"counts\":{\"zagreb@example.com\":\"many\"}}")));
+        Assert.assertTrue(out.contains(" in counts.{key}"), out);
+        Assert.assertFalse(out.contains("zagreb"), out);
+        Assert.assertEquals(JsonRows.rowKeys(Map.of()), "");
+    }
+
+    /** A row type with a map, for the path test. */
+    public record Counts(Map<String, Integer> counts) {
+    }
+
     /** The same on the way out: Jackson's reference chain quotes map keys, and a key can be an address. */
     @Test
     public void aValueThatDoesNotSerializeIsLoggedWithoutItsContent() {

@@ -53,6 +53,19 @@ public class UtilTest {
         assertNull(Util.trimToNull(" \u0001\u2003\u0002 "), "and a mix of both");
     }
 
+    /** Every kind of space counts, the ones Character.isWhitespace leaves out and the invisible format ones too. */
+    @Test
+    public void anySpaceCountsTheInvisibleOnes() {
+        for (final int space : new int[] {' ', '\t', '\n', 0x00A0, 0x2007, 0x202F, 0x3000, 0x200B, 0x2060, 0xFEFF}) {
+            assertTrue(Util.isAnySpace(space), Integer.toHexString(space));
+        }
+        assertFalse(Util.isAnySpace('a'));
+        assertFalse(Util.isAnySpace('@'));
+        assertTrue(Util.hasAnySpace("a\u200bb"));
+        assertFalse(Util.hasAnySpace("ab"));
+        assertFalse(Util.hasAnySpace(null));
+    }
+
     @Test
     public void trimToNullAndTrimmedTrim() {
         assertEquals(Util.trimToNull(" x "), "x");

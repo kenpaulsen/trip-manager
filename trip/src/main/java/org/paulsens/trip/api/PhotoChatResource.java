@@ -309,7 +309,7 @@ public class PhotoChatResource extends BaseResource {
             return error(401, ChatErrors.NOT_AUTHENTICATED, Text.get("api.shared.signInRequired"));
         }
         final List<String> words = PersonMatch.queryWords(q);
-        if (words.isEmpty() || PersonMatch.tooShort(words)) {
+        if (!PersonMatch.searchable(words)) {
             return error(400, ApiErrors.BAD_REQUEST, Text.get("api.photoChat.queryTooShort",
                     PersonMatch.MIN_QUERY_LENGTH));
         }

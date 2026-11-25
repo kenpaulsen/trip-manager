@@ -1185,7 +1185,7 @@ style prints the word "null"), `getContactName()`/`getContactPhone()`/`getContac
 `getDonateUrl()` + `isShowDonate()`, `getPageAnalyticsId()` (screened; also answers a shared host). An org whose row
 cannot be read gets the neutral look and its slug as the name -- never a broken page. Every URL is re-screened in the
 bean even though the save paths validate (a hand-written row bypasses the page): anything with a quote, angle bracket,
-backslash or whitespace is dropped (null → the blank behaviour), and the background URL is additionally percent-encoded
+backslash or whitespace is dropped (null → the blank behavior), and the background URL is additionally percent-encoded
 for the unquoted CSS `url()` context (`( ) ' " ; \ { }`). Text values (footer, contact) are returned raw for the page to
 escape as usual.
 
@@ -1471,7 +1471,7 @@ follow.
 **Where the URL lands: the page's preview, not a row.** A confirmed upload stores the image, writes its
 public URL into the Appearance page's unsaved values, and sends the browser back to the page -- so an
 uploaded image previews exactly like a typed URL and the page's own Save / Cancel still decide. Choosing a
-background image also moves the three-way chooser to Image, or the page would come back showing a colour.
+background image also moves the three-way chooser to Image, or the page would come back showing a color.
 Two things this needed:
 
 - the dialog's forms are SIBLINGS of the page's form and post without its `orgId` parameter, so the view-id

@@ -1,11 +1,18 @@
 package org.paulsens.trip.content;
 
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import org.paulsens.trip.action.Caller;
+import org.paulsens.trip.action.MetricsCommands;
 import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.metrics.MetricCatalog;
 import org.paulsens.trip.metrics.MetricCatalog.Field;
 import org.paulsens.trip.metrics.MetricCatalog.Metric;
+import org.paulsens.trip.metrics.MetricsStore;
 import org.paulsens.trip.model.Placeholder;
 
 /**
@@ -57,11 +64,24 @@ public final class MetricGraphType implements ProgrammaticContentTemplate {
     public static final String METRIC_TEXT = "server.metrics.";
     public static final String UNIT_TEXT = "server.metrics.unit.";
 
+    /**
+     * Each range choice with the time it shows, in the dropdown's order, first the default. Declared once with its
+     * duration, so a choice added here is a choice the graph can draw.
+     */
+    public static final Map<String, Duration> RANGES = ordered("7d", Duration.ofDays(7), "3d", Duration.ofDays(3),
+            "24h", Duration.ofHours(24), "6h", Duration.ofHours(6));
+
+    /** The resolution that lets the store pick the finest bucket that fits the range: the default. */
+    public static final String AUTO = "auto";
+
+    /** Each resolution choice with its bucket, built from the store's own ({@link MetricsStore#BUCKETS}). */
+    public static final Map<String, Duration> RESOLUTIONS = resolutions();
+
     /** Each CHOICE property's values, first the default. */
     public static final Map<String, List<String>> CHOICES = Map.of(
             PROP_LINES, List.of("combined", "perTask"),
-            PROP_RANGE, List.of("7d", "3d", "24h", "6h"),
-            PROP_RESOLUTION, List.of("auto", "1m", "5m", "10m", "1h"),
+            PROP_RANGE, List.copyOf(RANGES.keySet()),
+            PROP_RESOLUTION, resolutionChoices(),
             PROP_ROLLUP, List.of("default", "max", "avg", "min"),
             PROP_STYLE, List.of("line", "area", "bars"),
             PROP_LIMIT, List.of("yes", "no"),
@@ -69,6 +89,32 @@ public final class MetricGraphType implements ProgrammaticContentTemplate {
             PROP_HEIGHT, List.of("2", "1", "3", "4"),
             PROP_CONTROLS, List.of("all", "range", "none"),
             PROP_HEADLINE, List.of("no", "yes"));
+
+    private static Map<String, Duration> ordered(final Object... choicesAndDurations) {
+        final Map<String, Duration> out = new LinkedHashMap<>();
+        for (int i = 0; i < choicesAndDurations.length; i += 2) {
+            out.put((String) choicesAndDurations[i], (Duration) choicesAndDurations[i + 1]);
+        }
+        return Collections.unmodifiableMap(out);
+    }
+
+    private static Map<String, Duration> resolutions() {
+        final Map<String, Duration> out = new LinkedHashMap<>();
+        MetricsStore.BUCKETS.forEach(bucket -> out.put(resolutionChoice(bucket), bucket));
+        return Collections.unmodifiableMap(out);
+    }
+
+    /** A bucket's choice value: "1h" for whole hours, else minutes ("5m"); each has its words in the bundle. */
+    static String resolutionChoice(final Duration bucket) {
+        return bucket.toMinutesPart() == 0 && bucket.toHours() > 0 ? bucket.toHours() + "h" : bucket.toMinutes() + "m";
+    }
+
+    private static List<String> resolutionChoices() {
+        final List<String> out = new ArrayList<>();
+        out.add(AUTO);
+        out.addAll(RESOLUTIONS.keySet());
+        return List.copyOf(out);
+    }
 
     @Override
     public String getTypeId() {
@@ -125,10 +171,10 @@ public final class MetricGraphType implements ProgrammaticContentTemplate {
         return false;
     }
 
-    /** Only a site admin can read metrics, so only a site admin is offered a graph to add. */
+    /** Only who may read metrics is offered a graph to add: the same rule as the graphs themselves. */
     @Override
-    public boolean offeredTo(final boolean siteAdmin) {
-        return siteAdmin;
+    public boolean offeredTo(final Caller caller) {
+        return MetricsCommands.mayViewMetrics(caller);
     }
 
     @Override

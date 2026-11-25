@@ -70,9 +70,11 @@ public class ValkeyMeterRegistryTest {
         final MetricsSampler sampler = mock(MetricsSampler.class);
         final MetricsWriter writer = mock(MetricsWriter.class);
         final ValkeyMeterRegistry registry = new ValkeyMeterRegistry(clock, sampler, () -> writer, () -> true);
+        when(sampler.peek(registry)).thenReturn(RECORDS);
         when(sampler.sample(registry)).thenReturn(RECORDS);
         registry.publishFirst();
         verify(writer).write(10 * 60L, RECORDS);
+        verify(sampler, never()).sample(registry);
         clock.add(Duration.ofMinutes(1));
         registry.publish();
         verify(writer, times(2)).write(10 * 60L, RECORDS);
@@ -85,6 +87,7 @@ public class ValkeyMeterRegistryTest {
         final ValkeyMeterRegistry registry = new ValkeyMeterRegistry(new MockClock(), sampler,
                 () -> mock(MetricsWriter.class), () -> true);
         when(sampler.sample(registry)).thenThrow(new IllegalStateException("a meter gone bad"));
+        when(sampler.peek(registry)).thenThrow(new IllegalStateException("a meter gone bad"));
         registry.publishSafely();
         registry.publishFirst();
         assertEquals(registry.dropped(), 2L);

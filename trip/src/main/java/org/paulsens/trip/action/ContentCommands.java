@@ -2094,8 +2094,7 @@ public class ContentCommands {
             return true;
         }
         final Caller caller = callerSource.get();
-        final boolean siteAdmin = caller.isAuthenticated() && caller.isSiteAdmin();
-        return ProgrammaticTypes.byId(template.getProgrammaticTypeId()).map(type -> type.offeredTo(siteAdmin))
+        return ProgrammaticTypes.byId(template.getProgrammaticTypeId()).map(type -> type.offeredTo(caller))
                 .orElse(true);
     }
 

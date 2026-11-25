@@ -199,10 +199,10 @@ public class BudgetResource extends BaseResource {
         form.setId(lineId);
         form.setName(JsonBody.str(body, "name"));
         form.setAmount(JsonBody.dbl(body, "amount"));
-        form.setPerNight(Boolean.TRUE.equals(body == null ? null : body.get("perNight")));
+        form.setPerNight(JsonBody.bool(body, "perNight", false));
         form.setNote(JsonBody.str(body, "note"));
         form.setPayee(JsonBody.str(body, "payee"));
-        form.setOnSite(!Boolean.FALSE.equals(body == null ? null : body.get("onSite")));
+        form.setOnSite(JsonBody.bool(body, "onSite", true));
         form.setPercentOf(JsonBody.str(body, "percentOf"));
         form.setPercentMode(form.getPercentOf() != null);
         form.setPercent(JsonBody.dbl(body, "percent"));
@@ -229,7 +229,7 @@ public class BudgetResource extends BaseResource {
         form.setSingles(JsonBody.intOf(body, "singles", 0));
         form.setPayee(JsonBody.str(body, "payee"));
         form.setNote(JsonBody.str(body, "note"));
-        form.setOnSite(!Boolean.FALSE.equals(body == null ? null : body.get("onSite")));
+        form.setOnSite(JsonBody.bool(body, "onSite", true));
         if (!budget.saveLodgingLine(tripId, form)) {
             return error(400, ApiErrors.VALIDATION_FAILED,
                     JsonBody.problemOr(form.getProblem(), Text.get("api.budget.lodgingLineNotSaved")));

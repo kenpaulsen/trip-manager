@@ -2,6 +2,7 @@ package org.paulsens.trip.dynamo;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -99,11 +100,13 @@ public class ConfigDAO {
     /**
      * One point read straight against the table, for the deep health check: no shared cache in front of it (a
      * warm cache would answer without DynamoDB) and nothing swallowed, so it throws when the table cannot be
-     * reached. The row never exists; only reaching the table counts.
+     * reached. The row never exists; only reaching the table counts. The timeout is the probe's own, so a slow
+     * table fails with the SDK's reason rather than as the caller's deadline.
      */
-    protected void probeTable() {
+    protected void probeTable(final Duration timeout) {
         persistence.getItem(b -> b.tableName(CONFIG_TABLE)
-                .key(Map.of(NAME, AttributeValue.builder().s(PROBE_ROW).build())));
+                .key(Map.of(NAME, AttributeValue.builder().s(PROBE_ROW).build()))
+                .overrideConfiguration(o -> o.apiCallTimeout(timeout)));
     }
 
     static final String PROBE_ROW = "__health_probe__";

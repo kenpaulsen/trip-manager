@@ -78,8 +78,15 @@ public class MetricsCommands {
      * organization's admins for that organization's numbers.
      */
     public boolean canView(final String orgId) {
-        final Caller caller = callerSource.get();
-        return caller.isAuthenticated() && caller.isSiteAdmin();
+        return mayViewMetrics(callerSource.get());
+    }
+
+    /**
+     * The one rule for who may read metrics: the hub card, every graph and the Add dialog's offer of a graph all
+     * come here, so widening it widens them together.
+     */
+    public static boolean mayViewMetrics(final Caller caller) {
+        return caller.isSignedInSiteAdmin();
     }
 
     /**
@@ -92,7 +99,9 @@ public class MetricsCommands {
         }
         final SitePageCommands pages = new SitePageCommands(callerSource);
         final SitePage page = pages.pageOf(orgId, PAGE_NAME);
-        return page == null || page.isLink() ? null : pages.viewUrl(orgId, page);
+        // An open page at that address is the organization's own "metrics" page, not the gated dashboard.
+        return page == null || page.isLink() || page.who() == SitePage.Access.EVERYONE ? null
+                : pages.viewUrl(orgId, page);
     }
 
     /**
@@ -120,7 +129,7 @@ public class MetricsCommands {
         final Duration range = range(choice(values, MetricGraphType.PROP_RANGE));
         final Duration bucket = bucket(choice(values, MetricGraphType.PROP_RESOLUTION));
         final Rollup rollup = rollup(choice(values, MetricGraphType.PROP_ROLLUP));
-        final Series series = store.read(metric.get(), field.get(), range, bucket, rollup, true);
+        final Series series = store.read(metric.get(), field.get(), range, bucket, rollup);
         final ObjectNode data = view(values);
         data.put("metric", values.get(MetricGraphType.PROP_METRIC).trim());
         data.put("unit", Text.get(MetricGraphType.UNIT_TEXT + field.get().unit()));
@@ -156,7 +165,7 @@ public class MetricsCommands {
             return Optional.empty();
         }
         return metric.field(field.limit()).map(ceiling -> store.combinedLine(store.read(metric, ceiling, range,
-                bucket, Rollup.MAX, true)));
+                bucket, Rollup.MAX)));
     }
 
     /** Numbers the editor typed that are not numbers: shown to whoever can edit the page, ignored by the graph. */
@@ -229,24 +238,15 @@ public class MetricsCommands {
         return allowed.contains(value) ? value : allowed.get(0);
     }
 
+    /** A range choice as the time it shows; an unknown one is the default's. */
     static Duration range(final String choice) {
-        return switch (choice) {
-            case "6h" -> Duration.ofHours(6);
-            case "24h" -> Duration.ofHours(24);
-            case "3d" -> Duration.ofDays(3);
-            default -> Duration.ofDays(7);
-        };
+        final Duration range = MetricGraphType.RANGES.get(choice);
+        return range != null ? range : MetricGraphType.RANGES.values().iterator().next();
     }
 
-    /** A resolution choice as a bucket; null (auto) lets the store pick the finest that fits. */
+    /** A resolution choice as a bucket; null (auto, or unknown) lets the store pick the finest that fits. */
     static Duration bucket(final String choice) {
-        return switch (choice) {
-            case "1m" -> Duration.ofMinutes(1);
-            case "5m" -> Duration.ofMinutes(5);
-            case "10m" -> Duration.ofMinutes(10);
-            case "1h" -> Duration.ofHours(1);
-            default -> null;
-        };
+        return MetricGraphType.RESOLUTIONS.get(choice);
     }
 
     /** A rollup choice; null (default) means the field's own. */

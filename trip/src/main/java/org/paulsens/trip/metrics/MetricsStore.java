@@ -89,10 +89,6 @@ public final class MetricsStore {
     private final Clock clock;
     private final Memo memo;
 
-    public MetricsStore() {
-        this(MetricsStore::compute);
-    }
-
     /** The production cache and clock, with {@code memo} keeping each server's records for the request. */
     public MetricsStore(final Memo memo) {
         this(() -> DAO.getInstance().getCacheClient(), Clock.systemUTC(), memo);
@@ -117,10 +113,11 @@ public final class MetricsStore {
     /**
      * {@code field} of {@code metric} over the last {@code range} (at most a week), in {@code bucket}s (null for
      * the finest that stays under {@link #MAX_POINTS}), each bucket folded by {@code rollup} (null for the field's
-     * own; a count always sums), as one line per server or one combined line.
+     * own; a count always sums), one line per server: {@link #combinedLine} folds them into the one line a graph
+     * shows by default, so one read serves both views.
      */
     public Series read(final Metric metric, final Field field, final Duration range, final Duration bucket,
-            final Rollup rollup, final boolean perTask) {
+            final Rollup rollup) {
         final Duration span = range.compareTo(MAX_RANGE) > 0 ? MAX_RANGE : range;
         final Duration step = bucket == null ? autoBucket(span) : bucket;
         final Rollup fold = field.isCount() || rollup == null ? field.rollup() : rollup;
@@ -139,10 +136,7 @@ public final class MetricsStore {
         }
         final long first = Math.floorDiv(from, step.toSeconds()) * step.toSeconds();
         final long last = Math.floorDiv(now, step.toSeconds()) * step.toSeconds();
-        final List<Line> lines = perTask ? perTaskLines(byTask, first, last, step.toSeconds())
-                : List.of(new Line(COMBINED, dense(combined(byTask.values(), field.combine()), first, last,
-                        step.toSeconds())));
-        return new Series(metric, field, step, first, last, lines);
+        return new Series(metric, field, step, first, last, perTaskLines(byTask, first, last, step.toSeconds()));
     }
 
     /**

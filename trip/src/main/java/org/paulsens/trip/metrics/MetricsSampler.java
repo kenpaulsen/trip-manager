@@ -33,10 +33,26 @@ final class MetricsSampler {
         this.pool = pool;
     }
 
+    /** The minute that just ended, every peak starting over for the next one. */
     Map<String, Map<String, Number>> sample(final MeterRegistry registry) {
-        final Map<String, Map<String, Number>> records = new LinkedHashMap<>();
-        final PoolSample poolSample = pool.drain();
         warnOfUnreadPoolReports();
+        return records(registry, pool.drain(), RequestMetricsFilter.drainSlowestMillis(),
+                RequestMetricsFilter.drainActivePeak());
+    }
+
+    /**
+     * The current minute so far, with every peak left in place: the first publish after start writes this partial
+     * minute, and the regular publish at the minute's end overwrites it, so a drain here would lose the startup
+     * peaks from the minute's final record.
+     */
+    Map<String, Map<String, Number>> peek(final MeterRegistry registry) {
+        return records(registry, pool.peek(), RequestMetricsFilter.peekSlowestMillis(),
+                RequestMetricsFilter.peekActivePeak());
+    }
+
+    private static Map<String, Map<String, Number>> records(final MeterRegistry registry, final PoolSample poolSample,
+            final double slowestMillis, final long activePeak) {
+        final Map<String, Map<String, Number>> records = new LinkedHashMap<>();
         if (poolSample.limit() > 0) {
             records.put(MetricCatalog.DDB_POOL.name(), Map.of("max", poolSample.leasedMax(),
                     "pending", poolSample.pendingMax(), "calls", poolSample.calls(), "limit", poolSample.limit()));
@@ -50,7 +66,7 @@ final class MetricsSampler {
         records.put(MetricCatalog.JVM_GC.name(), Map.of(
                 "pauses", gc.stream().mapToLong(Timer::count).sum(),
                 "pauseMs", gc.stream().mapToDouble(timer -> timer.totalTime(TimeUnit.MILLISECONDS)).sum()));
-        records.put(MetricCatalog.HTTP_REQUESTS.name(), requests(registry));
+        records.put(MetricCatalog.HTTP_REQUESTS.name(), requests(registry, slowestMillis, activePeak));
         return records;
     }
 
@@ -71,15 +87,16 @@ final class MetricsSampler {
         }
     }
 
-    private static Map<String, Number> requests(final MeterRegistry registry) {
+    private static Map<String, Number> requests(final MeterRegistry registry, final double slowestMillis,
+            final long activePeak) {
         final Timer timer = registry.find(RequestMetricsFilter.TIMER).timer();
         final Counter errors = registry.find(RequestMetricsFilter.ERRORS).counter();
         return Map.of(
                 "count", timer == null ? 0L : timer.count(),
                 "errors", errors == null ? 0L : (long) errors.count(),
                 "meanMs", timer == null ? 0.0 : timer.mean(TimeUnit.MILLISECONDS),
-                "maxMs", RequestMetricsFilter.drainSlowestMillis(),
-                "active", RequestMetricsFilter.drainActivePeak());
+                "maxMs", slowestMillis,
+                "active", activePeak);
     }
 
     /**

@@ -392,6 +392,23 @@ public class SearchIndexTest {
         Assert.assertEquals(loads.get(), afterWarm + 1, "after the window, one new load");
     }
 
+    /**
+     * A clear that covers the index (another instance's, broadcast, or this one's whole-cache clear) drops the
+     * reusable load at once, rather than letting it hide the edits the clear was for until the window ends.
+     */
+    @Test
+    public void aClearThatCoversTheIndexDropsTheReusableLoad() throws Exception {
+        final SearchIndex index = warm();
+        final int afterWarm = loads.get();
+        index.forgetLoadIfCleared(List.of("t1:person:"));
+        Assert.assertEquals(index.searchIds("qq", 10), List.of());
+        Assert.assertEquals(loads.get(), afterWarm, "a clear of other keys keeps it");
+
+        index.forgetLoadIfCleared(List.of(KEY));
+        index.searchIds("jj", 10);
+        Assert.assertEquals(loads.get(), afterWarm + 1, "inside the window, but cleared: a new load");
+    }
+
     /** Concurrent cold searches wait for one scan instead of each running their own. */
     @Test
     public void concurrentColdSearchesShareOneLoad() throws Exception {

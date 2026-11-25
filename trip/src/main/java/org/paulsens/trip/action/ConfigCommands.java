@@ -75,6 +75,15 @@ public class ConfigCommands {
         return parseLong(name, getString(name, null), defaultValue);
     }
 
+    /**
+     * A stored setting value read as a boolean exactly as {@link #getBoolean(String, boolean)} reads it: true, yes, on
+     * and 1 in any case are true, their opposites false, and anything else (or null) is {@code defaultValue}. For a
+     * page that shows a value it did not read through a getter, so it never states the opposite of what applies.
+     */
+    public static boolean booleanOf(final String name, final String raw, final boolean defaultValue) {
+        return parseBoolean(name, raw, defaultValue);
+    }
+
     private static boolean parseBoolean(final String name, final String raw, final boolean defaultValue) {
         if (raw == null) {
             return defaultValue;

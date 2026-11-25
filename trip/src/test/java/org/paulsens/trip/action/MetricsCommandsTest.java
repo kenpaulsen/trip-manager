@@ -20,6 +20,7 @@ import java.util.function.Supplier;
 import org.paulsens.trip.cache.CacheKeys;
 import org.paulsens.trip.cache.InMemoryCacheClient;
 import org.paulsens.trip.content.MetricGraphType;
+import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.metrics.MetricCatalog;
 import org.paulsens.trip.metrics.MetricsStore;
 import org.paulsens.trip.metrics.MetricsWriter;
@@ -140,6 +141,11 @@ public class MetricsCommandsTest {
         assertEquals(MetricsCommands.bucket("5m"), Duration.ofMinutes(5));
         assertEquals(MetricsCommands.bucket("1h"), Duration.ofHours(1));
         assertNull(MetricsCommands.bucket("auto"));
+        assertEquals(MetricsCommands.range("12h"), Duration.ofDays(7), "an unknown range is the default's");
+        assertEquals(MetricGraphType.CHOICES.get(MetricGraphType.PROP_RESOLUTION), List.of("auto", "1m", "5m", "10m",
+                "1h"), "one choice per store bucket, each with its words in the bundle");
+        MetricGraphType.CHOICES.get(MetricGraphType.PROP_RANGE).forEach(choice -> assertEquals(
+                MetricsCommands.range(choice), MetricGraphType.RANGES.get(choice), "every range choice draws its own"));
         assertEquals(MetricsCommands.rollup("max"), MetricCatalog.Rollup.MAX);
         assertEquals(MetricsCommands.rollup("avg"), MetricCatalog.Rollup.AVG);
         assertEquals(MetricsCommands.rollup("min"), MetricCatalog.Rollup.MIN);
@@ -150,16 +156,23 @@ public class MetricsCommandsTest {
 
     @Test
     public void theHubCardLinksToTheOrganizationsOwnDashboard() {
-        final Organization org = orgWithAdmin(savedPerson());
+        final Person orgAdmin = savedPerson();
+        final Organization org = orgWithAdmin(orgAdmin);
         final String orgId = org.getId().getValue();
-        final MetricsCommands admin = new MetricsCommands(TestCallers::siteAdminHoldingNothing, new MetricsStore());
+        final MetricsCommands admin = new MetricsCommands(TestCallers::siteAdminHoldingNothing,
+                new MetricsStore(() -> DAO.getInstance().getCacheClient(), Clock.systemUTC()));
         assertNull(admin.hubUrl(orgId), "no site yet: nothing to link to");
         final String slug = "metrics" + RandomData.genAlpha(10).toLowerCase();
         assertTrue(new OrgCommands(TestCallers::siteAdminHoldingNothing).saveOrgEdits(orgId, org.getName(), null,
                 null, null, null, slug));
         assertEquals(admin.hubUrl(orgId), "https://" + slug + ".unitetrip.com/page.jsf?name=metrics");
-        assertTrue(new SitePageCommands(TestCallers::siteAdminHoldingNothing).deletePage(orgId, "metrics"));
+        assertFalse(new SitePageCommands(() -> TestCallers.holdingNothing(orgAdmin)).addPage(orgId, "Metrics",
+                "metrics", "ABOUT"), "the dashboard holds the address, though the org admin's list does not show it");
+        final SitePageCommands siteAdmin = new SitePageCommands(TestCallers::siteAdminHoldingNothing);
+        assertTrue(siteAdmin.deletePage(orgId, "metrics"));
         assertNull(admin.hubUrl(orgId), "its dashboard deleted");
+        assertTrue(siteAdmin.addPage(orgId, "Metrics", "metrics", "ABOUT"));
+        assertNull(admin.hubUrl(orgId), "an open page at that address is the organization's own, not the dashboard");
     }
 
     private static MetricsCommands commands(final Supplier<Caller> caller,

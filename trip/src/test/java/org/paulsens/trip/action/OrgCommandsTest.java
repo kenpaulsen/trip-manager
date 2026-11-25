@@ -2107,6 +2107,30 @@ public class OrgCommandsTest {
         }
     }
 
+    /**
+     * The editor's "Inherit (Yes/No)" reads the site's value the way the server does: a site row stored as TRUE, on
+     * or 1 is yes, never shown as no.
+     */
+    @Test
+    public void anInheritedYesNoIsReadTheWayTheServerReadsIt() throws IOException {
+        final SettingDef edits = KnownSettings.REG_ALLOW_EDITS;
+        try {
+            for (final String yes : List.of("TRUE", "on", " 1 ", "Yes")) {
+                assertTrue(new ConfigCommands().save(new Config(edits.getName(), yes, edits.getType(), "test",
+                        LocalDateTime.now(), "tester"), "tester"));
+                assertTrue(admin().inheritsYes(edits), yes);
+            }
+            assertTrue(new ConfigCommands().save(new Config(edits.getName(), "0", edits.getType(), "test",
+                    LocalDateTime.now(), "tester"), "tester"));
+            assertFalse(admin().inheritsYes(edits));
+        } finally {
+            assertTrue(new ConfigCommands().save(new Config(edits.getName(), null, edits.getType(), "test",
+                    LocalDateTime.now(), "tester"), "tester"));
+        }
+        assertTrue(admin().inheritsYes(edits), "unset: the compiled default, true");
+        assertFalse(ConfigCommands.booleanOf("x", "maybe", false), "an unreadable value is the default");
+    }
+
     /** Owner decision 2026-11-24: an organization may name several mailboxes for its payment copy. */
     @Test
     public void anOrgAdminSavesAListOfPaymentNotifyAddressesAndEachIsCopied() throws IOException {

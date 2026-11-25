@@ -2790,6 +2790,15 @@ public class OrgCommands {
     }
 
     /**
+     * Whether a yes/no setting the organization leaves blank comes out as yes: {@link #inheritedSetting} read the way
+     * the server reads it ({@link ConfigCommands#booleanOf}), so the editor's "Inherit (Yes)" never contradicts a
+     * site value stored as {@code TRUE}, {@code on} or {@code 1}.
+     */
+    public boolean inheritsYes(final org.paulsens.trip.model.SettingDef def) {
+        return ConfigCommands.booleanOf(def.getName(), inheritedSetting(def), def.booleanDefault());
+    }
+
+    /**
      * A setting as it applies to ONE organization, named explicitly -- for background code (digest and
      * notification senders, schedulers) that runs with no request bound and must derive the org from the
      * entity in hand rather than from a site context. Pages and request-bound beans need nothing: the

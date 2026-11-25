@@ -140,10 +140,10 @@ public class PersonDAO {
     /** {@link #searchPeople(String, int)} for a viewer with the given {@code reach}, saying whether it was cut. */
     protected Search searchPeople(final String query, final int limit, final PersonMatch.Reach reach) {
         final List<String> words = PersonMatch.queryWords(query);
-        final String lookup = PersonMatch.lookupWord(words);
-        if (lookup.length() < PersonMatch.MIN_QUERY_LENGTH || limit <= 0) {
+        if (!PersonMatch.searchable(words) || limit <= 0) {
             return new Search(List.of(), false);
         }
+        final String lookup = PersonMatch.lookupWord(words);
         final int window = limit * 3;
         final List<String> ids = searchIndex.searchIds(lookup, window);
         final List<Person> matched = resolvePeople(ids).stream()
@@ -162,6 +162,11 @@ public class PersonDAO {
         public Search {
             people = List.copyOf(people);
         }
+    }
+
+    /** Forgets the search index's reusable load when {@code prefixes} cover it ({@link SearchIndex}). */
+    void forgetSearchLoad(final List<String> prefixes) {
+        searchIndex.forgetLoadIfCleared(prefixes);
     }
 
     public void clearCache() {

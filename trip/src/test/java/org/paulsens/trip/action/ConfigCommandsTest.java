@@ -148,7 +148,9 @@ public class ConfigCommandsTest {
         // ONE address: another separator inside it would reach SES as a single unusable recipient.
         for (final String bad : List.of("not-an-address", "a@example.org, nope", "a@example.org; b@example.org",
                 "a@example.org;b@example.org", "a@example.org b@example.org", "a@example.org,", ",", " , ",
-                "a@example.org,,b@example.org", "a@b@example.org", "a@example.org,\tb@exa\tmple.org")) {
+                "a@example.org,,b@example.org", "a@b@example.org", "a@example.org,\tb@exa\tmple.org",
+                // The invisible spaces a paste brings, which trim() keeps and SES refuses (Util.isAnySpace).
+                "a@example.org,\u00a0b@example.org", "a@example.org\u202f", "a@exa\u200bmple.org")) {
             Assert.assertNotNull(config.rejection(of(notify, bad, Config.Type.STRING)), bad);
         }
         final String why = config.rejection(of(notify, "a@example.org, nope", Config.Type.STRING));

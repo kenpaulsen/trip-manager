@@ -35,6 +35,8 @@ public class RequestMetricsFilterTest {
         assertEquals(filter.errors().count(), 2.0, "the 503 and the throw");
         assertEquals(filter.timer().count(), 3L, "every request, failed or not");
         assertEquals(new RequestMetricsFilter().timer().getId().getName(), RequestMetricsFilter.TIMER);
+        assertTrue(RequestMetricsFilter.peekSlowestMillis() >= 5.0, "a peek sees the minute so far");
+        assertEquals(RequestMetricsFilter.peekActivePeak(), 1L);
         assertTrue(RequestMetricsFilter.drainSlowestMillis() >= 5.0, "the slow one is this minute's slowest");
         assertEquals(RequestMetricsFilter.drainActivePeak(), 1L, "one at a time");
         assertEquals(RequestMetricsFilter.drainActivePeak(), 0L, "none left in flight");

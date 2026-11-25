@@ -34,7 +34,7 @@ public class PoolMetricPublisherTest {
     }
 
     /** One API call's report, shaped as the SDK sends it: the HTTP numbers in a child collection. */
-    private static MetricCollection call(final int leased, final int pending) {
+    static MetricCollection call(final int leased, final int pending) {
         final MetricCollector apiCall = MetricCollector.create("ApiCall");
         final MetricCollector http = apiCall.createChild("ApiCallAttempt").createChild("HttpClient");
         http.reportMetric(HttpMetric.LEASED_CONCURRENCY, leased);

@@ -41,6 +41,24 @@ public class MetricsSamplerTest {
         assertFalse(sampler.sample(new SimpleMeterRegistry()).containsKey("jvm.heap"), "no heap meters, no record");
     }
 
+    /**
+     * The first publish after start peeks at the current minute; the regular publish at its end must still see the
+     * minute's peaks, or the startup burst would vanish from the minute's final record.
+     */
+    @Test
+    public void aPeekLeavesTheMinutesPeaksForTheMinutesEnd() {
+        final PoolMetricPublisher pool = new PoolMetricPublisher();
+        pool.publish(PoolMetricPublisherTest.call(9, 2));
+        final MetricsSampler sampler = new MetricsSampler(pool);
+        final SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        assertEquals(sampler.peek(registry).get("ddb.pool").get("max"), 9L);
+        final Map<String, Number> ended = sampler.sample(registry).get("ddb.pool");
+        assertEquals(ended.get("max"), 9L, "still there after the peek");
+        assertEquals(ended.get("pending"), 2L);
+        assertEquals(ended.get("calls"), 1L);
+        assertEquals(sampler.sample(registry).get("ddb.pool").get("max"), 0L, "the next minute starts over");
+    }
+
     /** A pool report the publisher could not read shows in the log: the first minute, then at most hourly. */
     @Test
     public void unreadPoolReportsAreLoggedTheFirstMinuteAndThenHourly() {

@@ -87,6 +87,18 @@ public class CacheInvalidationTest {
         assertEquals(delegate.reads.get(), 1, "the handler must drop the heap entry like handle() does");
     }
 
+    /** A foreign event's prefixes also reach the in-memory state outside the client; an own event's never do. */
+    @Test
+    public void aForeignEventAlsoReachesTheIndexLoads() {
+        final List<List<String>> forgotten = new ArrayList<>();
+        final InMemoryCacheClient client = new InMemoryCacheClient();
+        CacheInvalidation.handlerFor(client, forgotten::add).accept(CacheKeys.CACHE_INVAL_CHANNEL,
+                "{\"origin\":\"another-jvm\",\"prefixes\":[\"t1:\"]}");
+        CacheInvalidation.handlerFor(client, forgotten::add).accept(CacheKeys.CACHE_INVAL_CHANNEL,
+                "{\"origin\":\"" + CacheInvalidation.ORIGIN + "\",\"prefixes\":[\"t1:\"]}");
+        assertEquals(forgotten, List.of(List.of("t1:")));
+    }
+
     private static Optional<String> warm(final NearCacheClient near) {
         return NearCacheContext.call(Cached.YES, () -> near.getValue("t1:person:p1"));
     }

@@ -13,8 +13,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.MailCommands;
 import org.paulsens.trip.action.MediaCommands;
 import org.paulsens.trip.api.Beans;
+import org.paulsens.trip.cache.CacheClient;
 import org.paulsens.trip.cache.CacheKeys;
 import org.paulsens.trip.cache.CacheProbes;
+import org.paulsens.trip.cache.NearCacheClient;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.security.PasswordHasher;
@@ -149,15 +151,25 @@ public final class DeepHealth {
         }
     }
 
-    /** A value written and read back: proves the shared cache holds state (a Noop cache remembers nothing). */
     static Status cache() {
-        return CacheProbes.remembers(DAO.getInstance().getCacheClient(), CacheKeys.deepHealthProbeKey())
-                ? Status.OK : Status.FAIL;
+        return cache(FakeData.isLocal(), DAO.getInstance().getCacheClient());
     }
 
-    /** One uncached point read; throws when the table cannot be reached. */
+    /**
+     * A value written and read back: proves the shared cache holds state (a Noop cache remembers nothing). Outside
+     * local mode only the shared Valkey cache counts: without {@code TRIP_VALKEY_URI} the server falls back to a
+     * per-JVM cache, which remembers the probe just as well but shares nothing with the other tasks and scripts.
+     */
+    static Status cache(final boolean local, final CacheClient client) {
+        if (!local && !(client instanceof NearCacheClient)) {
+            return Status.NOT_CONFIGURED;
+        }
+        return CacheProbes.remembers(client, CacheKeys.deepHealthProbeKey()) ? Status.OK : Status.FAIL;
+    }
+
+    /** One uncached point read under the per-call timeout; throws when the table cannot be reached. */
     static Status datastore() {
-        DAO.getInstance().probeDataStore();
+        DAO.getInstance().probeDataStore(CALL_TIMEOUT);
         return Status.OK;
     }
 

@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import java.io.IOException;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -868,8 +869,8 @@ public final class DAO {
         return NearCacheContext.call(cached, () -> configDao.getConfig(name));
     }
     /** Throws when the datastore cannot be reached: an uncached read for the deep health check. */
-    public void probeDataStore() {
-        configDao.probeTable();
+    public void probeDataStore(final Duration timeout) {
+        configDao.probeTable(timeout);
     }
     public List<Config> getAllConfig(final Cached cached) {
         return NearCacheContext.call(cached, () -> configDao.getAllConfig());
@@ -1110,11 +1111,21 @@ public final class DAO {
      */
     public List<String> invalidate(final CacheScope scope) {
         final List<String> prefixes = clearScope(scope);
+        forgetLocalIndexLoads(prefixes);
         // Discover holds trips, organizations and settings already mapped: whatever was just made visible
         // may be in it, and marking it stale costs nothing when it was not.
         DiscoverIndex.getInstance().invalidate();
         CacheInvalidation.broadcast(cacheClient, prefixes);
         return prefixes;
+    }
+
+    /**
+     * Forgets this instance's in-memory index loads that {@code prefixes} cover: after its own clear (a whole-cache
+     * clear included, which does not go through the person scope) and when another instance's clear is broadcast
+     * ({@code CacheInvalidationListener}).
+     */
+    public void forgetLocalIndexLoads(final List<String> prefixes) {
+        personDao.forgetSearchLoad(prefixes);
     }
 
     private List<String> clearScope(final CacheScope scope) {

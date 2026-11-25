@@ -42,20 +42,20 @@ public class MetricsStoreTest {
         final MetricCatalog.Metric pool = MetricCatalog.DDB_POOL;
 
         final Series peak = store.read(pool, pool.field("max").orElseThrow(), Duration.ofMinutes(30),
-                Duration.ofMinutes(5), null, false);
+                Duration.ofMinutes(5), null);
         assertEquals(peak.bucket(), Duration.ofMinutes(5));
-        final Line all = peak.lines().get(0);
+        final Line all = store.combinedLine(peak);
         assertEquals(all.task(), MetricsStore.COMBINED);
         assertEquals(value(all, T - 600), 9.0, "the 11:50 bucket's highest minute, across servers");
         assertNull(value(all, T - 300), "no sample: a gap, not a zero");
         assertFalse(peak.isEmpty());
 
         final Series calls = store.read(pool, pool.field("calls").orElseThrow(), Duration.ofMinutes(30),
-                Duration.ofMinutes(5), Rollup.MAX, false);
-        assertEquals(value(calls.lines().get(0), T - 600), 16.0, "a count always sums, whatever the graph asks");
+                Duration.ofMinutes(5), Rollup.MAX);
+        assertEquals(value(store.combinedLine(calls), T - 600), 16.0, "a count always sums, whatever the graph asks");
 
         final Series apart = store.read(pool, pool.field("max").orElseThrow(), Duration.ofMinutes(30),
-                Duration.ofMinutes(1), Rollup.AVG, true);
+                Duration.ofMinutes(1), Rollup.AVG);
         assertEquals(apart.lines().stream().map(Line::task).sorted().toList(), List.of("one", "two"));
         assertEquals(value(line(apart, "one"), T - 540), 9.0);
         assertEquals(value(line(apart, "two"), T - 600), 7.0);
@@ -70,7 +70,7 @@ public class MetricsStoreTest {
         cache.addScoredEntries(CacheKeys.METRICS_TASKS, Map.of("old", (double) T - 60));
         final MetricCatalog.Metric heap = MetricCatalog.JVM_HEAP;
         final Series series = store(cache).read(heap, heap.field("used").orElseThrow(), Duration.ofHours(1), null,
-                null, false);
+                null);
         assertTrue(series.isEmpty(), "the field holds last week's minute");
         assertEquals(series.bucket(), Duration.ofMinutes(1), "an hour fits at the finest bucket");
     }
@@ -84,8 +84,9 @@ public class MetricsStoreTest {
         assertEquals(MetricsStore.autoBucket(Duration.ofDays(365)), Duration.ofHours(1));
         final MetricCatalog.Metric gc = MetricCatalog.JVM_GC;
         final Series series = store(new InMemoryCacheClient()).read(gc, gc.field("pauses").orElseThrow(),
-                Duration.ofDays(30), Duration.ofHours(1), null, false);
-        assertEquals(series.lines().get(0).points().size(), 7 * 24 + 1, "a week of hours, both ends included");
+                Duration.ofDays(30), Duration.ofHours(1), null);
+        assertEquals(store(new InMemoryCacheClient()).combinedLine(series).points().size(), 7 * 24 + 1,
+                "a week of hours, both ends included");
         assertEquals(MetricsStore.minuteFields(T - Duration.ofDays(8).toSeconds(), T).size(), 10_080,
                 "more than a week reads each minute's field once");
     }
@@ -97,7 +98,6 @@ public class MetricsStoreTest {
         assertEquals(MetricsStore.fold(List.of(1.0, 4.0, 2.0), Rollup.SUM), 7.0);
         assertEquals(MetricsStore.combined(List.of(Map.of(0L, 2.0), Map.of(0L, 3.0, 60L, 1.0)),
                 MetricCatalog.Combine.SUM), Map.of(0L, 5.0, 60L, 1.0));
-        assertEquals(new MetricsStore().getClass(), MetricsStore.class, "the production constructor");
     }
 
     private static MetricsStore store(final InMemoryCacheClient cache) {

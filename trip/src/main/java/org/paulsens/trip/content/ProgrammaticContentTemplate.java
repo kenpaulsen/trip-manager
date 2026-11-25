@@ -3,6 +3,7 @@ package org.paulsens.trip.content;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.paulsens.trip.action.Caller;
 import org.paulsens.trip.model.Placeholder;
 
 /**
@@ -96,10 +97,10 @@ public interface ProgrammaticContentTemplate {
     }
 
     /**
-     * Whether the Add dialog offers this type to an editor who is ({@code siteAdmin}) or is not a site admin. True
-     * for every type but one whose content only a site admin can read (the metrics graph, docs/metrics.md).
+     * Whether the Add dialog offers this type to {@code caller}. True for every type but one whose content only some
+     * callers can read (the metrics graph, docs/metrics.md).
      */
-    default boolean offeredTo(final boolean siteAdmin) {
+    default boolean offeredTo(final Caller caller) {
         return true;
     }
 

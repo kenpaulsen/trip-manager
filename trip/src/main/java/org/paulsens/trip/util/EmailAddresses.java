@@ -11,7 +11,8 @@ import java.util.regex.Pattern;
  * request, which in a mail merge means the recipients after it never get their mail.
  *
  * <p>Rules: non-null, non-blank, an {@code @} with at least one character before it, a {@code .} in the domain
- * with characters on both sides, and no spaces. These are the rules {@code MailCommands.validateEmail} has always
+ * with characters on both sides, and no space of any kind ({@link Util#isAnySpace}: a tab, a no-break space or a
+ * zero-width one pasted in with the address). These are the rules {@code MailCommands.validateEmail} has always
  * applied, plus one addition: a domain ending in {@code .} is now rejected ({@code a@b.}), which the old check
  * let through. They live here so the notification code can ask the same question without constructing a
  * {@code MailCommands}, which builds an SES client in a field.
@@ -50,7 +51,8 @@ public final class EmailAddresses {
         if (dot < (at + 2) || dot == email.length() - 1) {
             return null;
         }
-        return (email.indexOf(' ') == -1) ? email : null;
+        // Any space, the invisible ones a paste brings included (Util.isAnySpace): SES refuses them all.
+        return Util.hasAnySpace(email) ? null : email;
     }
 
     /** Whether this address can be mailed. Notification preferences treat an invalid address as OFF. */
@@ -61,8 +63,8 @@ public final class EmailAddresses {
     /**
      * The first piece of a comma-separated address list that is not ONE usable address, trimmed ({@code ""} for
      * an empty piece: a doubled or trailing comma, or nothing at all); null when every piece is. Stricter than
-     * {@link #isValid} on purpose: that check lets {@code a@x.org;b@y.org} and a tab inside an address through
-     * as one "address", which SES would take as a single malformed destination and refuse the whole send over.
+     * {@link #isValid} on purpose: that check lets {@code a@x.org;b@y.org} and {@code a@x@y.org} through as one
+     * "address", which SES would take as a single malformed destination and refuse the whole send over.
      */
     public static String firstUnusableInList(final String list) {
         for (final String piece : list.split(",", -1)) {
@@ -74,8 +76,7 @@ public final class EmailAddresses {
     }
 
     private static boolean isOneAddress(final String piece) {
-        return isValid(piece) && piece.indexOf('@') == piece.lastIndexOf('@')
-                && piece.chars().noneMatch(c -> c == ';' || Character.isWhitespace(c));
+        return isValid(piece) && piece.indexOf('@') == piece.lastIndexOf('@') && piece.indexOf(';') == -1;
     }
 
     /** RFC 5322's specials (bar the angle brackets, which callers refuse or strip), legal only when quoted. */

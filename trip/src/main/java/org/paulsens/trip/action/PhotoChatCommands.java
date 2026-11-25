@@ -564,7 +564,7 @@ public class PhotoChatCommands {
     public List<Map<String, String>> mentionSearch(final Person.Id me, final String query, final int maxResults) {
         final String q = query == null ? "" : query.strip();
         final List<String> words = PersonMatch.queryWords(q);
-        if (words.isEmpty() || PersonMatch.tooShort(words)) {
+        if (!PersonMatch.searchable(words)) {
             return List.of();
         }
         return labeled(PersonCommands.listOrSearch(OrgCommands.fellowMembersOf(dao(), me), q,

@@ -49,7 +49,7 @@ final class ValkeyMeterRegistry extends StepMeterRegistry {
     @Override
     protected void publish() {
         // Sample first, always: it drains the minute's peaks, which must not carry into the next minute.
-        final Map<String, Map<String, Number>> records = sampler.sample(this);
+        final Map<String, Map<String, Number>> records = current ? sampler.peek(this) : sampler.sample(this);
         if (records.isEmpty() || !enabled.getAsBoolean()) {
             return;
         }
@@ -101,7 +101,8 @@ final class ValkeyMeterRegistry extends StepMeterRegistry {
     /**
      * One publish right after start, so a fresh server (and a page opened right after a deploy) has a minute to show
      * at once rather than after the first full minute. It holds the current, partial minute, which the first
-     * regular publish then overwrites with the whole minute.
+     * regular publish then overwrites with the whole minute; so it peeks rather than drains, or the peaks it read
+     * would be missing from that whole minute.
      */
     void publishFirst() {
         current = true;

@@ -78,7 +78,7 @@ chat as well:
    straight at the chip that should change.
 
    ABSENT and zero are different answers there, hence the boxed `Long` params: absent is an older client and
-   keeps the old behaviour, while a sent zero is a current client saying "I have seen no reactions here" --
+   keeps the old behavior, while a sent zero is a current client saying "I have seen no reactions here" --
    the ordinary state of a channel whose FIRST reaction is the one being waited for. A zero from the SERVER
    still means "not reported" and never counts as a change, so a client with nothing to catch up to cannot be
    spun into a hot loop.

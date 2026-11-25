@@ -99,4 +99,14 @@ public class RequestMetricsFilter implements Filter {
         ACTIVE.record(IN_FLIGHT.get());
         return peak;
     }
+
+    /** This minute's slowest request so far, in milliseconds, left in place. */
+    static double peekSlowestMillis() {
+        return SLOWEST_NANOS.peek() / 1_000_000.0;
+    }
+
+    /** This minute's most requests in flight so far, left in place. */
+    static long peekActivePeak() {
+        return ACTIVE.peek();
+    }
 }

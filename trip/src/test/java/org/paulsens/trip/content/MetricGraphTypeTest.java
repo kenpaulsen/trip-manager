@@ -11,9 +11,12 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
+import org.paulsens.trip.action.Caller;
+import org.paulsens.trip.action.TestCallers;
 import org.paulsens.trip.metrics.MetricCatalog;
 import org.paulsens.trip.metrics.MetricCatalog.Field;
 import org.paulsens.trip.metrics.MetricCatalog.Metric;
+import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Placeholder;
 import org.testng.annotations.Test;
 
@@ -31,8 +34,10 @@ public class MetricGraphTypeTest {
         assertEquals(type.getFragmentPath(), "/WEB-INF/ptypes/metricGraph.xhtml");
         assertEquals(type.getIcon(), "pi-chart-line");
         assertFalse(type.fitsTripPage());
-        assertTrue(type.offeredTo(true));
-        assertFalse(type.offeredTo(false), "only a site admin is offered a graph to add");
+        assertTrue(type.offeredTo(TestCallers.siteAdmin()));
+        assertFalse(type.offeredTo(TestCallers.person(Person.Id.from("someone"))),
+                "only a site admin is offered a graph to add");
+        assertFalse(type.offeredTo(Caller.of(null)), "nor anybody who is not signed in");
         assertTrue(type.getSampleHtml().contains("currentColor"), "the sample draws in the theme's color");
         assertFalse(type.getSampleHtml().contains("#"), "no literal color");
         assertTrue(StarterTemplates.IDS.contains(MetricGraphType.TYPE_ID));

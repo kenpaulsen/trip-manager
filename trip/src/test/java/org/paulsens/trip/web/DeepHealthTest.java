@@ -6,6 +6,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import org.paulsens.trip.cache.InMemoryCacheClient;
+import org.paulsens.trip.cache.NoopCacheClient;
 import org.paulsens.trip.security.PasswordHasher;
 import org.paulsens.trip.security.Pepper;
 import org.paulsens.trip.util.TestWaits;
@@ -111,6 +113,18 @@ public class DeepHealthTest {
                 "media", Status.NOT_CONFIGURED),
                 "local mode has an in-memory cache and store, and no pepper, SES or bucket to ask");
         Assert.assertTrue(report.healthy());
+    }
+
+    /**
+     * Outside local mode a server that fell back to its own per-JVM cache (TRIP_VALKEY_URI dropped from the task
+     * definition) must not pass: that cache remembers the probe but shares nothing with the other tasks.
+     */
+    @Test
+    public void onlyTheSharedCachePassesOutsideLocalMode() {
+        Assert.assertEquals(DeepHealth.cache(false, new InMemoryCacheClient()), Status.NOT_CONFIGURED);
+        Assert.assertEquals(DeepHealth.cache(false, new NoopCacheClient()), Status.NOT_CONFIGURED);
+        Assert.assertEquals(DeepHealth.cache(true, new InMemoryCacheClient()), Status.OK, "local mode's own cache");
+        Assert.assertEquals(DeepHealth.cache(true, new NoopCacheClient()), Status.FAIL, "it remembers nothing");
     }
 
     @Test

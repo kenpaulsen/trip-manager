@@ -23,4 +23,9 @@ public final class MinuteMax {
     public long drain() {
         return peak.getAndSet(0);
     }
+
+    /** This minute's peak so far, left in place for the read that ends the minute. */
+    public long peek() {
+        return peak.get();
+    }
 }

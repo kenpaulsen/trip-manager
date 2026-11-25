@@ -2,12 +2,16 @@ package org.paulsens.trip.dynamo;
 
 import com.fasterxml.jackson.core.JsonLocation;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.exc.PropertyBindingException;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 
@@ -33,19 +37,77 @@ final class JsonRows {
     /**
      * The stored row as a {@code type}, or {@code null} (logged) when it does not parse.
      *
-     * <p>The log names the type, the kind of failure and the position in the row, and nothing else. Not the row: it
-     * holds names, addresses and money. Not Jackson's message either, nor the exception (whose stack trace prints
-     * that message): it quotes the offending value ({@code from String "..."}), an unknown field's name and an
-     * unrecognized token, and its reference chain quotes map keys.
+     * <p>The log names the type, the kind of failure, the position in the row and the path of known properties to
+     * it, and nothing else. Not the row: it holds names, addresses and money. Not Jackson's message either, nor the
+     * exception (whose stack trace prints that message): it quotes the offending value ({@code from String "..."}),
+     * an unknown field's name and an unrecognized token, and its reference chain quotes map keys.
      */
     <T> T parse(final Class<T> type, final String json) {
+        return parse(type, json, Map.of());
+    }
+
+    /**
+     * {@link #parse(Class, String)} for a stored row, whose log also names the row: its id-like key attributes
+     * ({@link #rowKeys}), so a row that stops parsing after a deploy can be found rather than just vanishing.
+     */
+    private <T> T parse(final Class<T> type, final String json, final Map<String, AttributeValue> item) {
         try {
             return mapper.readValue(json, type);
         } catch (final IOException ex) {
-            log.error("Unable to parse {} record: {} at {}", type.getSimpleName(), ex.getClass().getSimpleName(),
-                    position(ex));
+            log.error("Unable to parse {} record{}: {} at {}{}", type.getSimpleName(), rowKeys(item),
+                    ex.getClass().getSimpleName(), position(ex), path(ex));
             return null;
         }
+    }
+
+    /**
+     * The row's id-like attributes ({@code id}, {@code sk}, {@code ts} and every {@code ...Id}), as " (id=...)", or
+     * "" for none. Only those: other attributes can carry names, and a value holding an {@code @} (an email key) is
+     * left out too.
+     */
+    static String rowKeys(final Map<String, AttributeValue> item) {
+        final String keys = item.entrySet().stream()
+                .filter(entry -> isIdLike(entry.getKey()) && isPlain(entry.getValue()))
+                .map(entry -> entry.getKey() + "=" + plain(entry.getValue()))
+                .sorted()
+                .collect(Collectors.joining(", "));
+        return keys.isEmpty() ? "" : " (" + keys + ")";
+    }
+
+    private static boolean isIdLike(final String name) {
+        return "id".equals(name) || "sk".equals(name) || "ts".equals(name) || name.endsWith("Id");
+    }
+
+    private static boolean isPlain(final AttributeValue value) {
+        final String plain = plain(value);
+        return plain != null && plain.indexOf('@') < 0;
+    }
+
+    private static String plain(final AttributeValue value) {
+        return value.s() != null ? value.s() : value.n();
+    }
+
+    /**
+     * " in field.list[2].{key}" for a mapping failure: the known properties on the way to it, an index as itself and a
+     * map key as "{key}" (a key can be an address), and an unknown property left off (its name is the row's text).
+     */
+    static String path(final IOException ex) {
+        if (!(ex instanceof JsonMappingException mapping) || mapping.getPath().isEmpty()) {
+            return "";
+        }
+        final List<JsonMappingException.Reference> refs = new ArrayList<>(mapping.getPath());
+        if (ex instanceof PropertyBindingException) {
+            refs.remove(refs.size() - 1);
+        }
+        final String path = refs.stream().map(JsonRows::step).collect(Collectors.joining("."));
+        return path.isEmpty() ? "" : " in " + path;
+    }
+
+    private static String step(final JsonMappingException.Reference ref) {
+        if (ref.getIndex() >= 0) {
+            return "[" + ref.getIndex() + "]";
+        }
+        return ref.getFrom() instanceof Map ? "{key}" : ref.getFieldName();
     }
 
     /** "line 1, column 42": the numbers only, because a location's own text can carry a snippet of the source. */
@@ -57,7 +119,7 @@ final class JsonRows {
     /** One stored row as a {@code type}: {@code null} for a row that is absent or carries no {@code content}. */
     <T> T parseItem(final Class<T> type, final Map<String, AttributeValue> item) {
         final AttributeValue content = item.get(CONTENT);
-        return (content == null) ? null : parse(type, content.s());
+        return (content == null) ? null : parse(type, content.s(), item);
     }
 
     /**
@@ -101,9 +163,7 @@ final class JsonRows {
      */
     <T> List<T> parseAll(final Class<T> type, final List<Map<String, AttributeValue>> items) {
         return items.stream()
-                .map(item -> item.get(CONTENT))
-                .filter(Objects::nonNull)
-                .map(content -> parse(type, content.s()))
+                .map(item -> parseItem(type, item))
                 .filter(Objects::nonNull)
                 .toList();
     }

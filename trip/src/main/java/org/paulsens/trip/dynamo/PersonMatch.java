@@ -75,7 +75,7 @@ public final class PersonMatch {
      * {@link #tooShort} to search, so an in-memory list refuses exactly what the directory index cannot look up.
      */
     public static boolean matchesAll(final Person person, final List<String> words, final Reach reach) {
-        return person != null && !words.isEmpty() && !tooShort(words)
+        return person != null && searchable(words)
                 && words.stream().allMatch(word -> matches(person, word, reach));
     }
 
@@ -86,6 +86,14 @@ public final class PersonMatch {
      */
     public static boolean tooShort(final List<String> words) {
         return !words.isEmpty() && lookupWord(words).length() < MIN_QUERY_LENGTH;
+    }
+
+    /**
+     * True when {@code words} is a query to run: it has words, and they are not {@link #tooShort}. The one test
+     * every search path asks, so a tightened rule tightens them all.
+     */
+    public static boolean searchable(final List<String> words) {
+        return !words.isEmpty() && !tooShort(words);
     }
 
     /** True when {@code query} has words and every one matches {@code person}. */

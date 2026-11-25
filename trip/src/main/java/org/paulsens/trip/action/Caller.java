@@ -155,6 +155,11 @@ public final class Caller {
         return siteAdmin;
     }
 
+    /** A signed-in site admin: the site-admin flag alone is not enough when nobody is signed in. */
+    public boolean isSignedInSiteAdmin() {
+        return isAuthenticated() && siteAdmin;
+    }
+
     /** For audit records, so a caller and the actor it is recorded as cannot drift apart. */
     public AuditActor auditActor() {
         return actor;

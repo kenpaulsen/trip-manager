@@ -176,6 +176,17 @@ public final class SearchIndex {
         return cache.removeKey(partsKey());
     }
 
+    /**
+     * Forgets the reusable load when {@code prefixes} cover this index: what another instance's (or this one's
+     * whole-cache) clear asks of every instance, since a load reused after a clear would hide the out-of-band
+     * edits the clear was for. Only the in-memory load: the cleared keys are already gone.
+     */
+    public void forgetLoadIfCleared(final Collection<String> prefixes) {
+        if (prefixes.stream().anyMatch(key::startsWith)) {
+            lastLoad.set(new SoftReference<>(null));
+        }
+    }
+
     private String partsKey() {
         return key + PARTS_SUFFIX;
     }

@@ -59,6 +59,23 @@ public final class Util {
     }
 
     /**
+     * Whether a character is space of any kind, visible or not: what {@link Character#isWhitespace} counts (space,
+     * tab, line breaks), plus the Unicode spaces it leaves out (no-break space U+00A0, figure space U+2007, narrow
+     * no-break space U+202F) and the invisible format characters a paste carries in (zero-width space U+200B,
+     * joiners, the byte-order mark U+FEFF). A value meant to hold one token, an address or a code, must refuse all
+     * of them: they look like nothing on the screen, yet a mail service or a lookup reads them as part of the value.
+     */
+    public static boolean isAnySpace(final int codePoint) {
+        return Character.isWhitespace(codePoint) || Character.isSpaceChar(codePoint)
+                || Character.getType(codePoint) == Character.FORMAT;
+    }
+
+    /** Whether the text holds any character {@link #isAnySpace} counts; false for null. */
+    public static boolean hasAnySpace(final String text) {
+        return text != null && text.codePoints().anyMatch(Util::isAnySpace);
+    }
+
+    /**
      * Checks if a string is null, empty, or blank (spaces only).
      */
     public static boolean isBlank(final String str) {

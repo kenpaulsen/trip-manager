@@ -71,6 +71,9 @@ public class PersonMatchTest {
         assertFalse(PersonMatch.tooShort(PersonMatch.queryWords("k paulsen")), "a long word carries a short one");
         assertFalse(PersonMatch.tooShort(PersonMatch.queryWords("ke")));
         assertFalse(PersonMatch.tooShort(List.of()), "no query is not a refused query");
+        assertFalse(PersonMatch.searchable(List.of()), "but it is not one to run either");
+        assertFalse(PersonMatch.searchable(PersonMatch.queryWords("k")));
+        assertTrue(PersonMatch.searchable(PersonMatch.queryWords("k paulsen")));
         assertFalse(PersonMatch.matchesQuery(ken, "k", ALL), "even though 'k' is inside Ken");
         assertTrue(PersonMatch.matchesQuery(ken, "k paulsen", ALL));
         assertTrue(PersonMatch.matchesQuery(ken, "ke", ALL));

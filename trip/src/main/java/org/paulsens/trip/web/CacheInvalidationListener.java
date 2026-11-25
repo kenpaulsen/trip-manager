@@ -30,7 +30,8 @@ public class CacheInvalidationListener implements ServletContextListener {
         try {
             final CacheClient client = client();
             subscription = client.subscribe(
-                    List.of(CacheKeys.CACHE_INVAL_CHANNEL), CacheInvalidation.handlerFor(client));
+                    List.of(CacheKeys.CACHE_INVAL_CHANNEL),
+                    CacheInvalidation.handlerFor(client, DAO.getInstance()::forgetLocalIndexLoads));
             log.info("Subscribed to cache-invalidation channel {}", CacheKeys.CACHE_INVAL_CHANNEL);
         } catch (final RuntimeException ex) {
             log.warn("Cache-invalidation subscribe failed; freshness falls back to the soft-TTL poll", ex);

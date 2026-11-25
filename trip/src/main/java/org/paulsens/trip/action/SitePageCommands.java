@@ -351,6 +351,20 @@ public class SitePageCommands {
         return edit;
     }
 
+    /**
+     * The title the site's default-language readers see for {@code page} when it is not the main title: one stored
+     * for that language before it became the default. The dialog has no field for it, so it shows it under the
+     * Title, since rewriting the Title replaces it. Null when there is none, or it reads the same.
+     */
+    public String defaultReadersSee(final String orgId, final SitePage page) {
+        if (page == null) {
+            return null;
+        }
+        final String tag = new ConfigCommands().siteLanguages(orgs.findOrganization(orgId)).get(0).getTag();
+        final String shown = page.titles().get(tag);
+        return shown == null || shown.equals(page.title()) ? null : shown;
+    }
+
     /** The menu's target for an entry: a page's own address on this site, or a link's URL. */
     public String hrefOf(final SitePage page) {
         return page.isLink() ? page.url() : SitePage.PATH + page.name();
@@ -416,27 +430,13 @@ public class SitePageCommands {
      * overwriting it), so it is never blank.
      */
     public boolean addPage(final String orgId, final String title, final String name, final String placement) {
-        return addPage(orgId, title, Map.of(), name, placement);
-    }
-
-    /** {@link #addPage(String, String, String, String)} with the page's title in the site's other languages. */
-    public boolean addPage(final String orgId, final String title, final Map<String, String> titles,
-            final String name, final String placement) {
-        return addPage(orgId, title, titles, name, placement, null);
+        return addPage(orgId, title, Map.of(), name, placement, null, null);
     }
 
     /**
-     * {@link #addPage(String, String, Map, String, String)} for a page only {@code access} may see (an
-     * {@link Access} name; null or blank for everyone). Only a site admin may add one for site admins.
-     */
-    public boolean addPage(final String orgId, final String title, final Map<String, String> titles,
-            final String name, final String placement, final String access) {
-        return addPage(orgId, title, titles, name, placement, access, null);
-    }
-
-    /**
-     * {@link #addPage(String, String, Map, String, String, String)} with the page's own sidebar choice (a
-     * {@link Sidebar} name; null or blank follows the organization's default).
+     * {@link #addPage(String, String, String, String)} with the page's title in the site's other languages, the
+     * {@link Access} name of who may see it (null or blank for everyone; only a site admin may add one for site
+     * admins) and its own sidebar choice (a {@link Sidebar} name; null or blank follows the organization's default).
      */
     public boolean addPage(final String orgId, final String title, final Map<String, String> titles,
             final String name, final String placement, final String access, final String sidebar) {
@@ -481,31 +481,15 @@ public class SitePageCommands {
      */
     public boolean saveDialog(final String orgId, final String mode, final String name, final String title,
             final String url, final String placement) {
-        return saveDialog(orgId, mode, name, title, null, url, placement);
+        return saveDialog(orgId, mode, name, title, null, url, placement, null, null);
     }
 
     /**
      * {@link #saveDialog(String, String, String, String, String, String)} with the dialog's per-language titles
      * ({@link #titlesEdit}): only the languages the org's site offers besides its default are kept, a blank one
-     * meaning the entry's own title, and each is held to the title's own length rule.
-     */
-    public boolean saveDialog(final String orgId, final String mode, final String name, final String title,
-            final Map<String, String> titles, final String url, final String placement) {
-        return saveDialog(orgId, mode, name, title, titles, url, placement, null);
-    }
-
-    /**
-     * {@link #saveDialog(String, String, String, String, Map, String, String)} with the page's access, an
-     * {@link Access} name (ignored for a link, which is never gated); null keeps an edited entry's own.
-     */
-    public boolean saveDialog(final String orgId, final String mode, final String name, final String title,
-            final Map<String, String> titles, final String url, final String placement, final String access) {
-        return saveDialog(orgId, mode, name, title, titles, url, placement, access, null);
-    }
-
-    /**
-     * {@link #saveDialog(String, String, String, String, Map, String, String, String)} with the page's sidebar
-     * choice, a {@link Sidebar} name (ignored for a link); null keeps an edited entry's own.
+     * meaning the entry's own title, and each is held to the title's own length rule. With the page's access, an
+     * {@link Access} name, and its sidebar choice, a {@link Sidebar} name: both ignored for a link, which is never
+     * gated, and null keeps an edited entry's own.
      */
     public boolean saveDialog(final String orgId, final String mode, final String name, final String title,
             final Map<String, String> titles, final String url, final String placement, final String access,
@@ -525,31 +509,15 @@ public class SitePageCommands {
     /** Changes an entry's title and placement (and a link's URL); its address never changes. */
     public boolean updatePage(final String orgId, final String name, final String title, final String url,
             final String placement) {
-        return updatePage(orgId, name, title, null, url, placement);
+        return updatePage(orgId, name, title, null, url, placement, null, null);
     }
 
     /**
      * {@link #updatePage(String, String, String, String, String)} that also replaces the titles of the languages the
-     * site offers (its default's only when the main title changes); a stored title for a language it does not offer
-     * is kept. Null {@code titles} keeps them all.
-     */
-    public boolean updatePage(final String orgId, final String name, final String title,
-            final Map<String, String> titles, final String url, final String placement) {
-        return updatePage(orgId, name, title, titles, url, placement, null);
-    }
-
-    /**
-     * {@link #updatePage(String, String, String, Map, String, String)} that also sets the page's access (an
-     * {@link Access} name); null keeps the one it has. Only a site admin may choose site admins.
-     */
-    public boolean updatePage(final String orgId, final String name, final String title,
-            final Map<String, String> titles, final String url, final String placement, final String access) {
-        return updatePage(orgId, name, title, titles, url, placement, access, null);
-    }
-
-    /**
-     * {@link #updatePage(String, String, String, Map, String, String, String)} that also sets the page's sidebar
-     * choice (a {@link Sidebar} name); null keeps the one it has.
+     * site offers (its default's only when the main title changes; a stored title for a language it does not offer
+     * is kept; null {@code titles} keeps them all), and sets the page's access (an {@link Access} name; only a site
+     * admin may choose site admins) and its sidebar choice (a {@link Sidebar} name). A null access or sidebar keeps
+     * the one the page has.
      */
     public boolean updatePage(final String orgId, final String name, final String title,
             final Map<String, String> titles, final String url, final String placement, final String access,
@@ -763,9 +731,13 @@ public class SitePageCommands {
             return PageFeedback.refuse(Text.get("feedback.sitePageCommands.tooManyPages"),
                     Text.get("feedback.sitePageCommands.tooManyPagesDetail", MAX_PAGES));
         }
-        if (find(pages, entry.name()).isPresent()) {
-            return PageFeedback.refuse(Text.get("feedback.sitePageCommands.addressTaken"),
-                    Text.get("feedback.sitePageCommands.addressInUse", SitePage.PATH + entry.name()));
+        final Optional<SitePage> clash = find(pages, entry.name());
+        if (clash.isPresent()) {
+            // No link to an entry the caller's list does not show (the site admins' metrics page): it would only
+            // open a refusal.
+            return PageFeedback.refuse(Text.get("feedback.sitePageCommands.addressTaken"), mayManage(clash.get())
+                    ? Text.get("feedback.sitePageCommands.addressInUse", SitePage.PATH + entry.name())
+                    : Text.get("feedback.sitePageCommands.addressHeld"));
         }
         pages.add(new SitePage(entry.name(), cleanTitle, entry.url(), entry.placement(), entry.titles(),
                 entry.access(), entry.sidebar()));
@@ -853,8 +825,7 @@ public class SitePageCommands {
     }
 
     private boolean isSiteAdmin() {
-        final Caller current = callerSource.get();
-        return current.isAuthenticated() && current.isSiteAdmin();
+        return callerSource.get().isSignedInSiteAdmin();
     }
 
     /** A fresh org the caller may manage, or null (with a growl). */

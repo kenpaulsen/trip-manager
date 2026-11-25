@@ -59,6 +59,11 @@ public final class PoolMetricPublisher implements MetricPublisher {
         return new PoolSample(leased.drain(), pending.drain(), calls.sumThenReset(), limit.get());
     }
 
+    /** This minute's numbers so far, left in place for the read that ends the minute. */
+    public PoolSample peek() {
+        return new PoolSample(leased.peek(), pending.peek(), calls.sum(), limit.get());
+    }
+
     /** How many reports could not be read: zero unless the SDK changed shape. */
     public long dropped() {
         return dropped.sum();

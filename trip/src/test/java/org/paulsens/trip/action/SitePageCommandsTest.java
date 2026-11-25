@@ -122,7 +122,7 @@ public class SitePageCommandsTest {
         assertEquals(pages.pageOf(orgId, "board").title(), "Junta directiva");
 
         assertTrue(pages.saveDialog(orgId, "edit", "about", about.title(), pages.titlesEdit(orgId, about), null,
-                about.placement()), "the dialog saved as it opened");
+                about.placement(), null, null), "the dialog saved as it opened");
         assertEquals(pages.pageOf(orgId, "about"), about, "nothing lost or moved by the save");
     }
 
@@ -337,7 +337,7 @@ public class SitePageCommandsTest {
         assertEquals(pages.titlesEdit(orgId, null), Map.of("es", "", "hr", ""), "a new entry's empty fields");
 
         final Map<String, String> typed = new HashMap<>(Map.of("es", " Nuestra misión ", "hr", " ", "fr", "Mission"));
-        assertTrue(pages.saveDialog(orgId, "page", "mission", "Our Mission", typed, null, "ABOUT"));
+        assertTrue(pages.saveDialog(orgId, "page", "mission", "Our Mission", typed, null, "ABOUT", null, null));
         final SitePage mission = pages.pageOf(orgId, "mission");
         assertEquals(mission.titles(), Map.of("es", "Nuestra misión"),
                 "trimmed, a blank one dropped, and only a language the site offers kept");
@@ -351,41 +351,49 @@ public class SitePageCommandsTest {
                 "Nuestra misión", "the menu reads the same");
         assertNull(pages.titleOf(null));
 
-        assertTrue(pages.saveDialog(orgId, "edit", "mission", "Mission", null, null, "HELP"));
+        assertTrue(pages.saveDialog(orgId, "edit", "mission", "Mission", null, null, "HELP", null, null));
         assertEquals(pages.pageOf(orgId, "mission").titles(), Map.of("es", "Nuestra misión"),
                 "a save without titles keeps them");
-        assertTrue(pages.saveDialog(orgId, "edit", "mission", "Mission", Map.of("hr", "Naša misija"), null, "HELP"));
+        assertTrue(pages.saveDialog(orgId, "edit", "mission", "Mission", Map.of("hr", "Naša misija"), null, "HELP",
+                null, null));
         assertEquals(pages.pageOf(orgId, "mission").titles(), Map.of("hr", "Naša misija"), "a save with them replaces");
-        assertFalse(pages.saveDialog(orgId, "edit", "mission", "Mission", Map.of("es", "x".repeat(61)), null, "HELP"),
+        assertFalse(pages.saveDialog(orgId, "edit", "mission", "Mission", Map.of("es", "x".repeat(61)), null, "HELP",
+                null, null),
                 "a title in another language keeps the length rule");
         assertEquals(pages.pageOf(orgId, "mission").titles(), Map.of("hr", "Naša misija"), "nothing saved");
         assertTrue(pages.saveDialog(orgId, "link", null, "Give", Map.of("es", "Donar"), "https://example.org/",
-                "HELP"));
+                "HELP", null, null));
         assertEquals(pages.pagesIn(orgId, "HELP").get(1).titleIn("es"), "Donar");
 
         // A title for a language the site does not offer yet (a starter's) survives a dialog save, so the entry
         // still reads translated once the site adds the language (review, 2026-11-24).
         assertTrue(new OrgCommands(TestCallers::siteAdminHoldingNothing).saveOrgSettings(orgId,
                 Map.of(KnownSettings.SITE_LANGUAGES.getName(), "en,es")));
-        assertTrue(pages.saveDialog(orgId, "edit", "mission", "Mission", Map.of("es", "Misión"), null, "HELP"));
+        assertTrue(pages.saveDialog(orgId, "edit", "mission", "Mission", Map.of("es", "Misión"), null, "HELP", null,
+                null));
         assertEquals(pages.pageOf(orgId, "mission").titles(), Map.of("es", "Misión", "hr", "Naša misija"),
                 "the Croatian title the dialog did not show is kept");
-        assertTrue(pages.saveDialog(orgId, "edit", "mission", "Mission", Map.of("es", " "), null, "HELP"));
+        assertTrue(pages.saveDialog(orgId, "edit", "mission", "Mission", Map.of("es", " "), null, "HELP", null, null));
         assertEquals(pages.pageOf(orgId, "mission").titles(), Map.of("hr", "Naša misija"),
                 "an offered language's title is still cleared by the dialog");
 
         // Once Spanish becomes the default, a stored Spanish title is what Spanish readers see, and the dialog has no
         // field for it: a save that leaves the main title alone keeps it, and one that rewrites the main title (the
         // default's own field) replaces it.
-        assertTrue(pages.saveDialog(orgId, "edit", "mission", "Mission", Map.of("es", "Misión"), null, "HELP"));
+        assertTrue(pages.saveDialog(orgId, "edit", "mission", "Mission", Map.of("es", "Misión"), null, "HELP", null,
+                null));
         assertTrue(new OrgCommands(TestCallers::siteAdminHoldingNothing).saveOrgSettings(orgId,
                 Map.of(KnownSettings.SITE_LANGUAGES.getName(), "es,en")));
-        assertTrue(pages.saveDialog(orgId, "edit", "mission", "Mission", Map.of(), null, "ABOUT"));
+        assertTrue(pages.saveDialog(orgId, "edit", "mission", "Mission", Map.of(), null, "ABOUT", null, null));
         assertEquals(pages.pageOf(orgId, "mission").titleIn("es"), "Misión", "a move keeps the default's title");
+        assertEquals(pages.defaultReadersSee(orgId, pages.pageOf(orgId, "mission")), "Misión",
+                "the dialog shows it under the Title, which would replace it");
+        assertNull(pages.defaultReadersSee(orgId, null));
         assertTrue(pages.saveDialog(orgId, "edit", "mission", "Nuestra misión", Map.of("en", "Mission"), null,
-                "HELP"));
+                "HELP", null, null));
         assertEquals(pages.pageOf(orgId, "mission").titleIn("es"), "Nuestra misión", "the new default reads the main");
         assertEquals(pages.pageOf(orgId, "mission").titles(), Map.of("en", "Mission", "hr", "Naša misija"));
+        assertNull(pages.defaultReadersSee(orgId, pages.pageOf(orgId, "mission")), "nothing else for them to see");
     }
 
     @Test
@@ -479,7 +487,7 @@ public class SitePageCommandsTest {
         final Organization org = hostedOrgWithAdmin(orgAdmin);
         final String orgId = org.getId().getValue();
         final SitePageCommands pages = commandsFor(orgAdmin);
-        assertTrue(pages.addPage(orgId, "Board minutes", null, "board-minutes", "ABOUT", "ORG_ADMINS"));
+        assertTrue(pages.addPage(orgId, "Board minutes", null, "board-minutes", "ABOUT", "ORG_ADMINS", null));
         final String opened = TestWaits.captureStdout(() -> assertTrue(pages.saveDialog(orgId, "edit",
                 "board-minutes", "Board minutes", null, null, "ABOUT", "EVERYONE", "HIDE")));
         assertTrue(opened.contains("Editable page 'Board minutes' (board-minutes) updated "
@@ -527,7 +535,7 @@ public class SitePageCommandsTest {
         assertFalse(pages.helpMenuShown(platformId), "the entry gone: hidden again");
 
         // Help counts only what the READER may open: a signed-in page there is no Help at all for a visitor.
-        assertTrue(pages.addPage(platformId, "Members help", null, "members-help", "HELP", "SIGNED_IN"));
+        assertTrue(pages.addPage(platformId, "Members help", null, "members-help", "HELP", "SIGNED_IN", null));
         final SitePageCommands visitor = new SitePageCommands(
                 () -> new Caller(null, false, new AuditActor(null, null), new PrivilegeCommands()));
         try {
@@ -648,10 +656,10 @@ public class SitePageCommandsTest {
         final Organization org = hostedOrgWithAdmin(orgAdmin);
         final String orgId = org.getId().getValue();
         final SitePageCommands admin = commandsFor(orgAdmin);
-        assertTrue(admin.addPage(orgId, "Open", Map.of(), "open", "ABOUT", null));
-        assertTrue(admin.addPage(orgId, "Members", Map.of(), "members", "ABOUT", "SIGNED_IN"));
-        assertTrue(admin.addPage(orgId, "Admins", Map.of(), "admins", "ABOUT", "ORG_ADMINS"));
-        assertTrue(siteAdmin().addPage(orgId, "Metrics", Map.of(), "metrics", "ABOUT", "SITE_ADMINS"));
+        assertTrue(admin.addPage(orgId, "Open", Map.of(), "open", "ABOUT", null, null));
+        assertTrue(admin.addPage(orgId, "Members", Map.of(), "members", "ABOUT", "SIGNED_IN", null));
+        assertTrue(admin.addPage(orgId, "Admins", Map.of(), "admins", "ABOUT", "ORG_ADMINS", null));
+        assertTrue(siteAdmin().addPage(orgId, "Metrics", Map.of(), "metrics", "ABOUT", "SITE_ADMINS", null));
         final SiteContext site = SiteContext.org(org.getId(), org.getSlug(), org.getSlug() + ".unitetrip.com");
 
         final SitePageCommands visitor = new SitePageCommands(() -> Caller.of(null));
@@ -687,28 +695,28 @@ public class SitePageCommandsTest {
         final String orgId = org.getId().getValue();
         final SitePageCommands admin = commandsFor(orgAdmin);
 
-        assertFalse(admin.addPage(orgId, "Metrics", Map.of(), "metrics", "HIDDEN", "SITE_ADMINS"));
+        assertFalse(admin.addPage(orgId, "Metrics", Map.of(), "metrics", "HIDDEN", "SITE_ADMINS", null));
         assertEquals(admin.pagesOf(orgId), List.of(), "the refused add saved nothing");
         assertFalse(admin.accessChoices().contains("SITE_ADMINS"));
         assertTrue(siteAdmin().accessChoices().contains("SITE_ADMINS"));
-        assertTrue(siteAdmin().addPage(orgId, "Metrics", Map.of(), "metrics", "HIDDEN", "SITE_ADMINS"));
+        assertTrue(siteAdmin().addPage(orgId, "Metrics", Map.of(), "metrics", "HIDDEN", "SITE_ADMINS", null));
         assertTrue(admin.addPage(orgId, "Day 1", "day-1", "HIDDEN"));
 
         assertEquals(names(admin.tableOf(orgId)), List.of("day-1"));
         assertEquals(names(admin.pagesIn(orgId, "HIDDEN")), List.of("day-1"));
         assertEquals(names(siteAdmin().tableOf(orgId)), List.of("metrics", "day-1"));
-        assertFalse(admin.updatePage(orgId, "metrics", "Open now", Map.of(), null, "HIDDEN", "EVERYONE"));
+        assertFalse(admin.updatePage(orgId, "metrics", "Open now", Map.of(), null, "HIDDEN", "EVERYONE", null));
         assertFalse(admin.movePage(orgId, "metrics", 1));
         assertFalse(admin.deletePage(orgId, "metrics"));
-        assertFalse(admin.updatePage(orgId, "day-1", "Day 1", Map.of(), null, "HIDDEN", "SITE_ADMINS"),
+        assertFalse(admin.updatePage(orgId, "day-1", "Day 1", Map.of(), null, "HIDDEN", "SITE_ADMINS", null),
                 "nor can an org admin raise a page to site admins");
         assertEquals(siteAdmin().pageOf(orgId, "metrics").who(), SitePage.Access.SITE_ADMINS);
         assertEquals(siteAdmin().pageOf(orgId, "day-1").who(), SitePage.Access.EVERYONE);
 
         assertTrue(siteAdmin().saveDialog(orgId, "edit", "metrics", "Metrics", Map.of(), null, "HIDDEN",
-                "ORG_ADMINS"));
+                "ORG_ADMINS", null));
         assertEquals(admin.pageOf(orgId, "metrics").who(), SitePage.Access.ORG_ADMINS);
-        assertTrue(admin.updatePage(orgId, "metrics", "Numbers", null, null, "HIDDEN"),
+        assertTrue(admin.updatePage(orgId, "metrics", "Numbers", null, null, "HIDDEN", null, null),
                 "a save without an access keeps the page's own");
         assertEquals(admin.pageOf(orgId, "metrics").who(), SitePage.Access.ORG_ADMINS);
         assertEquals(admin.accessLabel("ORG_ADMINS"), "This organization's admins");
@@ -723,7 +731,7 @@ public class SitePageCommandsTest {
         final String orgId = org.getId().getValue();
         final SitePageCommands admin = commandsFor(orgAdmin);
         assertTrue(admin.addPage(orgId, "Day 1", "day-1", "HIDDEN"));
-        assertTrue(siteAdmin().addPage(orgId, "Metrics", Map.of(), "metrics", "HIDDEN", "SITE_ADMINS"));
+        assertTrue(siteAdmin().addPage(orgId, "Metrics", Map.of(), "metrics", "HIDDEN", "SITE_ADMINS", null));
         assertTrue(admin.addPage(orgId, "Day 2", "day-2", "HIDDEN"));
         assertTrue(admin.canMove(orgId, admin.pageOf(orgId, "day-1"), 1), "day 2 is its visible neighbor");
         assertTrue(admin.movePage(orgId, "day-1", 1));
@@ -764,7 +772,8 @@ public class SitePageCommandsTest {
         assertFalse(onSite(site, () -> admin.sidebarFor("side")), "forced off overrides a page's Show");
         assertTrue(admin.sidebarForcedOff(orgId));
 
-        assertTrue(admin.updatePage(orgId, "side", "Side", null, null, "HIDDEN"), "a save without a choice");
+        assertTrue(admin.updatePage(orgId, "side", "Side", null, null, "HIDDEN", null, null),
+                "a save without a choice");
         assertEquals(admin.pageOf(orgId, "side").side(), SitePage.Sidebar.SHOW, "keeps the page's own");
         assertTrue(admin.saveDialog(orgId, "edit", "side", "Side", Map.of(), null, "HIDDEN", null, "DEFAULT"));
         assertNull(admin.pageOf(orgId, "side").sidebar(), "the default is stored as nothing, as before the choice");

@@ -27,6 +27,11 @@ public class EmailAddressesTest {
                 {"joe@example.", "domain ending in a dot"},
                 {"joe smith@example.com", "space in the local part"},
                 {"joe@exam ple.com", "space in the domain"},
+                {"joe\t@example.com", "a tab"},
+                {"joe@example.com\u00a0", "a no-break space, which trim() keeps"},
+                {"joe\u202f@example.com", "a narrow no-break space"},
+                {"joe@exa\u200bmple.com", "a zero-width space pasted in with the address"},
+                {"\ufeffjoe@example.com", "a byte-order mark"},
         };
     }
 
@@ -49,6 +54,15 @@ public class EmailAddressesTest {
     @Test(dataProvider = "usable")
     public void usableAddressesAreAccepted(final String candidate) {
         Assert.assertTrue(EmailAddresses.isValid(candidate), candidate + " should be accepted");
+    }
+
+    /** A list piece is held to the same rule: an invisible space in one piece names that piece. */
+    @Test
+    public void aListPieceWithAnInvisibleSpaceIsTheUnusableOne() {
+        Assert.assertEquals(EmailAddresses.firstUnusableInList("a@x.org, b\u00a0@y.org"), "b\u00a0@y.org");
+        Assert.assertEquals(EmailAddresses.firstUnusableInList("a@x.org,b@y\u2007.org"), "b@y\u2007.org");
+        Assert.assertEquals(EmailAddresses.firstUnusableInList("a@x.org;b@y.org"), "a@x.org;b@y.org");
+        Assert.assertNull(EmailAddresses.firstUnusableInList(" a@x.org , b@y.org "));
     }
 
     @Test

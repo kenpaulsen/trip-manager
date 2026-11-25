@@ -333,8 +333,9 @@ for the checkout confirmation, `CheckoutCommandsTest`.
 
 **Rollout.** Until this rule an organization could not hold its own address, so at the deploy that ships it no
 organization has one: an organization that relied on the site-wide address gets NO copy (silently: nothing is
-logged) until its own address is set on its Trips & money tab. The site value keeps serving only payments with
-no organization.
+logged) until its own address is set on its Trips & money tab. The one-time step for that deploy is the pages
+repo's `scripts/payment-notify/set-org-notify.sh` (its `docs/ops-scripts.md`), which sets the named organization's
+own address. The site value keeps serving only payments with no organization.
 
 ## The money rules (user-locked; the golden test is `PaymentRecorderTest`)
 

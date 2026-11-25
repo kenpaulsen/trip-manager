@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.ConfigCommands;
 import org.paulsens.trip.config.KnownSettings;
@@ -31,16 +32,13 @@ public final class TripMetrics {
             "jvm.gc.pause", RequestMetricsFilter.TIMER, RequestMetricsFilter.ERRORS);
 
     private static final ValkeyMeterRegistry REGISTRY = create();
-    /** A private lock rather than the class's own: nothing outside can hold it and stall a start or a stop. */
-    private static final Object LOCK = new Object();
+    private static final Lifecycle LIFECYCLE = new Lifecycle(REGISTRY,
+            () -> Executors.newSingleThreadScheduledExecutor(TripThreads.factory()));
     /**
      * How far past each minute's start the publish runs: late enough that the minute is over everywhere, early enough
      * that its peaks are still that minute's.
      */
     static final long PUBLISH_OFFSET_MILLIS = 1_000;
-    private static JvmGcMetrics gcMetrics;
-    private static ScheduledExecutorService scheduler;
-    private static boolean started;
 
     private TripMetrics() {
     }
@@ -68,32 +66,68 @@ public final class TripMetrics {
      * keeps every stored number that minute's.
      */
     public static void start() {
-        synchronized (LOCK) {
-            if (started) {
-                return;
-            }
-            new JvmMemoryMetrics().bindTo(REGISTRY);
-            gcMetrics = new JvmGcMetrics();
-            gcMetrics.bindTo(REGISTRY);
-            scheduler = Executors.newSingleThreadScheduledExecutor(TripThreads.factory());
-            scheduler.scheduleAtFixedRate(REGISTRY::publishSafely, delayToNextMinute(System.currentTimeMillis()),
-                    ValkeyMeterRegistry.STEP.toMillis(), TimeUnit.MILLISECONDS);
-            scheduler.execute(REGISTRY::publishFirst);
-            started = true;
-        }
-        log.info("Metrics publishing every minute");
+        start(LIFECYCLE);
     }
 
-    /** Publishes the last, partial minute and stops. */
+    /** Test seam: {@link #start()} on a lifecycle of the test's own, so a test never starts the real publisher. */
+    static void start(final Lifecycle lifecycle) {
+        if (lifecycle.start()) {
+            log.info("Metrics publishing every minute");
+        }
+    }
+
+    /** Publishes the last, partial minute and stops; nothing when it was never started. */
     public static void stop() {
-        synchronized (LOCK) {
-            if (!started) {
-                return;
+        LIFECYCLE.stop();
+    }
+
+    /**
+     * The publisher's start and stop, as an instance so a test can drive them with its own registry and scheduler
+     * rather than starting the real publisher (whose registry, once closed, stays closed for the JVM).
+     */
+    static final class Lifecycle {
+        /** A private lock rather than the instance: nothing outside can hold it and stall a start or a stop. */
+        private final Object lock = new Object();
+        private final ValkeyMeterRegistry registry;
+        private final Supplier<ScheduledExecutorService> schedulers;
+        private JvmGcMetrics gcMetrics;
+        private ScheduledExecutorService scheduler;
+        private boolean started;
+
+        Lifecycle(final ValkeyMeterRegistry registry, final Supplier<ScheduledExecutorService> schedulers) {
+            this.registry = registry;
+            this.schedulers = schedulers;
+        }
+
+        /** Starts publishing, or does nothing when already started; answers whether this call started it. */
+        boolean start() {
+            synchronized (lock) {
+                if (started) {
+                    return false;
+                }
+                new JvmMemoryMetrics().bindTo(registry);
+                gcMetrics = new JvmGcMetrics();
+                gcMetrics.bindTo(registry);
+                scheduler = schedulers.get();
+                scheduler.scheduleAtFixedRate(registry::publishSafely, delayToNextMinute(System.currentTimeMillis()),
+                        ValkeyMeterRegistry.STEP.toMillis(), TimeUnit.MILLISECONDS);
+                scheduler.execute(registry::publishFirst);
+                started = true;
+                return true;
             }
-            scheduler.shutdownNow();
-            REGISTRY.close();
-            gcMetrics.close();
-            started = false;
+        }
+
+        /** Publishes the last, partial minute and stops, or does nothing when not started. */
+        void stop() {
+            synchronized (lock) {
+                if (!started) {
+                    return;
+                }
+                scheduler.shutdownNow();
+                registry.close();
+                gcMetrics.close();
+                started = false;
+            }
         }
     }
 
@@ -103,12 +137,12 @@ public final class TripMetrics {
         return step - Math.floorMod(nowMillis, step) + PUBLISH_OFFSET_MILLIS;
     }
 
-    private static MetricsWriter writer() {
-        return Writer.INSTANCE.writer();
+    static MetricsWriter writer() {
+        return WriterHolder.INSTANCE;
     }
 
     /** The kill switch, read once a minute on the publisher's thread; a settings failure leaves metrics on. */
-    private static boolean enabled() {
+    static boolean enabled() {
         try {
             return new ConfigCommands().getBoolean(KnownSettings.METRICS_ENABLED);
         } catch (final RuntimeException ex) {
@@ -117,8 +151,8 @@ public final class TripMetrics {
     }
 
     /** The task id is resolved lazily, on the publisher's first minute: a metadata call never delays startup. */
-    private record Writer(MetricsWriter writer) {
-        static final Writer INSTANCE = new Writer(new MetricsWriter(() -> DAO.getInstance().getCacheClient(),
-                TaskIdentity.resolve()));
+    private static final class WriterHolder {
+        static final MetricsWriter INSTANCE = new MetricsWriter(() -> DAO.getInstance().getCacheClient(),
+                TaskIdentity.resolve());
     }
 }

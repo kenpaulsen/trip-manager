@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
 import java.util.UUID;
 import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -41,10 +42,23 @@ public final class CacheInvalidation {
 
     /** The subscribe() handler, bound to the client whose heap it maintains. */
     public static BiConsumer<String, String> handlerFor(final CacheClient client) {
-        return (channel, payload) -> handle(client, payload);
+        return handlerFor(client, prefixes -> { });
+    }
+
+    /**
+     * {@link #handlerFor(CacheClient)} that also hands another instance's cleared prefixes to {@code alsoForget}:
+     * in-memory state outside the cache client (a search index's reusable load) that must go with them.
+     */
+    public static BiConsumer<String, String> handlerFor(final CacheClient client,
+            final Consumer<List<String>> alsoForget) {
+        return (channel, payload) -> handle(client, payload, alsoForget);
     }
 
     static void handle(final CacheClient client, final String payload) {
+        handle(client, payload, prefixes -> { });
+    }
+
+    static void handle(final CacheClient client, final String payload, final Consumer<List<String>> alsoForget) {
         final Event event = decode(payload);
         if (event == null || event.prefixes() == null || ORIGIN.equals(event.origin())) {
             return; // own broadcast: this JVM already cleared Valkey AND its heap in clearNamespace
@@ -52,6 +66,7 @@ public final class CacheInvalidation {
         if (client instanceof NearCacheClient near) {
             event.prefixes().forEach(near::dropLocalNamespace);
         }
+        alsoForget.accept(event.prefixes());
     }
 
     private static Event decode(final String payload) {
