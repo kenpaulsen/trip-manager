@@ -81,8 +81,20 @@ public class MetricsLifecycleListenerTest {
     public void theRealPublishersPartsWithoutStartingIt() {
         assertSame(TripMetrics.writer(), TripMetrics.writer(), "one writer for the server's life");
         assertTrue(TripMetrics.enabled(), "on by default");
+        assertTrue(TripMetrics.enabled(TripMetricsBroken::setting), "a settings failure leaves metrics on");
+        assertFalse(TripMetrics.enabled(() -> false));
+        final ScheduledExecutorService real = TripMetrics.newScheduler();
+        real.shutdownNow();
+        assertTrue(real.isShutdown());
         TripMetrics.stop();
         assertFalse(TripMetrics.registry().isClosed(), "a stop before a start leaves the registry open");
+    }
+
+    /** A settings read that fails, as a DynamoDB outage would make it. */
+    private static final class TripMetricsBroken {
+        static boolean setting() {
+            throw new IllegalStateException("settings unavailable");
+        }
     }
 
     private static ScheduledExecutorService made(final AtomicInteger made, final ScheduledExecutorService scheduler) {

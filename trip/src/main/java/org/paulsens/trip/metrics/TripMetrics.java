@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.ConfigCommands;
@@ -32,8 +33,7 @@ public final class TripMetrics {
             "jvm.gc.pause", RequestMetricsFilter.TIMER, RequestMetricsFilter.ERRORS);
 
     private static final ValkeyMeterRegistry REGISTRY = create();
-    private static final Lifecycle LIFECYCLE = new Lifecycle(REGISTRY,
-            () -> Executors.newSingleThreadScheduledExecutor(TripThreads.factory()));
+    private static final Lifecycle LIFECYCLE = new Lifecycle(REGISTRY, TripMetrics::newScheduler);
     /**
      * How far past each minute's start the publish runs: late enough that the minute is over everywhere, early enough
      * that its peaks are still that minute's.
@@ -141,10 +141,20 @@ public final class TripMetrics {
         return WriterHolder.INSTANCE;
     }
 
+    /** The publisher's one thread, from {@code TripThreads.factory()} so every write rides the background lane. */
+    static ScheduledExecutorService newScheduler() {
+        return Executors.newSingleThreadScheduledExecutor(TripThreads.factory());
+    }
+
     /** The kill switch, read once a minute on the publisher's thread; a settings failure leaves metrics on. */
     static boolean enabled() {
+        return enabled(() -> new ConfigCommands().getBoolean(KnownSettings.METRICS_ENABLED));
+    }
+
+    /** Test seam: {@link #enabled()} over its settings read. */
+    static boolean enabled(final BooleanSupplier setting) {
         try {
-            return new ConfigCommands().getBoolean(KnownSettings.METRICS_ENABLED);
+            return setting.getAsBoolean();
         } catch (final RuntimeException ex) {
             return true;
         }
