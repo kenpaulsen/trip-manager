@@ -12,10 +12,14 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.testng.Assert.assertEquals;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import io.micrometer.core.instrument.MockClock;
 import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
+import org.slf4j.LoggerFactory;
 import org.testng.annotations.Test;
 
 /**
@@ -84,6 +88,42 @@ public class ValkeyMeterRegistryTest {
         registry.publishSafely();
         registry.publishFirst();
         assertEquals(registry.dropped(), 2L);
+    }
+
+    /**
+     * A failure is logged the first time, with its stack trace, and then once per 60 failures. A refused write before
+     * it (counted in dropped(), logged by the cache) must not push the first one off that beat.
+     */
+    @Test
+    public void aFailureIsLoggedTheFirstTimeAndThenHourlyWhateverWasRefusedBefore() {
+        final MetricsSampler sampler = mock(MetricsSampler.class);
+        final MetricsWriter writer = mock(MetricsWriter.class);
+        final ValkeyMeterRegistry registry = new ValkeyMeterRegistry(new MockClock(), sampler, () -> writer,
+                () -> true);
+        final Logger registryLog = (Logger) LoggerFactory.getLogger(ValkeyMeterRegistry.class);
+        final ListAppender<ILoggingEvent> logged = new ListAppender<>();
+        logged.start();
+        registryLog.addAppender(logged);
+        try {
+            when(sampler.sample(registry)).thenReturn(RECORDS);
+            when(writer.write(anyLong(), any())).thenReturn(false);
+            registry.publishSafely();
+            assertEquals(logged.list.size(), 0, "a refused write is the cache's to log");
+
+            when(sampler.sample(registry)).thenThrow(new IllegalStateException("a meter gone bad"));
+            registry.publishSafely();
+            assertEquals(logged.list.size(), 1, "the first failure, though a refusal came before it");
+            assertEquals(logged.list.get(0).getThrowableProxy().getMessage(), "a meter gone bad");
+            for (int failure = 2; failure <= ValkeyMeterRegistry.LOG_EVERY; failure++) {
+                registry.publishSafely();
+            }
+            assertEquals(logged.list.size(), 1, "nothing for failures 2 to 60");
+            registry.publishSafely();
+            assertEquals(logged.list.size(), 2, "failure 61, an hour on");
+            assertEquals(registry.dropped(), 1L + ValkeyMeterRegistry.LOG_EVERY + 1L, "dropped counts them all");
+        } finally {
+            registryLog.detachAppender(logged);
+        }
     }
 
     @Test

@@ -25,6 +25,7 @@ public final class PoolMetricPublisher implements MetricPublisher {
     private final LongAdder calls = new LongAdder();
     private final AtomicLong limit = new AtomicLong();
     private final LongAdder dropped = new LongAdder();
+    private volatile String lastFailure = "";
 
     /** One minute's pool numbers: the peaks, the calls made, and the pool's size. */
     public record PoolSample(long leasedMax, long pendingMax, long calls, long limit) {
@@ -39,8 +40,9 @@ public final class PoolMetricPublisher implements MetricPublisher {
             calls.increment();
             record(collection);
         } catch (final RuntimeException ex) {
-            // Never let a metric fail the call it describes.
+            // Never let a metric fail the call it describes, nor log from inside it: the minute's sample says so.
             dropped.increment();
+            lastFailure = ex.toString();
         }
     }
 
@@ -60,6 +62,11 @@ public final class PoolMetricPublisher implements MetricPublisher {
     /** How many reports could not be read: zero unless the SDK changed shape. */
     public long dropped() {
         return dropped.sum();
+    }
+
+    /** Why the latest report could not be read, or blank when none failed. */
+    public String lastFailure() {
+        return lastFailure;
     }
 
     @Override

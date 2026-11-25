@@ -189,23 +189,8 @@ public class SettingDef implements Serializable {
         if (value == null || value.isBlank()) {
             return "";
         }
-        final String key = "labels.setting." + name + ".choice." + keySegment(value);
+        final String key = "labels.setting." + name + ".choice." + SettingSection.keySegment(value);
         return Text.has(key) ? Text.get(key) : value;
-    }
-
-    /** A stored choice as a lowerCamel key segment, as every bundle key is spelled: {@code forced-off} is forcedOff. */
-    static String keySegment(final String value) {
-        final StringBuilder out = new StringBuilder();
-        boolean upper = false;
-        for (final char c : value.toCharArray()) {
-            if (c == '-' || c == '_') {
-                upper = true;
-            } else {
-                out.append(upper ? Character.toUpperCase(c) : c);
-                upper = false;
-            }
-        }
-        return out.toString();
     }
 
     private String bundled(final String what) {

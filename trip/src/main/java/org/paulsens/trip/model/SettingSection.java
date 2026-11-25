@@ -66,8 +66,18 @@ public class SettingSection implements Serializable {
 
     /** The title as a key segment: "Login &amp; security" is {@code loginSecurity}. */
     private String keyId() {
+        return keySegment(title);
+    }
+
+    /**
+     * Text as a lowerCamel bundle-key segment, as every bundle key is spelled: each run of letters and digits is a
+     * word, so "Login &amp; security" is {@code loginSecurity} and the stored choice {@code forced-off} is
+     * {@code forcedOff}. The one converter for section titles and setting choices, so a key written by one rule is
+     * the key the other looks up.
+     */
+    static String keySegment(final String text) {
         final StringBuilder id = new StringBuilder();
-        for (final String word : title.split("[^A-Za-z0-9]+")) {
+        for (final String word : text.split("[^A-Za-z0-9]+")) {
             if (!word.isEmpty()) {
                 id.append(id.isEmpty() ? Character.toLowerCase(word.charAt(0)) : Character.toUpperCase(word.charAt(0)))
                         .append(word.substring(1));

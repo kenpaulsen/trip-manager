@@ -34,6 +34,9 @@ final class ValkeyMeterRegistry extends StepMeterRegistry {
     private volatile boolean closing;
     private volatile boolean current;
     private final AtomicLong dropped = new AtomicLong();
+    // Its own count, not dropped's: refused writes also add to dropped (the cache logs those), and sharing the
+    // count let them push a first failure off the "% LOG_EVERY == 1" beat, so it went unlogged for an hour.
+    private final AtomicLong failures = new AtomicLong();
 
     ValkeyMeterRegistry(final Clock clock, final MetricsSampler sampler, final Supplier<MetricsWriter> writer,
             final BooleanSupplier enabled) {
@@ -77,9 +80,13 @@ final class ValkeyMeterRegistry extends StepMeterRegistry {
      * a meter that breaks after an upgrade must show somewhere, but never as a line a minute.
      */
     private void lost(final RuntimeException ex) {
-        final long count = dropped.incrementAndGet();
-        if (count % LOG_EVERY == 1) {
-            log.warn("Metrics minute not written ({} lost since start): {}", count, ex.toString());
+        dropped.incrementAndGet();
+        final long count = failures.incrementAndGet();
+        if (count == 1) {
+            // The stack trace once: a broken meter's frames say which binder it is.
+            log.warn("Metrics minute not written (the first failure since start)", ex);
+        } else if (count % LOG_EVERY == 1) {
+            log.warn("Metrics minute not written ({} failures since start): {}", count, ex.toString());
         }
     }
 

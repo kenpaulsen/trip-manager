@@ -75,7 +75,10 @@ cache's paid minimum.
   can never crowd out a request's. A write the cache refuses, or a meter that cannot be read, is dropped: counted in
   the registry's `dropped()`, never retried, never thrown into the scheduler. A refused write is logged by the
   cache client itself (`ValkeyCacheClient` logs every refused command); any other failure (a meter that cannot be
-  read) is logged by the registry, at warn, the first time and then once per 60 lost minutes.
+  read) is logged by the registry, at warn, the first time (with its stack trace) and then once per 60 such
+  failures, counted apart from refused writes. A DynamoDB pool report the SDK hands over that cannot be read is
+  counted by `PoolMetricPublisher` (it runs inside the call, so it never logs) and logged by `MetricsSampler` at
+  the next minute, then at most once an hour while such failures go on.
 - `MetricsLifecycleListener` (declared in the live `web.xml` after `TripBootstrapListener`) starts it, binds the JVM
   meters, and publishes one sample right away under the current minute, so a fresh server has something to show at
   once; the first regular publish overwrites that partial minute with the whole one. At shutdown the last publish
@@ -112,7 +115,8 @@ starter dashboard's nine graphs read four hashes per server, not twelve.
   A Headline number shows the latest COMPLETE bucket's value large, with the peak in range under it (highlighted
   past the warning level). Controls are the graph's own: range, servers and zoom; the range only; or none. A
   graph may have a Graph name, and another graph's "Click shows it in" lists the names its click shows its metric
-  in (0 or more): that is the whole of the overview-and-focus design, with no special tile or focus code. Names,
+  in (0 or more): that is the whole of the overview-and-focus design, with no special tile or focus code. Only a
+  one-row graph, or one with no controls, answers a click (the field's hint says so). Names,
   not item ids, because a template's choice lists cannot see the other items of a page, and a name survives a
   graph being re-added or moved.
 - **The default dashboard** (the starter, laid out as the owner's chosen "Overview" direction): an intro (with a
@@ -140,7 +144,9 @@ starter dashboard's nine graphs read four hashes per server, not twelve.
   content page down in the first local run.
 - **Drawing** is the browser's (`resources/trip-js/metricGraph.js`, one controller per graph; a click on a graph
   with targets calls `show` on each named graph, which redraws with the clicked graph's data and title under its
-  own size, controls and range): Chart.js from PrimeFaces' own bundles
+  own size, controls and range). Only a one-row graph, or one with no controls, is clickable as a whole: a
+  `role="button"` card would hide its own controls from a screen reader, and a zoom drag would end in a pick. The
+  content drawer's live preview never is. Chart.js from PrimeFaces' own bundles
   (`moment/moment.js`, then `chart/chart.js` with its moment time adapter and zoom plugin), loaded once and only on a
   page that has a graph. Not `p:chart`: every content type's fragment is built on EVERY content page, and `p:chart`'s
   resource dependencies would load Chart.js and moment on all of them. Colors are the theme's variables, read at
