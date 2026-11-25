@@ -8,6 +8,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import org.paulsens.trip.security.PasswordHasher;
 import org.paulsens.trip.security.Pepper;
+import org.paulsens.trip.util.TestWaits;
 import org.paulsens.trip.web.DeepHealth.Check;
 import org.paulsens.trip.web.DeepHealth.Status;
 import org.testng.Assert;
@@ -51,6 +52,15 @@ public class DeepHealthTest {
                 "fine", (Check) () -> Status.OK), new AtomicLong()).report();
         Assert.assertFalse(report.healthy());
         Assert.assertEquals(report.checks(), Map.of("broken", Status.FAIL, "fine", Status.OK));
+    }
+
+    @Test
+    public void aMissingClassFailsTheCheckWithItsCauseInTheLog() {
+        final String logged = TestWaits.captureStdout(() -> Assert.assertEquals(of(checks(
+                "media", (Check) DeepHealthTest::missingClass), new AtomicLong()).report().checks(),
+                Map.of("media", Status.FAIL)));
+        Assert.assertTrue(logged.contains("NoClassDefFoundError") && logged.contains("'media'"),
+                "the cause must reach the log, or a rolled-back deploy cannot be diagnosed: " + logged);
     }
 
     @Test
@@ -112,6 +122,11 @@ public class DeepHealthTest {
     /** A dependency that answers with an error naming an AWS resource, which must never reach the wire. */
     private static Status explode() {
         throw new IllegalStateException("arn:aws:secret-thing");
+    }
+
+    /** A dependency whose SDK class the image does not carry. */
+    private static Status missingClass() {
+        throw new NoClassDefFoundError("software/amazon/awssdk/services/s3/S3Client");
     }
 
     /** A dependency that never answers in time. */

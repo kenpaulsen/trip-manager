@@ -247,4 +247,24 @@ public class MediaCommandsS3Test {
             System.setProperty("trip.media.bucket", "test-bucket");
         }
     }
+
+    @Test
+    public void theHealthProbeListsOneKeyOfTheBucketAndLetsAFailureThrough() throws Exception {
+        final MediaCommands probing = new MediaCommands();
+        final S3Client client = Mockito.mock(S3Client.class);
+        final java.lang.reflect.Field field = MediaCommands.class.getDeclaredField("s3");
+        field.setAccessible(true);
+        field.set(probing, client);
+
+        Assert.assertTrue(probing.probeBucket(java.time.Duration.ofSeconds(1)), "a configured bucket was asked");
+        final org.mockito.ArgumentCaptor<ListObjectsV2Request> asked =
+                org.mockito.ArgumentCaptor.forClass(ListObjectsV2Request.class);
+        Mockito.verify(client).listObjectsV2(asked.capture());
+        Assert.assertEquals(asked.getValue().bucket(), "test-bucket");
+        Assert.assertEquals(asked.getValue().maxKeys(), Integer.valueOf(1), "one key is enough to prove access");
+
+        Mockito.when(client.listObjectsV2(ArgumentMatchers.any(ListObjectsV2Request.class)))
+                .thenThrow(new IllegalStateException("access denied"));
+        Assert.assertThrows(IllegalStateException.class, () -> probing.probeBucket(java.time.Duration.ofSeconds(1)));
+    }
 }

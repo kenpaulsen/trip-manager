@@ -4,6 +4,7 @@ import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.ServiceConfigurationError;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.StructuredTaskScope;
 import java.util.concurrent.locks.ReentrantLock;
@@ -139,6 +140,11 @@ public final class DeepHealth {
         } catch (final Exception ex) {
             // The reason goes to the log only: an AWS message names the account and the resource.
             log.warn("Deep health check '{}' failed", name, ex);
+            return Status.FAIL;
+        } catch (final LinkageError | ServiceConfigurationError ex) {
+            // A class or SDK service the image lacks: exactly the broken build this check exists to catch. Left
+            // uncaught it would die inside the fork, read as FAIL with no cause in either log.
+            log.warn("Deep health check '{}' failed: the image is missing a class or service", name, ex);
             return Status.FAIL;
         }
     }
