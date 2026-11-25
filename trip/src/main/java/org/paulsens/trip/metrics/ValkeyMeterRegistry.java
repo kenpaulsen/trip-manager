@@ -9,6 +9,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * Micrometer's push registry for our metrics: once a minute it samples the catalog ({@link MetricsSampler}) and
@@ -18,7 +19,11 @@ import java.util.function.Supplier;
  * <p>The kill switch ({@code metrics.enabled}) is read here and nowhere else, once a minute, on the publisher's own
  * thread: never inside a DynamoDB call or a request.
  */
+@Slf4j
 final class ValkeyMeterRegistry extends StepMeterRegistry {
+
+    /** A failure is logged the first time and then once per this many lost minutes: about once an hour. */
+    static final long LOG_EVERY = 60;
 
     /** One minute: the resolution of every stored metric. */
     static final Duration STEP = Duration.ofMinutes(1);
@@ -51,20 +56,30 @@ final class ValkeyMeterRegistry extends StepMeterRegistry {
                 dropped.incrementAndGet();
             }
         } catch (final RuntimeException ex) {
-            // Dropped, like every metric write: the next minute tries again.
-            dropped.incrementAndGet();
+            lost(ex);
         }
     }
 
     /**
-     * The scheduled publish: a failure anywhere (a meter that cannot be read) is counted and dropped, never thrown
-     * into the scheduler, whose next run would otherwise never come.
+     * The scheduled publish: a failure anywhere (a meter that cannot be read) is counted, logged now and then, and
+     * dropped, never thrown into the scheduler, whose next run would otherwise never come.
      */
     void publishSafely() {
         try {
             publish();
         } catch (final RuntimeException ex) {
-            dropped.incrementAndGet();
+            lost(ex);
+        }
+    }
+
+    /**
+     * Counts a minute that could not be written and says why in the log, the first time and then once an hour:
+     * a meter that breaks after an upgrade must show somewhere, but never as a line a minute.
+     */
+    private void lost(final RuntimeException ex) {
+        final long count = dropped.incrementAndGet();
+        if (count % LOG_EVERY == 1) {
+            log.warn("Metrics minute not written ({} lost since start): {}", count, ex.toString());
         }
     }
 

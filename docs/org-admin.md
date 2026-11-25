@@ -24,7 +24,8 @@ has no role or privilege row, so these pages gate themselves in `initPage`, NOT 
 **The hub is two labeled groups (2026-10-29).** "Run this organization": Trips, People, Trip Documents, Lodging,
 Media (`canViewOrgMedia`: site admins, global or org-scoped `mediaAdmin` -- NOT org admins as such; links to
 `{site.hostFor(org)}/admin/media.jsf`, the library being host-scoped) and Audit Trail
-(`auditView.canView(org)`; `audit.jsf?orgId=`, org-keyed so it reads from any host). "Set up this
+(`auditView.canView(org)`; `audit.jsf?orgId=`, org-keyed so it reads from any host) and Metrics (site admins,
+`metrics.hubUrl`: the org site's `metrics` Editable Page, `docs/metrics.md`). "Set up this
 organization": **Organization Settings** (`orgConfig.jsf`, one card for every setting), Payment Processors and
 Content Templates (`templates.jsf?orgId=`). The Content Templates card is gated exactly as the page is,
 `priv.checkHere('contentAdmin', …)`: it used to be offered to every org admin, and the page then bounced one
@@ -43,7 +44,7 @@ pattern; absent opens the first):
 |---------|-----|---------------|
 | `profile` | Profile | name, abbreviation, contact email, contact name and phone, subdomain + the live-site link and the custom domain (both site-admin only), "Shared sites", and the shared-site Register target (below) |
 | `appearance` | Appearance | palette, dark mode, layout, logo, favicon, background, link preview image, footer; with the uploads and the server-rendered preview ("The Appearance page and its live preview") |
-| `home` | Home page | `home.photos.windowDays`, `home.photos.minCount`, `home.countdown.soonDays`, `site.sidebar.title`, `site.donate.url`, `site.donate.title`, `site.donate.text`, `site.donate.paypalImage`, `site.analytics.id`, and a link to Editable Pages |
+| `home` | Home page | `home.photos.windowDays`, `home.photos.minCount`, `home.countdown.soonDays`, `site.pages.sidebar`, `site.sidebar.title`, `site.donate.url`, `site.donate.title`, `site.donate.text`, `site.donate.paypalImage`, `site.analytics.id`, and a link to Editable Pages |
 | `trips` | Trips & money | `reg.allowEdits`, `lodging.bills.autoRecompute`, `finance.treasurer.email`, `payment.notify.email` |
 | `chat` | Chat | `chat.background.colors`, `chat.background.image`, `chat.reactions.palette` (each trip's chat can still override them in its own settings) |
 | `email` | Email | sending domains (site-admin only; the choices are the shared domains plus the org's own custom domain, "Sending domains"), default domain, a link to the org's email templates |
@@ -623,9 +624,9 @@ no script, no DNS step, no deploy (wildcard DNS and the wildcard certificate alr
   true there (`isPlatformOrg()`) for the marketing-only rules: no auto-join on signup, no Trips menu, a Help menu only
   once it holds something and never Make Payment ("Editable Pages" below), the mark links home, full-width layout
   always, and the page key stays the fixed `page:unitetrip-home` (seeded by `bootstrap-marketing-page.sh`, independent
-  of the org row; the org's slug assignment seeds no starter rows). Its OTHER pages are ordinary Editable Pages
-  ("Editable Pages" below), keyed `page:org:{its uuid}:{name}`: Pricing and Why UniteTrip in its About menu (issue
-  medjugorje#41, defined in `content/marketing-site-pages.json` and installed by
+  of the org row; the org's slug assignment seeds only the `everySite` starter, the metrics dashboard). Its OTHER pages
+  are ordinary Editable Pages ("Editable Pages" below), keyed `page:org:{its uuid}:{name}`: Pricing and Why UniteTrip in
+  its About menu (issue medjugorje#41, defined in `content/marketing-site-pages.json` and installed by
   `medjugorje/scripts/update-marketing-site.sh`). The platform org is never offered in shared-site curation. Before any
   org holds `www`, those hosts fall back to the placeholder MARKETING site, which has no Editable Pages.
 - **Media is site-scoped by `MediaItem.orgId`**, for discovery AND for writes: the admin library
@@ -716,15 +717,16 @@ content key, fixed at creation.
   `page:shared:board` on a shared host only. `SitePagePolicyIT` keeps every other page from hosting
   `WEB-INF/contentPage.xhtml` (`docs/content-templates.md`, "Named pages").
 - **Starter pages**: a new site starts with About Us (`about`) and Board of Directors (`board`), both in the
-  About menu, defined once in the resource `content/starter-site-pages.json` (`OrgPageBootstrap.starterPages()`).
-  `SitePageCommands.ensureStarterPages` seeds them beside `ensureHomePage` when a slug is saved
-  (`OrgCommands.saveOrgEdits`), ONCE per org: `Organization.sitePagesSeededAt` records it, so a starter page an
-  admin deletes never comes back. A starter whose name the list already has is left alone; a starter's content
+  About menu, and the metrics dashboard (`metrics`: out of the menu, site admins only, sidebar hidden;
+  `docs/metrics.md`), defined once in the resource `content/starter-site-pages.json`
+  (`OrgPageBootstrap.starterPages()`). `SitePageCommands.ensureStarterPages` seeds them beside `ensureHomePage` when a
+  slug is saved (`OrgCommands.saveOrgEdits`), ONCE per org: `Organization.sitePagesSeededAt` records it, so a starter
+  page an admin deletes never comes back. A starter whose name the list already has is left alone; a starter's content
   is written only when its key is empty, so rows already there (a hand-built board) are adopted as-is. The
   platform org (the product's site, whose Editable Pages are its marketing pages rather than an About Us and a
-  Board) is only marked. Orgs hosted before 2026-11-13
-  are backfilled by `medjugorje/scripts/seed-starter-site-pages.py` (dry run by default; it skips an org whose
-  row is already marked, which the CFPW cut-over sets).
+  Board) gets only the starters marked `everySite`, the dashboard (`SitePageCommands.startersFor`). Orgs hosted before
+  2026-11-13 are backfilled by `medjugorje/scripts/seed-starter-site-pages.py` (dry run by default; it skips an org
+  whose row is already marked, which the CFPW cut-over sets).
   Each starter's menu entry carries its title in every starter language (the JSON's English `title` and its
   `titles`), built for the site's default language (`StarterPage.entry(Language)`): that language's title is the
   entry's `title` and the rest its `titles`, as the Editable Pages dialog edits them. The same script adds the missing
@@ -758,16 +760,17 @@ content key, fixed at creation.
   (`viewScope.dlgNameTouched`); the dialog's kind (page or link) is pinned when it opens (`viewScope.dlgIsLink`).
 - The shared sites keep their hand-written pages and literal menus, with the two rules below.
 - **Who can see a page** (`SitePage.access`, 2026-11-24): Everyone (every page stored before the gate, which
-  stores nothing), Anyone signed in, This organization's admins (`OrgCommands.canManageOrg`, so site admins too),
-  or Site admins only. ONE rule, `SitePageCommands.canView`, read by the page host and the menu: `page.xhtml`
-  chooses its composition through `orgPages.hostFor`, which answers `WEB-INF/pageRefused.xhtml` for a reader the
-  page excludes (a visitor is sent to sign in and back, a signed-in reader home with the reason, before any content
-  is read; transient, so an anonymous refusal mints no session), and the menu lists only pages its reader may
-  open. A stored name a newer build wrote reads as Site admins only: an unknown gate fails closed. A site admins'
-  page belongs to site admins: only a site admin may choose that level, and an org admin's list (and the menu
-  preview) leaves such a page out and refuses a change, move or delete of it, so the gate cannot be lowered from
-  under them. A link is never gated. The metrics dashboard (`docs/metrics.md`) is the first such page, a starter on
-  every site; the hub's Metrics card ("Run this organization", `metrics.hubUrl`) links to it for site admins.
+  stores nothing), Anyone with an account (ANY account: someone from another organization, or anyone who signs up
+  on the spot; the label says so, and private content belongs one level up), This organization's admins
+  (`OrgCommands.canManageOrg`, so site admins too), or Site admins only. ONE rule, `SitePageCommands.canView`, read by
+  the page host and the menu: `page.xhtml` chooses its composition through `orgPages.hostFor`, which answers
+  `WEB-INF/pageRefused.xhtml` for a reader the page excludes (a visitor is sent to sign in and back, a signed-in reader
+  home with the reason, before any content is read; transient, so an anonymous refusal mints no session), and the menu
+  lists only pages its reader may open. A stored name a newer build wrote reads as Site admins only: an unknown gate
+  fails closed. A site admins' page belongs to site admins: only a site admin may choose that level, and an org admin's
+  list (and the menu preview) leaves such a page out and refuses a change, move or delete of it, so the gate cannot be
+  lowered from under them. A link is never gated. The metrics dashboard (`docs/metrics.md`) is the first such page, a
+  starter on every site; the hub's Metrics card ("Run this organization", `metrics.hubUrl`) links to it for site admins.
   What the gate does NOT cover: files and pictures on a gated page are served from the public media CDN, so anyone
   holding their own link opens them (the help card says so). A change of access or sidebar is named in the audit
   line ("access EVERYONE -> ORG_ADMINS"). ROLLBACK: a build older than the gate (before 2026-11-24) reads every
@@ -775,7 +778,9 @@ content key, fixed at creation.
   gates are gone for good; after rolling back past it and forward again, re-check every organization's gated pages.
 - **The sidebar beside a page** (`SitePage.sidebar`, owner 2026-11-24): each Editable Page shows or hides it, or
   follows its organization's default, the org-overridable setting `site.pages.sidebar` (Settings, "Home page"; the
-  org's Home tab): `on`, `off`, or `forced-off`, which hides it on every page whatever a page says. There is
+  org's Home tab): `on`, `off`, or `forced-off` (shown as labels through
+  `SettingDef.choiceLabel`: "Shown unless a page hides it", "Hidden unless a page shows it", "Hidden on every
+  page"), the last hiding it on every page whatever a page says. There is
   deliberately no forced on. ONE rule, `SitePageCommands.showSidebar`, read by `page.xhtml` (the `showSidebar`
   ui:param `mainTemplate` already honors); the Editable Pages dialog offers Default/Show/Hide, naming what the
   default is now, and only a note when the organization forces it off. The metrics dashboard starts hidden.

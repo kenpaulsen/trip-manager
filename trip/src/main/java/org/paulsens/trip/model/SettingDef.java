@@ -171,6 +171,35 @@ public class SettingDef implements Serializable {
         return (description != null) ? description : bundled("description");
     }
 
+    /**
+     * A choice's words in the reader's language ({@code labels.setting.<name>.choice.<value in lowerCamel>}), or the
+     * stored value itself when the bundle has none (the palette names, which are names already). The settings pages
+     * label every choice through this, so a reader never sees a code like {@code forced-off} unless no words were
+     * written.
+     */
+    public String choiceLabel(final String value) {
+        if (value == null || value.isBlank()) {
+            return "";
+        }
+        final String key = "labels.setting." + name + ".choice." + keySegment(value);
+        return Text.has(key) ? Text.get(key) : value;
+    }
+
+    /** A stored choice as a lowerCamel key segment, as every bundle key is spelled: {@code forced-off} is forcedOff. */
+    static String keySegment(final String value) {
+        final StringBuilder out = new StringBuilder();
+        boolean upper = false;
+        for (final char c : value.toCharArray()) {
+            if (c == '-' || c == '_') {
+                upper = true;
+            } else {
+                out.append(upper ? Character.toUpperCase(c) : c);
+                upper = false;
+            }
+        }
+        return out.toString();
+    }
+
     private String bundled(final String what) {
         final String key = "labels.setting." + name + "." + what;
         return Text.get(key);

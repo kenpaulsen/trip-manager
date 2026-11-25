@@ -45,9 +45,10 @@ import org.paulsens.trip.util.Html;
  * never re-seeded behind its back.
  *
  * <p>Every other page of an org site is an Editable Page ({@link SitePage}, served by {@code page.xhtml}). A new site
- * also starts with the {@link #starterPages() starter Editable Pages} (About Us, Board of Directors), seeded once by
- * {@code SitePageCommands.ensureStarterPages}. Their definition is the resource {@value #STARTER_PAGES_RESOURCE},
- * which the private repo's backfill script for sites that predate them reads too, so the two cannot drift.
+ * also starts with the {@link #starterPages() starter Editable Pages} (About Us, Board of Directors, the metrics
+ * dashboard), seeded once by {@code SitePageCommands.ensureStarterPages}. Their definition is the resource
+ * {@value #STARTER_PAGES_RESOURCE}, which the private repo's backfill script for sites that predate them reads
+ * too, so the two cannot drift.
  */
 public final class OrgPageBootstrap {
 

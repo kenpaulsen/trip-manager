@@ -74,7 +74,8 @@ cache's paid minimum.
 - The scheduler's one thread comes from `TripThreads.factory()`, so every write rides the BACKGROUND cache lane and
   can never crowd out a request's. A write the cache refuses, or a meter that cannot be read, is dropped: counted in
   the registry's `dropped()`, never retried, never thrown into the scheduler. A refused write is logged by the
-  cache client itself (`ValkeyCacheClient` logs every refused command), not by the metrics code.
+  cache client itself (`ValkeyCacheClient` logs every refused command); any other failure (a meter that cannot be
+  read) is logged by the registry, at warn, the first time and then once per 60 lost minutes.
 - `MetricsLifecycleListener` (declared in the live `web.xml` after `TripBootstrapListener`) starts it, binds the JVM
   meters, and publishes one sample right away under the current minute, so a fresh server has something to show at
   once; the first regular publish overwrites that partial minute with the whole one. At shutdown the last publish

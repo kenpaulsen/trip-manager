@@ -117,12 +117,8 @@ public final class TripMetrics {
     }
 
     /** The task id is resolved lazily, on the publisher's first minute: a metadata call never delays startup. */
-    private record Writer(String taskId, MetricsWriter writer) {
-        static final Writer INSTANCE = create();
-
-        private static Writer create() {
-            final String taskId = TaskIdentity.resolve();
-            return new Writer(taskId, new MetricsWriter(() -> DAO.getInstance().getCacheClient(), taskId));
-        }
+    private record Writer(MetricsWriter writer) {
+        static final Writer INSTANCE = new Writer(new MetricsWriter(() -> DAO.getInstance().getCacheClient(),
+                TaskIdentity.resolve()));
     }
 }

@@ -119,6 +119,22 @@ public class LabelsBundleTest {
         assertTrue(stale.isEmpty(), "labels.properties describes settings that no longer exist: " + stale);
     }
 
+    /** A setting that labels one of its choices labels them all: a menu never mixes words and codes. */
+    @Test
+    public void aLabeledChoiceSettingLabelsEveryChoice() {
+        final List<String> missing = new ArrayList<>();
+        for (final SettingDef def : KnownSettings.all()) {
+            final List<String> choices = def.getChoices();
+            final boolean labeled = choices.stream().anyMatch(value -> !value.equals(def.choiceLabel(value)));
+            choices.stream().filter(value -> labeled && value.equals(def.choiceLabel(value)))
+                    .forEach(value -> missing.add(def.getName() + " " + value));
+        }
+        assertTrue(missing.isEmpty(), "choices with no words beside labeled ones: " + missing);
+        assertEquals(KnownSettings.SITE_PAGES_SIDEBAR.choiceLabel(KnownSettings.SIDEBAR_FORCED_OFF),
+                "Hidden on every page");
+        assertEquals(KnownSettings.SITE_PAGES_SIDEBAR.choiceLabel(""), "");
+    }
+
     @Test
     public void aDefinitionOutsideTheRegistryKeepsItsOwnWords() {
         final SettingDef adHoc = new SettingDef("x.key", Config.Type.INT, "42", "The label", "The description");
@@ -150,9 +166,13 @@ public class LabelsBundleTest {
         return "labels.settingSection." + id + ".title";
     }
 
-    /** {@code labels.setting.site.languages.label} names the setting {@code site.languages}. */
+    /**
+     * {@code labels.setting.site.languages.label} names the setting {@code site.languages}, and
+     * {@code labels.setting.site.pages.sidebar.choice.on} the setting {@code site.pages.sidebar}.
+     */
     private static String settingOf(final String key) {
-        return key.substring("labels.setting.".length(), key.lastIndexOf('.'));
+        final int choice = key.indexOf(".choice.");
+        return key.substring("labels.setting.".length(), choice >= 0 ? choice : key.lastIndexOf('.'));
     }
 
     private static Properties bundle() {

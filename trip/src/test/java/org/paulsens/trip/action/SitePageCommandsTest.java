@@ -40,6 +40,7 @@ import org.paulsens.trip.model.SitePage;
 import org.paulsens.trip.model.SitePage.Placement;
 import org.paulsens.trip.site.SiteContext;
 import org.paulsens.trip.util.RandomData;
+import org.paulsens.trip.util.TestWaits;
 import org.testng.annotations.Test;
 
 /**
@@ -458,6 +459,24 @@ public class SitePageCommandsTest {
         assertNull(onSite(placeholder, () -> pages.currentPage(MarketingPageBootstrap.PRICING_PAGE)));
     }
 
+    /** A save that opens or closes a page names the change on the audit line: which save did it must be findable. */
+    @Test
+    public void aGateChangeIsNamedOnTheAuditLine() throws Exception {
+        final Person orgAdmin = savedPerson();
+        final Organization org = hostedOrgWithAdmin(orgAdmin);
+        final String orgId = org.getId().getValue();
+        final SitePageCommands pages = commandsFor(orgAdmin);
+        assertTrue(pages.addPage(orgId, "Board minutes", null, "board-minutes", "ABOUT", "ORG_ADMINS"));
+        final String opened = TestWaits.captureStdout(() -> assertTrue(pages.saveDialog(orgId, "edit",
+                "board-minutes", "Board minutes", null, null, "ABOUT", "EVERYONE", "HIDE")));
+        assertTrue(opened.contains("Editable page 'Board minutes' (board-minutes) updated "
+                + "(access ORG_ADMINS -> EVERYONE, sidebar DEFAULT -> HIDE)"), opened);
+        final String retitled = TestWaits.captureStdout(() -> assertTrue(pages.saveDialog(orgId, "edit",
+                "board-minutes", "Minutes", null, null, "ABOUT", "EVERYONE", "HIDE")));
+        assertTrue(retitled.contains("(board-minutes) updated") && !retitled.contains("access "),
+                "a save that leaves the gate alone says nothing about it: " + retitled);
+    }
+
     /**
      * The product's own site shows Help only once something is in it (a Help entry or its donate link): one rule for
      * the menu and the Editable Pages preview. Every other org site always shows it; the placeholder host never does.
@@ -493,6 +512,17 @@ public class SitePageCommandsTest {
             assertTrue(pages.deletePage(platformId, link));
         }
         assertFalse(pages.helpMenuShown(platformId), "the entry gone: hidden again");
+
+        // Help counts only what the READER may open: a signed-in page there is no Help at all for a visitor.
+        assertTrue(pages.addPage(platformId, "Members help", null, "members-help", "HELP", "SIGNED_IN"));
+        final SitePageCommands visitor = new SitePageCommands(
+                () -> new Caller(null, false, new AuditActor(null, null), new PrivilegeCommands()));
+        try {
+            assertFalse(visitor.helpMenuShown(platformId), "a visitor gets no empty Help submenu");
+            assertTrue(commandsFor(savedPerson()).helpMenuShown(platformId), "anyone signed in gets Help");
+        } finally {
+            assertTrue(pages.deletePage(platformId, "members-help"));
+        }
 
         setPlatformDonate("https://donate.example.org/");
         try {
