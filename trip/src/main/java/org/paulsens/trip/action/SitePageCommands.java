@@ -528,8 +528,8 @@ public class SitePageCommands {
     }
 
     /**
-     * {@link #updatePage(String, String, String, String, String)} that also replaces the entry's per-language
-     * titles; null {@code titles} keeps the ones it has.
+     * {@link #updatePage(String, String, String, String, String)} that also replaces the titles of the languages the
+     * site offers; a stored title for a language it does not offer is kept. Null {@code titles} keeps them all.
      */
     public boolean updatePage(final String orgId, final String name, final String title,
             final Map<String, String> titles, final String url, final String placement) {
@@ -556,8 +556,10 @@ public class SitePageCommands {
         if (cleanTitle == null || !mayChoose(access)) {
             return false;
         }
-        final Set<String> offered = otherLanguages(orgId).stream().map(Language::getTag)
-                .collect(Collectors.toSet());
+        // Every language the site offers, its default included: the default's title is the entry's own, so a stored
+        // one for it (left from before the default changed) would hide the main title and has no field to clear it.
+        final Set<String> offered = new ConfigCommands().siteLanguages(orgs.findOrganization(orgId)).stream()
+                .map(Language::getTag).collect(Collectors.toSet());
         final Details details = new Details(cleanTitle, titles, offered, url, placement, access, sidebar);
         return change(orgId, name, (pages, index) -> applyDetails(pages, index, details), "updated");
     }
@@ -667,8 +669,9 @@ public class SitePageCommands {
     }
 
     /**
-     * The dialog's changes on one entry. Its titles replace those of the languages the dialog showed
-     * ({@code offered}); a title for a language the site does not offer yet (a starter's, seeded in every starter
+     * The dialog's changes on one entry. Its titles replace those of every language the site offers
+     * ({@code offered}, the default included, whose title is the entry's own); a title for a language the site does
+     * not offer yet (a starter's, seeded in every starter
      * language) is kept, so the entry still reads translated when the site adds that language (review, 2026-11-24).
      */
     private static boolean applyDetails(final List<SitePage> pages, final int index, final Details details) {

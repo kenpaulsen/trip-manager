@@ -8,7 +8,7 @@ the website keeps its existing moderator tools (mute, remove, delete) and gains 
 
 | Requirement | Where it lives |
 |---|---|
-| A method for filtering objectionable material | `chat.blockedTerms` + `moderation/ContentFilter` — a whole-word, case-insensitive list applied at send/edit time to chat messages and photo comments; refused with `BLOCKED_CONTENT` (400). Site admins edit the list on `/admin/settings.jsf` → Chat moderation. Empty = off. |
+| A method for filtering objectionable material | `chat.blockedTerms` + `moderation/ContentFilter` -- a whole-word, case-insensitive list applied at send/edit time to chat messages and photo comments; refused with `BLOCKED_CONTENT` (400). Site admins edit the list on `/admin/settings.jsf` → Chat moderation. Empty = off. |
 | A mechanism to report offensive content, with timely responses | `ModerationCommands.report` behind three endpoints (below). A report is a `REPORT` audit record plus an email to `moderation.report.email` (default `facilitators` → org contact → Site email) with a BCC to `moderation.platform.email`. The Terms promise a response within 24 hours (`ModerationCommands.RESPONSE_PROMISE`). Nothing is auto-hidden on a report. |
 | The ability to block abusive users | `BlockListCommands` + `BlocksResource` (`/api/me/blocks`). One reserved person-data row per person (`DataId "blocked-people"`, type `BlockList`). The app hides a blocked author's messages, photos and comments; the server refuses an `@mention` of the blocker by the blocked person. |
 | Published contact information | `support.jsf` on every host (info@unitetrip.com + the organization's contact card) and the Settings → About screen in the app. |
@@ -24,7 +24,7 @@ POST /api/photo-chat/comments/{msgId}/report?key=<s3Key>      {"reason": "..."} 
 POST /api/photo-chat/report?key=<s3Key>                       {"reason": "..."}   -> 202
 ```
 Refusals: 404 (the reporter cannot see the content, or it is gone), 429 + `Retry-After` (10 reports per person
-per hour — `UploadRateLimiter` reused), 403 (signed out), 400 (nothing to report). The `reason` is free text up to
+per hour -- `UploadRateLimiter` reused), 403 (signed out), 400 (nothing to report). The `reason` is free text up to
 1000 characters; the app sends a category word followed by the user's note.
 
 ```
@@ -70,12 +70,12 @@ registration, so nothing there depends on the deleted rows. The `Person` row sta
 DAO already honours (invisible to lookups, email index and search). Rosters and ledgers show "Deleted Account".
 
 **Dependents:** family members the person alone manages (created members with no login and no other manager)
-are deleted with the account — they exist only as that person's household. Members with a login, or with another
+are deleted with the account -- they exist only as that person's household. Members with a login, or with another
 manager, stay; the leaver is removed from the family and from every remaining member's `managedUsers`.
 
 ### Settle first
 
-With `account.delete.requireSettled` on (default), deletion is refused while the person — or a dependent — is
+With `account.delete.requireSettled` on (default), deletion is refused while the person -- or a dependent -- is
 registered (status other than Not Registered) for a trip that has not ended, or owes a balance (negative sum of
 their per-row shares, per organization). The preview names the trips and amounts and gives the contact email
 (the blocking trip's organization, else the Site email). Legal basis for the US-only launch: no US federal law
@@ -85,7 +85,7 @@ The switch exists so the rule can be relaxed **without a deploy** if App Review 
 `/admin/settings.jsf` → Account deletion, and deletion proceeds (the notice still shows what is owed).
 
 Two refusals ignore the switch because they would leave the data model broken: the sole admin of an organization
-(`SOLE_ORG_ADMIN` — transfer admin first) and a dependent who is themselves unsettled (`DEPENDENT_UNSETTLED`).
+(`SOLE_ORG_ADMIN` -- transfer admin first) and a dependent who is themselves unsettled (`DEPENDENT_UNSETTLED`).
 
 ### The notice email
 
@@ -103,12 +103,12 @@ must not block a person's right to leave, and the record must never be lost.
 ### Audit
 
 `PERSON` / `ACCOUNT DELETED (self-service): …` on success (target = the original email + id), `ALARM` on an
-incomplete run (the client sees 500 and is told to contact support; re-running is safe — every step is idempotent).
+incomplete run (the client sees 500 and is told to contact support; re-running is safe -- every step is idempotent).
 
 ## Settings added
 
 `chat.blockedTerms`, `moderation.report.email`, `moderation.report.from`, `moderation.platform.email`,
-`account.delete.requireSettled`, `account.delete.notify.email`, `account.delete.notify.from` — all in
+`account.delete.requireSettled`, `account.delete.notify.email`, `account.delete.notify.from` -- all in
 `KnownSettings`, the mail slots also in `MailAddressCommands.SLOTS`.
 
 ## Tests

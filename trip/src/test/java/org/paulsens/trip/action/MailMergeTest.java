@@ -116,7 +116,7 @@ public class MailMergeTest {
                 "<p>%7B%7BbalanceDue%7D%7D</p>", "<p>{<form>{passportIssue}}</p>", "<p>%7B%7BtirpLink%7D%7D</p>",
                 "<p><iframe src=\"https://www.youtube.com/embed/abc\"></iframe></p>")) {
             Assert.assertNotNull(mailer.problem("S", hidden, trip), hidden);
-            Assert.assertThrows(IllegalArgumentException.class, () -> mailer.render(traveler, "S", hidden, trip));
+            Assert.assertNull(mailer.render(traveler, "S", hidden, trip).preview(), hidden);
             Assert.assertNull(mailer.preview(List.of(traveler.getEmail()), "S", hidden, trip), hidden);
             Assert.assertFalse(mailer.send("no-reply@example.com", List.of(traveler.getEmail()), null, "r", "S",
                     hidden, trip), hidden);
@@ -139,7 +139,9 @@ public class MailMergeTest {
         final MailMerge merge = merge(siteAdmin(), mail);
         final String huge = "<p>" + "a".repeat(ReminderCommands.MAX_RAW_BODY) + "</p>";
         Assert.assertEquals(merge.problem("S", huge, null), "The message is too long.");
-        Assert.assertThrows(IllegalArgumentException.class, () -> merge.render(traveler, "S", huge, null));
+        final MailMerge.Rendered refused = merge.render(traveler, "S", huge, null);
+        Assert.assertEquals(refused.problem(), "The message is too long.");
+        Assert.assertNull(refused.preview(), "a refused text renders nothing");
         Assert.assertFalse(merge.send("no-reply@example.com", List.of(traveler.getEmail()), null, "r", "S", huge,
                 null));
         Mockito.verify(mail, Mockito.never()).sendMerged(ArgumentMatchers.any(), ArgumentMatchers.any(),
@@ -182,11 +184,13 @@ public class MailMergeTest {
     @Test
     public void renderFillsTheRoomFromTheReservation() {
         final MailMerge.Preview got = asAdmin().render(traveler, "{{tripTitle}} & you", "Room {{room}}, {{firstName}}",
-                trip);
+                trip).preview();
 
         Assert.assertEquals(got.body(), "Room 301, " + MailTemplatesEscape.of(traveler.getPreferredName()));
         Assert.assertTrue(got.subject().endsWith(" & you"), "a subject is plain text");
-        Assert.assertThrows(IllegalArgumentException.class, () -> asAdmin().render(traveler, "S", "#{x}", trip));
+        final MailMerge.Rendered refused = asAdmin().render(traveler, "S", "#{x}", trip);
+        Assert.assertEquals(refused.problem(), MailMerge.EXPRESSION);
+        Assert.assertNull(refused.preview(), "refused text renders nothing");
     }
 
     @Test
@@ -263,7 +267,8 @@ public class MailMergeTest {
                 List.of(removedSent), "past tense on the send: the mail has gone");
         Mockito.verify(mail).sendMerged("no-reply@example.com", null, "r@example.com",
                 List.of(new MailCommands.Merged(traveler, "S", mailed)));
-        Assert.assertEquals(merge.render(traveler, "S", typed, null).body(), mailed, "the REST preview alike");
+        Assert.assertEquals(merge.render(traveler, "S", typed, null).preview().body(), mailed,
+                "the REST preview alike");
 
         final String clean = "<p><span style=\"color: #c00\">Hi</span></p>";
         Assert.assertEquals(TestFaces.growlsOf(new HashMap<>(), () -> merge.preview(

@@ -1,4 +1,4 @@
-# Conferences — read before touching trip kinds, typed questions, tickets or the conference page
+# Conferences -- read before touching trip kinds, typed questions, tickets or the conference page
 
 A conference is a `Trip` with `kind = CONFERENCE`, not a separate entity: it reuses the trip's roles, registration,
 family party sign-up, waivers, payments, reports, chat and lodging. This replaces the `mir2026` branches, which

@@ -373,6 +373,16 @@ public class SitePageCommandsTest {
         assertTrue(pages.saveDialog(orgId, "edit", "mission", "Mission", Map.of("es", " "), null, "HELP"));
         assertEquals(pages.pageOf(orgId, "mission").titles(), Map.of("hr", "Naša misija"),
                 "an offered language's title is still cleared by the dialog");
+
+        // The default language's title is the entry's own: once Spanish becomes the default, a stored Spanish title
+        // would hide the main one with no field left to clear it, so a dialog save drops it.
+        assertTrue(pages.saveDialog(orgId, "edit", "mission", "Mission", Map.of("es", "Misión"), null, "HELP"));
+        assertTrue(new OrgCommands(TestCallers::siteAdminHoldingNothing).saveOrgSettings(orgId,
+                Map.of(KnownSettings.SITE_LANGUAGES.getName(), "es,en")));
+        assertTrue(pages.saveDialog(orgId, "edit", "mission", "Nuestra misión", Map.of("en", "Mission"), null,
+                "HELP"));
+        assertEquals(pages.pageOf(orgId, "mission").titleIn("es"), "Nuestra misión", "the new default reads the main");
+        assertEquals(pages.pageOf(orgId, "mission").titles(), Map.of("en", "Mission", "hr", "Naša misija"));
     }
 
     @Test

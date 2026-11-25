@@ -1,4 +1,4 @@
-# Conference import — people, past conferences, registrations and ledger from an older deployment
+# Conference import -- people, past conferences, registrations and ledger from an older deployment
 
 A one-time, re-runnable import of an older single-conference deployment (the `mir2026` branch's own AWS account) into
 an organization of this one: its people, its conference trips, their registrations, check-in stamps, ledger rows and

@@ -3,7 +3,7 @@
 Non-trip-members can participate in a trip's chat two ways (2026-08-12):
 
 1. **Family**: anyone in a family (`Person.familyId` → `Family.memberIds`) with someone on the trip roster
-   is a full chat member — not just managers, as before. Implemented in `ChatCommands.isTripMember`; the
+   is a full chat member -- not just managers, as before. Implemented in `ChatCommands.isTripMember`; the
    legacy `managedUsers` loop remains for persons not yet migrated into a family.
 2. **Invite link / QR code**: anyone who can post in the chat (plus chatMgr/chatAdmin) can mint a multi-use
    invite link from the chat page's Invite dialog, which shows it as a QR code (`p:barcode`, okapibarcode
@@ -27,7 +27,7 @@ Both on `ChatResource`, the channel path, so they share `tripIdOf`/CSRF/auth wit
   website mints on the Invite button, never at render, for the same reason).
 - `POST /api/chat/channels/trip:{tripId}/invite` → `{"url": "...", "expires": <epoch seconds>}` from
   `ChatCommands.mintInvite` (the JSF path's `createInviteFromUi` keeps its per-session reuse, which a
-  sessionless REST caller cannot share — the app keeps the link per chat on the device until `expires`
+  sessionless REST caller cannot share -- the app keeps the link per chat on the device until `expires`
   instead; until 2026-10-16 it minted on every thread screen, and one person opening the sheet ten times
   filled a chat's cap for a month).
   403 `FORBIDDEN` when `canInvite` is false, refused BEFORE the bean is asked so it costs no row; 409
@@ -62,10 +62,10 @@ Both on `ChatResource`, the channel path, so they share `tripIdOf`/CSRF/auth wit
   under the paths the association files claim) is minted through `SiteUrls.appLinkBaseUrl`, never
   `baseUrl`.
 
-## Authorization model — read before touching
+## Authorization model -- read before touching
 
 - `ChatCommands.canParticipate(tripId, me)` is THE definition of chat access:
-  `isTripMember || guestJoined(row)`. **Only a guest-marked JOINED row grants access** — a plain JOINED
+  `isTripMember || guestJoined(row)`. **Only a guest-marked JOINED row grants access** -- a plain JOINED
   row (rejoin, roster backfill) never does, so no path that materialises ordinary rows can become a back
   door.
 - `readDenial` reads the membership row FIRST and refuses LEFT/REMOVED **before** any grant: an admin
@@ -74,14 +74,14 @@ Both on `ChatResource`, the channel path, so they share `tripIdOf`/CSRF/auth wit
 - **Every redemption and every first post leaves a JOINED row** (`ChatJoin`, 2026-09-20). Before that, a
   redeem by anyone who could already participate was a silent no-op: no row, no `uses` increment, no
   audit, so a family member never appeared on the roster, in `@all`, in the digest or in the mention
-  list, and the link's Uses stayed 0. The row is BOOKKEEPING, not a grant — it is guest-marked only for
+  list, and the link's Uses stayed 0. The row is BOOKKEEPING, not a grant -- it is guest-marked only for
   someone with no standing of their own (`!isTripMember`), so the locked rule above is untouched and a
   link can never outlive the family membership or privilege it was clicked with. A participant's row
   carries `invitedVia` (shown as a "via invite" tag beside their name) and takes `joinedAt` from the
   CHANNEL's creation, the same floor `materialize` uses, so materialising it shrinks nobody's history.
   `ChatJoin.byPosting` does the same on a first post, after the message is durable and never failing the
   send; roster members are skipped, since the trip itself already lists them everywhere.
-- `rejoin` refuses anyone who is neither a trip member nor an existing guest — before this, any session
+- `rejoin` refuses anyone who is neither a trip member nor an existing guest -- before this, any session
   could write itself a JOINED row (harmless then, a hole once rows mean access). A LEFT guest may rejoin;
   `ChatMembership.with*` all carry `guest`/`invitedVia`, and dropping them in a new copy method would
   silently lock guests out (`ChatMembershipTest` pins every one).
@@ -101,18 +101,18 @@ Both on `ChatResource`, the channel path, so they share `tripIdOf`/CSRF/auth wit
   is now that trip or null everywhere, and `chat.xhtml` redirects to the profile page with
   `TripCommands.NO_TRIP_ACCESS_MESSAGE` as a growl.)
 - tripTabs: the strip's outer gate is `canParticipate`, but Details/Itinerary/Contacts/To-do's are gated on
-  the narrower `isTripMember` — a guest sees exactly the Chat tab.
+  the narrower `isTripMember` -- a guest sees exactly the Chat tab.
 
 ## Storage
 
-- `chat_invites` table: PK `channelId`, SK `selector`; attrs `validatorHash` (SHA-256 — the table never
+- `chat_invites` table: PK `channelId`, SK `selector`; attrs `validatorHash` (SHA-256 -- the table never
   holds a working link; the full URL exists only in the minting session), `createdBy`, `created`,
   `expires` (epoch sec, doubles as TTL; redemption re-checks it because TTL lags), `uses` (best-effort).
   `ChatInviteDAO` is deliberately UNCACHED (rows authorize; a revoked link must die immediately), and for
   the same reason its point read is strongly consistent and its one read-modify-write is conditional
   (2026-11-12): `recordUse` puts with `attribute_exists(selector)`, so counting a use can never write back
   a link that was revoked after the redemption read it. It answers `false` in exactly that case.
-- Guest reverse lookup: synthetic rows in `chat_members` under PK `person:{personId}`, SK = channel id —
+- Guest reverse lookup: synthetic rows in `chat_members` under PK `person:{personId}`, SK = channel id --
   one partition query feeds `myChats`, keeping the no-GSI/no-scan design. These rows are NOT
   `ChatMembership` JSON; only `ChatDAO.addGuestChannel`/`listGuestChannelIds` touch them. `purgeChannel`
   orphans them harmlessly (`myChats` skips missing channels); re-clicking an invite self-heals a lost one.
@@ -136,7 +136,7 @@ Both on `ChatResource`, the channel path, so they share `tripIdOf`/CSRF/auth wit
   (`rosterJsonForTrip`), `@all` (`ChatNotifications.everyoneIn`), moderation (mute/remove), roster listing
   on `admin/chatSettings.jsf` (badged "guest" or "via invite"; it also lists/revokes outstanding links).
   Redeeming an invite or posting once is what creates that row for a family member, a `tripView` holder or
-  a site admin — note that means an admin who posts in any trip's chat gains a row and a My Chats entry
+  a site admin -- note that means an admin who posts in any trip's chat gains a row and a My Chats entry
   there, which is the same "privilege holder" rule.
 
 ## Tests

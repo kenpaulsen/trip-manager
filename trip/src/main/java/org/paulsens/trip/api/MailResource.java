@@ -14,6 +14,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.MailCommands;
 import org.paulsens.trip.action.MailMerge;
 import org.paulsens.trip.action.OrgCommands;
+import org.paulsens.trip.action.ReminderCommands;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.Person;
@@ -83,11 +84,11 @@ public class MailResource extends BaseResource {
         // until medjugorje#79, which let an org-scoped emailAdmin run code here), and a field the caller may
         // not use is refused rather than blanked.
         final MailMerge merge = new MailMerge(this::caller);
-        final String problem = merge.problem(body.subject(), body.template(), body.tripId());
-        if (problem != null) {
-            return error(422, ApiErrors.VALIDATION_FAILED, problem);
+        final MailMerge.Rendered rendered = merge.render(person, body.subject(), body.template(), body.tripId());
+        if (rendered.problem() != null) {
+            return error(422, ApiErrors.VALIDATION_FAILED, rendered.problem());
         }
-        return ok(previewOf(body, merge.render(person, body.subject(), body.template(), body.tripId())));
+        return ok(previewOf(body, rendered.preview()));
     }
 
     private static Map<String, String> previewOf(final PreviewRequest body, final MailMerge.Preview rendered) {
@@ -124,7 +125,7 @@ public class MailResource extends BaseResource {
         }
         // The page's allowlist too (review, 2026-11-24): this door mailed the body as typed, a frame or a script
         // included. What the cleaner dropped is said in the answer, never silently (the owner's rule).
-        final MailMerge.Mailable mailable = MailMerge.mailable(body.body());
+        final ReminderCommands.Mailable mailable = MailMerge.mailable(body.body());
         if (mailable.problem() != null) {
             return error(422, ApiErrors.VALIDATION_FAILED, mailable.problem());
         }

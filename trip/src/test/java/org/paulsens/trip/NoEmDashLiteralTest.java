@@ -21,10 +21,15 @@ import org.testng.annotations.Test;
  *
  * <p>The character itself, its {@code \}{@code u2014} escape and its HTML entities ({@code &mdash;},
  * {@code &#8212;}, {@code &#x2014;}) all count, since a literal holding any of them renders as a dash.
+ *
+ * <p>The repo's {@code docs/} are scanned too, line by line: the owner reads them, and a rewritten doc line kept its
+ * em dash through a review (2026-11-24) because nothing looked.
  */
 public class NoEmDashLiteralTest {
 
     private static final Path MAIN = Path.of("src", "main", "java");
+    /** The repo's docs, from the module directory surefire runs in. */
+    private static final Path DOCS = Path.of("..", "docs");
 
     private static final List<String> DASHES = List.of(Character.toString(0x2014), "\\u2014", "&mdash;", "&#8212;",
             "&#x2014;", "&#X2014;");
@@ -52,6 +57,22 @@ public class NoEmDashLiteralTest {
         // assertTrue, not assertEquals: TestNG's size-mismatch message never prints the offenders.
         Assert.assertTrue(offenders.isEmpty(), "No em dash in a Java string literal (owner rule): write \"--\", "
                 + "or reword with a comma, colon or period: " + offenders);
+    }
+
+    @Test
+    public void noDocHoldsAnEmDash() throws IOException {
+        final List<String> offenders = new ArrayList<>();
+        try (Stream<Path> files = Files.walk(DOCS)) {
+            for (final Path doc : files.filter(path -> path.toString().endsWith(".md")).sorted().toList()) {
+                final List<String> lines = Files.readAllLines(doc, StandardCharsets.UTF_8);
+                for (int i = 0; i < lines.size(); i++) {
+                    if (hasDash(lines.get(i))) {
+                        offenders.add(DOCS.relativize(doc) + ":" + (i + 1));
+                    }
+                }
+            }
+        }
+        Assert.assertTrue(offenders.isEmpty(), "No em dash in docs/ (owner rule): write \"--\": " + offenders);
     }
 
     /** The allow-list cannot go stale: each entry still names a literal its file really has. */

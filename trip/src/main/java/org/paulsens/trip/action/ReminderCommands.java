@@ -392,7 +392,9 @@ public class ReminderCommands {
         if (form == null) {
             return refuse(Text.get("feedback.shared.nothingToSave"));
         }
-        final String problem = formProblem(form);
+        // The body through the one mail check, cleaned ONCE: the check and the stored body judge the same input.
+        final Mailable body = mailable(form.getBody(), "feedback.reminderCommands.tagTooLong");
+        final String problem = formProblem(form, body);
         if (problem != null) {
             return refuseInto(refusal, problem);
         }
@@ -408,8 +410,7 @@ public class ReminderCommands {
         final TripReminder.Anchor anchor = parse(TripReminder.Anchor.class, form.getAnchor());
         final boolean dated = anchor == TripReminder.Anchor.FIXED_DATE;
         final int days = (dated || "ON".equals(form.getTiming())) ? 0 : form.getDays();
-        // One clean gives both the stored body and the warning, so the two always judge the same input.
-        final RichTextHtml.Cleaned cleaned = cleanNoting(form.getBody());
+        final RichTextHtml.Cleaned cleaned = body.cleaned();
         final TripReminder reminder = TripReminder.builder()
                 .id(adding ? UUID.randomUUID().toString() : existing.getId())
                 // The kind is what the message IS (and fixes its audience), so an edit can never change it.
@@ -481,12 +482,31 @@ public class ReminderCommands {
         return RichTextHtml.hasUnreadableTag(raw) ? Text.get(pasteTooLarge) : null;
     }
 
+    /** A body as the site mails it: why it is refused (or null), and the cleaned body (null when refused raw). */
+    public record Mailable(String problem, RichTextHtml.Cleaned cleaned) {
+    }
+
+    /**
+     * A mail body through the one allowlist for everything the site mails: refused before it is cleaned when too long
+     * or holding what the cleaner could only write out as text ({@link #rawMailProblem}, the paste refusal named by
+     * {@code pasteTooLarge}), then cleaned, then refused when it says nothing ({@link #cleanedMailProblem}). The ONE
+     * sequence for a scheduled message, the mail merge and the REST send, so a step added here reaches all three.
+     */
+    static Mailable mailable(final String raw, final String pasteTooLarge) {
+        final String rawProblem = rawMailProblem(raw, pasteTooLarge);
+        if (rawProblem != null) {
+            return new Mailable(rawProblem, null);
+        }
+        final RichTextHtml.Cleaned cleaned = cleanNoting(raw);
+        return new Mailable(cleanedMailProblem(cleaned.body()), cleaned);
+    }
+
     /**
      * Why a cleaned mail body is refused, or null: it says and shows nothing (a body that was only a video cleans to
-     * an empty paragraph, review 2026-11-23), or it is longer than a message may be once cleaned. Shared by a
-     * scheduled message and the mail merge, like {@link #rawMailProblem}.
+     * an empty paragraph, review 2026-11-23), or it is longer than a message may be once cleaned. Part of
+     * {@link #mailable}, like {@link #rawMailProblem}.
      */
-    static String cleanedMailProblem(final String body) {
+    private static String cleanedMailProblem(final String body) {
         if (WaiverHtml.isBlank(body) && !body.contains("<img")) {
             return Text.get("feedback.reminderCommands.bodyMissing");
         }
@@ -498,7 +518,7 @@ public class ReminderCommands {
                 .replace("%7b%7b", "{{").replace("%7d%7d", "}}");
     }
 
-    private static String formProblem(final ReminderViews.Form form) {
+    private static String formProblem(final ReminderViews.Form form, final Mailable body) {
         if (form.getName() == null || form.getName().isBlank()) {
             return Text.get("feedback.reminderCommands.nameMissing");
         }
@@ -521,25 +541,20 @@ public class ReminderCommands {
         if (form.isCustom() && parse(TripReminder.Audience.class, form.getAudience()) == null) {
             return Text.get("feedback.reminderCommands.chooseAudience");
         }
-        return wordingProblem(form);
+        return wordingProblem(form, body);
     }
 
-    private static String wordingProblem(final ReminderViews.Form form) {
+    private static String wordingProblem(final ReminderViews.Form form, final Mailable mailable) {
         if (form.getSubject() == null || form.getSubject().isBlank()) {
             return Text.get("feedback.reminderCommands.subjectMissing");
         }
         if (form.getSubject().trim().length() > MAX_SUBJECT) {
             return Text.get("feedback.reminderCommands.subjectTooLong", MAX_SUBJECT);
         }
-        final String rawProblem = rawMailProblem(form.getBody(), "feedback.reminderCommands.tagTooLong");
-        if (rawProblem != null) {
-            return rawProblem;
+        if (mailable.problem() != null) {
+            return mailable.problem();
         }
-        final String body = cleanBody(form.getBody());
-        final String bodyProblem = cleanedMailProblem(body);
-        if (bodyProblem != null) {
-            return bodyProblem;
-        }
+        final String body = mailable.cleaned().body();
         if (form.getPushText() != null && form.getPushText().trim().length() > MAX_PUSH) {
             return Text.get("feedback.reminderCommands.pushTooLong", MAX_PUSH);
         }

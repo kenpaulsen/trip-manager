@@ -136,9 +136,9 @@ weight, alignment, indent or width, a table (rows, cells, a cell's span), and an
 at most its alt text and size. An image in mail is fetched by each reader's mail client, so its sender could see who
 opened the message; the owner accepted that. A video, a frame and every unknown tag are dropped, and the page's
 toolbar offers only what is kept. A paste can still bring something the cleaner refuses (a scheme-less `example.com`
-leaves an `<a>` that goes nowhere), so the save still stores the draft but then warns "Some formatting this message
-cannot carry (a video, a frame, a style other than a color, size, alignment or indent, or a link that is not a full
-web, email or phone address) was removed. Check the preview." The cleaner itself reports the drop
+leaves an `<a>` that goes nowhere), so the save still stores the draft but then warns
+`feedback.reminderCommands.formattingRemoved`, which names what mail cannot carry from `cannotCarry` (the list is not
+copied here, so it cannot drift). The cleaner itself reports the drop
 (`RichTextHtml.cleanNoting`, the same single pass that produces the stored body, noting each tag, style, class or
 address it refuses); a string comparison would fire on every body, since cleaning always rewrites a link's
 `rel`/`target`, escapes and trims.
@@ -158,9 +158,10 @@ message): the cleaner would otherwise write that tag out as visible text. "Add s
 such a tag either: an org starter template holding one falls back to the built-in text. Never clean this body with
 a blocklist: the waiver's former one (removed 2026-11-23) passed three bodies unchanged in the first review
 (`RichTextHtmlTest` pins them). A blank body is refused by the check the mail merge shares
-(`ReminderCommands.cleanedMailProblem`): a body that was only a video cleans to nothing; a picture alone is a
-message. Each warning that the cleaner dropped something names what mail cannot carry from ONE key,
-`feedback.reminderCommands.cannotCarry`, so a new cleaner rule is named everywhere at once.
+(`ReminderCommands.mailable`, the one sequence a scheduled message, the mail merge and the REST send all run): a
+body that was only a video cleans to nothing; a picture alone is a message. Each warning that the cleaner dropped
+something names what mail cannot carry from ONE key, `feedback.reminderCommands.cannotCarry`, so a new cleaner rule
+is named everywhere at once.
 
 The automatic mails' preview on the Communications page shows each managed MAIL template through
 `RichTextHtml.cleanTemplatePreview`: mail's list, plus a link or image whose address is one whole field

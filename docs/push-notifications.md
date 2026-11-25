@@ -1,4 +1,4 @@
-# Push notifications — direct APNs + FCM + Web Push
+# Push notifications -- direct APNs + FCM + Web Push
 
 Read this before touching anything under `push/`, `action/PushCommands`, `api/PushResource`, the
 `pushMode` field of `ChatNotifyPref`, the recipient policy in `chat/ChatNotifications`, or the three
@@ -56,7 +56,7 @@ person-data row). Content is a `PushPrefs`:
   Android token = 64–4096 characters of `[A-Za-z0-9_:-]` that are not all hex (an FCM registration token is
   case-sensitive and stored as given, no environment: one Firebase project serves every build). For both,
   `selector` must be a REFRESH/REMEMBER row of the caller's (`getAuthToken(selector, Cached.NO)`, never
-  ACCESS) — 403 otherwise. Web endpoint = absolute `https://` URL with a host (or `http://localhost` for
+  ACCESS) -- 403 otherwise. Web endpoint = absolute `https://` URL with a host (or `http://localhost` for
   the local recipe), `p256dh` = 65-byte uncompressed P-256 point, `auth` ≥ 16 bytes, both base64url. Shape
   only, never reachability.
 - **Listing id** (`PushDevice.id()`): iOS = last 8 hex of the token; Android = last 8 hex of SHA-256(token);
@@ -68,7 +68,7 @@ person-data row). Content is a `PushPrefs`:
   field). The OLD `push` field (`DeliveryMode`) is read-only-legacy: `defaults()`/`withEmail` wrote
   `"push":"OFF"` into every row while push was inert, so it is never interpreted.
 
-### Pruning — who removes a device
+### Pruning -- who removes a device
 
 | Trigger | Path |
 |---|---|
@@ -89,7 +89,7 @@ target = the person, actor = the caller when known, else `System`.
 
 1. `push.enabled` (else `skipped=disabled`) → the person's `enabled` (`off`) → devices (`no-devices`; web
    devices only when `push.web.enabled`).
-2. **Dedupe claim** `tryAcquireLock(chatNotifySentKey("{eventKey}|{personId}|PUSH"), 24 h)` — the same
+2. **Dedupe claim** `tryAcquireLock(chatNotifySentKey("{eventKey}|{personId}|PUSH"), 24 h)` -- the same
    marker shape and TTL as chat email, taken BEFORE any send so a retry or a second task cannot alert the
    same person twice for one event. Event keys: the chat message id; `reg:{tripId}:{personId}`;
    `pay:{paymentId}`; `sup:{msgId}`. A null key (the test endpoint) skips the claim.
@@ -99,9 +99,9 @@ target = the person, actor = the caller when known, else `System`.
 5. One gateway send per device; `DROP_DEVICE` prunes the device under the lock. After any delivered alert
    the silent marker is claimed too (the alert already woke the app).
 
-`sendSilent(personId)`: one `{"aps":{"content-available":1}}` per iOS device (never web — a service worker
+`sendSilent(personId)`: one `{"aps":{"content-available":1}}` per iOS device (never web -- a service worker
 that shows nothing loses its permission), coalesced by `tryAcquireLock(pushSilentKey(personId),
-push.silent.intervalMinutes)` — the marker's TTL IS the schedule, no scheduler thread. `0` turns it off.
+push.silent.intervalMinutes)` -- the marker's TTL IS the schedule, no scheduler thread. `0` turns it off.
 
 `NoopCacheClient` grants every lock (documented, not fought): production has Valkey and local mode
 `InMemoryCacheClient`, the two modes that matter.
@@ -123,12 +123,12 @@ push.silent.intervalMinutes)` — the marker's TTL IS the schedule, no scheduler
 
 **Recipient policy split (2026-09-13):** `ChatNotifications.eligible(channelId, author, person)` answers
 membership only (a real person, not the author, not LEFT/REMOVED; an implicit member is a candidate).
-Notifications carry route-neutral candidates; each route applies its own preference at delivery — the
+Notifications carry route-neutral candidates; each route applies its own preference at delivery -- the
 email route `mentionEmail` + a usable address (`EmailChatNotifier.deliver`), the push route `pushMode` +
 devices. A person with a phone and no mailbox is still told, and vice versa.
 
 **Family-manager fallback (2026-09-14, `chat/OnBehalf`):** a route that cannot reach the person hands the
-notification to their family managers on that same route — a parent registers a child and often not
+notification to their family managers on that same route -- a parent registers a child and often not
 themselves, so the child is the one mentioned and has neither mailbox nor phone. Email: no usable address
 ⇒ every `mailableManagers` (creator first). Push: `SKIPPED_NO_DEVICES` ⇒ every `managersOf` (a device is
 the reachability test, as for approvals). Digest: no address ⇒ the mailable managers in one send. Each
@@ -139,7 +139,7 @@ footer says why the manager got it. Not for `ALL_MESSAGES` (a per-person opt-in)
 (the person's own choice). Announcements follow the same fallback.
 
 `ChatNotification.imageUrl` carries the display rendition of a media message's first attachment (or the
-commented photo's full key) for the rich push — null for a content-free (short-retention) channel, like the
+commented photo's full key) for the rich push -- null for a content-free (short-retention) channel, like the
 snippet. Copy: snippet; `Open the chat to read it` when content-free; `📷 Photo` for a bare media message.
 
 ## Wire contract
@@ -154,14 +154,14 @@ REST (`api/PushResource`, `@Path("push")`, `@TripApi`, media type `application/v
 | `PUT /api/push/webpush` | `{endpoint, keys:{p256dh, auth}, label}` → `{devices:[…]}` (origin = request host) |
 | `POST /api/push/webpush/unsubscribe` | `{endpoint}` → `{removed:true}` (idempotent) |
 | `GET /api/push/webpush/key` | → `{publicKey}` (VAPID, base64url); 404 until configured (local mode: a per-JVM throwaway pair) |
-| `GET /api/push/prefs` | → `{enabled, quietHoursStart, quietHoursEnd, timeZone, devices:[{kind, id, label, environment (ios) \| origin (web) \| neither (android), registeredAt, lastSeenAt}]}` — unset strings are `""` |
+| `GET /api/push/prefs` | → `{enabled, quietHoursStart, quietHoursEnd, timeZone, devices:[{kind, id, label, environment (ios) \| origin (web) \| neither (android), registeredAt, lastSeenAt}]}` -- unset strings are `""` |
 | `PUT /api/push/prefs` | `{enabled, quietHoursStart, quietHoursEnd, timeZone}` absent = unchanged, `""` clears; 400 `VALIDATION_FAILED` for a bad time/zone; answers the GET shape |
 | `POST /api/push/test` | → `{sent, outcomes:[{kind,label,outcome}], skipped?}` |
 | `GET/PUT /api/chat/channels/{id}/prefs` | gains `pushMode`: `OFF \| MENTIONS \| ALL` (PUT absent = unchanged; 400 for anything else) |
 
 JSF bean `#{push}` (`PushCommands`): `isEnabledFor(id)`, `quietStart(id)`, `quietEnd(id)`, `quietZone(id)`
 (`HH:mm` / zone id or `""`), `zoneChoices()` (`America/*`, `Europe/*`, `Pacific/*`, `Australia/*`,
-`Asia/*`, `UTC`, sorted), `savePrefsFromUi(me, enabled, start, end, zone)` (growls only on refusal — the
+`Asia/*`, `UTC`, sorted), `savePrefsFromUi(me, enabled, start, end, zone)` (growls only on refusal -- the
 page growls success), `removeDeviceFromUi(me, id)`. `ChatCommands.saveChatPrefsFromUi(mentionEmail,
 dailyDigest, pushMode, bgColor, bgImage)` and `pushModeForTrip(tripId, personId)` (enum name) serve the
 chat prefs dialog. No overloads: EL picks overloads by runtime type.
@@ -201,11 +201,11 @@ Every data value is a string (FCM's rule). `badge` rides only on phones, `passiv
 drops the sound). The silent refresh is `{"data": {"kind": "silent"}, "android": {"priority": "NORMAL", "ttl": "0s",
 "collapse_key": "refresh"}}`; a passive alert also goes `NORMAL`, so doze may hold it, which is the point.
 
-Web push (JSON inside aes128gcm): `{title, body, icon, image?, url, tag, kind}` — `body` = `subtitle: body`
+Web push (JSON inside aes128gcm): `{title, body, icon, image?, url, tag, kind}` -- `body` = `subtitle: body`
 (a web notification has no subtitle line), `icon` = the org's logo (`BrandCommands.lookOf`) else
 `/resources/images/UniteTripLogo.png` on the trip's site, `url` absolute via `SiteUrls.baseUrlForTrip`,
 `tag` = the thread id. Headers: `Content-Encoding: aes128gcm`, `TTL: 86400`, `Urgency: normal` (`low`
-when passive), `Topic` = first 32 chars of base64url(SHA-256(tag)) — the header allows 32 URL-safe chars
+when passive), `Topic` = first 32 chars of base64url(SHA-256(tag)) -- the header allows 32 URL-safe chars
 and a channel id is neither.
 
 ## Gateways and outcomes
@@ -226,7 +226,7 @@ and a channel id is neither.
 
 `Es256Jwt` needs no library: `Signature.getInstance("SHA256withECDSAinP1363Format")` yields the JOSE
 `r‖s` directly. `EcKeys` handles PEM (PKCS#8), raw scalar and uncompressed point (SunEC is in `java.base`
-since JDK 22 — no jlink module). `RsaKeys` reads the service account's PKCS#8 `private_key` and
+since JDK 22 -- no jlink module). `RsaKeys` reads the service account's PKCS#8 `private_key` and
 `GoogleAccessToken` signs with `SHA256withRSA`; no Firebase Admin SDK, for the same reason there is no APNs SDK.
 
 ### Web push crypto notes (RFC 8291 / 8188, `WebPushCrypto`)
@@ -253,7 +253,7 @@ needs no restart), a broken part is logged and absent without taking the others 
   answers and a browser can `subscribe()` locally; `PushRuntime` then hands out the recording
   `LoggingPushGateway` for EVERY kind, so no local send can reach a real push service.
 - **Dev opt-in for real keys**: sysprop-only `-Dtrip.push.secretFile=<path to the same JSON>` (like
-  `trip.cache.local.useConfigured`) — real APNs sandbox / Safari pushes from a laptop.
+  `trip.cache.local.useConfigured`) -- real APNs sandbox / Safari pushes from a laptop.
 - **Production without a secret**: a `LoggingPushGateway` answering `FAILED`, one WARN per JVM.
 - `PushRuntime.setGateway(kind, gateway)` is the test seam; `PushRuntime.recorder()` is the local-mode
   recorder (`sent()` holds the last 200 sends; bodies are never logged, only kind and label).

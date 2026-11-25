@@ -1,4 +1,4 @@
-# Priced checkout — read before touching pricing, CheckoutCommands, or a checkout payment
+# Priced checkout -- read before touching pricing, CheckoutCommands, or a checkout payment
 
 A trip can register people through **priced checkout** instead of the classic free-text form: each person's price is
 computed from the choices they pick, their age on the trip's first day, and a discount code, and a family registers

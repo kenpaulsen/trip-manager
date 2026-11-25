@@ -9,12 +9,12 @@ need a one-time backfill, and the GSI itself must be created once per environmen
 
 ## When to run
 
-After deploying the code that contains this change (any order relative to the GSI creation is fine —
+After deploying the code that contains this change (any order relative to the GSI creation is fine --
 the GSI indexes rows as the attribute appears). Until both steps are done, `getPersonByEmail` returns
-null for people whose row lacks the attribute — **so run this immediately after deploy**: first-time
+null for people whose row lacks the attribute -- **so run this immediately after deploy**: first-time
 logins and password resets depend on it.
 
-## Step 1 — create the GSI (once per environment)
+## Step 1 -- create the GSI (once per environment)
 
 ```sh
 aws dynamodb update-table \
@@ -29,10 +29,10 @@ aws dynamodb update-table \
 Notes:
 - On-demand tables need no provisioned throughput for the GSI.
 - The index is **sparse**: rows without the `email` attribute (no email, or deleted people) are simply
-  not indexed — that is intentional.
+  not indexed -- that is intentional.
 - Wait for `IndexStatus: ACTIVE` (`aws dynamodb describe-table --table-name people`).
 
-## Step 2 — backfill existing rows
+## Step 2 -- backfill existing rows
 
 ```sh
 # Preview what would change:
@@ -44,7 +44,7 @@ Notes:
 
 The script scans `people` once and, for each row, promotes the email found inside the `content` JSON
 to the top-level `email` attribute (lowercased/trimmed). Deleted people and people without an email
-get the attribute **removed** so they stay out of the index. It is idempotent — rerunning it is a
+get the attribute **removed** so they stay out of the index. It is idempotent -- rerunning it is a
 no-op for rows already correct.
 
 Remember the environment: the live tables are in **us-east-1 in the production AWS account** (not the
@@ -54,7 +54,7 @@ laptop default profile). Pass `--profile <name> --region <region>` accordingly, 
 ./scripts/backfill-people-email.sh --profile prod --region us-east-1
 ```
 
-## Step 3 — verify
+## Step 3 -- verify
 
 ```sh
 aws dynamodb query --table-name people --index-name email-index \

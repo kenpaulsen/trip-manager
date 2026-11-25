@@ -10,14 +10,14 @@ mode), and **stale rows** have one that disagrees with the live membership (`--r
 
 **Legacy rows** (saved before this change) have no `groupPeople`. Until they are migrated:
 
-- `getUserAmount` for a **Shared** tx falls back to "just this user" — the amount shows **unsplit**
+- `getUserAmount` for a **Shared** tx falls back to "just this user" -- the amount shows **unsplit**
   on transaction pages.
 - Editing a legacy batch in `admin/batchTx.jsf` only sees the row it was opened from, so saving could
   orphan the other members' rows.
 - Each access logs: `Group tx '...' has no groupPeople -- legacy row, run the group-tx migration.`
 
 Run this migration once per environment right after deploying the change. It is also the tool to fix
-**other instances of the database** (e.g. the old us-west-2 tables vs. the live us-east-1 account) —
+**other instances of the database** (e.g. the old us-west-2 tables vs. the live us-east-1 account) --
 run it once per table location with the right `--profile`/`--region`.
 
 ## `--repair`: rows whose membership went stale
@@ -70,7 +70,7 @@ already agree with the live membership are skipped, so re-running is safe in eit
 
 Updates run **25 at a time** (`--concurrency <n>` to change). The table scan is a single pass; the
 `UpdateItem` calls are what benefit from the parallelism, since each one is a separate `aws` CLI
-invocation. On-demand DynamoDB absorbs this rate easily — if you ever see
+invocation. On-demand DynamoDB absorbs this rate easily -- if you ever see
 `ProvisionedThroughputExceededException`, lower the concurrency and re-run (see below).
 
 A row that fails is reported on stderr and counted, but does **not** abort the run; the script exits

@@ -1,4 +1,4 @@
-# Tickets and event check-in — read before touching tickets, check-in, counts, batch badges or their API
+# Tickets and event check-in -- read before touching tickets, check-in, counts, batch badges or their API
 
 Phase 3 of conference support (`docs/conference.md`). A CONFIRMED registration carries a ticket: an unguessable
 bearer code (`security/TicketCodes`, Phase 0). The ticket page shows it with a QR, staff look people up or scan the

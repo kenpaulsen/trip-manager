@@ -80,7 +80,7 @@ succeed, the loser with `refreshToken` omitted.
 - `GET /api/trips/{id}[?personId=]` → `TripDto` with `tripEvents` (subject-relative `participating`, `privNote`).
 - `GET /api/trips/{id}/events[?personId=]`, `GET .../events/{eid}[?personId=]`,
   `GET .../events/{eid}/lodging[?personId=]` → `{arrival, departure, nights}`.
-- `PUT /api/trips/{id}/events/participation?personId=` `{eventIds:[...]}` → `[TripEventDto]` — **replaces** the set.
+- `PUT /api/trips/{id}/events/participation?personId=` `{eventIds:[...]}` → `[TripEventDto]` -- **replaces** the set.
   The caller must be able to READ the trip, exactly as for the GETs above (on its roster, a trip role, or managing
   someone on it), else 403 `FORBIDDEN` "Not a member of this trip." (2026-11-12: acting for yourself used to be
   enough, on any trip). The same gate applies to the private note below.
@@ -247,7 +247,7 @@ CANNOT_JOIN|ANSWERS_REQUIRED|WAIVERS_REQUIRED|CHECKOUT_REQUIRED}}`; the last thr
 questions above, the documents and priced checkout below. Every traveler named is filed PENDING, or CONFIRMED
 when already on the trip's roster
 (`people`), with one party stamp; `registered[].status` echoes which. Already-registered ones get their
-answers updated when the server's `reg.allowEdits` allows, and a refusal is per traveler — mixed outcomes
+answers updated when the server's `reg.allowEdits` allows, and a refusal is per traveler -- mixed outcomes
 are a 200. Only the trip's own `regOptions[].id` keys are taken from `options`; `dailyDigest` absent means
 the form's default (on). 400 for an empty party, a blank or duplicate `personId`; 404 unknown trip/person.
 The server sends the office note and the registrant's receipt itself.
@@ -428,7 +428,7 @@ HAS_OWN_ACCOUNT`; an unparseable `sex` is 422 `VALIDATION_FAILED`. `HAS_OWN_ACCO
 allowsSharedSites, registerTarget, contactEmail, branding{palette, dark, layout, themeName, logoUrl,
 faviconUrl, ogImageUrl, backgroundUrl, backgroundColor, footerTitle, footerText, contactName, contactPhone, donateUrl,
 customColors{light{}, dark{}}, brandColors[{var, light, dark}], editorColors{light{}, dark{}}}}]`
-— the caller's memberships (`all=true` is site-admin only, 403 else). `siteUrl` is built from the host the
+-- the caller's memberships (`all=true` is site-admin only, 403 else). `siteUrl` is built from the host the
 request came in on (`http://acme.localhost:8080` locally, even for an org with a custom domain; in production the
 org's custom domain, `https://{customDomain}`, when it has one, else `https://acme.unitetrip.com`) and is null when
 the org has no slug; `branding.palette` is null when the org never chose a look. `palette` is a stock name
@@ -670,7 +670,7 @@ message (`PUT reactions/{msgId}/{emoji}`) is refused 404 `NOT_FOUND`, as for a m
 `DELETE reactions/{msgId}/{emoji}` still takes one's own reaction back off it. A page carries
 `displayNames` AND `avatars`, both keyed by personId and covering the same people (authors, on-behalf members, quote
 authors, mentions, reactors): `avatars` holds an absolute profile picture URL, and someone with no picture is ABSENT
-rather than mapped to null or "" — a named person with no entry is the signal to draw their initials (and to forget a
+rather than mapped to null or "" -- a named person with no entry is the signal to draw their initials (and to forget a
 picture that person has since deleted). The photo thread (`GET /api/photo-chat/thread`) carries the same two maps. Chat
 photos: `POST /api/chat/channels/trip:{tripId}/photos` with a raw `image/*` (or `application/octet-stream`) body,
 optional `cropX,cropY,cropW,cropH` (source pixels, all or none) → `{key, smallKey, contentType, size, width, height,
@@ -796,7 +796,7 @@ app never unregisters explicitly.
 | `GET/PUT /api/chat/channels/{id}/prefs` | `{mentionEmail, dailyDigest, pushMode: OFF\|MENTIONS\|ALL}`; PUT sends only the changed fields; absent `pushMode` reads as `MENTIONS` |
 | `GET /api/chat/channels/{id}/invite` | → `{canInvite, enabled}`; read-only, never mints. `enabled` is the site switch (`chat.invites.enabled`), `canInvite` this caller in this chat (anyone who can post, plus chat managers). The thread asks once when it opens and shows the Invite button only on `true` |
 | `POST /api/chat/invites/redeem` | `{trip, token}` → `{result: ok\|invalid\|disabled\|archived\|removed, tripId}` (2026-10-13). The phones' side of an invite link opened as a universal / app link: `trip` as the link spelled it (`/i/<22-char packed uuid>/<selector>.<validator>`, or the older `?trip=<uuid>&token=`), `tripId` always the full id. Always 200 when well formed; the client words the result and, on `ok`, refreshes its channels and opens that trip's chat |
-| `POST /api/chat/channels/{id}/invite` | → `{url, expires}`, a fresh multi-use link (`/i/{trip}/{selector}.{validator}` on the trip's site, about 85 characters for the QR code; was `/trip/chatInvite.jsf?trip=..&token=..` before 2026-10-13) every call, and the epoch second it stops working (2026-10-16) — each one is a seat against the chat's outstanding-links cap, so the app keeps the link per chat on the device until `expires` (the website keeps one per session) and never mints just because a screen reopened. 403 `FORBIDDEN` when `canInvite` is false; 409 `CONFLICT` when the chat refuses right now (archived, or at the cap); cookie sessions need the CSRF header, bearer tokens do not (2026-09-14) |
+| `POST /api/chat/channels/{id}/invite` | → `{url, expires}`, a fresh multi-use link (`/i/{trip}/{selector}.{validator}` on the trip's site, about 85 characters for the QR code; was `/trip/chatInvite.jsf?trip=..&token=..` before 2026-10-13) every call, and the epoch second it stops working (2026-10-16) -- each one is a seat against the chat's outstanding-links cap, so the app keeps the link per chat on the device until `expires` (the website keeps one per session) and never mints just because a screen reopened. 403 `FORBIDDEN` when `canInvite` is false; 409 `CONFLICT` when the chat refuses right now (archived, or at the cap); cookie sessions need the CSRF header, bearer tokens do not (2026-09-14) |
 
 The app registers after sign-in (`enableAfterSignIn`: the permission prompt once, then
 `registerForRemoteNotifications` every time) and re-sends the registration when the token, selector or app
