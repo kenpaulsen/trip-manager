@@ -215,16 +215,23 @@ who may see what a participant is charged.
 | site admin | | yes | | everything |
 | `tripFinView@trip` / `viewFinances` in the trip's org | | yes | | the Reports dashboard's money gate (`seeFinances`, `txCmds.seesMoney`): the Room Invoice and its PDF, and the new billed-vs-cost report. No lodging privilege opens the dashboard. |
 
-Gates live in `LodgingAccessCommands` (`#{lodgingAccess}`) and are re-exposed one-line by `LodgingCommands`
-so every existing `#{lodging.can*}` expression still works: `isGlobalLodgingAdmin` (site admin or global
-`lodgingAdmin`), `canEditAccommodation(accId)`, `canCreateAccommodation` (global, or `lodgingAdmin` on ANY
-org), `canManageTripLodging(tripId)` (global, or `tripMgr@trip`, or `lodgingAdmin` on the trip's org),
-`canOpenLodgingAdmin` (= `canCreateAccommodation` OR operates at least one hotel), `canAssignRooms(tripId)`
-and `canAssignAt(tripId, accId)` (next paragraph). Editing an accommodation is privilege-based, never a
-field on the row. Seven writes (retire, save room type, save room, and the four floor-plan writes) open with
-`editableAccommodation(accId)`, the write gate: the permission first ("you do not manage this accommodation",
-so a caller who may not edit never learns whether a hotel exists), then a fresh read ("no longer exists"),
-and only then the form's own validation (owner, 2026-11-24).
+Gates live in `LodgingAccessCommands` (`#{lodgingAccess}`) and are re-exposed one-line by `LodgingCommands` so
+every existing `#{lodging.can*}` expression still works: `isGlobalLodgingAdmin` (site admin or global
+`lodgingAdmin`), `canEditAccommodation(accId)`, `canCreateAccommodation` (global, or `lodgingAdmin` on ANY org),
+`canManageTripLodging(tripId)` (global, or `tripMgr@trip`, or `lodgingAdmin` on the trip's org),
+`canOpenLodgingAdmin` (= `canCreateAccommodation` OR operates at least one hotel), `canAssignRooms(tripId)` and
+`canAssignAt(tripId, accId)` (next paragraph). Editing an accommodation is privilege-based, never a field on the
+row. Thirteen writes open with `editableAccommodation(accId)`, the write gate: `retireAccommodation`;
+`saveRoomType` and `deleteRoomType`; `saveRoom`, `deleteRoom` and `bulkAddRooms`; the four floor-plan writes
+(`setFloorMap`, `removeFloorMap`, `moveFloorMap`, `saveFloorRegions`); and the three gallery writes (`addPhoto`,
+`movePhoto`, `removePhoto`). That is every `LodgingCommands` write of the row's rooms, room types, floor plans and
+gallery lists, plus retire. The gate asks the permission first ("you do not manage this accommodation", so a caller
+who may not edit never learns whether a hotel exists), then reads the row fresh ("This accommodation no longer
+exists."), and only then does the write run its own validation (owner, 2026-11-24). The read is
+`LodgingAccessCommands.freshAccommodation`, the one spelling of it, safe for a null or blank id. Deliberately NOT
+on the gate: `saveAccommodation` (it creates as well as edits, so it asks the permission, validates the form and
+then uses the same fresh read), the operator roster (`addManager`, `removeManager`), which writes privilege rows,
+not the accommodation row, and `HotelUsage`, which records `orgIds`/`tripIds` on an offer save.
 
 **`LodgingAccess`: what one caller may do with one trip's lodging, computed once per request.**
 `LodgingAccessCommands.forTrip(tripId)` answers a `LodgingAccess` (Serializable, scalars and id sets only --

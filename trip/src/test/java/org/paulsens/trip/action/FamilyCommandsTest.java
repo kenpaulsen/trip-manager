@@ -121,6 +121,16 @@ public class FamilyCommandsTest {
     }
 
     @Test
+    public void aMemberEmailOfOnlyControlCharactersIsNoEmail() throws IOException {
+        // A paste artifact: not blank, yet nothing is left once it is trimmed. Blank-before-trim kept "".
+        final Person member = commandsFor(savedOwner()).createFamilyMember("Ctl",
+                "Chars", LocalDate.of(2000, 1, 1), Person.Sex.Female, "\u0001", false);
+        assertNotNull(member, "an email of nothing is the same as none, so the member is created");
+        assertNull(member.getEmail(), "no address, not an empty one");
+        assertNull(reload(member).getEmail());
+    }
+
+    @Test
     public void requiredNamesAreEnforcedAndNobodySignedInIsRefused() {
         final Person owner = savedOwner();
         assertNull(commandsFor(owner).createFamilyMember(" ",

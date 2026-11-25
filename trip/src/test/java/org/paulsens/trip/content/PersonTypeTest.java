@@ -135,6 +135,19 @@ public class PersonTypeTest {
         Assert.assertNull(PersonType.card(Map.of(), blank, false).name());
     }
 
+    @Test
+    public void anAccountNameIsTheOneDisplaySpellingEvenWhenAPartIsPadded() {
+        final Person padded = person("(360) 555-0100", "ann@example.com");
+        // Through the setters, which do not trim: a part edited in this request and not yet reread.
+        padded.setNickname("Ann ");
+        padded.setLast(" Jones");
+        Assert.assertEquals(PersonType.card(Map.of(), padded, false).name(), "Ann Jones",
+                "one space, as PersonNames.display says everywhere else");
+        padded.setNickname("\u2003");
+        padded.setFirst(null);
+        Assert.assertEquals(PersonType.card(Map.of(), padded, false).name(), "Jones");
+    }
+
     /** medjugorje#158: a biography is typed HTML the card writes unescaped, so the card holds it cleaned. */
     @Test
     public void aBiographyReachesTheCardCleaned() {

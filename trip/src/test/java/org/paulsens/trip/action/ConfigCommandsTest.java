@@ -136,6 +136,28 @@ public class ConfigCommandsTest {
                 .isEmail());
     }
 
+    /** Owner decision 2026-11-24: the payment copy may go to several mailboxes, typed with or without spaces. */
+    @Test
+    public void thePaymentNotifyAddressMayBeACommaSeparatedList() {
+        final String notify = KnownSettings.PAYMENT_NOTIFY_EMAIL.getName();
+        for (final String fine : List.of("", "office@example.org", "a@example.org,b@example.org",
+                " a@example.org , b@example.org ", "a@example.org, b@example.org, c@example.org")) {
+            Assert.assertNull(config.rejection(of(notify, fine, Config.Type.STRING)), fine);
+        }
+        // SES refuses the whole send over one malformed destination, so every piece is judged, and a piece is
+        // ONE address: another separator inside it would reach SES as a single unusable recipient.
+        for (final String bad : List.of("not-an-address", "a@example.org, nope", "a@example.org; b@example.org",
+                "a@example.org;b@example.org", "a@example.org b@example.org", "a@example.org,", ",", " , ",
+                "a@example.org,,b@example.org", "a@b@example.org", "a@example.org,\tb@exa\tmple.org")) {
+            Assert.assertNotNull(config.rejection(of(notify, bad, Config.Type.STRING)), bad);
+        }
+        final String why = config.rejection(of(notify, "a@example.org, nope", Config.Type.STRING));
+        Assert.assertTrue(why.contains("'nope' is not an email address, which Payment notification recipient"), why);
+        Assert.assertTrue(KnownSettings.PAYMENT_NOTIFY_EMAIL.isEmailList());
+        Assert.assertFalse(KnownSettings.PAYMENT_NOTIFY_EMAIL.isEmail(), "a list, not the one-address rule");
+        Assert.assertFalse(KnownSettings.FINANCE_TREASURER_EMAIL.isEmailList(), "the treasurer is unchanged");
+    }
+
     @Test
     public void aDeclaredSettingsOwnRulesApplyOnTheSitePageToo() {
         final String palette = KnownSettings.SITE_THEME_PALETTE.getName();

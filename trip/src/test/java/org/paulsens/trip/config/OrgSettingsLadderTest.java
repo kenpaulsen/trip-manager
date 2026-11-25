@@ -215,6 +215,26 @@ public class OrgSettingsLadderTest {
                 "a stray override of a site-only key (never writable through the UI) must be inert");
     }
 
+    /**
+     * A TRAP, pinned so it is visible rather than because it is wanted: the payment notify address is marked
+     * org-overridable, so the standard read answers the SITE's mailbox for an organization that set none --
+     * the one thing the owner's rule forbids (another tenant's payer names and amounts would be copied there).
+     * {@code PaymentCommands.notifyEmail} is the only correct reader. When the declaration itself can say
+     * "never inherit" (review F12), this expectation flips to {@code ""}.
+     */
+    @Test
+    public void theStandardReadOfThePaymentNotifyAddressAnswersTheSiteRowSoOnlyPaymentCommandsMayReadIt() {
+        final SettingDef def = KnownSettings.PAYMENT_NOTIFY_EMAIL;
+        final Organization orgWithNoOverride = new Organization();
+        try {
+            siteRow(def, "site-office@example.org");
+            Assert.assertEquals(config.getString(def, orgWithNoOverride), "site-office@example.org",
+                    "the ladder inherits the site's row: never send a payment copy to what this read answers");
+        } finally {
+            siteRow(def, null);
+        }
+    }
+
     @Test
     public void anOrgOnlySettingNeverInheritsTheSiteRow() {
         final SettingDef def = KnownSettings.SITE_ANALYTICS_ID;

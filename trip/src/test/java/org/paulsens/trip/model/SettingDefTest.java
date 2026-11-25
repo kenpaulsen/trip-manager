@@ -36,6 +36,7 @@ public class SettingDefTest {
         withers.put("httpUrl", SettingDef::withHttpUrl);
         withers.put("hexColor", SettingDef::withHexColor);
         withers.put("email", SettingDef::withEmail);
+        withers.put("emailList", SettingDef::withEmailList);
         withers.put("siteFrom", SettingDef::withSiteFrom);
         withers.put("analyticsId", SettingDef::withAnalyticsId);
         withers.put("translatable", SettingDef::withTranslatable);

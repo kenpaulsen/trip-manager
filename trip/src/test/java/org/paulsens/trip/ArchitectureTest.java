@@ -158,6 +158,9 @@ public class ArchitectureTest {
     /** A receiver with nothing done to it, up to its dot: {@code x.}, {@code node.asText().}, {@code a.b().}. */
     private static final String RECEIVER = "(?:\\w+(?:\\(\\))?\\.)+";
 
+    /** A null-safe blank test called as a HELPER on one argument: {@code isBlank(x)}, {@code Util.isEmpty(x)}. */
+    private static final String BLANK_HELPER = "is(?:Blank|Empty)\\(([\\w.]+(?:\\(\\))?)\\)";
+
     /**
      * The spellings {@code Util.trimToNull} replaces, over code with its whitespace collapsed (so a wrapped
      * ternary is still one match). Each answers the receiver's own {@code trim()} and nothing more: a parse of
@@ -177,7 +180,14 @@ public class ArchitectureTest {
             Pattern.compile("(\\w+) = [^;]*\\.trim\\(\\); return \\1\\.is(?:Blank|Empty)\\(\\) \\? null : \\1;"),
             // t = x.trim(); if (t.isEmpty()) { return null; } return t;
             Pattern.compile("(\\w+) = [^;]*\\.trim\\(\\); if \\(\\1\\.is(?:Blank|Empty)\\(\\)\\) \\{ return null; \\} "
-                    + "return \\1;"));
+                    + "return \\1;"),
+            // The same three through a private or shared helper, which the receiver forms above cannot see
+            // (FamilyCommands kept one through four reviews): isBlank(x) ? null : x.trim()
+            Pattern.compile(BLANK_HELPER + " \\? null : \\1\\.trim\\(\\)(?! ?\\.)"),
+            // !isBlank(x) ? x.trim() : null
+            Pattern.compile("! ?" + BLANK_HELPER + "\\)? \\? \\1\\.trim\\(\\) : null"),
+            // if (isBlank(x)) { return null; } return x.trim();
+            Pattern.compile(BLANK_HELPER + "\\) \\{ return null; \\} return \\1\\.trim\\(\\);"));
 
     /**
      * "Trimmed, or null when nothing is left" has ONE definition ({@code Util.trimToNull}). Inline copies test
@@ -198,13 +208,41 @@ public class ArchitectureTest {
                 "call Util.trimToNull instead of spelling its rule inline: " + offenders);
     }
 
+    /**
+     * The ratchet's own patterns, on samples: the helper forms have no site left in the sources to prove them
+     * on, and a pattern that matches nothing passes {@link #trimToNullHasOneDefinition} forever.
+     */
+    @Test
+    public void theTrimToNullPatternsSeeTheHelperFormsAndLeaveOtherRulesAlone() {
+        for (final String copy : List.of(
+                "final String a = isBlank(email) ? null : email.trim();",
+                "return Util.isEmpty(node.asText()) ? null : node.asText().trim();",
+                "final String a = !isBlank(email) ? email.trim() : null;",
+                "return (!isBlank(email)) ? email.trim() : null;",
+                "if (isBlank(email)) { return null; } return email.trim();")) {
+            Assert.assertEquals(trimToNullSpellings(copy).size(), 1, copy);
+        }
+        for (final String legal : List.of(
+                "final String a = isBlank(email) ? null : email.trim().toLowerCase();",
+                "return isBlank(id) ? null : Person.Id.from(id.trim());",
+                "final Person.Sex parsed = isBlank(sex) ? null : Person.Sex.valueOf(sex);",
+                "final String a = isBlank(email) ? null : other.trim();",
+                "final String a = !isBlank(email) ? email.trim() : fallback;",
+                "if (isBlank(email)) { return null; } return email.trim().toLowerCase();")) {
+            Assert.assertEquals(trimToNullSpellings(legal), List.of(), legal);
+        }
+    }
+
     private static List<String> inlineTrimToNulls(final Path source) throws IOException {
+        return trimToNullSpellings(codeOf(source)).stream().map(hit -> source + " " + hit).toList();
+    }
+
+    private static List<String> trimToNullSpellings(final String code) {
         final List<String> hits = new ArrayList<>();
-        final String code = codeOf(source);
         for (final Pattern spelling : INLINE_TRIM_TO_NULL) {
             final Matcher matcher = spelling.matcher(code);
             while (matcher.find()) {
-                hits.add(source + " " + matcher.group());
+                hits.add(matcher.group());
             }
         }
         return hits;

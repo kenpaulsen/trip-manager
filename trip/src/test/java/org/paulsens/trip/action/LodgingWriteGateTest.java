@@ -16,9 +16,10 @@ import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
 /**
- * The accommodation write gate ({@code LodgingAccessCommands.editableAccommodation}) at each of the seven writes
- * that go through it: who may not edit is told so before anything else, and a hotel that is gone is reported
- * before the form is validated (owner, 2026-11-24; validation used to run between the two at five of them).
+ * The accommodation write gate ({@code LodgingAccessCommands.editableAccommodation}) at each of the thirteen
+ * writes that go through it: who may not edit is told so before anything else, and a hotel that is gone is
+ * reported before the form is validated (owner, 2026-11-24; validation used to run between the two at five of
+ * them, and six more folded "gone" into another refusal or into silence).
  */
 public class LodgingWriteGateTest {
     private static final String NOT_YOURS = "Not allowed: you do not manage this accommodation.";
@@ -50,6 +51,12 @@ public class LodgingWriteGateTest {
         writes.put("removeFloorMap", bean -> () -> bean.removeFloorMap(hotel, " "));
         writes.put("moveFloorMap", bean -> () -> bean.moveFloorMap(hotel, "1", "1"));
         writes.put("saveFloorRegions", bean -> () -> bean.saveFloorRegions(hotel, "1", "not json"));
+        writes.put("deleteRoomType", bean -> () -> bean.deleteRoomType(hotel, "nope"));
+        writes.put("deleteRoom", bean -> () -> bean.deleteRoom(hotel, "nope"));
+        writes.put("bulkAddRooms", bean -> () -> bean.bulkAddRooms(hotel, "", 5, 1, "1", "no-type") != 0);
+        writes.put("addPhoto", bean -> () -> bean.addPhoto(hotel, null, " "));
+        writes.put("movePhoto", bean -> () -> bean.movePhoto(hotel, null, "no-photo", 1));
+        writes.put("removePhoto", bean -> () -> bean.removePhoto(hotel, null, "no-photo"));
         return writes;
     }
 
@@ -71,6 +78,15 @@ public class LodgingWriteGateTest {
     }
 
     @Test
+    public void theFreshReadIsSafeOnItsOwnForAnIdThatNamesNothing() {
+        Assert.assertNull(LodgingAccessCommands.freshAccommodation(null));
+        Assert.assertNull(LodgingAccessCommands.freshAccommodation(" "));
+        Assert.assertNull(LodgingAccessCommands.freshAccommodation(Accommodation.Id.newInstance().getValue()));
+        Assert.assertEquals(LodgingAccessCommands.freshAccommodation(" " + accId + " ").getId().getValue(), accId,
+                "the id is trimmed, as the gate's callers hand it over");
+    }
+
+    @Test
     public void aVanishedHotelIsReportedBeforeTheFormIsValidated() {
         final String gone = Accommodation.Id.newInstance().getValue();
         for (final Map.Entry<String, Function<LodgingCommands, BooleanSupplier>> write
@@ -81,8 +97,26 @@ public class LodgingWriteGateTest {
     }
 
     @Test
+    public void theGateCoversAllThirteenWrites() {
+        Assert.assertEquals(invalidWrites(accId).size(), 13);
+    }
+
+    @Test
     public void validationStillAnswersForAHotelThatExists() {
         final Map<String, Function<LodgingCommands, BooleanSupplier>> writes = invalidWrites(accId);
+        final Map<String, List<String>> answers = new LinkedHashMap<>();
+        answers.put("deleteRoomType", List.of("Unknown room type."));
+        answers.put("deleteRoom", List.of("Unknown room."));
+        answers.put("bulkAddRooms", List.of("Choose a room type."));
+        answers.put("addPhoto", List.of("Nothing to add."));
+        // A photo that is not in the gallery is refused without a message, as it always was: only a hotel
+        // that is gone, or one the caller may not edit, speaks.
+        answers.put("movePhoto", List.of());
+        answers.put("removePhoto", List.of());
+        for (final Map.Entry<String, List<String>> answer : answers.entrySet()) {
+            Assert.assertEquals(growlsOfRefused(writes.get(answer.getKey()).apply(admin), answer.getKey()),
+                    answer.getValue(), answer.getKey());
+        }
         Assert.assertEquals(growlsOfRefused(writes.get("saveRoomType").apply(admin), "saveRoomType"),
                 List.of("A room type needs a name."));
         Assert.assertEquals(growlsOfRefused(writes.get("saveRoom").apply(admin), "saveRoom"),
@@ -93,7 +127,10 @@ public class LodgingWriteGateTest {
                 List.of("Which floor?"));
         Assert.assertEquals(growlsOfRefused(writes.get("moveFloorMap").apply(admin), "moveFloorMap"),
                 List.of("That plan is already on floor 1."));
-        Assert.assertEquals(growlsOfRefused(() -> admin.saveFloorRegions(accId, null, ""), "saveFloorRegions"),
-                List.of(GONE), "a regions save that names no floor keeps its old answer");
+        for (final String noFloor : new String[] {null, " "}) {
+            Assert.assertEquals(
+                    growlsOfRefused(() -> admin.saveFloorRegions(accId, noFloor, ""), "saveFloorRegions"),
+                    List.of("Which floor?"), "the hotel exists, so a save that names no floor is asked for one");
+        }
     }
 }

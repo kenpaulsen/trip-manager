@@ -527,11 +527,17 @@ public final class KnownSettings {
      * ({@code PaymentCommands.notifyEmail}), never the request's site: a payment is finished wherever the
      * processor calls back. UNLIKE the treasurer below, an organization does not inherit the site's value
      * (owner, 2026-11-24): with no address of its own it gets no copy, and the site's value serves only a legacy
-     * payment that has no organization. One address, not a list.
+     * payment that has no organization. One address or several separated by commas (owner, 2026-11-24, which
+     * reverses the earlier "one address"): each piece is validated on save and becomes its own bcc recipient.
+     *
+     * <p>READ IT ONLY THROUGH {@code PaymentCommands.notifyEmail}. The standard reads
+     * ({@code ConfigCommands.getString(def)} and {@code getString(def, org)}) walk the ladder and answer the
+     * SITE's row for an organization with none of its own, which is exactly the copy this rule forbids
+     * ({@code OrgSettingsLadderTest} pins that trap).
      */
     public static final SettingDef PAYMENT_NOTIFY_EMAIL = new SettingDef(
             "payment.notify.email", Config.Type.STRING, "")
-            .withOrgOverride().withEmail();
+            .withOrgOverride().withEmailList();
 
     /**
      * Where a trip's submitted expense report is emailed, with its receipts, when the submitter chooses to

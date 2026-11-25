@@ -15,6 +15,7 @@ import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.util.EmailAddresses;
+import org.paulsens.trip.util.Util;
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
 import org.paulsens.trip.cache.Cached;
 
@@ -395,7 +396,7 @@ public class FamilyCommands {
             return FamilyResult.refused(FamilyResult.FAMILY_FULL, Text.get("feedback.familyCommands.familyFull"),
                     Text.get("feedback.familyCommands.yourFamilyAtLimit", getMaxMembers()));
         }
-        final String cleanEmail = isBlank(email) ? null : email.trim();
+        final String cleanEmail = Util.trimToNull(email);
         if (cleanEmail != null && emailInUse(cleanEmail, null)) {
             return FamilyResult.refused(FamilyResult.EMAIL_IN_USE, Text.get("feedback.personCommands.emailInUse"),
                     Text.get("feedback.familyCommands.anotherPersonUses", cleanEmail));

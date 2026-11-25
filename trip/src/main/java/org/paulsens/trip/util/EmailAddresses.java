@@ -58,6 +58,26 @@ public final class EmailAddresses {
         return normalize(candidate) != null;
     }
 
+    /**
+     * The first piece of a comma-separated address list that is not ONE usable address, trimmed ({@code ""} for
+     * an empty piece: a doubled or trailing comma, or nothing at all); null when every piece is. Stricter than
+     * {@link #isValid} on purpose: that check lets {@code a@x.org;b@y.org} and a tab inside an address through
+     * as one "address", which SES would take as a single malformed destination and refuse the whole send over.
+     */
+    public static String firstUnusableInList(final String list) {
+        for (final String piece : list.split(",", -1)) {
+            if (!isOneAddress(piece.trim())) {
+                return piece.trim();
+            }
+        }
+        return null;
+    }
+
+    private static boolean isOneAddress(final String piece) {
+        return isValid(piece) && piece.indexOf('@') == piece.lastIndexOf('@')
+                && piece.chars().noneMatch(c -> c == ';' || Character.isWhitespace(c));
+    }
+
     /** RFC 5322's specials (bar the angle brackets, which callers refuse or strip), legal only when quoted. */
     private static final Pattern SPECIALS = Pattern.compile("[()\\[\\]:;@\\\\,.\"]");
 

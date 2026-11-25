@@ -126,12 +126,23 @@ public class LodgingAccessCommands {
             refuse(Text.get("feedback.lodgingCommands.notYourAccommodation"));
             return null;
         }
-        final Accommodation acc =
-                DAO.getInstance().getAccommodation(Accommodation.Id.from(accId.trim()), Cached.NO).orElse(null);
+        final Accommodation acc = freshAccommodation(accId);
         if (acc == null) {
             refuse(Text.get("feedback.lodgingCommands.accommodationGone"));
         }
         return acc;
+    }
+
+    /**
+     * The stored row, read past the cache, or null for a blank id or a hotel that is gone: the ONE spelling of
+     * the read a write starts from. It guards the id itself, so it does not lean on a permission check having
+     * refused a blank one first.
+     */
+    static Accommodation freshAccommodation(final String accId) {
+        if (accId == null || accId.isBlank()) {
+            return null;
+        }
+        return DAO.getInstance().getAccommodation(Accommodation.Id.from(accId.trim()), Cached.NO).orElse(null);
     }
 
     /** May create an accommodation: global admins, or a lodging admin of ANY organization. */

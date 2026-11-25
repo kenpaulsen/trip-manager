@@ -582,6 +582,11 @@ public class ConfigCommands {
         if (def.isEmail() && !EmailAddresses.isValid(raw.trim())) {
             return Text.get("feedback.configCommands.notEmail", raw, def.getLabel());
         }
+        final String unusable = def.isEmailList() ? EmailAddresses.firstUnusableInList(raw) : null;
+        if (unusable != null) {
+            // Name the piece at fault; an empty one (a stray comma) has nothing to name, so show the whole value.
+            return Text.get("feedback.configCommands.notEmail", unusable.isEmpty() ? raw : unusable, def.getLabel());
+        }
         if (def.isHexColor() && SettingDef.hexColor(raw) == null) {
             return Text.get("feedback.configCommands.notHexColor", raw, def.getLabel());
         }

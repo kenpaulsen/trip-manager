@@ -169,8 +169,8 @@ final class LodgingFloorMaps {
         if (acc == null) {
             return false;
         }
-        if (floor == null) {
-            return refuse(Text.get("feedback.lodgingCommands.accommodationGone"));
+        if (floor == null || floor.isBlank()) {
+            return refuse(Text.get("feedback.lodgingFloorMaps.whichFloor"));
         }
         final Map<String, Room.MapRegion> regions;
         try {

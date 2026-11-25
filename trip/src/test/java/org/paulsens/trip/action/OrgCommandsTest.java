@@ -2107,6 +2107,29 @@ public class OrgCommandsTest {
         }
     }
 
+    /** Owner decision 2026-11-24: an organization may name several mailboxes for its payment copy. */
+    @Test
+    public void anOrgAdminSavesAListOfPaymentNotifyAddressesAndEachIsCopied() throws IOException {
+        final Person orgAdmin = savedPerson();
+        final Organization org = orgWithAdmin(orgAdmin);
+        final String orgId = org.getId().getValue();
+        final OrgCommands cmds = commandsFor(orgAdmin);
+        final String notify = KnownSettings.PAYMENT_NOTIFY_EMAIL.getName();
+
+        assertTrue(cmds.saveOrgSettings(orgId, java.util.Map.of(notify, " office@acme.example, books@acme.example ")));
+        final String stored = dao.getOrganization(org.getId(), Cached.NO).orElseThrow().settingOverride(notify);
+        assertEquals(stored, "office@acme.example, books@acme.example");
+        // The mailer appends the value to the payment config's own bcc with a comma (PaymentMailer.joinAddresses)
+        // and the send splits on commas: each piece is its own recipient, the space after the comma gone.
+        assertEquals(new MailCommands().splitEmail("config-bcc@acme.example," + stored),
+                List.of("config-bcc@acme.example", "office@acme.example", "books@acme.example"));
+
+        assertFalse(cmds.saveOrgSettings(orgId, java.util.Map.of(notify, "office@acme.example, not-an-address")),
+                "one unusable piece refuses the whole value");
+        assertEquals(dao.getOrganization(org.getId(), Cached.NO).orElseThrow().settingOverride(notify), stored,
+                "and the stored list is untouched");
+    }
+
     @Test
     public void orgAdminSavesOverridesAndBlankGivesTheValueBack() throws IOException {
         final Person orgAdmin = savedPerson();

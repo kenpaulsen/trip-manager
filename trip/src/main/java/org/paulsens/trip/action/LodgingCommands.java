@@ -330,7 +330,7 @@ public class LodgingCommands {
             return refuseAction(shapeProblem);
         }
         final Accommodation acc = creating ? Accommodation.builder().build()
-                : DAO.getInstance().getAccommodation(Accommodation.Id.from(form.getId()), Cached.NO).orElse(null);
+                : LodgingAccessCommands.freshAccommodation(form.getId());
         if (acc == null) {
             return refuseAction(Text.get("feedback.lodgingCommands.accommodationGone"));
         }
@@ -613,11 +613,11 @@ public class LodgingCommands {
     }
 
     public boolean deleteRoomType(final String accId, final String roomTypeId) {
-        if (!canEditAccommodation(accId)) {
-            return refuse(Text.get("feedback.lodgingCommands.notYourAccommodation"));
+        final Accommodation acc = editableAccommodation(accId);
+        if (acc == null) {
+            return false;
         }
-        final Accommodation acc = freshAccommodation(accId);
-        final RoomType type = (acc == null) ? null : acc.roomType(roomTypeId);
+        final RoomType type = acc.roomType(roomTypeId);
         if (type == null) {
             return refuse(Text.get("feedback.lodgingCommands.unknownRoomType"));
         }
@@ -748,11 +748,11 @@ public class LodgingCommands {
     }
 
     public boolean deleteRoom(final String accId, final String roomId) {
-        if (!canEditAccommodation(accId)) {
-            return refuse(Text.get("feedback.lodgingCommands.notYourAccommodation"));
+        final Accommodation acc = editableAccommodation(accId);
+        if (acc == null) {
+            return false;
         }
-        final Accommodation acc = freshAccommodation(accId);
-        final Room room = (acc == null) ? null : acc.room(roomId);
+        final Room room = acc.room(roomId);
         if (room == null) {
             return refuse(Text.get("feedback.lodgingCommands.unknownRoom"));
         }
@@ -776,12 +776,11 @@ public class LodgingCommands {
     /** Adds rooms {@code prefix}{from}..{prefix}{to} on a floor with a type; existing numbers are skipped. */
     public int bulkAddRooms(final String accId, final String prefix, final int from, final int to, final String floor,
             final String roomTypeId) {
-        if (!canEditAccommodation(accId)) {
-            refuse(Text.get("feedback.lodgingCommands.notYourAccommodation"));
+        final Accommodation acc = editableAccommodation(accId);
+        if (acc == null) {
             return 0;
         }
-        final Accommodation acc = freshAccommodation(accId);
-        if (acc == null || acc.roomType(roomTypeId) == null) {
+        if (acc.roomType(roomTypeId) == null) {
             refuse(Text.get("feedback.lodgingCommands.chooseRoomType"));
             return 0;
         }
@@ -894,11 +893,11 @@ public class LodgingCommands {
 
     /** Records an uploaded media row as a property photo (or a room type's, when {@code roomTypeId} is given). */
     public boolean addPhoto(final String accId, final String roomTypeId, final String mediaId) {
-        if (!canEditAccommodation(accId)) {
-            return refuse(Text.get("feedback.lodgingCommands.notYourAccommodation"));
+        final Accommodation acc = editableAccommodation(accId);
+        if (acc == null) {
+            return false;
         }
-        final Accommodation acc = freshAccommodation(accId);
-        if (acc == null || mediaId == null || mediaId.isBlank()) {
+        if (mediaId == null || mediaId.isBlank()) {
             return refuse(Text.get("feedback.lodgingCommands.nothingToAdd"));
         }
         final List<String> target = photoListOf(acc, roomTypeId);
@@ -913,11 +912,11 @@ public class LodgingCommands {
 
     /** Moves a photo one step up or down in its gallery; returns false with no change at the ends. */
     public boolean movePhoto(final String accId, final String roomTypeId, final String mediaId, final int delta) {
-        if (!canEditAccommodation(accId)) {
-            return refuse(Text.get("feedback.lodgingCommands.notYourAccommodation"));
+        final Accommodation acc = editableAccommodation(accId);
+        if (acc == null) {
+            return false;
         }
-        final Accommodation acc = freshAccommodation(accId);
-        final List<String> target = (acc == null) ? null : photoListOf(acc, roomTypeId);
+        final List<String> target = photoListOf(acc, roomTypeId);
         final int at = (target == null) ? -1 : target.indexOf(mediaId);
         final int to = at + delta;
         if (at < 0 || to < 0 || to >= target.size()) {
@@ -930,11 +929,11 @@ public class LodgingCommands {
 
     /** Removes the reference from the gallery; the media-library row stays (the library owns deletion). */
     public boolean removePhoto(final String accId, final String roomTypeId, final String mediaId) {
-        if (!canEditAccommodation(accId)) {
-            return refuse(Text.get("feedback.lodgingCommands.notYourAccommodation"));
+        final Accommodation acc = editableAccommodation(accId);
+        if (acc == null) {
+            return false;
         }
-        final Accommodation acc = freshAccommodation(accId);
-        final List<String> target = (acc == null) ? null : photoListOf(acc, roomTypeId);
+        final List<String> target = photoListOf(acc, roomTypeId);
         return target != null && target.remove(mediaId) && store(acc);
     }
 
@@ -2877,13 +2876,6 @@ public class LodgingCommands {
 
     Accommodation editableAccommodation(final String accId) {
         return access.editableAccommodation(accId);
-    }
-
-    Accommodation freshAccommodation(final String accId) {
-        if (accId == null || accId.isBlank()) {
-            return null;
-        }
-        return DAO.getInstance().getAccommodation(Accommodation.Id.from(accId.trim()), Cached.NO).orElse(null);
     }
 
     /** The one write path for an accommodation: prune dead media refs, conditional put, growl on a race. */

@@ -93,6 +93,13 @@ public class SettingDef implements Serializable {
      */
     boolean email;
     /**
+     * Whether a non-blank value must be one or more email addresses separated by commas, spaces around a comma
+     * allowed ({@code a@x.org, b@y.org}). Both save paths judge EVERY piece and refuse the value over one that
+     * is not a single address: SES fails a whole send over one malformed destination. A separate flag from
+     * {@link #email}, which stays "one address" for the settings that mean one mailbox.
+     */
+    boolean emailList;
+    /**
      * Whether a non-blank value is a SITE-level From address: one address on a sending domain that SES verifies
      * AND that is shared ({@code KnownSettings.MAIL_SHARED_DOMAINS}) -- the domains the Settings page's From
      * composers offer. Site mail goes out for every organization, so it must never wear one tenant's custom
@@ -130,7 +137,7 @@ public class SettingDef implements Serializable {
     public SettingDef(final String name, final Config.Type type, final String defaultValue, final String label,
             final String description) {
         this(name, type, defaultValue, label, description, false, false, List.of(), false, false, false, false,
-                false, false);
+                false, false, false);
     }
 
     /*
@@ -144,7 +151,7 @@ public class SettingDef implements Serializable {
     private SettingDef(final String name, final Config.Type type, final String defaultValue, final String label,
             final String description, final boolean orgOverridable, final boolean orgOnly,
             final List<String> choices, final boolean httpUrl, final boolean hexColor, final boolean email,
-            final boolean siteFrom, final boolean analyticsId, final boolean translatable) {
+            final boolean emailList, final boolean siteFrom, final boolean analyticsId, final boolean translatable) {
         this.name = name;
         this.type = type;
         this.defaultValue = defaultValue;
@@ -156,6 +163,7 @@ public class SettingDef implements Serializable {
         this.httpUrl = httpUrl;
         this.hexColor = hexColor;
         this.email = email;
+        this.emailList = emailList;
         this.siteFrom = siteFrom;
         this.analyticsId = analyticsId;
         this.translatable = translatable;
@@ -237,6 +245,11 @@ public class SettingDef implements Serializable {
     /** This declaration, requiring a non-blank value to be one email address (see {@link #email}). */
     public SettingDef withEmail() {
         return toBuilder().email(true).build();
+    }
+
+    /** This declaration, requiring a non-blank value to be a comma-separated address list (see {@link #emailList}). */
+    public SettingDef withEmailList() {
+        return toBuilder().emailList(true).build();
     }
 
     /** This declaration, requiring a non-blank value to be a site-level From address (see {@link #siteFrom}). */
