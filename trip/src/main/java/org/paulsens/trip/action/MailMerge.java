@@ -114,14 +114,15 @@ public class MailMerge {
     }
 
     /**
-     * Why this merge text cannot be sent or previewed, or null when it can. ONE check for the page and the REST
-     * preview: no EL marker (never evaluated now, and every recipient would get it raw), no unknown field, a trip
-     * the sender may mail for every field about a trip, and each gated field allowed ({@link MergeText.Kind}):
+     * Why this merge text cannot be sent or previewed, or null when it can: the rules {@link #checked} applies at
+     * every door (the page's preview and send, the REST preview), answered alone for the tests. No EL marker (never
+     * evaluated now, and every recipient would get it raw), no unknown field, a trip the sender may mail for every
+     * field about a trip, and each gated field allowed ({@link MergeText.Kind}):
      * address, phone and passport status for a site admin or the chosen trip's {@code tripMgr} (the reminders'
      * trip-admin rule), the balance for whoever may see the trip's money ({@link TripFinanceGate}). Refused,
      * never blanked: a sender can BCC themselves, so a field they may not use would read every recipient's value.
      */
-    public String problem(final String subject, final String raw, final String tripId) {
+    String problem(final String subject, final String raw, final String tripId) {
         return checked(subject, raw, tripId).problem();
     }
 

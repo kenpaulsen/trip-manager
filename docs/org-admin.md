@@ -788,10 +788,11 @@ content key, fixed at creation.
   language"): on a site offering more than one language the dialog shows one more title field per other offered
   language under the title, blank meaning the title above. The menu and the page's browser title read
   `orgPages.titleOf(page)`. A save without titles (`saveDialog` with null) keeps the ones stored; a title in
-  another language is held to the same length rule. A dialog save replaces the titles of every language the site
-  offers, its default included (whose title is the entry's own, so a stored one left from an earlier default is
-  dropped); a stored title for a language the site does not offer is kept, so a starter's translations are still
-  there when the site adds that language.
+  another language is held to the same length rule. A dialog save replaces the titles of the other languages the
+  site offers. A stored title for the default language (left from before the default changed; the dialog has no
+  field for it) is kept unless the save changes the main title, which then replaces it. A stored title for a
+  language the site does not offer is kept, so a starter's translations are still there when the site adds that
+  language.
 
 ### Hand-written shared pages (2026-11-21)
 

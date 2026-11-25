@@ -459,20 +459,18 @@ public class ReminderCommands {
     }
 
     /**
-     * {@link #cleanBody}, with whether the cleaner dropped something the writer could see. The mail merge cleans its
-     * body here too ({@link MailMerge}): one allowlist for everything the site mails.
+     * {@link #cleanBody}, with whether the cleaner dropped something the writer could see. Part of {@link #mailable}.
      */
-    static RichTextHtml.Cleaned cleanNoting(final String html) {
+    private static RichTextHtml.Cleaned cleanNoting(final String html) {
         return RichTextHtml.cleanNoting(bracesRestored(html));
     }
 
     /**
      * Why a mail body as typed is refused before it is cleaned, or null: longer than any message may be (the
      * cleaner's cost grows with its input), a link too long to read, or a paste too large (named by
-     * {@code pasteTooLarge}, worded for the page's own button). ONE copy for everything the site mails, a scheduled
-     * message and the mail merge, so the two doors cannot drift apart.
+     * {@code pasteTooLarge}, worded for the page's own button). Part of {@link #mailable}.
      */
-    static String rawMailProblem(final String raw, final String pasteTooLarge) {
+    private static String rawMailProblem(final String raw, final String pasteTooLarge) {
         if (raw != null && raw.length() > MAX_RAW_BODY) {
             return Text.get("feedback.reminderCommands.messageTooLong");
         }

@@ -374,11 +374,14 @@ public class SitePageCommandsTest {
         assertEquals(pages.pageOf(orgId, "mission").titles(), Map.of("hr", "Naša misija"),
                 "an offered language's title is still cleared by the dialog");
 
-        // The default language's title is the entry's own: once Spanish becomes the default, a stored Spanish title
-        // would hide the main one with no field left to clear it, so a dialog save drops it.
+        // Once Spanish becomes the default, a stored Spanish title is what Spanish readers see, and the dialog has no
+        // field for it: a save that leaves the main title alone keeps it, and one that rewrites the main title (the
+        // default's own field) replaces it.
         assertTrue(pages.saveDialog(orgId, "edit", "mission", "Mission", Map.of("es", "Misión"), null, "HELP"));
         assertTrue(new OrgCommands(TestCallers::siteAdminHoldingNothing).saveOrgSettings(orgId,
                 Map.of(KnownSettings.SITE_LANGUAGES.getName(), "es,en")));
+        assertTrue(pages.saveDialog(orgId, "edit", "mission", "Mission", Map.of(), null, "ABOUT"));
+        assertEquals(pages.pageOf(orgId, "mission").titleIn("es"), "Misión", "a move keeps the default's title");
         assertTrue(pages.saveDialog(orgId, "edit", "mission", "Nuestra misión", Map.of("en", "Mission"), null,
                 "HELP"));
         assertEquals(pages.pageOf(orgId, "mission").titleIn("es"), "Nuestra misión", "the new default reads the main");
