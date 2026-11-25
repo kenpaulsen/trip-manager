@@ -16,8 +16,8 @@ import org.paulsens.trip.site.SiteContext;
 
 /**
  * Applies {@link LegacyPages}: the shared site's hand-written pages answer on an organization's host like
- * {@code /board} does (that org's Site Page of the same name, else 404), and on a shared host the ones another
- * organization now holds as Site Pages redirect there. The data is the deployment's
+ * {@code /board} does (that org's Editable Page of the same name, else 404), and on a shared host the ones another
+ * organization now holds as Editable Pages redirect there. The data is the deployment's
  * {@code WEB-INF/legacy-pages.json} (init-param {@code config} names another resource); without it every request
  * passes.
  *

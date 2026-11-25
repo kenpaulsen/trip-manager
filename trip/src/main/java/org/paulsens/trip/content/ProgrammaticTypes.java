@@ -16,7 +16,7 @@ public final class ProgrammaticTypes {
 
     public static final List<ProgrammaticContentTemplate> ALL = List.of(
             new PilgrimagesType(), new PhotoAlbumsType(), new FileType(), new PersonType(), new TripScheduleType(),
-            new TripRegistrationType());
+            new TripRegistrationType(), new MetricGraphType());
 
     private ProgrammaticTypes() {
     }

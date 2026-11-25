@@ -23,7 +23,7 @@ import org.paulsens.trip.model.SitePage;
  * rather than figures. Rows are unsaved (version 0; the save path assigns v1) and pinned to the CURRENT
  * version of their band template as {@code templateVersion} reports it.
  *
- * <p>The site's other pages (Pricing, Why UniteTrip; issue medjugorje#41) are the platform organization's Site
+ * <p>The site's other pages (Pricing, Why UniteTrip; issue medjugorje#41) are the platform organization's Editable
  * Pages, defined in the resource {@value #SITE_PAGES_RESOURCE} in the starter pages' format
  * ({@link OrgPageBootstrap.StarterPage}) and keyed under that org like any org's pages. The private repo's
  * {@code update-marketing-site} script installs them in production from the same file; {@code FakeData} seeds them
@@ -36,7 +36,7 @@ public final class MarketingPageBootstrap {
     private static final String ID_NAMESPACE = "unitetrip-home:";
     private static final String PAGE = OrgPageBootstrap.MARKETING_PAGE_KEY;
 
-    /** The platform organization's Site Pages, in menu order: one JSON list of starter-format pages. */
+    /** The platform organization's Editable Pages, in menu order: one JSON list of starter-format pages. */
     public static final String SITE_PAGES_RESOURCE = "/content/marketing-site-pages.json";
     /** The Pricing page's name (its address and content key). */
     public static final String PRICING_PAGE = "pricing";
@@ -56,7 +56,7 @@ public final class MarketingPageBootstrap {
     private MarketingPageBootstrap() {
     }
 
-    /** The platform organization's Site Pages ({@value #SITE_PAGES_RESOURCE}), read once. */
+    /** The platform organization's Editable Pages ({@value #SITE_PAGES_RESOURCE}), read once. */
     public static List<OrgPageBootstrap.StarterPage> sitePages() {
         return SitePagesHolder.PAGES;
     }

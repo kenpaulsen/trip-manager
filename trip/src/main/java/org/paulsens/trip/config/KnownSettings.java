@@ -112,6 +112,22 @@ public final class KnownSettings {
     public static final SettingDef SITE_THEME_DARK = new SettingDef(
             "site.theme.dark", Config.Type.BOOLEAN, "false").withOrgOnly();
 
+    /** {@link #SITE_PAGES_SIDEBAR}: Editable Pages show the sidebar unless a page hides it. */
+    public static final String SIDEBAR_ON = "on";
+    /** {@link #SITE_PAGES_SIDEBAR}: Editable Pages hide the sidebar unless a page shows it. */
+    public static final String SIDEBAR_OFF = "off";
+    /** {@link #SITE_PAGES_SIDEBAR}: no Editable Page shows the sidebar, whatever the page says. */
+    public static final String SIDEBAR_FORCED_OFF = "forced-off";
+
+    /**
+     * Whether an Editable Page shows the sidebar beside its content (owner, 2026-11-24): on or off is the default
+     * each page may change in its settings ({@code SitePage.sidebar}); forced off hides it on every page and cannot
+     * be overridden. There is deliberately no forced on.
+     */
+    public static final SettingDef SITE_PAGES_SIDEBAR = new SettingDef(
+            "site.pages.sidebar", Config.Type.STRING, SIDEBAR_ON)
+            .withOrgOverride().withChoices(SIDEBAR_ON, SIDEBAR_OFF, SIDEBAR_FORCED_OFF);
+
     /** The stored value of {@link #SITE_LAYOUT} that keeps the content card and the sidebar. */
     public static final String LAYOUT_CLASSIC = "classic";
     /** The stored value of {@link #SITE_LAYOUT} that lets the home page's bands span the whole window. */
@@ -204,7 +220,7 @@ public final class KnownSettings {
             "site.donate.paypalImage", Config.Type.BOOLEAN, "false").withOrgOnly();
 
     /**
-     * The org site's browser title. Pages that name themselves (a trip page, a site page) still use their own
+     * The org site's browser title. Pages that name themselves (a trip page, an Editable Page) still use their own
      * title; this replaces the ORG NAME that the home page, the sign-in pages and the installed-app name show.
      */
     public static final SettingDef SITE_TITLE = new SettingDef(
@@ -557,6 +573,12 @@ public final class KnownSettings {
 
     // --- performance ---
 
+    /**
+     * The app's own 7-day metrics ({@code docs/metrics.md}): on unless turned off. Read once a minute by the metrics
+     * publisher alone, never on a request or inside a DynamoDB call.
+     */
+    public static final SettingDef METRICS_ENABLED = new SettingDef("metrics.enabled", Config.Type.BOOLEAN, "true");
+
     public static final SettingDef CACHE_NEAR_TTL_SECONDS = new SettingDef(
             "cache.near.ttlSeconds", Config.Type.INT, "86400");
 
@@ -611,14 +633,15 @@ public final class KnownSettings {
                             LOGIN_MAIL_FROM, LOGIN_MAIL_REPLY_TO, CHAT_MAIL_FROM, CHAT_MAIL_REPLY_TO,
                             SUPPORT_MAIL_FROM, SUPPORT_MAIL_REPLY_TO)),
             new SettingSection("Performance",
-                    List.of(CACHE_NEAR_TTL_SECONDS, CACHE_NEAR_CHECK_SECONDS)),
+                    List.of(CACHE_NEAR_TTL_SECONDS, CACHE_NEAR_CHECK_SECONDS, METRICS_ENABLED)),
             new SettingSection("Push notifications",
                     List.of(PUSH_ENABLED, PUSH_APNS_TOPIC, PUSH_SILENT_INTERVAL_MINUTES, PUSH_WEB_ENABLED)),
             new SettingSection("Profile pictures",
                     List.of(PROFILE_BG_REMOVAL_ENABLED)),
             new SettingSection("Home page",
                     List.of(HOME_BANNER_ENABLED, HOME_BANNER_TEXT,
-                            HOME_PHOTOS_WINDOW_DAYS, HOME_PHOTOS_MIN_COUNT, HOME_COUNTDOWN_SOON_DAYS)),
+                            HOME_PHOTOS_WINDOW_DAYS, HOME_PHOTOS_MIN_COUNT, HOME_COUNTDOWN_SOON_DAYS,
+                            SITE_PAGES_SIDEBAR)),
             new SettingSection("Content templates",
                     List.of(CONTENT_VERSIONS_RETAINED)),
             new SettingSection("Chat email",

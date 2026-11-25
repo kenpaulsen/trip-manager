@@ -64,7 +64,7 @@ public final class HtmlCheck {
     /** Names in a problem line are cut to this many characters, so a crafted name cannot fill the message. */
     private static final int MAX_NAME = 40;
 
-    /** What a published document may hold: a site page's text elements, and a line-break hint. */
+    /** What a published document may hold: an Editable Page's text elements, and a line-break hint. */
     private static final Set<String> DOCUMENT_ELEMENTS = Stream.concat(PageHtml.TEXT_ELEMENTS.stream(),
             Stream.of("wbr")).collect(Collectors.toUnmodifiableSet());
     /** The attributes a browser follows as an address. */

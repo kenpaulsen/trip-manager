@@ -46,6 +46,7 @@ public final class OrgSettingsTabs {
                     KnownSettings.SITE_LANGUAGES),
             HOME, List.of(KnownSettings.HOME_PHOTOS_WINDOW_DAYS, KnownSettings.HOME_PHOTOS_MIN_COUNT,
                     KnownSettings.HOME_COUNTDOWN_SOON_DAYS, KnownSettings.SITE_SIDEBAR_TITLE,
+                    KnownSettings.SITE_PAGES_SIDEBAR,
                     KnownSettings.SITE_DONATE_URL, KnownSettings.SITE_DONATE_TITLE, KnownSettings.SITE_DONATE_TEXT,
                     KnownSettings.SITE_DONATE_PAYPAL_IMAGE, KnownSettings.SITE_ANALYTICS_ID),
             TRIPS, List.of(KnownSettings.REG_ALLOW_EDITS, KnownSettings.LODGING_AUTO_RECOMPUTE,

@@ -8,8 +8,9 @@ paths:
 
 # Persistence (`org.paulsens.trip.dynamo`) and caching (`org.paulsens.trip.cache`)
 
-- `Persistence` interface -- abstracts the store. `DynamoPersistence` is the real one (async client);
-  `InMemoryPersistence` is a real in-memory table store used in local mode and tests (`FakeData` seeds it).
+- `Persistence` interface -- abstracts the store. `DynamoPersistence` is the real one (sync `DynamoDbClient` over the
+  Apache HTTP client, pool 200); `InMemoryPersistence` is a real in-memory table store used in local mode and tests
+  (`FakeData` seeds it).
 - `LocalMode` is the single authority on local vs production: the rule itself is in `CLAUDE.md`, "Rules that apply
   everywhere". Never reintroduce environment sniffing for it in any form ("no FacesContext", an env var): the first
   thread to reach `DAO.getInstance()` decides the datastore for the whole JVM, and since every test runs local, a

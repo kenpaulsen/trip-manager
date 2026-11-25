@@ -105,7 +105,7 @@ public class MarketingPageBootstrapTest {
         assertRendersCleanly(MarketingPageBootstrap.rows(id -> 1));
     }
 
-    // --- the platform org's Site Pages (issue medjugorje#41): Pricing and Why UniteTrip ---
+    // --- the platform org's Editable Pages (issue medjugorje#41): Pricing and Why UniteTrip ---
 
     private static final Organization.Id PLATFORM = Organization.Id.from("0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d");
     /** Other products' names: the Why page compares with registration tools in general (owner decision 2026-11-15). */
@@ -155,7 +155,7 @@ public class MarketingPageBootstrapTest {
         rows.forEach(row -> Assert.assertEquals(row.getTemplateVersion(), 2, "pinned to the CURRENT version"));
     }
 
-    /** Every value on the two Site Pages renders through the real templates and keeps the house rules. */
+    /** Every value on the two Editable Pages renders through the real templates and keeps the house rules. */
     @Test
     public void thePagesCopyRendersAndKeepsTheHouseRules() {
         assertRendersCleanly(sitePageRows());
@@ -192,9 +192,9 @@ public class MarketingPageBootstrapTest {
     }
 
     /**
-     * Every value renders through the real templates, every link reaches a Site Page that exists, and the copy,
+     * Every value renders through the real templates, every link reaches an Editable Page that exists, and the copy,
      * values AND titles, keeps the product's rules: no em dash, US spelling, "trip" not "pilgrimage", and no
-     * competitor named. ONE copy of the rules for the home page and the Site Pages, so they cannot drift apart.
+     * competitor named. ONE copy of the rules for the home page and the Editable Pages, so they cannot drift apart.
      */
     private static void assertRendersCleanly(final List<ContentInstance> rows) {
         final Map<String, ContentTemplate> starters = starters();
@@ -289,7 +289,7 @@ public class MarketingPageBootstrapTest {
     }
 
     /**
-     * Neighboring bands never share a tone, on the home page or either Site Page, so each section reads as its own.
+     * Neighboring bands never share a tone, on the home page or either Editable Page, so each section reads as its own.
      * The container bands' tones are fixed by their templates (Features plain, Questions tint, Stats dark, the hero
      * its own gradient); a split, text or call-to-action band names its tone.
      */

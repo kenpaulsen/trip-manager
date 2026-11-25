@@ -27,7 +27,7 @@ import org.testng.annotations.Test;
 
 /**
  * {@link LegacyPageFilter}: loads the deployment's data, answers a hand-written page on an org host with that org's
- * Site Page or a 404, links out on a shared host, and otherwise hands the request on untouched -- never touching
+ * Editable Page or a 404, links out on a shared host, and otherwise hands the request on untouched -- never touching
  * the session either way (the anonymous rule).
  */
 public class LegacyPageFilterTest {

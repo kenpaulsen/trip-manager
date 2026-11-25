@@ -257,7 +257,7 @@ public class ConfigCommands {
 
     /**
      * The languages {@code org}'s site offers besides its default, in the order its setting lists them: one
-     * extra field each for a translatable setting and for a Site Page's title. Empty for a one-language site and
+     * extra field each for a translatable setting and for an Editable Page's title. Empty for a one-language site and
      * for no organization.
      */
     public List<Language> otherSiteLanguages(final Organization org) {

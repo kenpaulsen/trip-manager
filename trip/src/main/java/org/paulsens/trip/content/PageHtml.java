@@ -89,7 +89,7 @@ public final class PageHtml {
     /**
      * The elements of a document's own text, links, images and tables: everything a page keeps except
      * {@link #EMBEDS}. Shared with {@link HtmlCheck#document}, which holds a published document to this list, so that
-     * markup pasted from a site page publishes.
+     * markup pasted from an Editable Page publishes.
      */
     static final Set<String> TEXT_ELEMENTS = Set.of("p", "div", "span", "br", "hr", "h1", "h2", "h3", "h4",
             "h5", "h6", "strong", "b", "em", "i", "u", "s", "strike", "del", "ins", "mark", "small", "sub", "sup",

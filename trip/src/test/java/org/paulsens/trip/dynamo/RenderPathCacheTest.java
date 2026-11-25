@@ -103,7 +103,7 @@ public class RenderPathCacheTest {
                 Map.of()), 5));
         Assert.assertTrue(content.saveContent(instance("rp-child", "rp-holder",
                 StarterTemplates.TEXT_ONLY_ID, Map.of("body", "<p>child</p>")), 5));
-        // An ORGANIZATION's site page: its own section partition, rendered by the same path with the same
+        // An ORGANIZATION's Editable Page: its own section partition, rendered by the same path with the same
         // zero-read contract -- a tenant's home page must cost no more than the shared one.
         final String orgPage = OrgPageBootstrap.pageKey(
                 Organization.Id.from("1d88a054-74c7-4293-a40c-b007e09520f3"));

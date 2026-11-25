@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -17,11 +18,13 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.RequestContext;
 import org.paulsens.trip.cache.Cached;
+import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.content.ContentRenderer;
 import org.paulsens.trip.content.OrgPageBootstrap;
 import org.paulsens.trip.content.PageVersions;
@@ -33,23 +36,30 @@ import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.Language;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.SitePage;
+import org.paulsens.trip.model.SitePage.Access;
 import org.paulsens.trip.model.SitePage.Placement;
+import org.paulsens.trip.model.SitePage.Sidebar;
 import org.paulsens.trip.site.SiteContext;
 
 /**
  * An organization site's own pages and menu links ({@link Organization#getSitePages()}), managed on the org's
- * Site Pages admin page ({@code admin/orgPages.xhtml}) and read by the menu ({@code WEB-INF/menu.xhtml}) and the
- * page host ({@code page.xhtml}). Everything is a Site Page on an org site (issue medjugorje#124): an org site's
+ * Editable Pages admin page ({@code admin/orgPages.xhtml}) and read by the menu ({@code WEB-INF/menu.xhtml}) and the
+ * page host ({@code page.xhtml}). Everything is an Editable Page on an org site (issue medjugorje#124): an org site's
  * content pages exist only as these entries, and a new site starts with the starter pages
  * ({@link #ensureStarterPages}).
  *
  * <p>Two audiences, two gates. The LIST (which pages exist, their titles, menu placement and order) belongs to
  * the org's admins ({@link OrgCommands#canManageOrg}); a page's CONTENT is edited on the org's site in the
  * ordinary content edit mode, which stays privilege-only ({@code contentAdmin} for the org, docs/org-admin.md
- * "Org-site editors"). So an org admin can add, rename, move and delete pages, and the Site Pages page tells
+ * "Org-site editors"). So an org admin can add, rename, move and delete pages, and the Editable Pages page tells
  * them when someone else has to write the words. Deleting a page deletes its content too, without the content
  * privilege (owner decision 2026-11-13: managing the list includes removing a page), and each deleted row gets
  * its own audit line, as a content editor's delete does.
+ *
+ * <p>A third gate, on SEEING a page ({@link SitePage#who()}, {@link #canView}): the page host refuses a reader the
+ * page's access excludes ({@link #hostFor}) and the menu lists only what its reader may open. An entry only site
+ * admins may see is also theirs alone to manage: an org admin's list leaves it out, and a change or delete of it
+ * is refused, so the gate on a page site admins put there cannot be lowered or removed from under them.
  *
  * <p>Identity, never position: every row command names the page by its {@link SitePage#name()}, fixed at
  * creation. Reads go through the cached org; writes re-read it uncached, apply the change and save through
@@ -94,7 +104,7 @@ public class SitePageCommands {
      * each group in its menu order. Up and Down move an entry within its own group ({@link #movePage}).
      */
     public List<SitePage> tableOf(final String orgId) {
-        return pagesOf(orgId).stream().sorted(Comparator.comparing(SitePage::where)).toList();
+        return pagesOf(orgId).stream().filter(this::mayManage).sorted(Comparator.comparing(SitePage::where)).toList();
     }
 
     /** One of the org's entries by name (the settings dialog's seed), or null. */
@@ -105,14 +115,14 @@ public class SitePageCommands {
     /** The org's entries under one placement name, in menu order: the admin page's menu preview. */
     public List<SitePage> pagesIn(final String orgId, final String placement) {
         final Placement where = Placement.from(placement);
-        return pagesOf(orgId).stream().filter(page -> page.where() == where).toList();
+        return pagesOf(orgId).stream().filter(page -> page.where() == where && mayManage(page)).toList();
     }
 
     /** Whether Up ({@code delta} -1) or Down (+1) would move {@code page}: it is not at that end of its menu. */
     public boolean canMove(final String orgId, final SitePage page, final int delta) {
         final List<SitePage> pages = pagesOf(orgId);
         final int index = page == null ? -1 : indexOf(pages, page.name());
-        return index >= 0 && neighborIndex(pages, index, delta) >= 0;
+        return index >= 0 && neighborIndex(pages, index, delta, this::mayManage) >= 0;
     }
 
     /** Where an entry shows, in the admin page's words. */
@@ -136,7 +146,7 @@ public class SitePageCommands {
 
     /**
      * The current org site's entries shown under {@code where}, in menu order. The platform org's site (the
-     * product's own, unitetrip.com) has Site Pages like any other (its Pricing and Why UniteTrip pages); only the
+     * product's own, unitetrip.com) has Editable Pages like any other (its Pricing and Why UniteTrip pages); only the
      * placeholder marketing host, which no org holds, is not an org site.
      */
     public List<SitePage> menuEntries(final Placement where) {
@@ -144,7 +154,8 @@ public class SitePageCommands {
         if (!site.isOrg()) {
             return List.of();
         }
-        return pagesOf(site.orgId().getValue()).stream().filter(page -> page.where() == where).toList();
+        final String orgId = site.orgId().getValue();
+        return pagesOf(orgId).stream().filter(page -> page.where() == where && canView(orgId, page)).toList();
     }
 
     /**
@@ -161,8 +172,109 @@ public class SitePageCommands {
     }
 
     /**
+     * Whether the caller may see {@code page} of {@code orgId}'s site: the ONE rule the page host and the menu read
+     * (the metrics dashboard's card and graphs keep their own, {@code MetricsCommands.canView}). Site admins see
+     * every page; an org admin (of THIS org) every page but a site admins' one; anyone signed in a signed-in page;
+     * everyone an open one. A link is never gated (it is not ours to serve), and no entry is visible to nobody.
+     */
+    public boolean canView(final String orgId, final SitePage page) {
+        if (page == null) {
+            return false;
+        }
+        final Caller current = callerSource.get();
+        return switch (page.isLink() ? Access.EVERYONE : page.who()) {
+            case EVERYONE -> true;
+            case SIGNED_IN -> current.isAuthenticated();
+            case ORG_ADMINS -> orgs.canManageOrg(orgId);
+            case SITE_ADMINS -> isSiteAdmin();
+        };
+    }
+
+    /**
+     * Which composition {@code page.xhtml} renders for {@code name} on the current site: the content host for a
+     * page the caller may see, the refusal for one they may not ({@code WEB-INF/pageRefused.xhtml}, which sends a
+     * visitor to sign in and anyone else away), and the 404 for a name the site does not serve as a page.
+     */
+    public String hostFor(final String name) {
+        final SitePage page = currentPage(name);
+        if (page == null) {
+            return "/WEB-INF/noSuchPage.xhtml";
+        }
+        return canView(SiteContext.current().orgId().getValue(), page) ? "/WEB-INF/contentPage.xhtml"
+                : "/WEB-INF/pageRefused.xhtml";
+    }
+
+    /**
+     * Where the refusal sends its reader: a visitor to sign in (and back here after), a signed-in reader home with
+     * the reason, since signing in again would grant nothing.
+     */
+    public String refusedUrl() {
+        final TripUtilCommands util = new TripUtilCommands();
+        return callerSource.get().isAuthenticated() ? util.notAllowedUrl(null) : util.loginUrl();
+    }
+
+    /**
+     * Whether {@code page} of {@code orgId}'s site shows the sidebar: the ONE rule page.xhtml reads. The
+     * organization's {@code site.pages.sidebar} forced off hides it everywhere; otherwise the page's own choice
+     * wins, and a page that has none follows the organization's on or off.
+     */
+    public boolean showSidebar(final String orgId, final SitePage page) {
+        final String rule = new ConfigCommands().getString(KnownSettings.SITE_PAGES_SIDEBAR,
+                orgs.findOrganization(orgId));
+        if (KnownSettings.SIDEBAR_FORCED_OFF.equals(rule)) {
+            return false;
+        }
+        final Sidebar own = page == null ? Sidebar.DEFAULT : page.side();
+        return own == Sidebar.DEFAULT ? !KnownSettings.SIDEBAR_OFF.equals(rule) : own == Sidebar.SHOW;
+    }
+
+    /** {@link #showSidebar} for the page called {@code name} on the current org site; true off an org site. */
+    public boolean sidebarFor(final String name) {
+        final SitePage page = currentPage(name);
+        return page == null || showSidebar(SiteContext.current().orgId().getValue(), page);
+    }
+
+    /** Whether {@code orgId} hides the sidebar on every page: the Editable Pages dialog then offers no choice. */
+    public boolean sidebarForcedOff(final String orgId) {
+        return KnownSettings.SIDEBAR_FORCED_OFF.equals(new ConfigCommands().getString(
+                KnownSettings.SITE_PAGES_SIDEBAR, orgs.findOrganization(orgId)));
+    }
+
+    /** The dialog's sidebar choice in the admin's words, by {@link Sidebar} name, the default saying what it is. */
+    public String sidebarLabel(final String orgId, final String sidebar) {
+        return switch (Sidebar.from(sidebar)) {
+            case DEFAULT -> showSidebar(orgId, null) ? Text.get("feedback.sitePageCommands.sidebar.defaultShown")
+                    : Text.get("feedback.sitePageCommands.sidebar.defaultHidden");
+            case SHOW -> Text.get("feedback.sitePageCommands.sidebar.show");
+            case HIDE -> Text.get("feedback.sitePageCommands.sidebar.hide");
+        };
+    }
+
+    /** The dialog's sidebar choices, as {@link Sidebar} names. */
+    public List<String> sidebarChoices() {
+        return Arrays.stream(Sidebar.values()).map(Sidebar::name).toList();
+    }
+
+    /** The dialog's access choices, as {@link Access} names: site admins' only for a site admin. */
+    public List<String> accessChoices() {
+        final boolean siteAdmin = isSiteAdmin();
+        return Arrays.stream(Access.values()).filter(value -> siteAdmin || value != Access.SITE_ADMINS)
+                .map(Access::name).toList();
+    }
+
+    /** An access in the admin page's words, by {@link Access} name (an entry's own, or a dialog choice). */
+    public String accessLabel(final String access) {
+        return switch (Access.from(access)) {
+            case EVERYONE -> Text.get("feedback.sitePageCommands.access.everyone");
+            case SIGNED_IN -> Text.get("feedback.sitePageCommands.access.signedIn");
+            case ORG_ADMINS -> Text.get("feedback.sitePageCommands.access.orgAdmins");
+            case SITE_ADMINS -> Text.get("feedback.sitePageCommands.access.siteAdmins");
+        };
+    }
+
+    /**
      * Whether {@code orgId}'s Help menu holds Make Payment: every org's but the platform org's, because the product's
-     * own site takes no payments. The ONE place that says so: the menu ({@link #isPaymentInHelp}), the Site Pages
+     * own site takes no payments. The ONE place that says so: the menu ({@link #isPaymentInHelp}), the Editable Pages
      * preview and {@link #helpMenuShown} all read it.
      */
     public boolean paymentInHelp(final String orgId) {
@@ -180,17 +292,22 @@ public class SitePageCommands {
     }
 
     /**
-     * Whether {@code orgId}'s site shows the Help submenu: the ONE rule the menu ({@link #isHelpMenuShown}) and the
-     * Site Pages preview both read, so they cannot disagree. A site whose Help holds Make Payment always has one;
-     * otherwise (the product's own site) Help shows only once there is something in it: a Help-placed page or
-     * link, or the org's own donate link (its Donate entry).
+     * Whether {@code orgId}'s site shows the Help submenu to the caller: the ONE rule the menu
+     * ({@link #isHelpMenuShown}) and the Editable Pages preview both read, so they cannot disagree. A site whose
+     * Help holds Make Payment always has one; otherwise (the product's own site) Help shows only once there is
+     * something in it the caller may open: a Help-placed page or link, or the org's own donate link (its Donate
+     * entry).
      */
     public boolean helpMenuShown(final String orgId) {
         if (paymentInHelp(orgId)) {
             return true;
         }
         final Organization org = orgs.findOrganization(orgId);
-        return !pagesIn(orgId, Placement.HELP.name()).isEmpty() || new BrandCommands().lookOf(org).donateUrl() != null;
+        // The entries the READER may open (canView, the menu's own filter), not the admin list's: a Help holding
+        // only a signed-in page must not give an anonymous visitor an empty submenu.
+        final boolean helpPage = pagesOf(orgId).stream().anyMatch(page -> page.where() == Placement.HELP
+                && canView(orgId, page));
+        return helpPage || new BrandCommands().lookOf(org).donateUrl() != null;
     }
 
     /**
@@ -214,7 +331,7 @@ public class SitePageCommands {
     }
 
     /**
-     * The languages {@code orgId}'s site offers besides its default: the Site Pages dialog's one extra title field
+     * The languages {@code orgId}'s site offers besides its default: the Editable Pages dialog's one extra title field
      * each. Empty for a one-language site.
      */
     public List<Language> otherLanguages(final String orgId) {
@@ -304,6 +421,27 @@ public class SitePageCommands {
     /** {@link #addPage(String, String, String, String)} with the page's title in the site's other languages. */
     public boolean addPage(final String orgId, final String title, final Map<String, String> titles,
             final String name, final String placement) {
+        return addPage(orgId, title, titles, name, placement, null);
+    }
+
+    /**
+     * {@link #addPage(String, String, Map, String, String)} for a page only {@code access} may see (an
+     * {@link Access} name; null or blank for everyone). Only a site admin may add one for site admins.
+     */
+    public boolean addPage(final String orgId, final String title, final Map<String, String> titles,
+            final String name, final String placement, final String access) {
+        return addPage(orgId, title, titles, name, placement, access, null);
+    }
+
+    /**
+     * {@link #addPage(String, String, Map, String, String, String)} with the page's own sidebar choice (a
+     * {@link Sidebar} name; null or blank follows the organization's default).
+     */
+    public boolean addPage(final String orgId, final String title, final Map<String, String> titles,
+            final String name, final String placement, final String access, final String sidebar) {
+        if (!mayChoose(access)) {
+            return false;
+        }
         final String cleanName = name == null ? "" : name.trim().toLowerCase(Locale.ROOT);
         if (!OrgPageBootstrap.isPageName(cleanName)) {
             return PageFeedback.refuse(Text.get("feedback.sitePageCommands.invalidAddress"),
@@ -311,11 +449,12 @@ public class SitePageCommands {
         }
         if (OrgPageBootstrap.isReservedPageName(cleanName)) {
             // "pay" as well as "home": its content key is the organization's How to pay page, which the pay
-            // page serves and seeds, so a Site Page there would be a second door onto the same rows.
+            // page serves and seeds, so an Editable Page there would be a second door onto the same rows.
             return PageFeedback.refuse(Text.get("feedback.sitePageCommands.addressTaken"),
                     Text.get("feedback.sitePageCommands.addressReserved"));
         }
-        return add(orgId, new SitePage(cleanName, title, null, Placement.from(placement).name(), titles), true);
+        return add(orgId, new SitePage(cleanName, title, null, Placement.from(placement).name(), titles, access,
+                sidebar), true);
     }
 
     /** Adds a menu link to {@code url} (absolute http(s) or a site path such as {@code /pay}). */
@@ -336,7 +475,7 @@ public class SitePageCommands {
     }
 
     /**
-     * The Site Pages dialog's one Save: {@code mode} "edit" changes the named entry, "link" adds a link, anything
+     * The Editable Pages dialog's one Save: {@code mode} "edit" changes the named entry, "link" adds a link, anything
      * else adds a page. One Java call rather than a branch in the page's script, whose comparisons are fragile.
      */
     public boolean saveDialog(final String orgId, final String mode, final String name, final String title,
@@ -351,16 +490,35 @@ public class SitePageCommands {
      */
     public boolean saveDialog(final String orgId, final String mode, final String name, final String title,
             final Map<String, String> titles, final String url, final String placement) {
+        return saveDialog(orgId, mode, name, title, titles, url, placement, null);
+    }
+
+    /**
+     * {@link #saveDialog(String, String, String, String, Map, String, String)} with the page's access, an
+     * {@link Access} name (ignored for a link, which is never gated); null keeps an edited entry's own.
+     */
+    public boolean saveDialog(final String orgId, final String mode, final String name, final String title,
+            final Map<String, String> titles, final String url, final String placement, final String access) {
+        return saveDialog(orgId, mode, name, title, titles, url, placement, access, null);
+    }
+
+    /**
+     * {@link #saveDialog(String, String, String, String, Map, String, String, String)} with the page's sidebar
+     * choice, a {@link Sidebar} name (ignored for a link); null keeps an edited entry's own.
+     */
+    public boolean saveDialog(final String orgId, final String mode, final String name, final String title,
+            final Map<String, String> titles, final String url, final String placement, final String access,
+            final String sidebar) {
         final Map<String, String> cleanTitles = titles == null ? null : cleanTitles(orgId, titles);
         if (titles != null && cleanTitles == null) {
             return false;
         }
         if ("edit".equals(mode)) {
-            return updatePage(orgId, name, title, cleanTitles, url, placement);
+            return updatePage(orgId, name, title, cleanTitles, url, placement, access, sidebar);
         }
         final Map<String, String> given = cleanTitles == null ? Map.of() : cleanTitles;
         return "link".equals(mode) ? addLink(orgId, title, given, url, placement)
-                : addPage(orgId, title, given, name, placement);
+                : addPage(orgId, title, given, name, placement, access, sidebar);
     }
 
     /** Changes an entry's title and placement (and a link's URL); its address never changes. */
@@ -375,14 +533,33 @@ public class SitePageCommands {
      */
     public boolean updatePage(final String orgId, final String name, final String title,
             final Map<String, String> titles, final String url, final String placement) {
+        return updatePage(orgId, name, title, titles, url, placement, null);
+    }
+
+    /**
+     * {@link #updatePage(String, String, String, Map, String, String)} that also sets the page's access (an
+     * {@link Access} name); null keeps the one it has. Only a site admin may choose site admins.
+     */
+    public boolean updatePage(final String orgId, final String name, final String title,
+            final Map<String, String> titles, final String url, final String placement, final String access) {
+        return updatePage(orgId, name, title, titles, url, placement, access, null);
+    }
+
+    /**
+     * {@link #updatePage(String, String, String, Map, String, String, String)} that also sets the page's sidebar
+     * choice (a {@link Sidebar} name); null keeps the one it has.
+     */
+    public boolean updatePage(final String orgId, final String name, final String title,
+            final Map<String, String> titles, final String url, final String placement, final String access,
+            final String sidebar) {
         final String cleanTitle = cleanTitle(title);
-        if (cleanTitle == null) {
+        if (cleanTitle == null || !mayChoose(access)) {
             return false;
         }
         final Set<String> offered = otherLanguages(orgId).stream().map(Language::getTag)
                 .collect(Collectors.toSet());
-        return change(orgId, name,
-                (pages, index) -> applyDetails(pages, index, cleanTitle, titles, offered, url, placement), "updated");
+        final Details details = new Details(cleanTitle, titles, offered, url, placement, access, sidebar);
+        return change(orgId, name, (pages, index) -> applyDetails(pages, index, details), "updated");
     }
 
     /**
@@ -409,7 +586,7 @@ public class SitePageCommands {
      * entry of the same placement, so every click changes what visitors see. The ends are no-ops.
      */
     public boolean movePage(final String orgId, final String name, final int delta) {
-        return change(orgId, name, (pages, index) -> reorder(pages, index, delta),
+        return change(orgId, name, (pages, index) -> reorder(pages, index, delta, this::mayManage),
                 delta < 0 ? "moved up" : "moved down");
     }
 
@@ -437,16 +614,17 @@ public class SitePageCommands {
     }
 
     /**
-     * Seeds the org site's starter Site Pages ({@link OrgPageBootstrap#starterPages()}) ONCE: on the subdomain's
+     * Seeds the org site's starter Editable Pages ({@link OrgPageBootstrap#starterPages()}) ONCE: on the subdomain's
      * first assignment ({@code OrgCommands.saveOrgEdits}, beside {@code ensureHomePage}) and for the local
      * fixture's sites; {@code scripts/seed-starter-site-pages.py} in the private repo does the same for sites hosted
      * before starters existed. Each starter the list lacks is appended and gets its starter content only when nothing
      * is stored under its key yet, so rows already there (a hand-built board) are adopted as-is; a starter whose name
      * the list already has is left alone. An appended starter's entry carries its menu title in every starter language,
      * the site's default one as its {@code title}; its content is English only. The org row records the seeding, so a
-     * starter page deleted later never comes back. The platform org's site is the product's own, whose Site Pages are
-     * the marketing pages ({@code MarketingPageBootstrap.sitePages()}, installed by the private repo's
-     * {@code update-marketing-site} script) rather than an About Us and a Board, so it is only marked.
+     * starter page deleted later never comes back. The platform org's site is the product's own, whose Editable Pages
+     * are the marketing pages ({@code MarketingPageBootstrap.sitePages()}, installed by the private repo's
+     * {@code update-marketing-site} script) rather than an About Us and a Board, so it gets only the starters meant
+     * for every site ({@code everySite}: the metrics dashboard).
      *
      * @return whether the org now has (or already had) its starters; false without a subdomain, for a caller who
      *         may not manage the org, or when a save failed (with a growl)
@@ -462,7 +640,7 @@ public class SitePageCommands {
         if (!orgs.canManageOrg(orgId)) {
             return false;
         }
-        final List<String> added = fresh.isPlatform() ? List.of() : addStarters(fresh);
+        final List<String> added = addStarters(fresh);
         if (added == null) {
             return false;
         }
@@ -470,7 +648,7 @@ public class SitePageCommands {
         if (!orgs.saveOrganization(fresh)) {
             return false;
         }
-        orgs.audit(callerSource.get(), fresh, "Starter site pages seeded for the site '" + fresh.getSlug() + "': "
+        orgs.audit(callerSource.get(), fresh, "Starter Editable Pages seeded for the site '" + fresh.getSlug() + "': "
                 + (added.isEmpty() ? "none added" : String.join(", ", added)));
         return true;
     }
@@ -483,21 +661,30 @@ public class SitePageCommands {
         boolean apply(List<SitePage> pages, int index);
     }
 
+    /** What the settings dialog saves on one entry; a null {@code titles} or {@code access} keeps the entry's own. */
+    private record Details(String title, Map<String, String> titles, Set<String> offered, String url,
+            String placement, String access, String sidebar) {
+    }
+
     /**
      * The dialog's changes on one entry. Its titles replace those of the languages the dialog showed
      * ({@code offered}); a title for a language the site does not offer yet (a starter's, seeded in every starter
      * language) is kept, so the entry still reads translated when the site adds that language (review, 2026-11-24).
      */
-    private static boolean applyDetails(final List<SitePage> pages, final int index, final String title,
-            final Map<String, String> titles, final Set<String> offered, final String url, final String placement) {
+    private static boolean applyDetails(final List<SitePage> pages, final int index, final Details details) {
         final SitePage page = pages.get(index);
-        final String target = page.isLink() ? ContentRenderer.requireLinkUrl(url) : null;
+        final String target = page.isLink() ? ContentRenderer.requireLinkUrl(details.url()) : null;
         if (page.isLink() && (target.isEmpty() || target.startsWith("#"))) {
             return PageFeedback.refuse(Text.get("feedback.sitePageCommands.invalidLink"),
                     Text.get("feedback.sitePageCommands.linkShape"));
         }
-        final SitePage changed = page.withDetails(title, target, Placement.from(placement));
-        pages.set(index, titles == null ? changed : changed.withTitles(keptAlongside(page.titles(), titles, offered)));
+        final SitePage changed = page.withDetails(details.title(), target, Placement.from(details.placement()));
+        final SitePage titled = details.titles() == null ? changed
+                : changed.withTitles(keptAlongside(page.titles(), details.titles(), details.offered()));
+        final boolean gated = details.access() != null && !page.isLink();
+        final SitePage withAccess = gated ? titled.withAccess(Access.from(details.access())) : titled;
+        final boolean sided = details.sidebar() != null && !page.isLink();
+        pages.set(index, sided ? withAccess.withSidebar(Sidebar.from(details.sidebar())) : withAccess);
         return true;
     }
 
@@ -513,21 +700,30 @@ public class SitePageCommands {
         return out;
     }
 
-    /** Swaps the entry with its neighbor in the same menu; at either end of that menu it stays put (a success). */
-    private static boolean reorder(final List<SitePage> pages, final int index, final int delta) {
-        final int target = neighborIndex(pages, index, delta);
+    /**
+     * Swaps the entry with its neighbor in the same menu that the caller can see on the list; at either end it stays
+     * put (a success). A page only site admins see is passed over for anyone else, so an org admin's click always
+     * moves the rows they see.
+     */
+    private static boolean reorder(final List<SitePage> pages, final int index, final int delta,
+            final Predicate<SitePage> visible) {
+        final int target = neighborIndex(pages, index, delta, visible);
         if (target >= 0) {
             pages.set(index, pages.set(target, pages.get(index)));
         }
         return true;
     }
 
-    /** The index of the nearest entry beyond {@code index} in {@code delta}'s direction with the same placement. */
-    static int neighborIndex(final List<SitePage> pages, final int index, final int delta) {
+    /**
+     * The index of the nearest entry beyond {@code index} in {@code delta}'s direction with the same placement that is
+     * {@code visible} on the caller's list.
+     */
+    static int neighborIndex(final List<SitePage> pages, final int index, final int delta,
+            final Predicate<SitePage> visible) {
         final Placement where = pages.get(index).where();
         final int step = Integer.signum(delta);
         for (int i = index + step; step != 0 && i >= 0 && i < pages.size(); i += step) {
-            if (pages.get(i).where() == where) {
+            if (pages.get(i).where() == where && visible.test(pages.get(i))) {
                 return i;
             }
         }
@@ -554,12 +750,13 @@ public class SitePageCommands {
             return PageFeedback.refuse(Text.get("feedback.sitePageCommands.addressTaken"),
                     Text.get("feedback.sitePageCommands.addressInUse", SitePage.PATH + entry.name()));
         }
-        pages.add(new SitePage(entry.name(), cleanTitle, entry.url(), entry.placement(), entry.titles()));
+        pages.add(new SitePage(entry.name(), cleanTitle, entry.url(), entry.placement(), entry.titles(),
+                entry.access(), entry.sidebar()));
         fresh.setSitePages(pages);
         if (!orgs.saveOrganization(fresh)) {
             return false;
         }
-        orgs.audit(callerSource.get(), fresh, "Site " + (entry.isLink() ? "link" : "page") + " '" + cleanTitle
+        orgs.audit(callerSource.get(), fresh, (entry.isLink() ? "Menu link '" : "Editable page '") + cleanTitle
                 + "' (" + entry.name() + ") added");
         if (seed && !seedPage(OrgPageBootstrap.pageKey(fresh.getId(), entry.name()))) {
             return PageFeedback.refuse(Text.get("feedback.sitePageCommands.addedWithoutContent"),
@@ -580,7 +777,12 @@ public class SitePageCommands {
             return PageFeedback.refuse(Text.get("feedback.sitePageCommands.unknownPage"),
                     Text.get("feedback.sitePageCommands.pageGone"));
         }
-        final String title = pages.get(index).title();
+        final SitePage before = pages.get(index);
+        final String title = before.title();
+        if (!mayManage(before)) {
+            return PageFeedback.refuse(Text.get("feedback.shared.notAllowed"),
+                    Text.get("feedback.sitePageCommands.siteAdminsOnly"));
+        }
         if (!edit.apply(pages, index)) {
             return false;
         }
@@ -588,8 +790,54 @@ public class SitePageCommands {
         if (!orgs.saveOrganization(fresh)) {
             return false;
         }
-        orgs.audit(callerSource.get(), fresh, "Site page '" + title + "' (" + name + ") " + what);
+        orgs.audit(callerSource.get(), fresh, "Editable page '" + title + "' (" + name + ") " + what
+                + gateChange(before, pages, index));
         return true;
+    }
+
+    /**
+     * " (access EVERYONE -> ORG_ADMINS, sidebar DEFAULT -> HIDE)" when an edit changed who may see the entry or its
+     * sidebar, else "": the audit line must say which save opened or closed a page. A move or a delete leaves
+     * another entry (or none) at {@code index}, so it adds nothing.
+     */
+    private static String gateChange(final SitePage before, final List<SitePage> after, final int index) {
+        if (index >= after.size() || !after.get(index).name().equals(before.name())) {
+            return "";
+        }
+        final SitePage now = after.get(index);
+        final List<String> parts = new ArrayList<>();
+        if (now.who() != before.who()) {
+            parts.add("access " + before.who() + " -> " + now.who());
+        }
+        if (now.side() != before.side()) {
+            parts.add("sidebar " + before.side() + " -> " + now.side());
+        }
+        return parts.isEmpty() ? "" : " (" + String.join(", ", parts) + ")";
+    }
+
+    /**
+     * Whether the caller may see and change {@code page} on the Editable Pages admin page: every entry but a site
+     * admins' page, which only a site admin manages.
+     */
+    private boolean mayManage(final SitePage page) {
+        return page.isLink() || page.who() != Access.SITE_ADMINS || isSiteAdmin();
+    }
+
+    /**
+     * Whether the caller may give a page {@code access}: anyone managing the list may, but site admins' only a site
+     * admin.
+     */
+    private boolean mayChoose(final String access) {
+        if (access == null || Access.from(access) != Access.SITE_ADMINS || isSiteAdmin()) {
+            return true;
+        }
+        return PageFeedback.refuse(Text.get("feedback.shared.notAllowed"),
+                Text.get("feedback.sitePageCommands.siteAdminsOnly"));
+    }
+
+    private boolean isSiteAdmin() {
+        final Caller current = callerSource.get();
+        return current.isAuthenticated() && current.isSiteAdmin();
     }
 
     /** A fresh org the caller may manage, or null (with a growl). */
@@ -615,7 +863,7 @@ public class SitePageCommands {
         final List<SitePage> pages = new ArrayList<>(entries(org));
         final List<String> added = new ArrayList<>();
         final Language siteDefault = new ConfigCommands().siteLanguages(org).get(0);
-        for (final StarterPage starter : OrgPageBootstrap.starterPages()) {
+        for (final StarterPage starter : startersFor(org)) {
             final boolean wanted = find(pages, starter.name()).isEmpty() && pages.size() < MAX_PAGES;
             if (wanted && !seedStarter(org.getId(), starter)) {
                 return null;
@@ -629,6 +877,15 @@ public class SitePageCommands {
         return added;
     }
 
+    /**
+     * The starters {@code org}'s site gets: every one, except that the product's own site (the platform org) gets
+     * only those meant for every site ({@code everySite}, the metrics dashboard), never About Us or the Board.
+     */
+    static List<StarterPage> startersFor(final Organization org) {
+        return OrgPageBootstrap.starterPages().stream().filter(starter -> starter.everySite() || !org.isPlatform())
+                .toList();
+    }
+
     private static boolean seedStarter(final Organization.Id orgId, final StarterPage starter) {
         final String key = OrgPageBootstrap.pageKey(orgId, starter.name());
         try {
@@ -637,7 +894,7 @@ public class SitePageCommands {
                 return true;
             }
         } catch (final RuntimeException ex) {
-            log.error("Unable to seed the starter site page {}", key, ex);
+            log.error("Unable to seed the starter Editable Page {}", key, ex);
         }
         return PageFeedback.refuse(Text.get("feedback.sitePageCommands.startersNotCreated"),
                 Text.get("feedback.sitePageCommands.starterNotSaved", starter.title()));
@@ -662,7 +919,7 @@ public class SitePageCommands {
                     StarterTemplates.TEXT_ONLY_ID, version, values, null, 0, 0, null, "site-pages");
             return OrgCommands.seedIfEmpty(pageKey, List.of(row));
         } catch (final RuntimeException ex) {
-            log.error("Unable to seed site page {}", pageKey, ex);
+            log.error("Unable to seed Editable Page {}", pageKey, ex);
             return false;
         }
     }

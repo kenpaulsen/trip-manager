@@ -43,7 +43,7 @@ pattern; absent opens the first):
 |---------|-----|---------------|
 | `profile` | Profile | name, abbreviation, contact email, contact name and phone, subdomain + the live-site link and the custom domain (both site-admin only), "Shared sites", and the shared-site Register target (below) |
 | `appearance` | Appearance | palette, dark mode, layout, logo, favicon, background, link preview image, footer; with the uploads and the server-rendered preview ("The Appearance page and its live preview") |
-| `home` | Home page | `home.photos.windowDays`, `home.photos.minCount`, `home.countdown.soonDays`, `site.sidebar.title`, `site.donate.url`, `site.donate.title`, `site.donate.text`, `site.donate.paypalImage`, `site.analytics.id`, and a link to Site Pages |
+| `home` | Home page | `home.photos.windowDays`, `home.photos.minCount`, `home.countdown.soonDays`, `site.sidebar.title`, `site.donate.url`, `site.donate.title`, `site.donate.text`, `site.donate.paypalImage`, `site.analytics.id`, and a link to Editable Pages |
 | `trips` | Trips & money | `reg.allowEdits`, `lodging.bills.autoRecompute`, `finance.treasurer.email`, `payment.notify.email` |
 | `chat` | Chat | `chat.background.colors`, `chat.background.image`, `chat.reactions.palette` (each trip's chat can still override them in its own settings) |
 | `email` | Email | sending domains (site-admin only; the choices are the shared domains plus the org's own custom domain, "Sending domains"), default domain, a link to the org's email templates |
@@ -523,7 +523,7 @@ no script, no DNS step, no deploy (wildcard DNS and the wildcard certificate alr
   entries (`TripCommands.getMenuTrips/getMenuOldTrips`, seeded by `template.xhtml`), and only that org in
   the admin menu's org list (`visibleOrgs`). Editing happens on the org's site, in the same edit mode as
   the shared page, by a site admin, a global `contentAdmin`, or the org-scoped `contentAdmin@{org}` grant
-  (`SitePageCommands.canEditContent`; "Site Pages" below).
+  (`SitePageCommands.canEditContent`; "Editable Pages" below).
 - **A shared site's MENUS** (the Trips menu, `TripCommands.getMenuTrips/getMenuOldTrips`, and the sidebar,
   countdown, home albums and the open-trips API, all through `ListingScope.listsSiteWide`) name the orgs that
   SHARE the site plus any hosted org that a section of the site's own page curates (`includeOrgs`, the org
@@ -621,13 +621,13 @@ no script, no DNS step, no deploy (wildcard DNS and the wildcard certificate alr
   assigns the slug). `SiteIndex` resolves the apex and www to that org, so its Appearance settings, `contentAdmin@org`
   editors, media library, dashboard and audit trail are the ordinary org machinery; `SiteContext.isMarketing()` stays
   true there (`isPlatformOrg()`) for the marketing-only rules: no auto-join on signup, no Trips menu, a Help menu only
-  once it holds something and never Make Payment ("Site Pages" below), the mark links home, full-width layout always,
-  and the page key stays the fixed `page:unitetrip-home` (seeded by `bootstrap-marketing-page.sh`, independent of the
-  org row; the org's slug assignment seeds no starter rows). Its OTHER pages are ordinary Site Pages ("Site Pages"
-  below), keyed `page:org:{its uuid}:{name}`: Pricing and Why UniteTrip in its About menu (issue medjugorje#41, defined
-  in `content/marketing-site-pages.json` and installed by `medjugorje/scripts/update-marketing-site.sh`). The platform
-  org is never offered in shared-site curation. Before any org holds `www`, those hosts fall back to the placeholder
-  MARKETING site, which has no Site Pages.
+  once it holds something and never Make Payment ("Editable Pages" below), the mark links home, full-width layout
+  always, and the page key stays the fixed `page:unitetrip-home` (seeded by `bootstrap-marketing-page.sh`, independent
+  of the org row; the org's slug assignment seeds no starter rows). Its OTHER pages are ordinary Editable Pages
+  ("Editable Pages" below), keyed `page:org:{its uuid}:{name}`: Pricing and Why UniteTrip in its About menu (issue
+  medjugorje#41, defined in `content/marketing-site-pages.json` and installed by
+  `medjugorje/scripts/update-marketing-site.sh`). The platform org is never offered in shared-site curation. Before any
+  org holds `www`, those hosts fall back to the placeholder MARKETING site, which has no Editable Pages.
 - **Media is site-scoped by `MediaItem.orgId`**, for discovery AND for writes: the admin library
   (`admin/media.xhtml`), the document picker and the Documents slot show an org's items only on its own site
   and the site's items only on shared sites, and a row can be changed only from the site where it shows;
@@ -672,7 +672,7 @@ about the slug.
 - **Serving it**: `SiteIndex` maps the domain and its `www.` form to the org (and its slug) FIRST, before the
   base-domain rules; rebuilt on every org save like slugs, so mapping and unmapping are online.
 - **Its canonical address**: `SiteUrls.baseUrl/orgSiteUrl` (mail, tickets, QR codes, push links) and the admin
-  pages' one builder, `SiteCommands.orgSiteUrlOf(org)` (behind `hostFor`, `orgSiteUrl(slug)`, the Site Pages
+  pages' one builder, `SiteCommands.orgSiteUrlOf(org)` (behind `hostFor`, `orgSiteUrl(slug)`, the Editable Pages
   View link and `OrgsResource`'s `siteUrl`, the last two through its no-slash form `orgSiteRoot(org, request)`
   with the org in hand), answer `https://{customDomain}` when set; a localhost request
   still gets `{slug}.localhost`. The subdomain keeps serving the same site for links already sent. The ONE
@@ -690,7 +690,12 @@ about the slug.
 - Local fixture: Beta Corp answers on `beta-corp.test` (`FakeData.BETA_CUSTOM_DOMAIN`), which the webtests map
   to loopback.
 
-## Site Pages: an org site's own pages and menu (2026-11-13)
+## Editable Pages: an org site's own pages and menu (2026-11-13)
+
+Named "Site Pages" until 2026-11-24, when the owner renamed them "Editable Pages" in everything people read. The code
+and the stored data keep the old name on purpose (`SitePage`, `Organization.sitePages`, `#{orgPages}`,
+`SitePagePolicyIT`, `starter-site-pages.json`, the `seed-starter-site-pages` scripts): renaming a stored attribute would
+orphan every org row's list, and nothing a reader sees depends on those names.
 
 `Organization.sitePages` is the org site's menu beyond Home and Trips: an ordered list of `SitePage` entries,
 each a PAGE (an editable content page, `/page.jsf?name={name}`, content under `page:org:{orgId}:{name}`, the
@@ -703,10 +708,10 @@ content key, fixed at creation.
   no payments, so its Help never lists Make Payment, and Help shows there only once it holds something: a
   Help-placed page or link, or the org's own donate link (its Donate entry). Every other org site always shows
   Help with Make Payment. The rule is written once, in `SitePageCommands.paymentInHelp` and `helpMenuShown`
-  (`isPaymentInHelp` / `isHelpMenuShown` for the current host); `menu.xhtml` and the Site Pages preview on
+  (`isPaymentInHelp` / `isHelpMenuShown` for the current host); `menu.xhtml` and the Editable Pages preview on
   `admin/orgPages.xhtml` both read it, so they cannot disagree. `MarketingSitePagesPwIT` holds it in the browser.
 
-- **Everything is a Site Page on an org site** (issue medjugorje#124): an org site's content pages exist only
+- **Everything is an Editable Page on an org site** (issue medjugorje#124): an org site's content pages exist only
   as these entries. `/board/index.jsf` on an org host redirects to `/page.jsf?name=board`; it renders
   `page:shared:board` on a shared host only. `SitePagePolicyIT` keeps every other page from hosting
   `WEB-INF/contentPage.xhtml` (`docs/content-templates.md`, "Named pages").
@@ -716,17 +721,17 @@ content key, fixed at creation.
   (`OrgCommands.saveOrgEdits`), ONCE per org: `Organization.sitePagesSeededAt` records it, so a starter page an
   admin deletes never comes back. A starter whose name the list already has is left alone; a starter's content
   is written only when its key is empty, so rows already there (a hand-built board) are adopted as-is. The
-  platform org (the product's site, whose Site Pages are its marketing pages rather than an About Us and a
+  platform org (the product's site, whose Editable Pages are its marketing pages rather than an About Us and a
   Board) is only marked. Orgs hosted before 2026-11-13
   are backfilled by `medjugorje/scripts/seed-starter-site-pages.py` (dry run by default; it skips an org whose
   row is already marked, which the CFPW cut-over sets).
   Each starter's menu entry carries its title in every starter language (the JSON's English `title` and its
   `titles`), built for the site's default language (`StarterPage.entry(Language)`): that language's title is the
-  entry's `title` and the rest its `titles`, as the Site Pages dialog edits them. The same script adds the missing
+  entry's `title` and the rest its `titles`, as the Editable Pages dialog edits them. The same script adds the missing
   ones to already seeded sites, listing an entry left with the English title on a non-English site. The content
   is English only: a seeded `@es` / `@hr` version would keep outranking the org's later rewrite of the English
   page for those readers (`PageVersions.resolve` serves any version with rows).
-- **The list is the org admins'** (`admin/orgPages.xhtml`, "Site Pages", a hub card and a link on the settings
+- **The list is the org admins'** (`admin/orgPages.xhtml`, "Editable Pages", a hub card and a link on the settings
   page's Home tab; `SitePageCommands` as `#{orgPages}`: add a page or a link, settings dialog, up/down,
   delete with confirmation). The table is grouped by menu, and Up/Down swap an entry with its neighbor IN
   THE SAME MENU, so every click changes what visitors see. **The words are a content editor's**: a page is
@@ -737,11 +742,11 @@ content key, fixed at creation.
 - **Deleting a page deletes its content, without the content privilege** (owner decision 2026-11-13):
   managing the list includes removing a page; writing the words stays privilege-only. The delete goes through
   the content delete cascade (`ContentCommands.deleteWithChildren`): every section and every container's
-  children, one row at a time, each with its own CONTENT audit line, beside the ORGANIZATION line "Site page
+  children, one row at a time, each with its own CONTENT audit line, beside the ORGANIZATION line "Editable page
   ... deleted". The confirmation says the page and everything on it are deleted.
 - A new page gets one starter text block unless content already sits under its key (then adopted as-is).
 - **Two names are reserved** (`OrgPageBootstrap.isReservedPageName`): `home`, the home page's own, and `pay`,
-  the How to pay page's (below). `SitePageCommands.addPage` refuses both, so no Site Page can open a second door
+  the How to pay page's (below). `SitePageCommands.addPage` refuses both, so no Editable Page can open a second door
   onto either key. A LINK to `/pay` is still fine: a link has a generated name and no content.
 - `page.xhtml` renders only a PAGE the CURRENT org site lists, and hands the content host the STORED name (so
   `?name=mission%20` is the page, never a 500); anything else (a shared host, a link, a deleted or malformed
@@ -752,6 +757,28 @@ content key, fixed at creation.
   the server only checks the result). An address typed by hand stops following, and a refused Save keeps it
   (`viewScope.dlgNameTouched`); the dialog's kind (page or link) is pinned when it opens (`viewScope.dlgIsLink`).
 - The shared sites keep their hand-written pages and literal menus, with the two rules below.
+- **Who can see a page** (`SitePage.access`, 2026-11-24): Everyone (every page stored before the gate, which
+  stores nothing), Anyone signed in, This organization's admins (`OrgCommands.canManageOrg`, so site admins too),
+  or Site admins only. ONE rule, `SitePageCommands.canView`, read by the page host and the menu: `page.xhtml`
+  chooses its composition through `orgPages.hostFor`, which answers `WEB-INF/pageRefused.xhtml` for a reader the
+  page excludes (a visitor is sent to sign in and back, a signed-in reader home with the reason, before any content
+  is read; transient, so an anonymous refusal mints no session), and the menu lists only pages its reader may
+  open. A stored name a newer build wrote reads as Site admins only: an unknown gate fails closed. A site admins'
+  page belongs to site admins: only a site admin may choose that level, and an org admin's list (and the menu
+  preview) leaves such a page out and refuses a change, move or delete of it, so the gate cannot be lowered from
+  under them. A link is never gated. The metrics dashboard (`docs/metrics.md`) is the first such page, a starter on
+  every site; the hub's Metrics card ("Run this organization", `metrics.hubUrl`) links to it for site admins.
+  What the gate does NOT cover: files and pictures on a gated page are served from the public media CDN, so anyone
+  holding their own link opens them (the help card says so). A change of access or sidebar is named in the audit
+  line ("access EVERYONE -> ORG_ADMINS"). ROLLBACK: a build older than the gate (before 2026-11-24) reads every
+  gated page as open, and any organization save it makes rewrites `sitePages` without `access` and `sidebar`, so the
+  gates are gone for good; after rolling back past it and forward again, re-check every organization's gated pages.
+- **The sidebar beside a page** (`SitePage.sidebar`, owner 2026-11-24): each Editable Page shows or hides it, or
+  follows its organization's default, the org-overridable setting `site.pages.sidebar` (Settings, "Home page"; the
+  org's Home tab): `on`, `off`, or `forced-off`, which hides it on every page whatever a page says. There is
+  deliberately no forced on. ONE rule, `SitePageCommands.showSidebar`, read by `page.xhtml` (the `showSidebar`
+  ui:param `mainTemplate` already honors); the Editable Pages dialog offers Default/Show/Hide, naming what the
+  default is now, and only a note when the organization forces it off. The metrics dashboard starts hidden.
 - **A title per language** (`SitePage.titles`, `docs/i18n.md`, "Short texts an organization writes per
   language"): on a site offering more than one language the dialog shows one more title field per other offered
   language under the title, blank meaning the title above. The menu and the page's browser title read
@@ -760,20 +787,20 @@ content key, fixed at creation.
 
 ### Hand-written shared pages (2026-11-21)
 
-The deployment's own XHTML content pages (a shared site's microsites, guides and archives) are not Site Pages,
+The deployment's own XHTML content pages (a shared site's microsites, guides and archives) are not Editable Pages,
 and nothing used to stop one from rendering on ANY host: `acme.unitetrip.com/dm` showed the shared site's novena
 in Acme's look. `web/LegacyPageFilter` closes that, driven by data the deployment supplies in
 `WEB-INF/legacy-pages.json` (init-param `config` names another resource; without the file the filter is inert, so
 this repo names no path and no organization):
 
 - `handWritten`: path prefixes whose pages are hand-written content. `sitePages`: an old address (in the canonical
-  form `LegacyPages.canonical` gives: no `.jsf`/`.xhtml`/`.faces`, no trailing slash or `/index`) and the Site Page
+  form `LegacyPages.canonical` gives: no `.jsf`/`.xhtml`/`.faces`, no trailing slash or `/index`) and the Editable Page
   name that stands for it. `linkOut`: `slug` (and `localSlug`, used instead in local mode) names the organization
   the shared site links out to, and `paths` which addresses do.
 - **On an organization's host** (and the marketing and unknown hosts) every address under a prefix answers like
-  `/board`: a 302 to `/page.jsf?name={mapped name}` when THAT org has a Site Page (not a link) of the name, else
+  `/board`: a 302 to `/page.jsf?name={mapped name}` when THAT org has an Editable Page (not a link) of the name, else
   404 through `/notFound`. An address with no mapped name is always 404 there.
-- **On a shared host** an address in `linkOut.paths` 302s to the Site Page of its name on the link-out
+- **On a shared host** an address in `linkOut.paths` 302s to the Editable Page of its name on the link-out
   organization's site, addressed like the admin pages address it (`SiteCommands.orgSiteRoot`: custom domain,
   else `{slug}.{base}`, `{slug}.localhost` from a localhost request), but only while that organization holds such
   a page: otherwise the hand-written page keeps rendering, so a link out never lands on a 404. The menu's
@@ -792,7 +819,7 @@ this repo names no path and no organization):
 Whoever owes money pays ONE organization, so the how-to-pay page is always some organization's. Its content is
 ordinary editable content under `page:org:{orgId}:pay` (`OrgPageBootstrap.payPageKey`), rendered by `trip/pay.xhtml`
 through `WEB-INF/contentSections.xhtml` on ANY host that reaches the organization (as a trip's page is), never a
-Site Page. The Java is `action/PayPageCommands` (`#{payPage}`).
+Editable Page. The Java is `action/PayPageCommands` (`#{payPage}`).
 
 - **One decision, asked by both pages**: `payPage.destination(tripId)`, `IN_APP` when the trip as this site serves
   it resolves to a payable configuration (`OrgCommands.effectivePaymentConfig(trip).payable`), else `HOW_TO` (also
@@ -1162,7 +1189,7 @@ org's Home tab turns its tag and banner on; only the placeholder marketing host 
 visitor's consent: the
 `trip_consent` cookie (`1`/`0`, one year) that `WEB-INF/consentBanner.xhtml` sets, read straight off the
 request so an anonymous page stays sessionless; no id means no tag and no banner. The page view carries no
-personal data: `page_location` is the origin and path only (plus a Site Page's `?name=` on `/page.jsf`),
+personal data: `page_location` is the origin and path only (plus an Editable Page's `?name=` on `/page.jsf`),
 `page_referrer` is cut at `?`/`#`, and `page_title` is that same path, never `document.title` (several pages put a
 person's name or a transaction note in their title). `topbar.xhtml` (logo or
 wordmark), `footer.xhtml`, `menu.xhtml` (the shared site's Overview / Links / Help entries hidden, an org

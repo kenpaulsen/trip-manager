@@ -54,7 +54,7 @@ public class OrgSettingsLadderTest {
                 "site.footer.links.color",
                 "site.contact.name", "site.contact.phone", "site.donate.url", "site.donate.title",
                 "site.donate.text", "site.donate.paypalImage", "site.title", "site.sidebar.title",
-                "home.photos.windowDays", "home.photos.minCount", "home.countdown.soonDays",
+                "home.photos.windowDays", "home.photos.minCount", "home.countdown.soonDays", "site.pages.sidebar",
                 "chat.reactions.palette", "chat.background.colors", "chat.background.image", "reg.allowEdits",
                 "finance.treasurer.email", "lodging.bills.autoRecompute", "payment.notify.email"),
                 "in page order; a new org-overridable setting is a product decision, so update this list");

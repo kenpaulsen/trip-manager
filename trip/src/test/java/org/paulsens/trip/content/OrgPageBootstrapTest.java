@@ -69,8 +69,8 @@ public class OrgPageBootstrapTest {
     }
 
     /**
-     * The platform org's home page stays the script-seeded marketing page, but its other pages are its Site Pages
-     * (Pricing, Why UniteTrip), keyed under the org like every org's, which is where the Site Pages admin page
+     * The platform org's home page stays the script-seeded marketing page, but its other pages are its Editable Pages
+     * (Pricing, Why UniteTrip), keyed under the org like every org's, which is where the Editable Pages admin page
      * seeds and deletes them. Only the placeholder host, which no org holds, keeps the old marketing prefix.
      */
     @Test
@@ -195,10 +195,16 @@ public class OrgPageBootstrapTest {
     }
 
     @Test
-    public void theStarterSitePagesAreAboutAndTheBoard() {
+    public void theStarterSitePagesAreAboutTheBoardAndTheMetrics() {
         final List<OrgPageBootstrap.StarterPage> starters = OrgPageBootstrap.starterPages();
         Assert.assertEquals(starters.stream().map(OrgPageBootstrap.StarterPage::name).toList(),
-                List.of("about", "board"));
+                List.of("about", "board", "metrics"));
+        final OrgPageBootstrap.StarterPage metrics = starters.get(2);
+        Assert.assertTrue(metrics.everySite(), "the platform org's site gets the dashboard too");
+        Assert.assertEquals(metrics.entry(Language.English).who(), SitePage.Access.SITE_ADMINS);
+        Assert.assertFalse(starters.get(0).everySite());
+        Assert.assertTrue(OrgPageBootstrap.starterRows(ORG, metrics, id -> 1).get(0).getValues().get("body")
+                .contains("orgId=" + ORG.getValue()), "the org id token is written as this organization's id");
         Assert.assertSame(OrgPageBootstrap.starterPages(), starters, "read once");
         Assert.assertEquals(OrgPageBootstrap.readStarterPages(), starters);
         final OrgPageBootstrap.StarterPage board = starters.get(1);

@@ -27,6 +27,7 @@ import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.content.MarketingPageBootstrap;
 import org.paulsens.trip.content.OrgPageBootstrap;
 import org.paulsens.trip.content.StarterTemplates;
+import org.paulsens.trip.metrics.DemoMetrics;
 import org.paulsens.trip.model.chat.ChatChannel;
 import org.paulsens.trip.model.chat.ChatMembership;
 import org.paulsens.trip.model.ContentInstance;
@@ -144,6 +145,8 @@ public final class FakeData {
             addFakeLodging();
             relaxChatLimitsForFakeTrips();
             addEndedAlbumChatGuest();
+            // The metrics dashboard's demo week (two servers, a deploy two days ago); once per JVM, outside t1:.
+            DemoMetrics.seedOnce(DAO.getInstance().getCacheClient(), Instant.now());
         }
     }
 
@@ -571,7 +574,7 @@ public final class FakeData {
         seedOrgScopedPrivileges(commands, kevin);
         seedOrgSiteEditor(commands);
         seedOrgFinanceViewer(commands);
-        // Each org SITE gets its default home page and its starter Site Pages (About Us, Board of Directors)
+        // Each org SITE gets its default home page and its starter Editable Pages (About Us, Board of Directors)
         // through the same once-only seeding a slug assignment triggers in production, so acme.localhost /
         // beta.localhost show what a new tenant sees. Runs after addFakeContent: the starter rows pin the
         // starter templates' current versions.
@@ -593,17 +596,17 @@ public final class FakeData {
                 new HashMap<>(Map.of("language", "Spanish", "cfpwOnly", "false")), null, 3, 0, null, "fake-seed"));
     }
 
-    /** The address of Acme's seeded site page (its About menu), for the webtests. */
+    /** The address of Acme's seeded Editable Page (its About menu), for the webtests. */
     public static final String ACME_SITE_PAGE = "mission";
 
     /**
-     * Acme's own Site Pages beside its starters, through the real commands as the admin: one more PAGE in the
+     * Acme's own Editable Pages beside its starters, through the real commands as the admin: one more PAGE in the
      * About menu (with its starter text) and one LINK in the Help menu, so acme.localhost shows both menus.
      */
     private static void seedSitePages(final org.paulsens.trip.action.SitePageCommands pages) {
         if (!pages.addPage(ACME_ORG_ID, "Our Mission", ACME_SITE_PAGE, "ABOUT")
                 || !pages.addLink(ACME_ORG_ID, "Partner Site", "https://example.org/", "HELP")) {
-            throw new IllegalStateException("Fake org seed: could not seed Acme's site pages");
+            throw new IllegalStateException("Fake org seed: could not seed Acme's Editable Pages");
         }
     }
 
@@ -794,7 +797,7 @@ public final class FakeData {
     }
 
     /**
-     * The platform org's Site Pages (Pricing, Why UniteTrip; issue medjugorje#41), exactly what the production
+     * The platform org's Editable Pages (Pricing, Why UniteTrip; issue medjugorje#41), exactly what the production
      * {@code update-marketing-site} script installs: the menu entries, marked seeded so no About Us or Board starter
      * ever joins them, and their rows, pinned to the band templates' current versions. The site's HOME rows are
      * seeded in {@link #addFakeContent} instead: they live under the fixed marketing key, not under this org.
@@ -811,10 +814,10 @@ public final class FakeData {
                     .map(page -> page.entry(Language.English)).toList());
             platform.setSitePagesSeededAt(LocalDateTime.now());
             if (!DAO.getInstance().saveOrganization(platform)) {
-                throw new IllegalStateException("Fake org seed: could not save the platform org's Site Pages");
+                throw new IllegalStateException("Fake org seed: could not save the platform org's Editable Pages");
             }
         } catch (final IOException ex) {
-            throw new IllegalStateException("Fake org seed: could not save the platform org's Site Pages", ex);
+            throw new IllegalStateException("Fake org seed: could not save the platform org's Editable Pages", ex);
         }
     }
 

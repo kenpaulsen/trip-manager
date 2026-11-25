@@ -11,7 +11,7 @@ the same executor), and every DAO, cache and AWS call **blocks its calling threa
 layer. The ONLY `CompletableFuture` in the main tree is Lettuce's, consumed inside `ValkeyCacheClient`'s single
 interruptible await point; `ArchitectureTest` greps these invariants into the build (no CF import elsewhere, no future
 `join()`, no cached platform pools). There is deliberately no `maxThreads`-style cap: admission control lives where load
-lands -- the DynamoDB connection pool (100), the two Lettuce request queues (5000 foreground / 500 background via
+lands -- the DynamoDB connection pool (200), the two Lettuce request queues (5000 foreground / 500 background via
 `CacheLane`), `RefreshPermits`, and per-feature gates (e.g. `BackgroundRemover.GATE`).
 
 - Fan-out uses `StructuredTaskScope` (a preview API -- `--enable-preview` is set in the compiler args, the
@@ -30,7 +30,10 @@ lands -- the DynamoDB connection pool (100), the two Lettuce request queues (500
   SDK's Apache client internals, the dedicated `bg-remover-inference` thread, and the shutdown hook. Native (JNI)
   or long CPU-bound work never runs on a request virtual thread: JNI pins its carrier, the scheduler does not
   compensate, and a 1-vCPU container may have ONE carrier, so one inference froze every request. The audit-sink
-  writers and the `ChatDigestScheduler` and `ReminderScheduler` (`trip-reminders`) timer threads are virtual.
+  writers and the `ChatDigestScheduler` and `ReminderScheduler` (`trip-reminders`) timer threads are virtual, as is
+  the metrics publisher (`TripMetrics`, our own minute-aligned scheduler on `TripThreads.factory()`, so its
+  once-a-minute Valkey writes ride the BACKGROUND lane; Micrometer's own `start()` is never called; `docs/metrics.md`). The AWS SDK's `PoolMetricPublisher` runs inside every
+  DynamoDB call on the CALLER's thread: it never reads a setting, touches the cache or throws.
 - `AuditActor.current()` reads the `RequestContext` ScopedValue, bound per request by `SessionRecoveryFilter`
   and inherited by `StructuredTaskScope` forks. A plain `TripThreads.start` spawn does NOT inherit it -- use
   `startAs(actor, ...)` for work that outlives its request (`CompletableFuture` is banned by `ArchitectureTest`).

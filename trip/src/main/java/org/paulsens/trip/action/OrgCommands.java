@@ -1804,7 +1804,8 @@ public class OrgCommands {
             return false;
         }
         if (fresh.getSlug() != null) {
-            // A subdomain's first assignment seeds the home page and starter Site Pages, each once (growls on failure).
+            // A subdomain's first assignment seeds the home page and starter Editable Pages, each once (growls on
+            // failure).
             ensureHomePage(orgId);
             new SitePageCommands(callerSource).ensureStarterPages(orgId);
         }

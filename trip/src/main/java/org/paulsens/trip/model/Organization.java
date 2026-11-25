@@ -97,7 +97,7 @@ public final class Organization implements Serializable {
 
     /**
      * The pages and links of the org site's menu, in menu order (see {@link SitePage}). Null or empty = none.
-     * Org-admin managed on the Site Pages page through {@code OrgCommands}; a PAGE's content lives in the
+     * Org-admin managed on the Editable Pages page through {@code OrgCommands}; a PAGE's content lives in the
      * {@code content} table under {@code page:org:{id}:{name}}, not here. Setter-populated, outside the 8-arg
      * creator like {@link #paymentDefaults}; the getter never lazy-inits, so an untouched row stays untouched.
      */
@@ -137,7 +137,7 @@ public final class Organization implements Serializable {
     private LocalDateTime homePageSeededAt;
 
     /**
-     * When the org site's starter Site Pages ({@code OrgPageBootstrap.starterPages()}) were added to
+     * When the org site's starter Editable Pages ({@code OrgPageBootstrap.starterPages()}) were added to
      * {@link #sitePages}; null until the org first gets a subdomain. Once only, like {@link #homePageSeededAt}: a
      * starter page its admins delete stays deleted. Setter-populated, outside the 8-arg creator like
      * {@link #paymentDefaults}.

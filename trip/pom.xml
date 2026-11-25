@@ -310,6 +310,14 @@
             <version>15.0.13</version>
             <classifier>jakarta</classifier>
         </dependency>
+        <!-- The app's own 7-day metrics (docs/metrics.md): meters and the JVM binders; our ValkeyMeterRegistry
+             pushes each minute to Valkey. Apache 2.0, as are micrometer-commons, micrometer-observation and
+             jspecify; HdrHistogram is CC0 or BSD 2-Clause. -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-core</artifactId>
+            <version>1.18.0</version>
+        </dependency>
         <dependency>
             <groupId>com.googlecode.libphonenumber</groupId>
             <artifactId>libphonenumber</artifactId>

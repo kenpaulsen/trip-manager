@@ -10,6 +10,7 @@ import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.faces.context.ExternalContext;
 import jakarta.faces.context.FacesContext;
 import jakarta.servlet.http.HttpServletRequest;
@@ -57,7 +58,16 @@ public class SitePageCommandsTest {
         final String orgId = org.getId().getValue();
         final SitePageCommands pages = commandsFor(orgAdmin);
 
-        assertEquals(names(pages.pagesOf(orgId)), List.of("about", "board"), "the slug's first save seeds them");
+        assertEquals(names(pages.pagesOf(orgId)), List.of("about", "board", "metrics"),
+                "the slug's first save seeds them");
+        assertEquals(pages.pageOf(orgId, "metrics").who(), SitePage.Access.SITE_ADMINS, "the metrics dashboard");
+        assertEquals(pages.pageOf(orgId, "metrics").where(), Placement.HIDDEN);
+        final List<ContentInstance> metrics = content("metrics", org);
+        assertTrue(metrics.get(0).getValues().get("body").contains("orgSettings.jsf?orgId=" + orgId),
+                "its way back to the hub names this organization");
+        assertEquals(metrics.get(1).getTemplateId(), "graph-grid", "the graphs sit on the graph grid");
+        assertEquals(dao.getContentForSection(metrics.get(1).getId(), Cached.NO).size(), 9,
+                "eight tiles and the focus graph they show in");
         assertEquals(pages.pageOf(orgId, "board"), new SitePage("board", "Board of Directors", null, "ABOUT",
                 Map.of("es", "Junta directiva", "hr", "Upravni odbor")), "with its menu titles in each language");
         assertEquals(pages.pageOf(orgId, "about").where(), Placement.ABOUT);
@@ -76,8 +86,21 @@ public class SitePageCommandsTest {
 
         assertTrue(pages.deletePage(orgId, "board"), "an org admin may delete a starter page");
         assertTrue(pages.ensureStarterPages(orgId), "already seeded");
-        assertEquals(names(pages.pagesOf(orgId)), List.of("about"), "a deleted starter page never comes back");
+        assertEquals(names(pages.pagesOf(orgId)), List.of("about", "metrics"),
+                "a deleted starter page never comes back");
         assertEquals(content("board", org), List.of());
+    }
+
+    @Test
+    public void theProductsOwnSiteGetsOnlyTheStartersMeantForEverySite() {
+        final Organization platform = new Organization();
+        platform.setSlug(Organization.PLATFORM_SLUG);
+        assertEquals(SitePageCommands.startersFor(platform).stream().map(OrgPageBootstrap.StarterPage::name)
+                .toList(), List.of("metrics"), "the dashboard, never About Us or the Board");
+        final Organization other = new Organization();
+        other.setSlug("pages" + RandomData.genAlpha(10).toLowerCase());
+        assertEquals(SitePageCommands.startersFor(other).stream().map(OrgPageBootstrap.StarterPage::name)
+                .toList(), List.of("about", "board", "metrics"));
     }
 
     @Test
@@ -119,7 +142,9 @@ public class SitePageCommandsTest {
         host(org);
         assertEquals(pages.pagesOf(orgId), List.of(new SitePage("about", "Who We Are", null, "HELP"),
                 new SitePage("board", "Board of Directors", null, "ABOUT",
-                        Map.of("es", "Junta directiva", "hr", "Upravni odbor"))), "the org's own entry is kept as is");
+                        Map.of("es", "Junta directiva", "hr", "Upravni odbor")),
+                new SitePage("metrics", "Metrics", null, "HIDDEN", Map.of("es", "Métricas", "hr", "Metrike"),
+                        "SITE_ADMINS", "HIDE")), "the org's own entry is kept as is");
         assertEquals(content("about", org).size(), 1, "its own page, its own content");
         final List<ContentInstance> board = content("board", org);
         assertEquals(board.size(), 1, "the rows already under the key are adopted, never added to");
@@ -137,7 +162,8 @@ public class SitePageCommandsTest {
         assertNull(reread(org).getSitePagesSeededAt());
         assertFalse(siteAdmin().ensureStarterPages(null));
         assertTrue(commandsFor(orgAdmin).ensureStarterPages(org.getId().getValue()));
-        assertEquals(names(commandsFor(orgAdmin).pagesOf(org.getId().getValue())), List.of("about", "board"));
+        assertEquals(names(commandsFor(orgAdmin).pagesOf(org.getId().getValue())), List.of("about", "board",
+                "metrics"));
     }
 
     @Test
@@ -410,7 +436,7 @@ public class SitePageCommandsTest {
     }
 
     /**
-     * The product's own site (the platform org, slug www) serves its Site Pages like any org site: the menu lists
+     * The product's own site (the platform org, slug www) serves its Editable Pages like any org site: the menu lists
      * Pricing and Why UniteTrip (seeded by FakeData exactly as the production script installs them) and the page
      * host renders them. The placeholder marketing host, which no org holds, still has none.
      */
@@ -434,7 +460,7 @@ public class SitePageCommandsTest {
 
     /**
      * The product's own site shows Help only once something is in it (a Help entry or its donate link): one rule for
-     * the menu and the Site Pages preview. Every other org site always shows it; the placeholder host never does.
+     * the menu and the Editable Pages preview. Every other org site always shows it; the placeholder host never does.
      */
     @Test
     public void thePlatformSiteShowsHelpOnlyWithSomethingInIt() throws Exception {
@@ -566,6 +592,174 @@ public class SitePageCommandsTest {
         assertEquals(Placement.from("SIDEBAR"), Placement.HIDDEN);
         assertEquals(Placement.from(" HELP "), Placement.HELP);
         assertEquals(new SitePage("a", "A", " ", "ABOUT").url(), null, "a blank URL makes it a page");
+    }
+
+    /**
+     * The view gate: each access level admits exactly its readers, the page host hands everyone else the refusal
+     * (or the 404 for a name it does not serve), and the menu lists a page only for a reader who may open it.
+     */
+    @Test
+    public void aPagesAccessDecidesWhoSeesItAndWhatTheMenuLists() throws Exception {
+        final Person orgAdmin = savedPerson();
+        final Person member = savedPerson();
+        final Organization org = hostedOrgWithAdmin(orgAdmin);
+        final String orgId = org.getId().getValue();
+        final SitePageCommands admin = commandsFor(orgAdmin);
+        assertTrue(admin.addPage(orgId, "Open", Map.of(), "open", "ABOUT", null));
+        assertTrue(admin.addPage(orgId, "Members", Map.of(), "members", "ABOUT", "SIGNED_IN"));
+        assertTrue(admin.addPage(orgId, "Admins", Map.of(), "admins", "ABOUT", "ORG_ADMINS"));
+        assertTrue(siteAdmin().addPage(orgId, "Metrics", Map.of(), "metrics", "ABOUT", "SITE_ADMINS"));
+        final SiteContext site = SiteContext.org(org.getId(), org.getSlug(), org.getSlug() + ".unitetrip.com");
+
+        final SitePageCommands visitor = new SitePageCommands(() -> Caller.of(null));
+        final SitePageCommands reader = commandsFor(member);
+        assertEquals(names(onSite(site, visitor::getAboutEntries)), List.of("open"));
+        assertEquals(names(onSite(site, reader::getAboutEntries)), List.of("open", "members"));
+        assertEquals(names(onSite(site, admin::getAboutEntries)), List.of("open", "members", "admins"));
+        assertEquals(names(onSite(site, siteAdmin()::getAboutEntries)), List.of("open", "members", "admins",
+                "metrics"));
+
+        assertEquals(onSite(site, () -> visitor.hostFor("open")), "/WEB-INF/contentPage.xhtml");
+        assertEquals(onSite(site, () -> visitor.hostFor("members")), "/WEB-INF/pageRefused.xhtml");
+        assertEquals(onSite(site, () -> reader.hostFor("members")), "/WEB-INF/contentPage.xhtml");
+        assertEquals(onSite(site, () -> reader.hostFor("admins")), "/WEB-INF/pageRefused.xhtml");
+        assertEquals(onSite(site, () -> admin.hostFor("admins")), "/WEB-INF/contentPage.xhtml");
+        assertEquals(onSite(site, () -> admin.hostFor("metrics")), "/WEB-INF/pageRefused.xhtml",
+                "an org admin is not a site admin");
+        assertEquals(onSite(site, () -> siteAdmin().hostFor("metrics")), "/WEB-INF/contentPage.xhtml");
+        assertEquals(onSite(site, () -> visitor.hostFor("nope")), "/WEB-INF/noSuchPage.xhtml");
+        assertFalse(visitor.canView(orgId, null), "no entry is nobody's to see");
+        assertFalse(commandsFor(savedPerson()).canView(orgId, admin.pageOf(orgId, "admins")),
+                "another org's admin is no admin here");
+    }
+
+    /**
+     * A page for site admins is theirs alone: an org admin cannot make one, does not see it in the list or the
+     * preview, and cannot change, move or delete it, so the gate cannot be lowered from under the site admins.
+     */
+    @Test
+    public void onlyASiteAdminMakesOrManagesASiteAdminsPage() throws Exception {
+        final Person orgAdmin = savedPerson();
+        final Organization org = hostedOrgWithAdmin(orgAdmin);
+        final String orgId = org.getId().getValue();
+        final SitePageCommands admin = commandsFor(orgAdmin);
+
+        assertFalse(admin.addPage(orgId, "Metrics", Map.of(), "metrics", "HIDDEN", "SITE_ADMINS"));
+        assertEquals(admin.pagesOf(orgId), List.of(), "the refused add saved nothing");
+        assertFalse(admin.accessChoices().contains("SITE_ADMINS"));
+        assertTrue(siteAdmin().accessChoices().contains("SITE_ADMINS"));
+        assertTrue(siteAdmin().addPage(orgId, "Metrics", Map.of(), "metrics", "HIDDEN", "SITE_ADMINS"));
+        assertTrue(admin.addPage(orgId, "Day 1", "day-1", "HIDDEN"));
+
+        assertEquals(names(admin.tableOf(orgId)), List.of("day-1"));
+        assertEquals(names(admin.pagesIn(orgId, "HIDDEN")), List.of("day-1"));
+        assertEquals(names(siteAdmin().tableOf(orgId)), List.of("metrics", "day-1"));
+        assertFalse(admin.updatePage(orgId, "metrics", "Open now", Map.of(), null, "HIDDEN", "EVERYONE"));
+        assertFalse(admin.movePage(orgId, "metrics", 1));
+        assertFalse(admin.deletePage(orgId, "metrics"));
+        assertFalse(admin.updatePage(orgId, "day-1", "Day 1", Map.of(), null, "HIDDEN", "SITE_ADMINS"),
+                "nor can an org admin raise a page to site admins");
+        assertEquals(siteAdmin().pageOf(orgId, "metrics").who(), SitePage.Access.SITE_ADMINS);
+        assertEquals(siteAdmin().pageOf(orgId, "day-1").who(), SitePage.Access.EVERYONE);
+
+        assertTrue(siteAdmin().saveDialog(orgId, "edit", "metrics", "Metrics", Map.of(), null, "HIDDEN",
+                "ORG_ADMINS"));
+        assertEquals(admin.pageOf(orgId, "metrics").who(), SitePage.Access.ORG_ADMINS);
+        assertTrue(admin.updatePage(orgId, "metrics", "Numbers", null, null, "HIDDEN"),
+                "a save without an access keeps the page's own");
+        assertEquals(admin.pageOf(orgId, "metrics").who(), SitePage.Access.ORG_ADMINS);
+        assertEquals(admin.accessLabel("ORG_ADMINS"), "This organization's admins");
+        assertEquals(admin.accessLabel(null), "Everyone, signed in or not");
+    }
+
+    /** Up and Down on an org admin's list pass over the site admins' page they cannot see, rather than stall on it. */
+    @Test
+    public void anOrgAdminsMovesSkipThePageTheyCannotSee() throws Exception {
+        final Person orgAdmin = savedPerson();
+        final Organization org = hostedOrgWithAdmin(orgAdmin);
+        final String orgId = org.getId().getValue();
+        final SitePageCommands admin = commandsFor(orgAdmin);
+        assertTrue(admin.addPage(orgId, "Day 1", "day-1", "HIDDEN"));
+        assertTrue(siteAdmin().addPage(orgId, "Metrics", Map.of(), "metrics", "HIDDEN", "SITE_ADMINS"));
+        assertTrue(admin.addPage(orgId, "Day 2", "day-2", "HIDDEN"));
+        assertTrue(admin.canMove(orgId, admin.pageOf(orgId, "day-1"), 1), "day 2 is its visible neighbor");
+        assertTrue(admin.movePage(orgId, "day-1", 1));
+        assertEquals(names(siteAdmin().pagesOf(orgId)), List.of("day-2", "metrics", "day-1"),
+                "the two pages he sees swapped; the one he does not stayed put");
+        assertFalse(admin.canMove(orgId, admin.pageOf(orgId, "day-1"), 1), "nothing he can see below it");
+        assertTrue(siteAdmin().canMove(orgId, siteAdmin().pageOf(orgId, "day-1"), -1));
+    }
+
+    /**
+     * The sidebar rule: a page's own Show or Hide wins over the organization's on or off, a page with no choice
+     * follows the organization, and an organization that forces it off hides it everywhere (there is no forced on).
+     */
+    @Test
+    public void aPageChoosesItsSidebarUnlessTheOrganizationForcesItOff() throws Exception {
+        final Person orgAdmin = savedPerson();
+        final Organization org = hostedOrgWithAdmin(orgAdmin);
+        final String orgId = org.getId().getValue();
+        final SitePageCommands admin = commandsFor(orgAdmin);
+        assertTrue(admin.addPage(orgId, "Plain", "plain", "HIDDEN"));
+        assertTrue(admin.saveDialog(orgId, "page", "wide", "Wide", Map.of(), null, "HIDDEN", null, "HIDE"));
+        assertTrue(admin.saveDialog(orgId, "page", "side", "Side", Map.of(), null, "HIDDEN", null, "SHOW"));
+        final SiteContext site = SiteContext.org(org.getId(), org.getSlug(), org.getSlug() + ".unitetrip.com");
+
+        assertTrue(onSite(site, () -> admin.sidebarFor("plain")), "the default is on");
+        assertFalse(onSite(site, () -> admin.sidebarFor("wide")));
+        assertTrue(onSite(site, () -> admin.sidebarFor("side")));
+        assertTrue(onSite(site, () -> admin.sidebarFor("nope")), "not an Editable Page: the template's own default");
+        assertEquals(admin.sidebarLabel(orgId, "DEFAULT"), "The organization's default, shown now");
+
+        setSidebar(orgId, KnownSettings.SIDEBAR_OFF);
+        assertFalse(onSite(site, () -> admin.sidebarFor("plain")), "off is the new default");
+        assertTrue(onSite(site, () -> admin.sidebarFor("side")), "a page's own Show still wins");
+        assertFalse(admin.sidebarForcedOff(orgId));
+        assertEquals(admin.sidebarLabel(orgId, null), "The organization's default, hidden now");
+
+        setSidebar(orgId, KnownSettings.SIDEBAR_FORCED_OFF);
+        assertFalse(onSite(site, () -> admin.sidebarFor("side")), "forced off overrides a page's Show");
+        assertTrue(admin.sidebarForcedOff(orgId));
+
+        assertTrue(admin.updatePage(orgId, "side", "Side", null, null, "HIDDEN"), "a save without a choice");
+        assertEquals(admin.pageOf(orgId, "side").side(), SitePage.Sidebar.SHOW, "keeps the page's own");
+        assertTrue(admin.saveDialog(orgId, "edit", "side", "Side", Map.of(), null, "HIDDEN", null, "DEFAULT"));
+        assertNull(admin.pageOf(orgId, "side").sidebar(), "the default is stored as nothing, as before the choice");
+        assertEquals(admin.sidebarChoices(), List.of("DEFAULT", "SHOW", "HIDE"));
+        assertEquals(admin.sidebarLabel(orgId, "HIDE"), "Hide the sidebar");
+        assertEquals(admin.sidebarLabel(orgId, "SHOW"), "Show the sidebar");
+        assertEquals(SitePage.Sidebar.from("SIDEWAYS"), SitePage.Sidebar.DEFAULT, "unknown follows the default");
+        assertEquals(admin.pageOf(orgId, "wide").withTitles(Map.of()).side(), SitePage.Sidebar.HIDE,
+                "every copy keeps the choice");
+    }
+
+    private static void setSidebar(final String orgId, final String rule) {
+        assertTrue(new OrgCommands(TestCallers::siteAdminHoldingNothing).saveOrgSettings(orgId,
+                Map.of(KnownSettings.SITE_PAGES_SIDEBAR.getName(), rule)));
+    }
+
+    @Test
+    public void theRefusalSendsAVisitorToSignInAndAReaderHome() {
+        assertTrue(new SitePageCommands(() -> Caller.of(null)).refusedUrl().startsWith("/account/login.jsf?to="));
+        assertTrue(commandsFor(savedPerson()).refusedUrl().startsWith("/?error="));
+    }
+
+    @Test
+    public void accessReadsBlankAsEveryoneAndUnknownAsSiteAdmins() throws Exception {
+        assertEquals(SitePage.Access.from(null), SitePage.Access.EVERYONE);
+        assertEquals(SitePage.Access.from(" "), SitePage.Access.EVERYONE);
+        assertEquals(SitePage.Access.from(" ORG_ADMINS "), SitePage.Access.ORG_ADMINS);
+        assertEquals(SitePage.Access.from("STAFF"), SitePage.Access.SITE_ADMINS, "an unknown gate fails closed");
+        final SitePage open = new SitePage("a", "A", null, "ABOUT", Map.of(), "EVERYONE");
+        assertNull(open.access(), "an open page stores no access, exactly as before the gate");
+        final ObjectMapper json = new ObjectMapper();
+        assertFalse(json.writeValueAsString(open).contains("access"));
+        final SitePage gated = open.withAccess(SitePage.Access.SIGNED_IN);
+        assertEquals(json.readValue(json.writeValueAsString(gated), SitePage.class), gated);
+        assertEquals(json.readValue("{\"name\":\"a\",\"title\":\"A\",\"placement\":\"ABOUT\"}",
+                SitePage.class).who(), SitePage.Access.EVERYONE, "an older row reads as open");
+        assertEquals(gated.withDetails("B", null, Placement.HELP).who(), SitePage.Access.SIGNED_IN);
+        assertEquals(gated.withTitles(Map.of("es", "B")).who(), SitePage.Access.SIGNED_IN);
     }
 
     // ------------------------------------------------------------------ helpers

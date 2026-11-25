@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
+import org.paulsens.trip.metrics.PoolMetricPublisher;
 import org.paulsens.trip.util.Env;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
@@ -39,9 +40,11 @@ class DynamoPersistence implements Persistence {
     /**
      * The connection pool is the DynamoDB admission bound -- the explicit replacement for the implicit cap
      * the old 100-platform-thread Tomcat pool provided. Acquisition beyond the pool queues briefly
-     * (better slow...) and then fails fast (...but not a pile-up).
+     * (better slow...) and then fails fast (...but not a pile-up). 200 since 2026-11-24 (owner): connections open
+     * only on demand and close after 60 s idle, so the higher cap costs nothing in steady state and gives
+     * headroom for cold-cache bursts (startup, a cache clear) as tables and traffic grow.
      */
-    private static final int MAX_CONNECTIONS = 100;
+    private static final int MAX_CONNECTIONS = 200;
     private static final Duration ACQUISITION_TIMEOUT = Duration.ofSeconds(10);
     private static final Duration ATTEMPT_TIMEOUT = Duration.ofSeconds(10);
     private static final Duration CALL_TIMEOUT = Duration.ofSeconds(30);
@@ -69,8 +72,10 @@ class DynamoPersistence implements Persistence {
                 .httpClientBuilder(ApacheHttpClient.builder()
                         .maxConnections(MAX_CONNECTIONS)
                         .connectionAcquisitionTimeout(ACQUISITION_TIMEOUT))
-                // Explicit timeouts rather than inherited defaults; a hung call must release its thread.
-                .overrideConfiguration(o -> o.apiCallAttemptTimeout(ATTEMPT_TIMEOUT).apiCallTimeout(CALL_TIMEOUT));
+                // Explicit timeouts rather than inherited defaults; a hung call must release its thread. The
+                // publisher keeps the pool's per-minute peaks for the metrics (in memory only, no CloudWatch).
+                .overrideConfiguration(o -> o.apiCallAttemptTimeout(ATTEMPT_TIMEOUT).apiCallTimeout(CALL_TIMEOUT)
+                        .addMetricPublisher(PoolMetricPublisher.INSTANCE));
         if (endpoint != null) {
             builder.endpointOverride(endpoint);
         }

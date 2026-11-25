@@ -181,6 +181,13 @@ foreground and a background reload's fan-out stays background. Queue overflow an
 degrade to miss/false; DynamoDB absorbs it (fail-open is the contract — a cache problem may never fail a
 request).
 
+## Outside the data namespace
+
+Not everything in Valkey is a cache of DynamoDB: `chat:v1:`, `push:v1:`, `auth:v1:`, `pub:v1:` and the app's own
+metrics (`metrics:v1:`, `docs/metrics.md`) live outside `t1:` on purpose, so `DAO.clearAllCaches()` (which clears
+`t1:` only) never touches them. The metrics are the store of record for their week of numbers, written once a
+minute on the background lane; a cache clear is one of the moments they exist to show.
+
 ## Invalidating from a script
 
 Source `trip/scripts/lib/cache-invalidate.sh` and call `trip_invalidate_cache <scope>` after a live run.

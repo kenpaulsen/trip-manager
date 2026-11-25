@@ -36,10 +36,10 @@ import org.paulsens.trip.util.Util;
  *
  * <ul>
  *   <li>On an ORGANIZATION's host (and on any host that is not a shared one) every address under a hand-written
- *       prefix answers exactly like {@code /board} does there: a redirect to that org's Site Page of the mapped
+ *       prefix answers exactly like {@code /board} does there: a redirect to that org's Editable Page of the mapped
  *       name when it has one, else 404. Without this, {@code acme.unitetrip.com/dm} rendered the shared site's
  *       novena in Acme's look.</li>
- *   <li>On a SHARED host an address in the link-out list redirects to the Site Page of its name on the site of the
+ *   <li>On a SHARED host an address in the link-out list redirects to the Editable Page of its name on the site of the
  *       organization the data names (its custom domain, else its subdomain), so the shared site no longer keeps a
  *       second copy of that organization's pages. While that organization holds no such page, the hand-written
  *       page keeps rendering: a link out never lands on a 404.</li>
@@ -63,7 +63,7 @@ public final class LegacyPages {
      * The answer for one request.
      *
      * @param kind     what to do
-     * @param location the redirect target (site-relative for this host's own Site Page, absolute for a link out);
+     * @param location the redirect target (site-relative for this host's own Editable Page, absolute for a link out);
      *                 null unless {@link Kind#REDIRECT}
      */
     public record Decision(Kind kind, String location) {
@@ -78,7 +78,6 @@ public final class LegacyPages {
     /** No hand-written pages at all: what a deployment without the data file gets (every request passes). */
     public static final LegacyPages NONE = new LegacyPages(List.of(), Map.of(), Map.of(), null, null);
 
-    /** A Site Page's name ({@link SitePage}): the data may only map an address to a name a Site Page can have. */
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final String[] PAGE_SUFFIXES = {".jsf", ".xhtml", ".faces"};
     private static final String FACES_PREFIX = "/faces";
@@ -167,9 +166,9 @@ public final class LegacyPages {
     /**
      * What a request for the {@link #canonical} address {@code path} gets on {@code site}.
      *
-     * @param siteHasPage whether THIS host's organization has a Site Page (not a link) of a name; asked only on a
+     * @param siteHasPage whether THIS host's organization has an Editable Page (not a link) of a name; asked only on a
      *                    host that is not a shared one
-     * @param linkOutUrl  the absolute address of a name's Site Page on the link-out organization's site, or null
+     * @param linkOutUrl  the absolute address of a name's Editable Page on the link-out organization's site, or null
      *                    when there is none to send a visitor to; asked only on a shared host
      */
     public Decision decide(final String path, final SiteContext site, final Predicate<String> siteHasPage,
@@ -191,7 +190,7 @@ public final class LegacyPages {
     }
 
     /**
-     * The menu's link for the shared site's entry {@code rawPath} ({@code /dm}): the link-out organization's Site
+     * The menu's link for the shared site's entry {@code rawPath} ({@code /dm}): the link-out organization's Editable
      * Page when the address links out on this host, else {@code rawPath} itself, unchanged.
      */
     public String href(final String rawPath, final SiteContext site, final HttpServletRequest request) {
@@ -208,7 +207,7 @@ public final class LegacyPages {
     }
 
     /**
-     * The link-out resolver for a request: a name's Site Page on the site of the organization holding the
+     * The link-out resolver for a request: a name's Editable Page on the site of the organization holding the
      * link-out slug, addressed as the admin pages address that site ({@link SiteCommands#orgSiteRoot}: its custom
      * domain, else its subdomain, {@code {slug}.localhost} from a localhost request). Null for a name that
      * organization has no page of, and for every name when no organization holds the slug. Lazy: the filter
@@ -246,7 +245,7 @@ public final class LegacyPages {
         return local ? localLinkOutSlug : linkOutSlug;
     }
 
-    /** Whether {@code org} has a Site Page (not a link) called {@code name}; false for no org. */
+    /** Whether {@code org} has an Editable Page (not a link) called {@code name}; false for no org. */
     static boolean holdsPage(final Organization org, final String name) {
         return org != null && org.getSitePages() != null
                 && org.getSitePages().stream().anyMatch(page -> !page.isLink() && page.name().equals(name));
@@ -279,9 +278,13 @@ public final class LegacyPages {
         return raw;
     }
 
+    /**
+     * An Editable Page's name ({@link SitePage}): the data may only map an address to a name an Editable Page can
+     * have.
+     */
     private static String pageName(final String raw) {
         if (raw == null || !OrgPageBootstrap.isPageName(raw)) {
-            throw new IllegalArgumentException("legacy pages: '" + raw + "' is not a Site Page name");
+            throw new IllegalArgumentException("legacy pages: '" + raw + "' is not an Editable Page name");
         }
         return raw;
     }
@@ -290,7 +293,7 @@ public final class LegacyPages {
         final String name = sitePages.get(path);
         if (name == null) {
             throw new IllegalArgumentException("legacy pages: link-out address '" + path
-                    + "' has no Site Page name in sitePages");
+                    + "' has no Editable Page name in sitePages");
         }
         return name;
     }

@@ -22,8 +22,8 @@ import org.testng.annotations.Test;
 
 /**
  * The hand-written page rule ({@link LegacyPages}): on an organization's host a hand-written page is that org's
- * Site Page of the same name or a 404, never the shared text in the org's look; on a shared host a link-out page
- * redirects to the link-out organization's Site Page; everything else passes.
+ * Editable Page of the same name or a 404, never the shared text in the org's look; on a shared host a link-out page
+ * redirects to the link-out organization's Editable Page; everything else passes.
  */
 public class LegacyPagesTest {
 
@@ -96,7 +96,7 @@ public class LegacyPagesTest {
         final LegacyPages pages = data();
         Assert.assertEquals(pages.decide("/dm", ACME, HAS_NONE, CFPW).kind(), LegacyPages.Kind.NOT_FOUND);
         Assert.assertEquals(pages.decide("/medjugorje/trips/may2022", ACME, HAS_ALL, CFPW).kind(),
-                LegacyPages.Kind.NOT_FOUND, "a hand-written page with no Site Page name is never the shared text");
+                LegacyPages.Kind.NOT_FOUND, "a hand-written page with no Editable Page name is never the shared text");
         Assert.assertEquals(pages.decide("/medjugorje", ACME, HAS_ALL, CFPW).kind(), LegacyPages.Kind.NOT_FOUND,
                 "the prefix itself");
     }

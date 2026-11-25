@@ -44,8 +44,8 @@ import org.paulsens.trip.util.Html;
  * on write) exactly once per org -- the org row records when -- so an org that later empties its page is
  * never re-seeded behind its back.
  *
- * <p>Every other page of an org site is a Site Page ({@link SitePage}, served by {@code page.xhtml}). A new site
- * also starts with the {@link #starterPages() starter Site Pages} (About Us, Board of Directors), seeded once by
+ * <p>Every other page of an org site is an Editable Page ({@link SitePage}, served by {@code page.xhtml}). A new site
+ * also starts with the {@link #starterPages() starter Editable Pages} (About Us, Board of Directors), seeded once by
  * {@code SitePageCommands.ensureStarterPages}. Their definition is the resource {@value #STARTER_PAGES_RESOURCE},
  * which the private repo's backfill script for sites that predate them reads too, so the two cannot drift.
  */
@@ -63,8 +63,8 @@ public final class OrgPageBootstrap {
 
     /**
      * The name of an organization's "How to pay" page ({@code page:org:{uuid}:pay}, docs/org-admin.md, "The pay
-     * page"). Not a Site Page: {@code trip/pay.xhtml} serves it on any host that reaches the organization, so the
-     * name is reserved ({@link #isReservedPageName}) and no Site Page can take its content key.
+     * page"). Not an Editable Page: {@code trip/pay.xhtml} serves it on any host that reaches the organization, so the
+     * name is reserved ({@link #isReservedPageName}) and no Editable Page can take its content key.
      */
     public static final String PAY_PAGE = "pay";
 
@@ -117,7 +117,7 @@ public final class OrgPageBootstrap {
     }
 
     /**
-     * Whether {@code name} is a page name the app keeps for itself, which a Site Page may therefore not take: the
+     * Whether {@code name} is a page name the app keeps for itself, which an Editable Page may therefore not take: the
      * home page's and the pay page's. Both are well-formed names ({@link #isPageName}); they are just not free.
      */
     public static boolean isReservedPageName(final String name) {
@@ -157,8 +157,8 @@ public final class OrgPageBootstrap {
         final String name = requirePageName(pageName);
         // The marketing HOME page first: the platform organization's site is an org site too, but its home page
         // is the script-seeded marketing page, keyed independently of whichever org row holds the slug. Its other
-        // pages are its Site Pages (Pricing, Why UniteTrip), keyed like every org's, which is where the Site Pages
-        // admin page seeds and deletes them.
+        // pages are its Editable Pages (Pricing, Why UniteTrip), keyed like every org's, which is where the Editable
+        // Pages admin page seeds and deletes them.
         if (site.isMarketing() && HOME_PAGE.equals(name)) {
             return MARKETING_PAGE_KEY;
         }
@@ -208,7 +208,7 @@ public final class OrgPageBootstrap {
     /**
      * Whether {@code pageKey} is the marketing home page, or a named page of the PLACEHOLDER marketing host
      * ({@code page:unitetrip:{name}}). The product site's own named pages (Pricing, Why UniteTrip) are the platform
-     * org's Site Pages, {@code page:org:{uuid}:{name}} keys, and answer false here: use {@link #orgOf} for them.
+     * org's Editable Pages, {@code page:org:{uuid}:{name}} keys, and answer false here: use {@link #orgOf} for them.
      */
     public static boolean isMarketingPageKey(final String versionOrPageKey) {
         final String pageKey = PageVersions.baseOf(versionOrPageKey);
@@ -305,23 +305,27 @@ public final class OrgPageBootstrap {
                 + email + "\">" + email + "</a>." + tail;
     }
 
-    /** The classpath resource holding the starter Site Pages: one JSON list of {@link StarterPage}. */
+    /** The classpath resource holding the starter Editable Pages: one JSON list of {@link StarterPage}. */
     public static final String STARTER_PAGES_RESOURCE = "/content/starter-site-pages.json";
 
     /**
-     * One starter Site Page: its menu entry ({@code name} is its address and content key, {@code placement} a
+     * One starter Editable Page: its menu entry ({@code name} is its address and content key, {@code placement} a
      * {@link SitePage.Placement} name) and the rows its content starts with. {@code title} is English and
      * {@code titles} the menu title in other languages (tag to title, or null). Only the title is translated: the
      * content is seeded in English alone, since a seeded language version would keep outranking the English page
      * for its readers after the organization rewrote that page ({@code PageVersions.resolve} serves any version
-     * with rows).
+     * with rows). {@code access} is who may see the page, a {@link SitePage.Access} name; absent means everyone.
+     * {@code everySite} puts the page on the platform org's site too, which otherwise takes no starters (its pages
+     * are the product's marketing pages): the metrics dashboard is about the servers, not about an audience.
+     * {@code sidebar} is the page's own sidebar choice, a {@link SitePage.Sidebar} name; absent follows the
+     * organization's default.
      */
     public record StarterPage(String name, String title, String placement, Map<String, String> titles,
-            List<StarterRow> rows) {
+            List<StarterRow> rows, String access, boolean everySite, String sidebar) {
 
         /**
          * The page's menu entry on a site whose default language is {@code siteDefault}. A {@link SitePage}'s
-         * {@code title} is in the site's DEFAULT language and its {@code titles} in the others (the Site Pages
+         * {@code title} is in the site's DEFAULT language and its {@code titles} in the others (the Editable Pages
          * dialog edits only those, and a save keeps only those), so on a Spanish-first site the Spanish title is
          * the entry's own and English joins the other languages. A default with no starter title keeps English. (The
          * marketing site's seed passes English.)
@@ -334,7 +338,7 @@ public final class OrgPageBootstrap {
             }
             final String own = all.containsKey(siteDefault.getTag()) ? siteDefault.getTag() : Language.English.getTag();
             final String ownTitle = all.remove(own);
-            return new SitePage(name, ownTitle, null, placement, all);
+            return new SitePage(name, ownTitle, null, placement, all, access, sidebar);
         }
     }
 
@@ -348,7 +352,7 @@ public final class OrgPageBootstrap {
             List<String> allowedChildTemplateIds, List<StarterRow> children) {
     }
 
-    /** The starter Site Pages, in menu order, read from {@link #STARTER_PAGES_RESOURCE} once. */
+    /** The starter Editable Pages, in menu order, read from {@link #STARTER_PAGES_RESOURCE} once. */
     public static List<StarterPage> starterPages() {
         return StarterPagesHolder.PAGES;
     }
@@ -363,7 +367,7 @@ public final class OrgPageBootstrap {
     }
 
     /**
-     * A classpath resource of page definitions (one JSON list of {@link StarterPage}): the starter Site Pages, and
+     * A classpath resource of page definitions (one JSON list of {@link StarterPage}): the starter Editable Pages, and
      * the platform org's own pages ({@code MarketingPageBootstrap.sitePages()}). The private repo's seeding scripts
      * read the same files, so the app and the scripts cannot drift.
      */
@@ -397,14 +401,30 @@ public final class OrgPageBootstrap {
             final StarterRow spec = specs.get(position);
             final String id = starterRowId(orgId, page, spec.slot());
             into.add(new ContentInstance(id, section, spec.title(), spec.templateId(),
-                    templateVersion.applyAsInt(spec.templateId()),
-                    spec.values() == null ? new HashMap<>() : new HashMap<>(spec.values()), null, position, 0, null,
+                    templateVersion.applyAsInt(spec.templateId()), valuesFor(orgId, spec), null, position, 0, null,
                     SEED_AUTHOR, null, spec.allowedChildTemplateIds()));
             if (spec.children() != null) {
                 addRows(into, orgId, page, id, spec.children(), templateVersion);
             }
         }
     }
+
+    /**
+     * A starter row's values with {@value #ORG_ID_TOKEN} written as the organization's id, so a starter can link to
+     * the organization's own admin pages (the metrics dashboard's way back to the hub). The backfill script does
+     * the same.
+     */
+    static Map<String, String> valuesFor(final Organization.Id orgId, final StarterRow spec) {
+        final Map<String, String> values = new HashMap<>();
+        if (spec.values() != null) {
+            spec.values().forEach((name, value) -> values.put(name, value == null ? null
+                    : value.replace(ORG_ID_TOKEN, orgId.getValue())));
+        }
+        return values;
+    }
+
+    /** What a starter row writes where it means the organization's id. */
+    public static final String ORG_ID_TOKEN = "{orgId}";
 
     /**
      * A starter row's fixed id: {@code UUID.nameUUIDFromBytes("site-page:{orgId}:{page}:{slot}")}, which the

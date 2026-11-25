@@ -31,7 +31,7 @@ import org.paulsens.trip.model.Trip;
  * with any difference is not changed until the owner has seen that difference and approved it.
  *
  * <p>A UNIT is what a person would look at to judge a difference: one trip (its description, every section on its
- * page, its to-do details), or one page that belongs to no trip (an organization's home page, a site page). A
+ * page, its to-do details), or one page that belongs to no trip (an organization's home page, an Editable Page). A
  * section inside a container belongs to whatever its outermost container belongs to.
  *
  * <p>Each value gets one of three verdicts. IDENTICAL: cleaning returns the stored text. EQUIVALENT: the text

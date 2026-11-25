@@ -239,7 +239,7 @@ public class PersonDAO {
      * one round trip per row (measured 2026-11-24 on a local 3-shard cluster, 180 ids: 9.0 ms one at a time, 0.9
      * ms concurrent). An MGET was measured too and is no faster: the cluster client splits it into one command per
      * hash slot anyway. Only the misses that fall through to DynamoDB are bounded ({@link #RESOLVE_LOADS}), since
-     * its client pools 100 connections and an unbounded fan-out there fails as nulls.
+     * its client pools 200 connections and an unbounded fan-out there fails as nulls.
      */
     private List<Person> resolvePeople(final List<String> ids) {
         final Semaphore loads = new Semaphore(RESOLVE_LOADS);

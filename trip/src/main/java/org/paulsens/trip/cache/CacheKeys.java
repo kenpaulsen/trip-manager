@@ -551,6 +551,24 @@ public final class CacheKeys {
     public static final String CACHE_INVAL_CHANNEL = "sys:v1:cache_inval";
 
     /**
+     * The app's own 7-day metrics ({@code docs/metrics.md}). Outside {@link #FORMAT_VERSION} on purpose: metrics
+     * must survive {@code DAO.clearAllCaches()}, since the minutes right after a cache clear are among the ones
+     * they exist to show. No braces in these keys: a {@code {...}} is a cluster hash tag.
+     */
+    public static final String METRICS_PREFIX = "metrics:v1:";
+
+    /**
+     * The servers (ECS tasks) that have written metrics: a sorted set of task ids scored by their last write
+     * (epoch seconds), so a reader lists the ones seen in the range it shows.
+     */
+    public static final String METRICS_TASKS = METRICS_PREFIX + "tasks";
+
+    /** One server's minutes of one metric: a hash, field = minute of the week, value = that minute's record. */
+    public static String metricKey(final String metric, final String taskId) {
+        return METRICS_PREFIX + metric + ":" + taskId;
+    }
+
+    /**
      * Idle hygiene TTL applied after full loads (and refreshed on write-through activity). Bounds abandoned key
      * growth and GB-hours; not used as the primary delete-heal mechanism (that is soft revalidate + reconcile).
      */

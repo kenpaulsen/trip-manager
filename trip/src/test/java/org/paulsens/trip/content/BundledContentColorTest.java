@@ -16,7 +16,7 @@ import org.testng.annotations.Test;
 
 /**
  * The content this build SEEDS into an organization's site carries no literal color (issue #26). The starter
- * Site Pages, the product site's pages and the starter templates become database rows that render inside the
+ * Editable Pages, the product site's pages and the starter templates become database rows that render inside the
  * themed chrome, where a fixed color ignores the organization's palette and dark mode; once seeded, no file
  * check sees them again. So they are held clean here, at their source, the way the medjugorje
  * {@code ColorLiteralPolicyIT} holds the pages. A seed that needs a color writes a theme variable

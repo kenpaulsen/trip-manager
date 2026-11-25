@@ -95,6 +95,14 @@ public interface ProgrammaticContentTemplate {
         return true;
     }
 
+    /**
+     * Whether the Add dialog offers this type to an editor who is ({@code siteAdmin}) or is not a site admin. True
+     * for every type but one whose content only a site admin can read (the metrics graph, docs/metrics.md).
+     */
+    default boolean offeredTo(final boolean siteAdmin) {
+        return true;
+    }
+
     /** One dropdown option. Render-time only -- never parked in viewScope. */
     record Choice(String value, String label) {
     }

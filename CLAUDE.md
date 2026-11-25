@@ -150,4 +150,5 @@ caveat, is `.claude/rules/dependencies.md` (it loads with any `pom.xml`).
 | `moderation.md`, `shared-itineraries.md`, `trip-delete.md` | those features |
 | `trip-pictures.md` | a trip's pictures, destination, country and tags; `TripPictureCommands` |
 | `i18n.md` (required) | any user-visible text; `model/Language`, `i18n/`, the `site.languages` setting; a new language |
+| `metrics.md` | the app's own 7-day metrics: `metrics/`, `MetricsCommands`, `MetricGraphType`, the `metrics:v1:` keys, the dashboard page |
 | `album-picker.md` | "Choose from Albums" anywhere; `AlbumPhotoSource`, `AlbumChooser`, `AlbumLibrary`; a chat attachment that only REFERENCES a photo (`ChatAttachment.ref`) |

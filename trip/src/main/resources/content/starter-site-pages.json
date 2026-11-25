@@ -13,7 +13,7 @@
         "title": "About Us",
         "templateId": "text-only",
         "values": {
-          "body": "<h2>About Us</h2><p>Tell visitors who you are: what your organization does, who it serves and how to reach you. This is a starter page. Open its edit mode to replace this text, or delete the page on the Site Pages admin page if you do not need it.</p>"
+          "body": "<h2>About Us</h2><p>Tell visitors who you are: what your organization does, who it serves and how to reach you. This is a starter page. Open its edit mode to replace this text, or delete the page on the Editable Pages admin page if you do not need it.</p>"
         }
       }
     ]
@@ -32,7 +32,7 @@
         "title": "Heading",
         "templateId": "text-only",
         "values": {
-          "body": "<h2>Board of Directors</h2><p>Introduce the people who lead your organization. This is a starter page. Open its edit mode and add each director to the list below, or delete the page on the Site Pages admin page if you do not need it.</p>"
+          "body": "<h2>Board of Directors</h2><p>Introduce the people who lead your organization. This is a starter page. Open its edit mode and add each director to the list below, or delete the page on the Editable Pages admin page if you do not need it.</p>"
         }
       },
       {
@@ -40,7 +40,171 @@
         "title": "",
         "templateId": "people-list",
         "values": {},
-        "allowedChildTemplateIds": ["person"]
+        "allowedChildTemplateIds": [
+          "person"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "metrics",
+    "title": "Metrics",
+    "titles": {
+      "es": "Métricas",
+      "hr": "Metrike"
+    },
+    "placement": "HIDDEN",
+    "access": "SITE_ADMINS",
+    "everySite": true,
+    "sidebar": "HIDE",
+    "rows": [
+      {
+        "slot": "intro",
+        "title": "Metrics",
+        "templateId": "text-only",
+        "values": {
+          "body": "<h2>Metrics</h2><p>How this site's servers behaved over the last week, minute by minute: choose a tile to see it in full below. Only site admins see this page. Open its edit mode to add, remove, resize or change a graph. <a href=\"/admin/orgSettings.jsf?orgId={orgId}\">Back to the organization</a></p>"
+        }
+      },
+      {
+        "slot": "graphs",
+        "title": "",
+        "templateId": "graph-grid",
+        "values": {},
+        "allowedChildTemplateIds": [
+          "metric-graph"
+        ],
+        "children": [
+          {
+            "slot": "pool",
+            "title": "DynamoDB connections in use",
+            "templateId": "metric-graph",
+            "values": {
+              "metric": "ddb.pool:max",
+              "width": "1",
+              "height": "1",
+              "headline": "yes",
+              "controls": "none",
+              "showsIn": "focus",
+              "style": "area",
+              "warnAt": "160"
+            }
+          },
+          {
+            "slot": "pending",
+            "title": "Calls waiting for a DynamoDB connection",
+            "templateId": "metric-graph",
+            "values": {
+              "metric": "ddb.pool:pending",
+              "width": "1",
+              "height": "1",
+              "headline": "yes",
+              "controls": "none",
+              "showsIn": "focus",
+              "style": "line"
+            }
+          },
+          {
+            "slot": "requests",
+            "title": "Requests",
+            "templateId": "metric-graph",
+            "values": {
+              "metric": "http.requests:count",
+              "width": "1",
+              "height": "1",
+              "headline": "yes",
+              "controls": "none",
+              "showsIn": "focus",
+              "style": "bars"
+            }
+          },
+          {
+            "slot": "errors",
+            "title": "Server errors",
+            "templateId": "metric-graph",
+            "values": {
+              "metric": "http.requests:errors",
+              "width": "1",
+              "height": "1",
+              "headline": "yes",
+              "controls": "none",
+              "showsIn": "focus",
+              "style": "bars"
+            }
+          },
+          {
+            "slot": "slowest",
+            "title": "Slowest request",
+            "templateId": "metric-graph",
+            "values": {
+              "metric": "http.requests:maxMs",
+              "width": "1",
+              "height": "1",
+              "headline": "yes",
+              "controls": "none",
+              "showsIn": "focus",
+              "style": "line"
+            }
+          },
+          {
+            "slot": "active",
+            "title": "Requests in flight, peak",
+            "templateId": "metric-graph",
+            "values": {
+              "metric": "http.requests:active",
+              "width": "1",
+              "height": "1",
+              "headline": "yes",
+              "controls": "none",
+              "showsIn": "focus",
+              "style": "line"
+            }
+          },
+          {
+            "slot": "heap",
+            "title": "Heap used",
+            "templateId": "metric-graph",
+            "values": {
+              "metric": "jvm.heap:used",
+              "width": "1",
+              "height": "1",
+              "headline": "yes",
+              "controls": "none",
+              "showsIn": "focus",
+              "style": "area"
+            }
+          },
+          {
+            "slot": "gc",
+            "title": "Garbage collection pause time",
+            "templateId": "metric-graph",
+            "values": {
+              "metric": "jvm.gc:pauseMs",
+              "width": "1",
+              "height": "1",
+              "headline": "yes",
+              "controls": "none",
+              "showsIn": "focus",
+              "style": "bars"
+            }
+          },
+          {
+            "slot": "focus",
+            "title": "DynamoDB connections in use",
+            "templateId": "metric-graph",
+            "values": {
+              "metric": "ddb.pool:max",
+              "width": "4",
+              "height": "3",
+              "graphName": "focus",
+              "controls": "all",
+              "headline": "no",
+              "warnAt": "160",
+              "showLimit": "yes",
+              "style": "line"
+            }
+          }
+        ]
       }
     ]
   }

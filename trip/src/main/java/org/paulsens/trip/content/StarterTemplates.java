@@ -28,6 +28,10 @@ public final class StarterTemplates {
     /** A conference's public schedule and its registration block (docs/conference.md). */
     public static final String TRIP_SCHEDULE_ID = "trip-schedule";
     public static final String TRIP_REGISTRATION_ID = "trip-registration";
+    /** One graph of the app's own metrics (docs/metrics.md); the metrics dashboard is built from these. */
+    public static final String METRIC_GRAPH_ID = MetricGraphType.TYPE_ID;
+    /** The grid metric graphs compose on: four columns, each graph spanning its own width and height. */
+    public static final String GRAPH_GRID_ID = "graph-grid";
 
     public static final String REGISTRATION_RECEIVED_ID = "registration-received";
     public static final String REGISTRATION_APPROVED_ID = "registration-approved";
@@ -76,7 +80,7 @@ public final class StarterTemplates {
             BAND_HERO_ID, BAND_SPLIT_ID, BAND_CTA_ID, BAND_TESTIMONIAL_ID, BAND_TEXT_ID,
             FEATURE_CARD_ID, STAT_ITEM_ID,
             BAND_FEATURES_ID, BAND_STATS_ID, BAND_FAQ_ID, BAND_LOGOS_ID,
-            TRIP_SCHEDULE_ID, TRIP_REGISTRATION_ID,
+            TRIP_SCHEDULE_ID, TRIP_REGISTRATION_ID, METRIC_GRAPH_ID, GRAPH_GRID_ID,
             ReminderDefaults.BALANCE_DUE_ID, ReminderDefaults.WAIVER_ID, ReminderDefaults.PASSPORT_ID,
             ReminderDefaults.COUNTDOWN_ID));
 
@@ -96,7 +100,8 @@ public final class StarterTemplates {
                 childOnly(featureCard(), "features", "cards"), childOnly(statItem(), "stats", "numbers"),
                 band(bandFeatures(), "features", "cards", "group"), band(bandStats(), "stats", "numbers", "group"),
                 band(bandFaq(), "faq", "questions", "group"), band(bandLogos(), "logos", "partners", "group"),
-                tagged(tripSchedule(), "events"), tagged(tripRegistration(), "events")));
+                tagged(tripSchedule(), "events"), tagged(tripRegistration(), "events"),
+                tagged(metricGraph(), "metrics", "graph", "chart"), tagged(graphGrid(), "metrics", "graph", "group")));
         // The trip reminders' starting texts (docs/reminders.md): MAIL kind, so an org rewords its own copy.
         for (final ReminderDefaults.Text text : ReminderDefaults.TEXTS) {
             all.add(mail(text.id(), text.subject(), text.description(), text.body()));
@@ -637,6 +642,30 @@ public final class StarterTemplates {
     private static ContentTemplate tripRegistration() {
         return programmatic(TRIP_REGISTRATION_ID, "Registration",
                 "Registration status, places left, prices, a countdown and the Register button, from the event.");
+    }
+
+    private static ContentTemplate metricGraph() {
+        return programmatic(METRIC_GRAPH_ID, "Metric graph",
+                "One of the app's own per-minute numbers over the last hours or days, for site admins only.");
+    }
+
+    /**
+     * Metric graphs on a four-column grid (the dashboard): each child is a grid cell, and the cell spans the
+     * columns and rows its graph's Width and Height ask for (site.css, {@code .metricGrid}, read through
+     * {@code :has()} because a row cannot read a child's values). Narrow screens fall back to two columns, then one.
+     */
+    private static ContentTemplate graphGrid() {
+        final String body = """
+                <div class="metricGrid">
+                {{children:start}}
+                    <div class="metricCell">{{child}}</div>
+                {{children:end}}
+                </div>
+                """;
+        return new ContentTemplate(GRAPH_GRID_ID, 0, "Graph grid",
+                "Metric graphs on a four-column grid, each as wide and as tall as its own settings say. Add only "
+                        + "Metric graph items to it.",
+                body, List.of(), null, null, TemplateKind.CONTAINER, List.of(METRIC_GRAPH_ID), null, null);
     }
 
     /**

@@ -215,7 +215,7 @@ public class PayPageCommands {
             noteSeedAttempt(org.getId().getValue(), settled);
         }
         // The starter text is the page's own (unmarked) key; the reader gets the version in their language when
-        // one is written, exactly as SiteCommands.pageKey answers for a Site Page.
+        // one is written, exactly as SiteCommands.pageKey answers for an Editable Page.
         return PageVersionCommands.forThisRequest(key, null);
     }
 

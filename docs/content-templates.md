@@ -120,27 +120,27 @@ A site has more content pages than its home page. A **named page** is a lower-ca
 | marketing host (the platform org's site) | `page:unitetrip-home` | `page:org:{platform uuid}:{name}` |
 | placeholder marketing host (no platform org yet) | `page:unitetrip-home` | `page:unitetrip:{name}` |
 
-The platform org's named pages are its Site Pages (Pricing, Why UniteTrip; issue medjugorje#41), keyed like any org's so
-the Site Pages admin page seeds and deletes them where the page host reads them; only its HOME keeps the fixed marketing
-key. So every site has its OWN copy of a named page, never the shared site's. `OrgPageBootstrap.orgOf` recognizes every
-`page:org:{uuid}:{name}` key and `isMarketingPageKey` every marketing one, so an org-scoped `contentAdmin` edits all of
-its org's pages and the platform org's editor all of the marketing host's, through the unchanged `canEdit`/`mayEdit`
-rules.
+The platform org's named pages are its Editable Pages (Pricing, Why UniteTrip; issue medjugorje#41), keyed like any
+org's so the Editable Pages admin page seeds and deletes them where the page host reads them; only its HOME keeps the
+fixed marketing key. So every site has its OWN copy of a named page, never the shared site's. `OrgPageBootstrap.orgOf`
+recognizes every `page:org:{uuid}:{name}` key and `isMarketingPageKey` every marketing one, so an org-scoped
+`contentAdmin` edits all of its org's pages and the platform org's editor all of the marketing host's, through the
+unchanged `canEdit`/`mayEdit` rules.
 
-One named page of an organization is NOT a Site Page: `page:org:{uuid}:pay`, its "How to pay" page, which
+One named page of an organization is NOT an Editable Page: `page:org:{uuid}:pay`, its "How to pay" page, which
 `trip/pay.xhtml` hosts on any site that reaches the organization and `PayPageCommands.ensurePage` seeds once
 (`docs/org-admin.md`, "The pay page"). The names `home` and `pay` are reserved for that reason
 (`OrgPageBootstrap.isReservedPageName`).
 
-**Everything is a Site Page on an org site** (owner decision 2026-11-13, issue medjugorje#124). An org site's
+**Everything is an Editable Page on an org site** (owner decision 2026-11-13, issue medjugorje#124). An org site's
 named pages exist only as `Organization.sitePages` entries, served by `page.xhtml` (`/page.jsf?name={name}`)
-and managed on its Site Pages admin page (`docs/org-admin.md`, "Site Pages"). Before this, the hand-written
-`board/index.xhtml` rendered `page:org:{uuid}:board` without being in that list, so an admin adding a Site Page
+and managed on its Editable Pages admin page (`docs/org-admin.md`, "Editable Pages"). Before this, the hand-written
+`board/index.xhtml` rendered `page:org:{uuid}:board` without being in that list, so an admin adding an Editable Page
 named `board` silently took its rows over. Now `/board/index.jsf` on an org host only redirects to
-`/page.jsf?name=board` (same key, so no row moved), and every new site starts with a `board` Site Page (the
+`/page.jsf?name=board` (same key, so no row moved), and every new site starts with a `board` Editable Page (the
 starter pages, `OrgPageBootstrap.starterPages()`).
 
-**Adding a page**: on an org site, add a Site Page; never a new host file. The only hosts of
+**Adding a page**: on an org site, add an Editable Page; never a new host file. The only hosts of
 `WEB-INF/contentPage.xhtml` are `page.xhtml` and, on a SHARED host, `board/index.xhtml` (rendering
 `page:shared:board`, its production rows from `medjugorje/scripts/bootstrap-board-page.sh`, locally
 `FakeData.addFakeBoardPage`); `SitePagePolicyIT` (webtest) fails on any other. A host composes it with three
@@ -314,8 +314,12 @@ prompts the content dialog shows), `getFragmentPath()` (`/WEB-INF/ptypes/*.xhtml
 and `choicesFor(prop)` feeding `Placeholder.Type.CHOICE` dropdowns (e.g. the File type's media picker, the
 pilgrimage language menu). Registry: `ProgrammaticTypes.ALL` (KnownSettings pattern). Shipped types:
 `pilgrimages`, `photo-albums`, `file` (one media item by id — title/size/URL read LIVE from the cached
-media table; hidden or deleted media renders nothing), `person`, and the conference page's `trip-schedule` and
-`trip-registration` (`docs/conference.md`). `fitsTripPage()` (default true) keeps a type off a TRIP page's Add
+media table; hidden or deleted media renders nothing), `person`, the conference page's `trip-schedule` and
+`trip-registration` (`docs/conference.md`), and `metric-graph`, one graph of the app's own metrics, the metrics
+dashboard's building block (`docs/metrics.md`), laid out by the `graph-grid` CONTAINER (four columns; each child
+cell spans its graph's own width and height). `offeredTo(siteAdmin)` (default true) keeps a type out of the Add
+dialog for an editor it does not serve: `metric-graph` is offered to a site admin only, since only a site admin can
+read what it draws. `fitsTripPage()` (default true) keeps a type off a TRIP page's Add
 dialog: `pilgrimages` lists other trips and answers false; `photo-albums` fits, since on a conference's page it shows
 that event's own album (`conference.md`).
 
@@ -443,7 +447,7 @@ registry never changes at runtime.
   exactly on save; an on* handler is renamed to an inert data- name while editing and renamed back on save; the HTML
   view shows and edits the real markup; the editor's own clean-up on load never counts as the author's change. Four
   kinds of host: (1) trusted code, a STANDARD template body: everything is kept, scripts and handlers included, and
-  stored as written; (2) published web content (the content drawer's sections, Site Pages, trip page body and pay
+  stored as written; (2) published web content (the content drawer's sections, Editable Pages, trip page body and pay
   page, waivers (whose publish refuses, naming it, anything but a document's own elements, a handler or a script
   address, and otherwise stores the body as written), the lodging option policy, and to a lesser degree event notes):
   every tag and style the author wrote is kept, and whatever the server will not store is named before saving (the
@@ -557,7 +561,7 @@ this one.
   `fullWidth` template is **never hidden** on a classic page: it renders there by design (`.ui-card .band`), and
   hiding it would take a capability away. `templateCards(section, pageFullWidth)` sorts those last on a classic
   page so a picker can list them as one trailing group; the HOST passes its own `fullWidth` ui:param to
-  `contentSections.xhtml`, because the page is the authority (an organization's Site Pages stay classic
+  `contentSections.xhtml`, because the page is the authority (an organization's Editable Pages stay classic
   whatever `site.layout` says, so `BrandCommands.isFullWidth()` would be wrong there).
 - **The card** (`ContentCommands.TemplateCard`, never stored in a scope): `kindLabel` is "" for a section
   template, **Group** for a container, **Live** for a programmatic type ("Section" used to name both the thing
@@ -827,8 +831,8 @@ it to `mainTemplate.xhtml` as the `fullWidth` ui:param, which builds (`c:if`, bu
 `.layoutFull` holding the sections and the footer, and `template.xhtml` widens `.layout-content` with
 `layout-content-full`. Only the home page, a TRIP's page (`trip/tripDetails.xhtml`, which reads the trip
 from the request parameter because the branch is built before its initPage; `conference.md`) and, on the marketing
-host only, a Site Page (`page.xhtml` passes `site.marketingSite`: the platform org's Pricing and Why UniteTrip are
-bands; an org's Site Pages keep the classic card whatever its `site.layout` says; `MarketingSitePagesPwIT`) change;
+host only, an Editable Page (`page.xhtml` passes `site.marketingSite`: the platform org's Pricing and Why UniteTrip are
+bands; an org's Editable Pages keep the classic card whatever its `site.layout` says; `MarketingSitePagesPwIT`) change;
 every other page, and every shared host, renders the classic markup byte for byte
 (`OrgSubdomainPwIT.theClassicLayoutIsUnchanged`). In edit mode the dashed section frames wrap each band, which then
 stays inside its frame rather than reaching the window's edges.
@@ -894,9 +898,9 @@ is the datastore).
    `MarketingPageBootstrap`, same tool); run AFTER step 2, since the rows pin v1 of the band templates.
    `update-marketing-site.sh` then brings an already-installed page up to date (a row still holding copy the
    bootstrap once shipped gets the current copy as its next version; an edited row is left alone) and installs the
-   platform org's Site Pages (`MarketingPageBootstrap.sitePages()`, the resource `content/marketing-site-pages.json`).
-Everything else is edited in place: `/trip/index.jsf` → Edit page. **Organization pages need no
-script**: assigning the org's subdomain seeds its starter page (see "Organization sites" above).
+   platform org's Editable Pages (`MarketingPageBootstrap.sitePages()`, the resource
+`content/marketing-site-pages.json`). Everything else is edited in place: `/trip/index.jsf` → Edit page. **Organization
+pages need no script**: assigning the org's subdomain seeds its starter page (see "Organization sites" above).
 
 ## Retired v1 behaviors
 

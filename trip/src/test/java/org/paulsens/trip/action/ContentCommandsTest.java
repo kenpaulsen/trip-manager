@@ -1147,6 +1147,29 @@ public class ContentCommandsTest {
         return haystack.split(Pattern.quote(needle), -1).length - 1;
     }
 
+    /** The metrics graph is a site admins' type: an editor's Add dialog never offers it, at a page or in a grid. */
+    @Test
+    public void onlyASiteAdminIsOfferedTheMetricGraph() {
+        final ContentCommands editor = as(ADMIN, false);
+        final ContentCommands siteAdmin = as(ADMIN, true);
+        Assert.assertFalse(ids(editor.getTemplateChoicesFor("cc.page-metrics")).contains(
+                StarterTemplates.METRIC_GRAPH_ID), "not at a page");
+        Assert.assertTrue(ids(siteAdmin.getTemplateChoicesFor("cc.page-metrics")).contains(
+                StarterTemplates.METRIC_GRAPH_ID));
+
+        final ContentInstance grid = siteAdmin.createContent("cc.page-metrics", StarterTemplates.GRAPH_GRID_ID);
+        grid.setTitle("Graphs");
+        Assert.assertTrue(siteAdmin.saveContent(grid));
+        Assert.assertEquals(ids(editor.getTemplateChoicesFor(grid.getId())), List.of(),
+                "not in the graph grid either, whose only child type it is");
+        Assert.assertEquals(ids(siteAdmin.getTemplateChoicesFor(grid.getId())),
+                List.of(StarterTemplates.METRIC_GRAPH_ID));
+    }
+
+    private static List<String> ids(final List<ContentTemplate> templates) {
+        return templates.stream().map(ContentTemplate::getId).toList();
+    }
+
     @Test
     public void aChildOnlyTemplateIsOfferedInsideItsGroupAndNeverAtPageLevel() {
         final ContentCommands content = as(ADMIN, false);

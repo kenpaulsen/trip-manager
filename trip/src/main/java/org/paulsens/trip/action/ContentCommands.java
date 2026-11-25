@@ -621,7 +621,7 @@ public class ContentCommands {
      * {@link #templateCards(String)} for a page whose layout is known: on a CLASSIC page the templates made for
      * full-width pages keep their place in the offer (they render there by design, inside the card) but sort
      * after everything else, so the picker can list them as one trailing group. The host passes its own
-     * {@code fullWidth} ui:param: the page decides, since an organization's Site Pages stay classic whatever
+     * {@code fullWidth} ui:param: the page decides, since an organization's Editable Pages stay classic whatever
      * its home page's layout is.
      */
     public List<TemplateCard> templateCards(final String section, final boolean pageFullWidth) {
@@ -1521,7 +1521,7 @@ public class ContentCommands {
     /**
      * Deletes a whole language version of a page: every row in it, each through {@link #deleteWithChildren} so
      * the trail names every row. Only a VERSION key is accepted: a page's own key is the one every reader falls
-     * back to, and removing it is the Site Pages page's job ({@code SitePageCommands.deletePage}), not this.
+     * back to, and removing it is the Editable Pages page's job ({@code SitePageCommands.deletePage}), not this.
      *
      * @return whether every row was deleted
      */
@@ -2071,6 +2071,7 @@ public class ContentCommands {
             return all.stream()
                     .filter(t -> !t.isChildOnly())
                     .filter(t -> !tripPage || fitsTripPage(t))
+                    .filter(this::offeredToCaller)
                     .toList();
         }
         final ContentTemplate containerTemplate =
@@ -2079,7 +2080,22 @@ public class ContentCommands {
         return all.stream()
                 .filter(t -> t.getKind() != TemplateKind.CONTAINER)
                 .filter(t -> allowed == null || allowed.isEmpty() || allowed.contains(t.getId()))
+                .filter(this::offeredToCaller)
                 .toList();
+    }
+
+    /**
+     * Whether the Add dialog may offer {@code template} to this editor: every template, but a programmatic type
+     * that answers no for them ({@code ProgrammaticContentTemplate.offeredTo}: the metrics graph, site admins only).
+     */
+    private boolean offeredToCaller(final ContentTemplate template) {
+        if (template.getKind() != TemplateKind.PROGRAMMATIC) {
+            return true;
+        }
+        final Caller caller = callerSource.get();
+        final boolean siteAdmin = caller.isAuthenticated() && caller.isSiteAdmin();
+        return ProgrammaticTypes.byId(template.getProgrammaticTypeId()).map(type -> type.offeredTo(siteAdmin))
+                .orElse(true);
     }
 
     private static boolean fitsTripPage(final ContentTemplate template) {

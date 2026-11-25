@@ -22,7 +22,10 @@ BSD-2-Clause, no runtime dependencies; parses and writes hand-authored page HTML
 dependencies; the HTML5 parser behind `content/HtmlCheck`, which validates HTML stored and shown as written; moving the
 cleaners onto it and dropping OWASP is medjugorje#180) · ICU4J (Unicode
 License v3, MIT-style, no runtime dependencies; plural-aware message formatting for `i18n/MessageText`, since the
-JDK's `MessageFormat` cannot express Croatian's three plural forms, `docs/i18n.md`).
+JDK's `MessageFormat` cannot express Croatian's three plural forms, `docs/i18n.md`) · Micrometer `micrometer-core` 1.18
+(Apache-2.0, with `micrometer-commons`, `micrometer-observation` and `jspecify`, Apache-2.0, and `HdrHistogram`,
+CC0 or BSD-2-Clause; the meters and JVM binders behind the app's own metrics, published by our own
+`ValkeyMeterRegistry`, `docs/metrics.md`; owner-approved 2026-11-24).
 
 Build-only tooling (never on the application classpath, never in the WAR): checkstyle (LGPL-2.1), JaCoCo (EPL-2.0),
 and SpotBugs (engine LGPL-2.1; its Maven plugin Apache-2.0) with Find Security Bugs (LGPL-3.0). The LGPL tools are run
