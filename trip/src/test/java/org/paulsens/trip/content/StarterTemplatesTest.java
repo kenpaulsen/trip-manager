@@ -55,6 +55,23 @@ public class StarterTemplatesTest {
         }
     }
 
+    /**
+     * The Documents group's template (2026-11-26): only File items, each on a cross-bullet row, since a File draws no
+     * bullet of its own; installed after the File it admits.
+     */
+    @Test
+    public void theDocumentListBulletsEachFile() {
+        final ContentTemplate list = byId(StarterTemplates.DOCUMENT_LIST_ID);
+        Assert.assertEquals(list.getKind(), TemplateKind.CONTAINER);
+        Assert.assertEquals(list.getAllowedChildTemplateIds(), List.of(StarterTemplates.FILE_ID));
+        final ContentRenderer.ContainerBody body = ContentRenderer.containerBody(list.getBody());
+        Assert.assertTrue(body.beforeAll().contains("<ul class=\"qopBullets\""), body.beforeAll());
+        Assert.assertEquals(body.row().strip(), "<li>{{child}}</li>");
+        Assert.assertTrue(ContentRenderer.hasContainerTitleSlot(list.getBody()), "it places its own heading");
+        Assert.assertTrue(StarterTemplates.IDS.indexOf(StarterTemplates.FILE_ID)
+                < StarterTemplates.IDS.indexOf(StarterTemplates.DOCUMENT_LIST_ID), "the leaf is installed first");
+    }
+
     /** The plain names the Add dialog lists (2026-11): ids never change, the "Band:" prefix is gone. */
     @Test
     public void bandsCarryPlainNamesAndStayFindableByTheirOldWords() {

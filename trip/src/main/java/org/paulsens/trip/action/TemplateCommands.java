@@ -1001,6 +1001,17 @@ public class TemplateCommands {
                 .layoutVocabulary());
     }
 
+    /**
+     * The prefix of {@code template}'s layout words ({@code trip} or {@code file}), so the editor explains the right
+     * ones, or "" for a template with no layout.
+     */
+    public String layoutPrefix(final ContentTemplate template) {
+        if (!hasLayout(template)) {
+            return "";
+        }
+        return ProgrammaticTypes.byId(template.getProgrammaticTypeId()).orElseThrow().layoutVocabulary().prefix();
+    }
+
     private static List<String> allowedIds(final ContentTemplate template) {
         return template.getAllowedChildTemplateIds() == null
                 ? List.of() : template.getAllowedChildTemplateIds();

@@ -1933,6 +1933,10 @@ public class ContentCommands {
     private ContentRenderer.ChildRow childRow(final ContentInstance container, final ContentInstance child,
             final int index) {
         try {
+            if (drawsNothing(child)) {
+                // A hidden document's File draws nothing; its row (a bullet, say) would be an empty one.
+                return new ContentRenderer.ChildRow("", "");
+            }
             return ContentRenderer.renderChildRow(containerBody(container).row(), child,
                     "PROGRAMMATIC".equals(getKind(child)), index);
         } catch (final RuntimeException ex) {
@@ -2203,6 +2207,16 @@ public class ContentCommands {
             }
         }
         return children;
+    }
+
+    /**
+     * Whether a live item draws nothing right now ({@link ProgrammaticContentTemplate#drawsNothing}: a File whose
+     * document is hidden or deleted). A group then leaves out its row, and a public page the item's wrapper too
+     * ({@code contentSections.xhtml}), whose margin would otherwise open a gap between the rows around it.
+     */
+    public boolean drawsNothing(final ContentInstance child) {
+        final String type = typeId(child);
+        return !type.isEmpty() && ProgrammaticTypes.byId(type).map(t -> t.drawsNothing(child)).orElse(false);
     }
 
     /** The instance's template kind as a string for EL branching: STANDARD, CONTAINER or PROGRAMMATIC. */

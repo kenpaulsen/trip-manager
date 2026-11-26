@@ -824,11 +824,11 @@ Rules worth knowing before changing this:
 ## Live sections with a layout (2026-11-25)
 
 The owner: "Why doesn't `trip-details` have a template that I can edit to adjust the layout?" The trip page's two live
-sections, Trip Details (`trip-details`) and Trip Detail Pictures (`trip-pictures`), are PROGRAMMATIC templates whose
-body is a LAYOUT: HTML around the trip's own values, edited in the template editor as raw HTML (like a container's
-row, with a reference line of every word the section knows and a field help card). Every other programmatic type
-still has no body (`ProgrammaticContentTemplate.layoutVocabulary()` answers null, and `TemplateCommands`
-blanks the body on save as before).
+sections, Trip Details (`trip-details`) and Trip Detail Pictures (`trip-pictures`), and since 2026-11-26 a File (`file`,
+below), are PROGRAMMATIC templates whose body is a LAYOUT: HTML around the trip's (or the document's) own values, edited
+in the template editor as raw HTML (like a container's row, with a reference line of every word the section knows and a
+field help card). Every other programmatic type still has no body (`ProgrammaticContentTemplate.layoutVocabulary()`
+answers null, and `TemplateCommands` blanks the body on save as before).
 
 - **Blank is the built-in look.** A blank body draws `WEB-INF/tripTopFacts.xhtml` / `tripTopPictures.xhtml` exactly
   as before layouts; the embed draws neither, whatever the body says. The starters
@@ -867,6 +867,19 @@ blanks the body on save as before).
 - **Installing.** `install-starter-templates.sh` ships the starter layouts and the toned Spacer for a new
   environment; `refresh-starter-templates.py` (rule 5) gives a stored blank layout the starter one, every version,
   and moves a Spacer still holding its shipped body to the toned one. Until it runs, nothing on any page changes.
+- **A File's layout** (2026-11-26; the owner: "A file is a file (not an item in a list w/ it's own bullet)", and its
+  name, size and description should be laid out by a template like Trip Details). The `file` type draws no bullet:
+  blank, it is the document's name as a link and its size, nothing around them, and the LIST that holds it owns the
+  bullet. The Documents groups are `document-list` (a CONTAINER starter admitting only File items, its row
+  `<li>{{child}}</li>` inside a `qopBullets` list; `StarterTemplates.DOCUMENT_LIST_BODY`), never the generic
+  `container`. Its words carry their own prefix (`TripLayout.Vocabulary.prefix`, `file`; a save refuses a trip
+  section's word in a File layout and the reverse): `{{file:title}}`, `{{file:url}}`, `{{file:size}}`,
+  `{{file:description}}` and the block `{{#file:description}} ... {{/file:description}}`, kept only when the document
+  has one; no Tone. Filled by `FileLayoutCommands` (`#{fileLayout}`), drawn by `ptypes/file.xhtml`. A File whose
+  document is hidden or deleted draws nothing, and its group then leaves out the row too
+  (`ProgrammaticContentTemplate.drawsNothing`, read by `ContentCommands.childRowBefore`/`After`), or a hidden
+  document would leave an empty bullet. The template editor explains a File's words and help with their own keys
+  (`contentTemplate.layoutPrefix`). Production moved to it with `../medjugorje/scripts/document-list-template.sh`.
 - **Not built:** an organization's own layout. A "Customize" copy is never what a content page renders (only mail
   reads `resolveForOrg`), so a per-organization layout needs that first.
 

@@ -1194,7 +1194,7 @@ public final class FakeData {
         // child must render nothing on the public page (live filtering, not duplicated state). Its
         // per-instance allow-list admits only File items, so its Add button skips the template picker.
         saveContent(new ContentInstance("docs", PAGE_KEY, "Documents",
-                StarterTemplates.CONTAINER_ID, 1, new HashMap<>(),
+                StarterTemplates.DOCUMENT_LIST_ID, 1, new HashMap<>(),
                 null, 7, 0, null, "fake-seed", List.of("mediaAdmin"), List.of(StarterTemplates.FILE_ID)));
         saveContent(new ContentInstance("fake-file-1", "docs", "Travel Guide",
                 StarterTemplates.FILE_ID, 1,

@@ -159,4 +159,28 @@ public class TripLayoutTest {
         Assert.assertNull(ProgrammaticTypes.byId(StarterTemplates.TRIP_SCHEDULE_ID).orElseThrow()
                 .layoutVocabulary(), "any other live type has no layout");
     }
+
+    /** A File's words carry its own prefix (2026-11-26): filled the same way, and only its own pass a save. */
+    @Test
+    public void aFileLayoutUsesItsOwnWordsAndNoOthers() {
+        final TripLayout.Vocabulary file = new FileType().layoutVocabulary();
+        Assert.assertEquals(file.prefix(), TripLayout.FILE);
+        final TripLayout.Data doc = new TripLayout.Data(Map.of("title", "Guide <2026>", "url", "/d/g.pdf"), Map.of(),
+                Set.of(), Map.of());
+        Assert.assertEquals(TripLayout.render(TripLayout.FILE,
+                "<a href=\"{{file:url}}\">{{file:title}}</a>{{#file:description}}D{{/file:description}}", doc)
+                        .before(), "<a href=\"/d/g.pdf\">Guide &lt;2026&gt;</a>", "no description, no block");
+        Assert.assertEquals(TripLayout.render(TripLayout.FILE, "{{trip:gallery}}x", doc).before(), "{{trip:gallery}}x",
+                "only a trip section is cut at a gallery slot");
+        Assert.assertNull(TripLayout.problem("<a href=\"{{file:url}}\">{{file:title}}</a> {{file:size}}"
+                + "{{#file:description}}<p>{{file:description}}</p>{{/file:description}}", file));
+        Assert.assertNotNull(TripLayout.problem("{{trip:destination}}", file), "a trip word in a File layout");
+        Assert.assertNotNull(TripLayout.problem("{{file:title}}", new TripFactsType().layoutVocabulary()),
+                "a File word in a trip layout");
+        Assert.assertNotNull(TripLayout.problem("{{container:title}}", file), "a group's word");
+        Assert.assertNotNull(TripLayout.problem("{{file:pages}}", file), "a word the File type does not have");
+        Assert.assertNotNull(TripLayout.problem("{{tone}}", file), "a File has no Tone");
+        Assert.assertEquals(TripLayout.reference(file),
+                "{{file:title}} {{file:url}} {{file:size}} {{file:description}} {{#file:description}}");
+    }
 }

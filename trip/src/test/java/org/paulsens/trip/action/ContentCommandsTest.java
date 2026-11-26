@@ -656,6 +656,29 @@ public class ContentCommandsTest {
         Assert.assertTrue(admin.deleteContent(child.getId()));
     }
 
+    /**
+     * The Documents group draws each File on a bullet row (2026-11-26), and leaves the row out around a File whose
+     * document is hidden: that File draws nothing, so its bullet would be an empty one.
+     */
+    @Test
+    public void theDocumentsRowBulletsEachVisibleDocumentAndNoHiddenOne() {
+        final ContentCommands admin = as(ADMIN, false);
+        final ContentInstance docs = admin.getContent("docs");
+        Assert.assertEquals(docs.getTemplateId(), StarterTemplates.DOCUMENT_LIST_ID);
+        Assert.assertEquals(admin.childrenBefore(docs), "<div class=\"band-prose\">\n<h3 class=\"contentTitle\">"
+                + "Documents</h3>\n<ul class=\"qopBullets\" style=\"font-size:1.15em;\">");
+        Assert.assertEquals(admin.childRowBefore(docs, admin.getContent("fake-file-1"), 0).strip(), "<li>");
+        Assert.assertEquals(admin.childRowAfter(docs, admin.getContent("fake-file-1"), 0), "</li>");
+        Assert.assertEquals(admin.childRowBefore(docs, admin.getContent("fake-file-hidden"), 1), "",
+                "a hidden document's File draws nothing, row included");
+        Assert.assertEquals(admin.childRowAfter(docs, admin.getContent("fake-file-hidden"), 1), "");
+        Assert.assertEquals(admin.childrenAfter(docs).strip(), "</ul></div>");
+        Assert.assertTrue(admin.drawsNothing(admin.getContent("fake-file-hidden")), "so the page drops its wrapper");
+        Assert.assertFalse(admin.drawsNothing(admin.getContent("fake-file-1")));
+        Assert.assertFalse(admin.drawsNothing(docs), "a group always draws");
+        Assert.assertFalse(admin.drawsNothing(null));
+    }
+
     /** The wrapper a row cannot express -- emitted once around the list, not once per child. */
     @Test
     public void aContainerWrapsTheWholeChildListOnce() {

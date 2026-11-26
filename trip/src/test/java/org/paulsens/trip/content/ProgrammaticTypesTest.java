@@ -1,5 +1,6 @@
 package org.paulsens.trip.content;
 
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -7,6 +8,7 @@ import java.util.Set;
 import org.paulsens.trip.action.TripCommands;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.FakeData;
+import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.ContentTemplate;
 import org.paulsens.trip.model.Placeholder;
 import org.paulsens.trip.model.TemplateKind;
@@ -65,6 +67,27 @@ public class ProgrammaticTypesTest {
         Assert.assertEquals(languages.get(languages.size() - 1).value(), TripCommands.ANY_LANGUAGE,
                 "'Any language' is offered, last, so a new section's menu still opens on a real language");
         Assert.assertEquals(languages.get(0).value(), "English");
+    }
+
+    /** A File draws nothing for a hidden, unknown or unset document, so its group leaves out the row too. */
+    @Test
+    public void aFileDrawsNothingWithoutAVisibleDocument() {
+        final ProgrammaticContentTemplate type = ProgrammaticTypes.byId("file").orElseThrow();
+        Assert.assertFalse(type.drawsNothing(fileOf("fake-doc-1")), "a visible document");
+        Assert.assertTrue(type.drawsNothing(fileOf("fake-doc-2")), "a hidden one");
+        Assert.assertTrue(type.drawsNothing(fileOf("no-such-doc")), "a deleted one");
+        Assert.assertTrue(type.drawsNothing(fileOf(null)), "none picked");
+        Assert.assertTrue(type.drawsNothing(null));
+        Assert.assertFalse(ProgrammaticTypes.byId("person").orElseThrow().drawsNothing(fileOf("x")),
+                "every other type always draws");
+    }
+
+    private static ContentInstance fileOf(final String mediaId) {
+        final HashMap<String, String> values = new HashMap<>();
+        if (mediaId != null) {
+            values.put("mediaId", mediaId);
+        }
+        return new ContentInstance("f", "docs", "", "file", 1, values, null, 0, 1, null, null);
     }
 
     @Test
@@ -171,7 +194,9 @@ public class ProgrammaticTypesTest {
             Assert.assertFalse(sample.contains("<script") || sample.contains("href="), type.getTypeId());
         }
         Assert.assertTrue(ProgrammaticTypes.byId("person").orElseThrow().getSampleHtml().contains("personCard"));
-        Assert.assertTrue(ProgrammaticTypes.byId("file").orElseThrow().getSampleHtml().contains("qopBullets"));
+        final String fileSample = ProgrammaticTypes.byId("file").orElseThrow().getSampleHtml();
+        Assert.assertTrue(fileSample.startsWith("<a>") && !fileSample.contains("<li") && !fileSample.contains("<ul"),
+                "a File is the document alone, with no bullet of its own: " + fileSample);
         final String listings = ProgrammaticTypes.byId("pilgrimages").orElseThrow().getSampleHtml();
         Assert.assertTrue(listings.contains("tripCard tripCardFeature") && listings.contains("tripCardGrid")
                 && listings.contains("tripCardNoPhoto") && !listings.contains("ui-accordion"),

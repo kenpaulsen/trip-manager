@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.paulsens.trip.action.Caller;
+import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.Placeholder;
 
 /**
@@ -112,6 +113,15 @@ public interface ProgrammaticContentTemplate {
      */
     default TripLayout.Vocabulary layoutVocabulary() {
         return null;
+    }
+
+    /**
+     * Whether {@code instance} of this type draws nothing at all on a page right now (a File whose document is
+     * hidden or deleted), so a group leaves out the row it would wrap around it. False for every type that always
+     * draws something, or whose emptiness only its fragment knows.
+     */
+    default boolean drawsNothing(final ContentInstance instance) {
+        return false;
     }
 
     /**

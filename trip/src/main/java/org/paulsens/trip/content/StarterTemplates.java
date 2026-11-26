@@ -23,6 +23,8 @@ public final class StarterTemplates {
     public static final String PILGRIMAGES_ID = "pilgrimages";
     public static final String PHOTO_ALBUMS_ID = "photo-albums";
     public static final String FILE_ID = "file";
+    /** A heading over File items, one cross-bullet row each: the Documents group (2026-11-26). */
+    public static final String DOCUMENT_LIST_ID = "document-list";
     public static final String PERSON_ID = "person";
     public static final String PEOPLE_LIST_ID = "people-list";
     /** A conference's public schedule and its registration block (docs/conference.md). */
@@ -92,7 +94,8 @@ public final class StarterTemplates {
 
     /** Ids never deleted by the cleanup script without {@code --include-starters}. */
     public static final List<String> IDS = withVersions(List.of(YOUTUBE_VIDEO_ID, IMAGE_ID, TEXT_ONLY_ID,
-            CONTAINER_ID, PILGRIMAGES_ID, PHOTO_ALBUMS_ID, FILE_ID, PERSON_ID, PEOPLE_LIST_ID, SPACER_ID,
+            CONTAINER_ID, PILGRIMAGES_ID, PHOTO_ALBUMS_ID, FILE_ID, DOCUMENT_LIST_ID, PERSON_ID, PEOPLE_LIST_ID,
+            SPACER_ID,
             REGISTRATION_RECEIVED_ID, REGISTRATION_APPROVED_ID, SUPPORT_REQUEST_ID,
             PAYMENT_CONFIRMATION_ID, PAYMENT_FAILED_ID, CHECKOUT_CONFIRMATION_ID, ORG_INVITE_ID,
             BAND_HERO_ID, BAND_SPLIT_ID, BAND_CTA_ID, BAND_TESTIMONIAL_ID, BAND_TEXT_ID,
@@ -109,7 +112,8 @@ public final class StarterTemplates {
         final List<ContentTemplate> all = new ArrayList<>(List.of(
                 tagged(youtubeVideo(), "video"), tagged(image(), "picture"), tagged(textOnly(), "text"),
                 tagged(container(), "group"), tagged(pilgrimages(), "trips"), tagged(photoAlbums(), "photos", "trips"),
-                tagged(file(), "documents"), tagged(person(), "people"), tagged(peopleList(), "people", "group"),
+                tagged(file(), "documents"), tagged(documentList(), "documents", "group"),
+                tagged(person(), "people"), tagged(peopleList(), "people", "group"),
                 tagged(spacer(), "spacer", "space", "layout"),
                 registrationReceived(), registrationApproved(), supportRequest(),
                 paymentConfirmation(), paymentFailed(), checkoutConfirmation(), orgInvite(),
@@ -676,6 +680,24 @@ public final class StarterTemplates {
     private static ContentTemplate file() {
         return programmatic(FILE_ID, "File (from media library)",
                 "A link to one media-library document; its name and size stay in sync with the library.");
+    }
+
+    /**
+     * The Documents group: its title, then each File on a cross-bullet row. The row owns the bullet because a File
+     * draws none (it is the document alone), and a File whose document is hidden draws nothing, row included.
+     */
+    public static final String DOCUMENT_LIST_BODY = """
+            <div class="band-prose">
+            <h3 class="contentTitle">{{container:title}}</h3>
+            <ul class="qopBullets" style="font-size:1.15em;">{{children:start}}
+                <li>{{child}}</li>{{children:end}}
+            </ul></div>""";
+
+    private static ContentTemplate documentList() {
+        return containerBand(DOCUMENT_LIST_ID, "Document list",
+                "A heading over documents from the media library, each on its own cross-bullet row. Add only "
+                        + "File items to it.",
+                DOCUMENT_LIST_BODY, List.of(FILE_ID), null);
     }
 
     private static ContentTemplate person() {

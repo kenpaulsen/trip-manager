@@ -31,18 +31,19 @@ public final class V2PageBootstrap {
                                 + "<span style=\"font-size:1.3em\">by Center for Peace West</span></div>"),
                 text("home-intro", PAGE_KEY, "Introduction", 1,
                         "<p>Welcome! Edit this introduction from the page's edit mode.</p>"),
-                container("events", "Events", 2, "eventAdmin", null),
+                container("events", "Events", 2, "eventAdmin", null, StarterTemplates.CONTAINER_ID),
                 programmatic("home-pilgrimages-en", "English Medjugorje Pilgrimages", 3,
                         StarterTemplates.PILGRIMAGES_ID,
                         Map.of("language", "English", "cfpwOnly", "false")),
                 programmatic("home-pilgrimages-es", "Peregrinaciones españolas a Medjugorje", 4,
                         StarterTemplates.PILGRIMAGES_ID,
                         Map.of("language", "Spanish", "cfpwOnly", "false")),
-                container("reflection", "", 5, null, null),
+                container("reflection", "", 5, null, null, StarterTemplates.CONTAINER_ID),
                 programmatic("home-albums", "Pilgrimage Pictures", 6,
                         StarterTemplates.PHOTO_ALBUMS_ID, Map.of()),
                 // Documents admits only File items, so its Add button skips the template picker.
-                container("docs", "Documents", 7, "mediaAdmin", List.of(StarterTemplates.FILE_ID)));
+                container("docs", "Documents", 7, "mediaAdmin", List.of(StarterTemplates.FILE_ID),
+                        StarterTemplates.DOCUMENT_LIST_ID));
     }
 
     private static ContentInstance text(final String id, final String section, final String title,
@@ -52,8 +53,8 @@ public final class V2PageBootstrap {
     }
 
     private static ContentInstance container(final String id, final String title, final int position,
-            final String editorPrivilege, final List<String> allowedChildTemplateIds) {
-        return new ContentInstance(id, PAGE_KEY, title, StarterTemplates.CONTAINER_ID, 1,
+            final String editorPrivilege, final List<String> allowedChildTemplateIds, final String templateId) {
+        return new ContentInstance(id, PAGE_KEY, title, templateId, 1,
                 new HashMap<>(), null, position, 0, null, "bootstrap-script",
                 editorPrivilege == null ? null : List.of(editorPrivilege), allowedChildTemplateIds);
     }

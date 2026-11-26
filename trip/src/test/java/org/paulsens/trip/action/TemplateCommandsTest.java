@@ -348,6 +348,26 @@ public class TemplateCommandsTest {
         Assert.assertFalse(admin.hasLayout(null));
         Assert.assertFalse(admin.hasLayout(new ContentTemplate("tpl-plain", 0, "Plain", null, "<p>x</p>",
                 List.of(), null, null)), "a hand-written template's body is not a layout");
+        Assert.assertEquals(admin.layoutPrefix(facts), "trip");
+        Assert.assertEquals(admin.layoutPrefix(other), "", "no layout, no prefix");
+    }
+
+    /** A File's layout (2026-11-26) keeps its own words and refuses a trip section's. */
+    @Test
+    public void aFileKeepsItsLayoutInItsOwnWords() {
+        final TemplateCommands admin = as(true);
+        final ContentTemplate file = new ContentTemplate("tpl-file-layout", 0, "File Layout", null,
+                "<a href=\"{{file:url}}\">{{file:title}}</a>", List.of(), null, null, TemplateKind.PROGRAMMATIC,
+                null, null, StarterTemplates.FILE_ID);
+        Assert.assertTrue(admin.hasLayout(file));
+        Assert.assertEquals(admin.layoutPrefix(file), "file");
+        Assert.assertTrue(admin.layoutWords(file).contains("{{#file:description}}"), admin.layoutWords(file));
+        Assert.assertTrue(admin.saveTemplate(file));
+        final ContentTemplate stored = admin.getTemplate("tpl-file-layout");
+        Assert.assertEquals(stored.getBody(), "<a href=\"{{file:url}}\">{{file:title}}</a>", "the layout is kept");
+        stored.setBody("<p>{{trip:destination}}</p>");
+        Assert.assertFalse(admin.saveTemplate(stored), "a trip word is not a File's");
+        Assert.assertTrue(admin.deleteTemplate("tpl-file-layout"));
     }
 
     /**
