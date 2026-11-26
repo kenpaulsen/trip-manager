@@ -747,6 +747,10 @@ content key, fixed at creation.
   children, one row at a time, each with its own CONTENT audit line, beside the ORGANIZATION line "Editable page
   ... deleted". The confirmation says the page and everything on it are deleted.
 - A new page gets one starter text block unless content already sits under its key (then adopted as-is).
+- **Each page may have its own stylesheet** (2026-11-26; `content-templates.md`, "A page's own stylesheet"): the
+  settings dialog's Stylesheet menu (the org's library stylesheets, or None) and the page's own Styles editor ("Use
+  on this page") make the same choice, stored on the org row by page name (`Organization.pageStylesheets`, the home
+  page's under `home`). Deleting a page drops its entry.
 - **Two names are reserved** (`OrgPageBootstrap.isReservedPageName`): `home`, the home page's own, and `pay`,
   the How to pay page's (below). `SitePageCommands.addPage` refuses both, so no Editable Page can open a second door
   onto either key. A LINK to `/pay` is still fine: a link has a generated name and no content.

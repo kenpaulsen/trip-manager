@@ -18,24 +18,27 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.content.CssClassScan;
-import org.paulsens.trip.content.OrgPageBootstrap;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.media.LocalObjectStore;
 import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.MediaItem;
 import org.paulsens.trip.model.Placeholder;
 import org.paulsens.trip.model.Trip;
+import org.paulsens.trip.util.Util;
 import org.primefaces.extensions.event.CompleteEvent;
 
 /**
- * A trip page's own stylesheets (docs/conference.md, "Look and feel"): the live editor behind the Trip Page
- * dialog's New and Edit buttons, exposed to pages as {@code #{tripStylesheets}}.
+ * Page stylesheets (docs/conference.md, "Look and feel"; docs/content-templates.md, "A page's own stylesheet"): the
+ * live editor every content page's Styles button opens, exposed to pages as {@code #{tripStylesheets}} (the name it
+ * had when only trip pages had one). The editor works on the page its host pins as {@code pageKey}; which
+ * stylesheet a page links, and who owns it, is {@link PageStylesheets}.
  *
  * <p><b>One media item per stylesheet.</b> A stylesheet is an ordinary library row of the trip's organization
  * ({@code text/css}, so {@code MediaCommands.libraryItems} lists it in the dialog's menu and every trip of the org
@@ -46,7 +49,8 @@ import org.primefaces.extensions.event.CompleteEvent;
  *
  * <p><b>Who edits.</b> Site admins, the organization's admins and its {@code mediaAdmin} holders
  * ({@code OrgCommands.canManageOrg} or {@code canViewOrgMedia}); a trip manager only picks. A stylesheet
- * restyles every page of the org that links it, so it is the org's call, like the library.
+ * restyles every page of the org that links it, so it is the org's call, like the library. The shared site's pages
+ * take theirs from the shared library ({@code stylesheets/{slug}.css}, no organization), which site admins alone keep.
  *
  * <p><b>Local mode.</b> The library's own write path needs a bucket; here the bytes fall back to an in-memory
  * {@link LocalObjectStore} served by {@code web/StylesheetServlet} at {@code /trip-stylesheets/{key}}, which is
@@ -69,8 +73,10 @@ public class TripStylesheets {
     static final String STARTER_PATH = "/resources/css/trip-page-starter.css";
     private static final int SLUG_MAX = 40;
     private static final int COMPLETIONS_MAX = 20;
-    private static final Pattern KEY = Pattern.compile(
-            MediaCommands.ORG_KEY_PREFIX + "[A-Za-z0-9-]+/" + FOLDER + "[a-z0-9][a-z0-9-]*\\.css");
+    /** A stylesheet's key inside its library: the folder, a slug, {@code .css}. */
+    private static final Pattern KEY = Pattern.compile(FOLDER + "[a-z0-9][a-z0-9-]*\\.css");
+    /** An organization's namespace before that: {@code org/{id}/}. */
+    private static final Pattern ORG_NAMESPACE = Pattern.compile(MediaCommands.ORG_KEY_PREFIX + "[A-Za-z0-9-]+/");
     private static final Pattern SLUG_UNSAFE = Pattern.compile("[^a-z0-9]+");
     private static final String STARTER_FALLBACK = "/* Your page's styles. Rules belong under .contentItem. */\n";
 
@@ -93,9 +99,19 @@ public class TripStylesheets {
 
     // ------------------------------------------------------------------ keys and gates
 
-    /** Whether {@code key} is one of ours: an org's stylesheet folder, a slug, {@code .css}, nothing else. */
+    /**
+     * Whether {@code key} is one of ours: an org's stylesheet folder (or the shared library's), a slug, {@code .css},
+     * nothing else.
+     */
     public static boolean isStylesheetKey(final String key) {
-        return key != null && !key.contains("..") && KEY.matcher(key).matches();
+        if (key == null || key.contains("..")) {
+            return false;
+        }
+        // The org namespace is matched on its own rather than as an optional group of one pattern: a group of
+        // repeatable characters before more of them is what a ReDoS scan (rightly) flags.
+        final Matcher org = ORG_NAMESPACE.matcher(key);
+        final String inLibrary = org.lookingAt() ? key.substring(org.end()) : key;
+        return KEY.matcher(inLibrary).matches();
     }
 
     /** Whether CSS text holds {@code </style} in any case: it would close an inline style block. */
@@ -109,15 +125,19 @@ public class TripStylesheets {
      * {@code stylesheets/} folder: the conference import put each event's page stylesheet under
      * {@code org/{id}/conferences/...}, and a trip linking one opened the editor on "New stylesheet" and refused
      * to read it (2026-11-07). A save rewrites the item's own key, so the folder check is what keeps a write inside
-     * the organization.
+     * the organization. A stylesheet no organization owns (the shared site's library, which site admins keep) is
+     * one of the shared library's when it sits in the shared {@value #FOLDER} folder.
      */
     static boolean isOrgStylesheet(final MediaItem item) {
-        if (item == null || !MediaCommands.isStylesheet(item) || item.getOrgId() == null) {
+        if (item == null || !MediaCommands.isStylesheet(item)) {
             return false;
         }
         final String key = item.getS3Key();
-        return key != null && !key.contains("..") && key.endsWith(".css")
-                && key.startsWith(MediaCommands.ORG_KEY_PREFIX + item.getOrgId() + "/");
+        if (key == null || key.contains("..") || !key.endsWith(".css")) {
+            return false;
+        }
+        final String org = Util.trimToNull(item.getOrgId());
+        return org == null ? key.startsWith(FOLDER) : key.startsWith(MediaCommands.ORG_KEY_PREFIX + org + "/");
     }
 
     /** A title's slug: lower-case letters and digits with single dashes, never blank. */
@@ -128,8 +148,9 @@ public class TripStylesheets {
         return cut.isBlank() ? "styles" : cut;
     }
 
+    /** The key of a stylesheet of {@code orgId}'s library, or of the shared library for a null org. */
     static String keyFor(final String orgId, final String slug) {
-        return MediaCommands.ORG_KEY_PREFIX + orgId + "/" + FOLDER + slug + ".css";
+        return (orgId == null ? "" : MediaCommands.ORG_KEY_PREFIX + orgId + "/") + FOLDER + slug + ".css";
     }
 
     /** Whether the caller may create, edit or rename this org's stylesheets (see the class comment). */
@@ -140,6 +161,30 @@ public class TripStylesheets {
     /** Seam for tests. */
     protected boolean mayEdit(final String orgId) {
         return orgs.canManageOrg(orgId) || orgs.canViewOrgMedia(orgId);
+    }
+
+    /**
+     * Whether the caller may edit the stylesheets of a library: an organization's ({@link #canEdit}), or the shared
+     * site's (null), which site admins alone keep. Only ever asked with an item's own owner or a page owner's
+     * library ({@code PageStylesheets.Owner#libraryOrg}): a null that comes from a failed lookup never reaches it.
+     */
+    boolean canEditLibrary(final String orgId) {
+        return orgId == null ? mayEditShared() : canEdit(orgId);
+    }
+
+    /** Seam for tests: whether the caller may keep the shared library's stylesheets. */
+    protected boolean mayEditShared() {
+        return orgs.isSiteAdmin();
+    }
+
+    /**
+     * Whether the caller may open the stylesheet editor on a page: the page has an owner, and the caller may edit
+     * the stylesheets of that owner's library (a trip's or an organization's page: its organization's; a shared
+     * page: the shared library's).
+     */
+    public boolean canEditPage(final String pageKey) {
+        final PageStylesheets.Owner owner = PageStylesheets.ownerOf(pageKey);
+        return !owner.isNone() && canEditLibrary(owner.libraryOrg());
     }
 
     /**
@@ -207,12 +252,26 @@ public class TripStylesheets {
                     Text.get("feedback.tripStylesheets.adminsOnly"));
             return null;
         }
+        return createIn(orgId.trim(), title, css);
+    }
+
+    /** {@link #create} into the shared library (no organization): site admins only. */
+    MediaItem createShared(final String title, final String css) {
+        if (!mayEditShared()) {
+            PageFeedback.warn(Text.get("feedback.shared.notAllowed"),
+                    Text.get("feedback.tripStylesheets.siteAdminsOnly"));
+            return null;
+        }
+        return createIn(null, title, css);
+    }
+
+    /** Stores a new stylesheet in {@code owner}'s library (null: the shared one), the caller already allowed. */
+    private MediaItem createIn(final String owner, final String title, final String css) {
         final String refusal = check(css);
         if (refusal != null) {
             PageFeedback.warn(Text.get("feedback.shared.notSaved"), refusal);
             return null;
         }
-        final String owner = orgId.trim();
         final String cleanTitle = (title == null || title.isBlank()) ? "Stylesheet" : title.trim();
         final String key = freeKey(owner, slugOf(cleanTitle));
         final byte[] bytes = css.getBytes(StandardCharsets.UTF_8);
@@ -221,7 +280,7 @@ public class TripStylesheets {
             return null;
         }
         final MediaItem item = new MediaItem(UUID.randomUUID().toString(), key, cleanTitle,
-                "Trip page stylesheet", "text/css", bytes.length, null, 0, LocalDateTime.now(),
+                "Page stylesheet", "text/css", bytes.length, null, 0, LocalDateTime.now(),
                 actorEmail(), null, null, owner);
         if (!record(item, Text.get("feedback.tripStylesheets.storedNotListed"))) {
             return null;
@@ -320,38 +379,51 @@ public class TripStylesheets {
     }
 
     /**
-     * The live editor's first open on a trip's details page ({@code ?styles=new} or {@code ?styles=true}): fills
-     * the editor's view state ({@code cssItemId}, {@code cssTitle}, {@code cssText}) with a NEW stylesheet from
-     * the starter, else with the stylesheet the trip's stored page options link; a trip linking none leaves the
-     * editor empty, with the menu of the organization's stylesheets to pick from.
+     * The live editor's first open on a page ({@code ?styles=new} or {@code ?styles=true}): fills the editor's view
+     * state ({@code cssItemId}, {@code cssTitle}, {@code cssText}) with a NEW stylesheet from the starter, else with
+     * the stylesheet the page links; a page linking none leaves the editor empty, with the menu of its owner's
+     * stylesheets to pick from.
      *
      * @return whether something was loaded
      */
-    public boolean prepare(final Trip trip, final String mode) {
-        if (trip == null || !canEdit(trip.getOrgId())) {
+    public boolean prepare(final String pageKey, final String mode) {
+        if (!canEditPage(pageKey)) {
             return false;
         }
         if ("new".equalsIgnoreCase(mode)) {
             stashAll(null, "", starterCss());
             return true;
         }
-        final MediaItem linked = linkedItem(trip);
+        final MediaItem linked = linkedItem(pageKey);
         return linked != null && openItem(linked.getId());
     }
 
     /**
-     * The page toolbar's Styles button. The first open in a view loads the stylesheet the trip links, or the starter
+     * A content page's first GET with {@code ?styles=new} or {@code ?styles=true}: loads the editor as
+     * {@link #prepare} does and answers whether it opens ({@code viewScope.cssOpen}). False without the parameter or
+     * for a caller who may not edit the page's stylesheets, so a host can call it for every signed-in view.
+     */
+    public boolean firstOpen(final String pageKey, final String mode) {
+        if (mode == null || !canEditPage(pageKey)) {
+            return false;
+        }
+        prepare(pageKey, mode);
+        return true;
+    }
+
+    /**
+     * The page toolbar's Styles button. The first open in a view loads the stylesheet the page links, or the starter
      * when it links none; a later open keeps what the designer already has in the editor. One call, because a
      * JSFT command script cannot hold this logic: an {@code if} body with a comparison inside a method argument
      * fails EL parsing at run time (the 2026-11-07 "Something went wrong" on every click).
      *
      * @return whether the editor holds something
      */
-    public boolean openEditor(final Trip trip) {
+    public boolean openEditor(final String pageKey) {
         if (viewValue("cssText") != null) {
             return true;
         }
-        return prepare(trip, linkedItem(trip) == null ? "new" : "true");
+        return prepare(pageKey, linkedItem(pageKey) == null ? "new" : "true");
     }
 
     /**
@@ -368,15 +440,19 @@ public class TripStylesheets {
         return openItem(itemId.trim());
     }
 
-    /** The stylesheet the trip's STORED page options link, or null. */
-    public MediaItem linkedItem(final Trip trip) {
-        return trip == null || trip.pageOrNull() == null ? null
-                : itemFor(trip.getOrgId(), trip.pageOrNull().getStylesheetUrl());
+    /** The stylesheet the page's owner has stored for it, when the editor may open it; else null. */
+    public MediaItem linkedItem(final String pageKey) {
+        final MediaItem item = pageStylesheets().linkedItem(pageKey);
+        return isOrgStylesheet(item) ? item : null;
     }
 
-    /** The live editor's menu: the organization's stylesheets, as the Trip Page dialog lists them. */
-    public List<MediaItem> choices(final String orgId) {
-        return media.libraryItems(orgId, "text/css");
+    /** The live editor's menu: the stylesheets of the page owner's library, as the Trip Page dialog lists them. */
+    public List<MediaItem> choices(final String pageKey) {
+        // The library is its editors' business: the dialog is built only for them, and the bean says so again.
+        if (!canEditPage(pageKey)) {
+            return List.of();
+        }
+        return media.libraryItems(PageStylesheets.ownerOf(pageKey).libraryOrg(), "text/css");
     }
 
     /**
@@ -388,6 +464,9 @@ public class TripStylesheets {
         final MediaItem item = editable(itemId);
         final String text = item == null ? null : read(item.getId());
         if (text == null) {
+            // The menu's value already holds the refused id (update-model ran before the pick): drop it, so
+            // nothing renders against a sheet the caller may not open.
+            stash("cssItemId", null);
             PageFeedback.warn(Text.get("feedback.tripStylesheets.notOpened"),
                     Text.get("feedback.tripStylesheets.notRead"));
             return false;
@@ -398,8 +477,8 @@ public class TripStylesheets {
 
     /**
      * The live editor's Save: creates the stylesheet when {@code itemId} is null (and keeps editing the new item),
-     * else saves its text and applies a title change. Stores the stylesheet ONLY: linking it to a trip is the trip
-     * editor's Trip Page dialog, so a designer may work on a sheet without touching the trip. Publishes the outcome
+     * else saves its text and applies a title change. Stores the stylesheet ONLY: linking it to the page is
+     * {@link #saveAndUse}, so a designer may work on a sheet without changing the page. Publishes the outcome
      * as the {@code cssOk} callback param so the dialog stays open on a refusal, and {@code cssUrl} for the page's
      * note on what to link.
      *
@@ -412,8 +491,7 @@ public class TripStylesheets {
             PageFeedback.warn(Text.get("feedback.shared.notSaved"),
                     Text.get("feedback.tripStylesheets.titleRequired"));
         } else if (itemId == null || itemId.isBlank()) {
-            final String org = orgInView();
-            final MediaItem created = org == null ? null : create(org, title, css);
+            final MediaItem created = createForPage(title, css);
             if (created != null) {
                 stashAll(created.getId(), created.getTitle(), css);
                 url = urlOf(created);
@@ -438,11 +516,103 @@ public class TripStylesheets {
         stash("cssText", css);
     }
 
-    /** The organization whose stylesheets the editor page works on: the trip pinned in the view. Seam for tests. */
-    protected String orgInView() {
-        final String tripId = tripIdInView();
-        final Trip trip = tripId == null ? null : DAO.getInstance().getTrip(tripId, Cached.YES).orElse(null);
-        return trip == null ? null : trip.getOrgId();
+    /** A new stylesheet in the library of the page the editor is open on; null (with a growl) for an unowned page. */
+    private MediaItem createForPage(final String title, final String css) {
+        final PageStylesheets.Owner owner = PageStylesheets.ownerOf(pageKeyInView());
+        return switch (owner.kind()) {
+            case TRIP, ORG -> create(owner.orgId(), title, css);
+            case SHARED -> createShared(title, css);
+            case NONE -> {
+                PageFeedback.warn(Text.get("feedback.shared.notSaved"),
+                        Text.get("feedback.tripStylesheets.noPage"));
+                yield null;
+            }
+        };
+    }
+
+    /**
+     * The editor's "Use on this page": saves the sheet as {@link #saveOnly} does, then links it to the page the editor
+     * is open on ({@code PageStylesheets.link}), so the page's look changes at once and a designer never has to go
+     * elsewhere to pick it. Publishes {@code cssLinked} (the linked URL, or blank) beside {@code saveOnly}'s params.
+     *
+     * @return whether the page now links the saved sheet
+     */
+    public boolean saveAndUse(final String itemId, final String title, final String css) {
+        boolean linked = false;
+        if (saveOnly(itemId, title, css)) {
+            final Object saved = viewValue("cssItemId");
+            linked = saved != null && pageStylesheets().link(pageKeyInView(), saved.toString());
+        }
+        PageFeedback.callbackParam("cssLinked", linked ? urlOfId(String.valueOf(viewValue("cssItemId"))) : "");
+        return linked;
+    }
+
+    /** The editor's "Stop using": the page links no stylesheet from now on. Publishes {@code cssUnlinked}. */
+    public boolean stopUsing() {
+        final boolean done = pageStylesheets().unlink(pageKeyInView());
+        PageFeedback.callbackParam("cssUnlinked", done);
+        return done;
+    }
+
+    /** Whether the caller may choose the stylesheet of the page the editor is open on (its Use and Stop buttons). */
+    public boolean canChoose() {
+        return pageStylesheets().mayChoose(pageKeyInView());
+    }
+
+    /** The URL the page the editor is open on links, or blank: which sheet "Stop using" would drop. */
+    public String linkedUrl() {
+        final String url = urlOf(pageStylesheets().cachedLinkedItem(pageKeyInView()));
+        return url == null ? "" : url;
+    }
+
+    /**
+     * The pages that link the open sheet, for the editor's "Used by" line; blank for a new sheet or one no page
+     * links. Cached reads: this renders with the dialog.
+     */
+    public String usedByLine(final String itemId) {
+        // Trip and page titles, unlisted and admins-only ones included: only for those who may edit the sheet.
+        final MediaItem item = editable(itemId);
+        return item == null ? "" : String.join(", ", pageStylesheets().usedBy(item));
+    }
+
+    /**
+     * The editor's Delete: removes the open sheet from its library (its row and its file), when the caller may edit
+     * it and no page links it; a sheet still in use is refused with the pages that use it, so no page is ever left
+     * linking a missing file. The editor then holds a new, unsaved sheet. Publishes {@code cssDeleted}.
+     *
+     * @return whether the sheet is gone
+     */
+    public boolean delete(final String itemId) {
+        final MediaItem item = editable(itemId);
+        boolean deleted = false;
+        if (item == null) {
+            PageFeedback.warn(Text.get("feedback.shared.notAllowed"),
+                    Text.get("feedback.tripStylesheets.adminsOnly"));
+        } else {
+            final String usedBy = pageStylesheets().usersInWords(item);
+            if (usedBy != null) {
+                PageFeedback.warn(Text.get("feedback.templateCommands.notDeleted"),
+                        Text.get("feedback.pageStylesheets.stillUsed", usedBy));
+            } else if (!media.removeItem(item, actorEmail())) {
+                // removeItem logs a failed row delete; the editor says so too, like every other write in it.
+                PageFeedback.failure(Text.get("feedback.templateCommands.notDeleted"));
+            } else {
+                localStore.remove(item.getS3Key());
+                if (media.isUploadEnabled()) {
+                    media.invalidateCdn(List.of("/" + item.getS3Key()));
+                }
+                stashAll(null, "", starterCss());
+                PageFeedback.info(Text.get("feedback.tripStylesheets.deleted", item.getTitle()));
+                deleted = true;
+            }
+        }
+        PageFeedback.callbackParam("cssDeleted", deleted);
+        return deleted;
+    }
+
+    /** The page resolver. Seam for tests. */
+    protected PageStylesheets pageStylesheets() {
+        return new PageStylesheets();
     }
 
     /** The org's stylesheet a stored URL names (the dialog's menu value), or null for anything else. */
@@ -492,7 +662,7 @@ public class TripStylesheets {
             return null;
         }
         final MediaItem item = DAO.getInstance().getMedia(itemId.trim(), Cached.NO).orElse(null);
-        if (!isOrgStylesheet(item) || !canEdit(item.getOrgId())) {
+        if (!isOrgStylesheet(item) || !canEditLibrary(Util.trimToNull(item.getOrgId()))) {
             return null;
         }
         return item;
@@ -506,7 +676,8 @@ public class TripStylesheets {
         return true;
     }
 
-    private static String actorEmail() {
+    /** Who is acting, for a library row's author and the audit: the signed-in email, or "unknown". */
+    static String actorEmail() {
         final AuditActor actor = AuditActor.current();
         return actor == null || actor.email() == null ? "unknown" : actor.email();
     }
@@ -514,17 +685,21 @@ public class TripStylesheets {
     // ------------------------------------------------------------------ classes on the page
 
     /**
-     * The class names the trip's page references, for the editor's "Classes on this page" list: every
+     * The class names the page references, for the editor's "Classes on this page" list: every
      * {@code class} attribute in its rendered sections and in the rich-text values its editors typed (so a class
      * authored in the HTML tab counts), each tagged {@code custom} (defined neither by site.css nor a framework),
      * {@code hook} (a site.css class) or {@code styled} (already given a rule by {@code css}). Custom first.
      */
-    public List<ClassRow> classReport(final String tripId, final String css) {
+    public List<ClassRow> classReport(final String pageKey, final String css) {
+        // The scan reads every row of the page, hidden ones included: the page's stylesheet editors only.
+        if (!canEditPage(pageKey)) {
+            return List.of();
+        }
         final Set<String> styled = CssClassScan.selectorsIn(css);
         final Set<String> hooks = siteHooks();
         final List<ClassRow> custom = new ArrayList<>();
         final List<ClassRow> known = new ArrayList<>();
-        for (final String name : classesOnPage(tripId)) {
+        for (final String name : classesOnPage(pageKey)) {
             if (CssClassScan.isFrameworkClass(name)) {
                 continue;
             }
@@ -546,7 +721,7 @@ public class TripStylesheets {
         final String raw = event == null || event.getToken() == null ? "" : event.getToken().trim();
         final String token = raw.startsWith(".") ? raw.substring(1) : raw;
         final Set<String> names = new LinkedHashSet<>();
-        for (final ClassRow row : classReport(tripIdInView(), null)) {
+        for (final ClassRow row : classReport(pageKeyInView(), null)) {
             names.add(row.name());
         }
         names.addAll(siteHooks());
@@ -569,21 +744,24 @@ public class TripStylesheets {
         return org.paulsens.trip.util.ScopeUtil.getInstance().getViewMap(key);
     }
 
-    /** The trip the editor page pins in the view (the dialog lives on trip/edit.xhtml), or null off-page. */
-    protected String tripIdInView() {
-        final Object id = org.paulsens.trip.util.ScopeUtil.getInstance().getViewMap("theTripId");
-        return id == null ? null : id.toString();
+    /**
+     * The page the editor is open on: the content page key every content page's host pins in the view for a
+     * signed-in viewer ({@code pageKey}, a scalar), or null off-page. Seam for tests.
+     */
+    protected String pageKeyInView() {
+        final Object key = org.paulsens.trip.util.ScopeUtil.getInstance().getViewMap("pageKey");
+        return key == null ? null : key.toString();
     }
 
-    private static Set<String> classesOnPage(final String tripId) {
+    private static Set<String> classesOnPage(final String pageKey) {
         final Set<String> names = new LinkedHashSet<>();
-        if (tripId == null || !OrgPageBootstrap.isTripId(tripId.trim())) {
+        final PageStylesheets.Owner owner = PageStylesheets.ownerOf(pageKey);
+        if (owner.isNone()) {
             return names;
         }
         try {
             final ContentCommands content = new ContentCommands();
-            final List<ContentInstance> sections =
-                    DAO.getInstance().getContentForSection(OrgPageBootstrap.tripPageKey(tripId.trim()), Cached.YES);
+            final List<ContentInstance> sections = DAO.getInstance().getContentForSection(owner.key(), Cached.YES);
             for (final ContentInstance section : sections) {
                 collect(content, section, names);
                 for (final ContentInstance child : DAO.getInstance().getContentForSection(section.getId(),
@@ -591,12 +769,13 @@ public class TripStylesheets {
                     collect(content, child, names);
                 }
             }
-            final Trip trip = DAO.getInstance().getTrip(tripId.trim(), Cached.YES).orElse(null);
+            final Trip trip = owner.tripId() == null ? null
+                    : DAO.getInstance().getTrip(owner.tripId(), Cached.YES).orElse(null);
             if (trip != null) {
                 names.addAll(CssClassScan.classesIn(trip.getDescription()));
             }
         } catch (final RuntimeException ex) {
-            log.warn("Unable to scan the classes of trip " + tripId, ex);
+            log.warn("Unable to scan the classes of page " + pageKey, ex);
         }
         return names;
     }

@@ -19,6 +19,7 @@ import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.MediaItem;
+import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripPageOptions;
 import org.paulsens.trip.util.TestWaits;
@@ -42,7 +43,7 @@ public class TripStylesheetsTest {
     private static final String ORG = FakeData.CFPW_ORG_ID;
 
     private boolean editor;
-    private String tripInView;
+    private String pageInView;
     private final Map<String, Object> stashed = new HashMap<>();
     private TripStylesheets sheets;
     private DAO dao;
@@ -57,7 +58,7 @@ public class TripStylesheetsTest {
     @BeforeMethod
     public void setUp() throws Exception {
         editor = true;
-        tripInView = null;
+        pageInView = null;
         stashed.clear();
         sheets = withMedia(new MediaCommands());
     }
@@ -70,8 +71,18 @@ public class TripStylesheetsTest {
             }
 
             @Override
-            protected String tripIdInView() {
-                return tripInView;
+            protected String pageKeyInView() {
+                return pageInView;
+            }
+
+            @Override
+            protected boolean mayEditShared() {
+                return editor;
+            }
+
+            @Override
+            protected PageStylesheets pageStylesheets() {
+                return new PageStylesheets(TestCallers::siteAdmin);
             }
 
             @Override
@@ -104,9 +115,11 @@ public class TripStylesheetsTest {
         final TripPageOptions options = new TripPageOptions();
         options.setStylesheetUrl(sheets.urlOf(imported));
         trip.setPage(options);
+        assertTrue(dao.saveTrip(trip));
+        final String page = OrgPageBootstrap.tripPageKey(trip.getId());
 
-        assertEquals(sheets.linkedItem(trip).getId(), imported.getId(), "the trip's link resolves to it");
-        assertTrue(sheets.openEditor(trip), "the Styles button opens it, not a new sheet");
+        assertEquals(sheets.linkedItem(page).getId(), imported.getId(), "the trip's link resolves to it");
+        assertTrue(sheets.openEditor(page), "the Styles button opens it, not a new sheet");
         assertEquals(stashed.get("cssItemId"), imported.getId());
         assertEquals(stashed.get("cssTitle"), "Summer page stylesheet");
         stashed.clear();
@@ -215,12 +228,13 @@ public class TripStylesheetsTest {
         final Trip trip = Trip.builder().title("Live Trip").orgId(ORG).openToPublic(true)
                 .startDate(LocalDateTime.now().plusDays(30)).endDate(LocalDateTime.now().plusDays(32)).build();
         assertTrue(dao.saveTrip(trip));
-        tripInView = trip.getId();
+        final String page = OrgPageBootstrap.tripPageKey(trip.getId());
+        pageInView = page;
 
         // Opening on a trip that links nothing loads nothing; "new" loads the starter.
-        assertFalse(sheets.prepare(trip, "true"));
+        assertFalse(sheets.prepare(page, "true"));
         assertTrue(stashed.isEmpty());
-        assertTrue(sheets.prepare(trip, "new"));
+        assertTrue(sheets.prepare(page, "new"));
         assertNull(stashed.get("cssItemId"));
         assertEquals(stashed.get("cssText"), sheets.starterCss());
         assertFalse(sheets.prepare(null, "new"));
@@ -233,7 +247,7 @@ public class TripStylesheetsTest {
         final Trip stored = dao.getTrip(trip.getId(), Cached.NO).orElseThrow();
         assertTrue(stored.pageOrNull() == null || stored.pageOrNull().getStylesheetUrl() == null,
                 "the trip is not linked");
-        assertTrue(sheets.choices(ORG).stream().anyMatch(item -> item.getId().equals(createdId)), "in the menu");
+        assertTrue(sheets.choices(page).stream().anyMatch(item -> item.getId().equals(createdId)), "in the menu");
 
         // A second save rewrites in place and applies the title.
         assertTrue(sheets.saveOnly(createdId, "Live renamed", ".b{}"));
@@ -247,10 +261,10 @@ public class TripStylesheetsTest {
         trip.getPage().setStylesheetUrl(sheets.urlOf(saved));
         assertTrue(dao.saveTrip(trip));
         stashed.clear();
-        assertTrue(sheets.prepare(trip, "true"));
+        assertTrue(sheets.prepare(page, "true"));
         assertEquals(stashed.get("cssItemId"), createdId);
         assertEquals(stashed.get("cssText"), ".b{}");
-        assertEquals(sheets.linkedItem(trip).getId(), createdId);
+        assertEquals(sheets.linkedItem(page).getId(), createdId);
         stashed.clear();
         assertTrue(sheets.openItem("fake-css-cfpw"), "the seeded sample reads as the starter");
         assertEquals(stashed.get("cssText"), sheets.starterCss());
@@ -259,11 +273,11 @@ public class TripStylesheetsTest {
 
         // The toolbar's Styles button: the first open loads the linked sheet; a later open keeps the editor's text.
         stashed.clear();
-        assertTrue(sheets.openEditor(trip));
+        assertTrue(sheets.openEditor(page));
         assertEquals(stashed.get("cssItemId"), createdId, "the sheet the trip links, not a new one");
         assertEquals(stashed.get("cssText"), ".b{}");
         stashed.put("cssText", ".edited{}");
-        assertTrue(sheets.openEditor(trip));
+        assertTrue(sheets.openEditor(page));
         assertEquals(stashed.get("cssText"), ".edited{}", "a reopen keeps the work in progress");
         // The menu: the blank "New stylesheet" entry loads the starter, an id loads that sheet.
         assertTrue(sheets.pick(""));
@@ -276,11 +290,12 @@ public class TripStylesheetsTest {
         // A trip linking nothing opens on the starter.
         stashed.clear();
         final Trip bare = Trip.builder().title("Bare").orgId(ORG).build();
-        assertTrue(sheets.openEditor(bare));
+        assertTrue(dao.saveTrip(bare));
+        assertTrue(sheets.openEditor(OrgPageBootstrap.tripPageKey(bare.getId())));
         assertEquals(stashed.get("cssText"), sheets.starterCss());
 
-        // Off the trip editor's page (no trip in view) a new sheet has no organization to belong to.
-        tripInView = null;
+        // Off any page (no page in view) a new sheet has no library to belong to.
+        pageInView = null;
         assertFalse(sheets.saveOnly(null, "Nowhere", ".a{}"));
 
         // The seeded sample has a row and no stored bytes: it reads as the starter, locally and for the servlet.
@@ -289,6 +304,83 @@ public class TripStylesheetsTest {
         assertTrue(sheets.localGet(sample.getS3Key()).isPresent());
         assertTrue(sheets.localGet("org/" + ORG + "/stylesheets/never-stored.css").isEmpty());
         assertTrue(sheets.localGet("not/a/key").isEmpty());
+    }
+
+    /**
+     * The editor on an organization's page: "Use on this page" saves and links at once, "Stop using" drops the
+     * link, and Delete refuses a sheet a page still links (naming the page), then removes an unused one.
+     */
+    @Test
+    public void anOrgPageUsesStopsUsingAndDeletesItsSheet() {
+        final Organization org = TenancyFixtures.org("Styled pages");
+        final String about = OrgPageBootstrap.pageKey(org.getId(), "about");
+        pageInView = about;
+        assertTrue(sheets.canEditPage(about));
+        assertTrue(sheets.canChoose());
+        assertTrue(sheets.prepare(about, "new"));
+
+        assertTrue(sheets.saveAndUse(null, "About look " + UUID.randomUUID(), ".about{}"));
+        final String id = (String) stashed.get("cssItemId");
+        final MediaItem item = dao.getMedia(id, Cached.NO).orElseThrow();
+        assertEquals(item.getOrgId(), org.getId().getValue(), "made in the page owner's library");
+        assertEquals(TenancyFixtures.reread(org).getPageStylesheets().get("about"), sheets.urlOf(item));
+        assertEquals(sheets.linkedUrl(), sheets.urlOf(item));
+        assertEquals(sheets.usedByLine(id), "about");
+        assertEquals(sheets.linkedItem(about).getId(), id);
+
+        assertFalse(sheets.delete(id), "a sheet a page links is never deleted");
+        assertTrue(dao.getMedia(id, Cached.NO).isPresent());
+        assertTrue(sheets.stopUsing());
+        assertEquals(sheets.linkedUrl(), "");
+        assertEquals(sheets.usedByLine(id), "");
+        assertTrue(sheets.delete(id));
+        assertTrue(dao.getMedia(id, Cached.NO).isEmpty(), "the row is gone");
+        assertTrue(sheets.localGet(item.getS3Key()).isEmpty(), "and its bytes");
+        assertNull(stashed.get("cssItemId"), "the editor holds a new sheet");
+        assertEquals(stashed.get("cssText"), sheets.starterCss());
+        assertFalse(sheets.delete(id), "gone already");
+        editor = false;
+        assertFalse(sheets.delete("fake-css-cfpw"), "only its editors delete a sheet");
+        assertFalse(sheets.canEditPage(about));
+        assertFalse(sheets.canEditPage("not-a-page"));
+    }
+
+    /**
+     * The editor's reads are its editors' only: someone who may not edit the page's stylesheets gets no menu, no
+     * class list and no "Used by" names, and a refused pick leaves no sheet id in the view.
+     */
+    @Test
+    public void aNonEditorReadsNothingThroughTheEditor() {
+        final String page = OrgPageBootstrap.pageKey(Organization.Id.from(ORG), "about");
+        editor = false;
+        assertTrue(sheets.choices(page).isEmpty());
+        assertTrue(sheets.classReport(page, null).isEmpty());
+        assertEquals(sheets.usedByLine("fake-css-cfpw"), "");
+        stashed.put("cssItemId", "fake-css-cfpw");
+        assertFalse(sheets.pick("fake-css-cfpw"));
+        assertNull(stashed.get("cssItemId"), "the refused id is dropped");
+        assertFalse(sheets.firstOpen(page, "new"));
+        assertFalse(sheets.firstOpen(page, null));
+    }
+
+    /** The shared site's pages take their sheets from the shared library, which site admins keep. */
+    @Test
+    public void theSharedSitesPagesUseTheSharedLibrary() {
+        pageInView = "page:shared:board";
+        assertTrue(sheets.saveAndUse(null, "Board look " + UUID.randomUUID(), ".board{}"));
+        final String id = (String) stashed.get("cssItemId");
+        final MediaItem item = dao.getMedia(id, Cached.NO).orElseThrow();
+        assertNull(item.getOrgId(), "no organization owns it");
+        assertTrue(item.getS3Key().startsWith(TripStylesheets.FOLDER), item.getS3Key());
+        assertTrue(TripStylesheets.isStylesheetKey(item.getS3Key()));
+        assertTrue(TripStylesheets.isOrgStylesheet(item));
+        assertTrue(sheets.choices(pageInView).stream().anyMatch(sheet -> sheet.getId().equals(id)));
+        assertTrue(sheets.stopUsing());
+        assertTrue(sheets.delete(id));
+
+        editor = false;
+        assertFalse(sheets.saveOnly(null, "Not mine", ".x{}"), "only site admins add to the shared library");
+        assertNull(sheets.createShared("Not mine", ".x{}"));
     }
 
     @Test
@@ -315,7 +407,9 @@ public class TripStylesheetsTest {
         assertEquals(sheets.urlOfId(null), "");
         assertNull(sheets.urlOf(null));
         assertNull(sheets.linkedItem(null));
-        assertTrue(sheets.choices(ORG).stream().anyMatch(item -> item.getId().equals(sample.getId())));
+        assertTrue(sheets.choices(OrgPageBootstrap.pageKey(Organization.Id.from(ORG))).stream()
+                .anyMatch(item -> item.getId().equals(sample.getId())), "an org page's menu: the org's library");
+        assertTrue(sheets.choices("not-a-page").isEmpty(), "a key naming no page offers nothing");
     }
 
     @Test
@@ -398,7 +492,7 @@ public class TripStylesheetsTest {
         assertTrue(dao.saveContent(new ContentInstance(UUID.randomUUID().toString(), section.getId(), "c",
                 StarterTemplates.TEXT_ONLY_ID, 1, childValues, null, 0, 0, null, "test"), 3));
 
-        final List<TripStylesheets.ClassRow> rows = sheets.classReport(trip.getId(),
+        final List<TripStylesheets.ClassRow> rows = sheets.classReport(page,
                 ".contentItem .pw-callout { color: red }");
         final List<String> names = new ArrayList<>();
         for (final TripStylesheets.ClassRow row : rows) {
@@ -419,7 +513,7 @@ public class TripStylesheetsTest {
         final jakarta.faces.component.UIComponent source = Mockito.mock(jakarta.faces.component.UIComponent.class);
         assertTrue(sheets.complete(new CompleteEvent(source, ".leg", "", 0, 0)).isEmpty(),
                 "off-page, no trip pinned in the view: nothing to complete");
-        tripInView = trip.getId();
+        pageInView = page;
         assertEquals(sheets.complete(new CompleteEvent(source, ".leg", "", 0, 0)), List.of("legacy-note"));
         assertEquals(sheets.complete(new CompleteEvent(source, "pw", "", 0, 0)), List.of("pw-callout", "pw-child"));
         assertTrue(sheets.complete(new CompleteEvent(source, null, "", 0, 0)).contains("contentItem"),

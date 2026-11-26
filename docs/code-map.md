@@ -84,10 +84,14 @@ history; `ReminderSender` is the single path to a mailbox and `reminder/Reminder
 `docs/reminders.md`), `mailMerge` (MailMerge -- the mail merge's send, preview and rules: `{{field}}` substitution
 through `MergeText`/`MergeValues`, never EL; the `emailAdmin` bounds are `OrgCommands`' own), `checkin` (CheckinCommands
 -- tickets, staff check-in, counts, the trip-bound balance, batch badges and the export rows; see `docs/checkin.md`),
-`tripStylesheets` (TripStylesheets -- a trip page's own stylesheets: one `text/css` library item each under
-`org/{orgId}/stylesheets/`, saved in place with a `rev` bump and a CDN invalidation, gated to the org's admins and media
-admins, with the "Classes on this page" report and the CodeMirror completion; local bytes served by
-`web/StylesheetServlet`; see `docs/conference.md` "Look and feel"), `deploy`, `json`, `tripUtil`.
+`tripStylesheets` (TripStylesheets -- the live stylesheet editor every content page's Styles button opens: one
+`text/css` library item per sheet under `org/{orgId}/stylesheets/` (or `stylesheets/` for the shared library), saved in
+place with a `rev` bump and a CDN invalidation, gated to the page owner's stylesheet editors, with Use on this page,
+Stop using, Delete, the "Classes on this page" report and the CodeMirror completion; local bytes served by
+`web/StylesheetServlet`; see `docs/conference.md` "Look and feel"), `pageStyles` (PageStylesheets -- which
+stylesheet each content page links and who owns the choice: the trip, the organization row, or the shared
+`site.pageStylesheets` setting; the head link of every content page; see `docs/content-templates.md`, "A page's own
+stylesheet"), `deploy`, `json`, `tripUtil`.
 
 Rules for these beans: `CLAUDE.md` ("Rules that apply everywhere") and `.claude/rules/page-state.md`.
 

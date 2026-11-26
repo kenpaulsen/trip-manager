@@ -902,6 +902,28 @@ public class MediaResourceTest extends ResourceTestSupport {
         Assert.assertEquals(body.get("key"), "downloads/a.pdf");
     }
 
+    /** A stylesheet a page still links is refused with a 409 that names the page, never a 500 worth retrying. */
+    @Test
+    public void deletingAStylesheetAPageLinksIs409() {
+        signedInAsSiteAdmin(ADMIN);
+        final String id = "css-" + java.util.UUID.randomUUID();
+        final MediaItem sheet = new MediaItem(id, "stylesheets/rest-" + id + ".css", "Linked sheet", "desc",
+                "text/css", 9L, null, 0, LocalDateTime.of(2026, 8, 1, 12, 0), "who@example.com", null, null);
+        Assert.assertTrue(org.paulsens.trip.dynamo.DAO.getInstance().saveMedia(sheet));
+        final org.paulsens.trip.action.PageStylesheets styles =
+                new org.paulsens.trip.action.PageStylesheets(org.paulsens.trip.action.TestCallers::siteAdmin);
+        Assert.assertTrue(styles.link("page:shared:board", id));
+        try {
+            Mockito.when(media.getManageable(id)).thenReturn(sheet);
+            assertError(resource.delete(CSRF_OK, id), 409, ApiErrors.CONFLICT);
+            assertError(resource.update(CSRF_OK, id, new MediaResource.UpdateRequest("stylesheets/moved-" + id + ".css",
+                    null, null, null, null, null)), 409, ApiErrors.CONFLICT);
+            Mockito.verify(media, Mockito.never()).delete(ArgumentMatchers.eq(id), ArgumentMatchers.any());
+        } finally {
+            Assert.assertTrue(styles.unlink("page:shared:board"));
+        }
+    }
+
     @Test
     public void deletingAnUnknownItemIs404AndAFailedDeleteIsReported() {
         signedInAsSiteAdmin(ADMIN);

@@ -176,6 +176,15 @@ public final class OrgPageBootstrap {
         return HOME_PAGE.equals(name) ? V2PageBootstrap.PAGE_KEY : SHARED_PAGE_PREFIX + name;
     }
 
+    /**
+     * Whether {@code pageKey} is one of the shared site's pages: its home ({@code V2PageBootstrap.PAGE_KEY}) or a
+     * named page ({@code page:shared:{name}}). A language version answers false: strip its mark first.
+     */
+    public static boolean isSharedPageKey(final String pageKey) {
+        return V2PageBootstrap.PAGE_KEY.equals(pageKey) || pageKey != null && pageKey.startsWith(SHARED_PAGE_PREFIX)
+                && isPageName(pageKey.substring(SHARED_PAGE_PREFIX.length()));
+    }
+
     /** Whether {@code tripId} can carry a page key at all: a canonical UUID (every real trip's id). */
     public static boolean isTripId(final String tripId) {
         return tripId != null && TRIP_ID.matcher(tripId).matches();

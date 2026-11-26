@@ -104,6 +104,14 @@ public final class Organization implements Serializable {
     private List<SitePage> sitePages;
 
     /**
+     * The stylesheet each of the org site's pages links, by page NAME ({@code home}, {@code about}, ...) to a
+     * library URL (docs/content-templates.md, "A page's own stylesheet"). Keyed by name rather than kept on the
+     * {@link SitePage} because the home page has no entry in {@link #sitePages}. Null or empty = no page has one.
+     * Written only through {@code PageStylesheets}; setter-populated like {@link #sitePages}.
+     */
+    private Map<String, String> pageStylesheets;
+
+    /**
      * The organization's own color palettes (see {@link CustomPalette}), in the order its Appearance page shows
      * them. Null or empty = none. Org-admin managed through {@code CustomPalettes}; the site uses one when its
      * {@code site.theme.palette} setting is {@code custom:<id>}. Setter-populated, outside the 8-arg creator like

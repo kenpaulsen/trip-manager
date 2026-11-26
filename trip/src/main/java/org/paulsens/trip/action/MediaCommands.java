@@ -1088,6 +1088,14 @@ public class MediaCommands {
                 PageFeedback.error(Text.get("feedback.mediaCommands.notRenamed"), refusal);
                 return false;
             }
+            // A rename moves the file, so a page linking the old address would link a missing one: refused like a
+            // delete while any page uses the stylesheet.
+            final String usedBy = new PageStylesheets(callerSource).usersInWords(existing);
+            if (usedBy != null) {
+                PageFeedback.error(Text.get("feedback.mediaCommands.notRenamed"),
+                        Text.get("feedback.pageStylesheets.stillUsed", usedBy));
+                return false;
+            }
             if (!moveObject(existing.getS3Key(), cleanKey)) {
                 return false;
             }
@@ -1333,6 +1341,21 @@ public class MediaCommands {
             return false;
         }
         final MediaItem item = found.get();
+        final String usedBy = new PageStylesheets(callerSource).usersInWords(item);
+        if (usedBy != null) {
+            return PageFeedback.refuse(Text.get("feedback.templateCommands.notDeleted"),
+                    Text.get("feedback.pageStylesheets.stillUsed", usedBy));
+        }
+        return removeItem(item, deletedBy);
+    }
+
+    /**
+     * Removes a library row and its object, already judged deletable by the caller's own rule (this bean's
+     * {@link #mayManage}, or the stylesheet editor's): the row first, then the object, then the change event and the
+     * audit record.
+     */
+    boolean removeItem(final MediaItem item, final String deletedBy) {
+        final String id = item.getId();
         try {
             if (!DAO.getInstance().deleteMedia(id)) {
                 return false;

@@ -776,12 +776,24 @@ public class SitePageCommands {
             return false;
         }
         fresh.setSitePages(pages.isEmpty() ? null : pages);
+        if (indexOf(pages, name) < 0) {
+            // A deleted page's stylesheet choice goes with it: a new page of the same name starts plain.
+            dropStylesheet(fresh, name);
+        }
         if (!orgs.saveOrganization(fresh)) {
             return false;
         }
         orgs.audit(callerSource.get(), fresh, "Editable page '" + title + "' (" + name + ") " + what
                 + gateChange(before, pages, index));
         return true;
+    }
+
+    private static void dropStylesheet(final Organization org, final String name) {
+        if (org.getPageStylesheets() != null && org.getPageStylesheets().containsKey(name)) {
+            final Map<String, String> left = new LinkedHashMap<>(org.getPageStylesheets());
+            left.remove(name);
+            org.setPageStylesheets(left.isEmpty() ? null : left);
+        }
     }
 
     /**

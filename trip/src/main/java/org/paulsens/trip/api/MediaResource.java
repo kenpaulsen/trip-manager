@@ -20,6 +20,7 @@ import org.paulsens.trip.action.ChatAlbumAccess;
 import org.paulsens.trip.action.ChatPhotos;
 import org.paulsens.trip.action.ExpenseReceipts;
 import org.paulsens.trip.action.MediaCommands;
+import org.paulsens.trip.action.PageStylesheets;
 import org.paulsens.trip.api.dto.MediaBasesDto;
 import org.paulsens.trip.api.dto.MediaItemDto;
 import org.paulsens.trip.cache.Cached;
@@ -427,6 +428,11 @@ public class MediaResource extends BaseResource {
             if (holder != null && !holder.getId().equals(existing.getId())) {
                 return error(409, ApiErrors.CONFLICT, Text.get("api.media.keyTakenByAnother"));
             }
+            // Moving a stylesheet a page links would leave the page linking a missing file (as a delete would).
+            final String usedBy = new PageStylesheets(this::caller).usersInWords(existing);
+            if (usedBy != null) {
+                return error(409, ApiErrors.CONFLICT, Text.get("feedback.pageStylesheets.stillUsed", usedBy));
+            }
         }
         final boolean hidden = body.hidden() == null ? existing.getHidden() : body.hidden();
         if (!media.update(id, body.key(), body.title(), body.description(), body.slot(), body.position(),
@@ -454,6 +460,12 @@ public class MediaResource extends BaseResource {
         final MediaItem existing = media.getManageable(id);
         if (existing == null) {
             return error(404, ApiErrors.NOT_FOUND, Text.get("api.media.noSuchItem"));
+        }
+        // A stylesheet a page still links is refused (it would leave the page linking a missing file): a 409 naming
+        // the pages, never a 500 that reads like a fault worth retrying.
+        final String usedBy = new PageStylesheets(this::caller).usersInWords(existing);
+        if (usedBy != null) {
+            return error(409, ApiErrors.CONFLICT, Text.get("feedback.pageStylesheets.stillUsed", usedBy));
         }
         if (!media.delete(id, requestedBy())) {
             return error(500, ApiErrors.STORE_FAILED, Text.get("api.media.deleteFailed"));

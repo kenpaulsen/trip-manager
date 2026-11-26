@@ -933,12 +933,33 @@ every other page, and every shared host, renders the classic markup byte for byt
 (`OrgSubdomainPwIT.theClassicLayoutIsUnchanged`). In edit mode the dashed section frames wrap each band, which then
 stays inside its frame rather than reaching the window's edges.
 
-**A page's own stylesheet.** A trip page names one in its page options (`Trip.page.stylesheetUrl`, a CSS file
-in the org's media library, the trip managers' Trip Page dialog; `conference.md`, "Look and feel"). Any page can
-also carry one as a content section: an org-scoped STANDARD template whose body is a `<link rel="stylesheet">` to a
-`.css` in the org's media library (or a `<style>` block), placed once on the page it styles; authoring that is the
-template manager's raw-HTML trust (`contentAdmin`), the same as any template. Either way the rules belong under
-`.contentItem` so the site's own chrome is never restyled.
+**A page's own stylesheet** (every content page since 2026-11-26; `PageStylesheets` as `#{pageStyles}`). Each
+page's stylesheet is a setting OF THAT PAGE, stored with whoever owns it: a trip's page on the trip
+(`Trip.page.stylesheetUrl`, also the Trip Page dialog's menu; `conference.md`, "Look and feel"); an organization's
+pages, its home included, on the organization row by page name (`Organization.pageStylesheets`; the home page has no
+Editable Pages entry, so it cannot live there; the Editable Pages settings dialog's Stylesheet menu writes it too);
+the shared site's own pages (its home and `page:shared:*`) in the `site.pageStylesheets` setting, by page key. Any
+other key (a container, a trip's sub-page, the placeholder marketing host's pages, a trip with no organization) has
+no owner and so no stylesheet: a lookup miss never falls through to the shared library (`PageStylesheets.ownerOf`).
+A page links only a `text/css` item of its OWNER's library: an organization's, or for a shared page the shared
+library (`stylesheets/{slug}.css`, no organization, kept by site admins). The `<link data-trip-stylesheet>` in the
+head of `contentPage.xhtml` and `homePage.xhtml` comes from `pageStyles.linkForSitePage(name)`: cached reads,
+never a throw, and nothing for a stored value that names anything else (the shared setting is hand-editable on the
+Settings page). Trip pages keep their own head link (`tripPage.lookFor`).
+
+The edit toolbar of every content page carries the same Styles button (`WEB-INF/pageStyles.xhtml`, shown to whoever
+edits the stylesheets of the page owner's library, in edit mode or not: `TripStylesheets.canEditPage`), which opens
+the live editor on the page the host pinned as `viewScope.pageKey`; `?styles=new|true` opens it on arrival
+(`firstOpen`). Besides Save, the editor has **Use on this page** (save, then link it: `saveAndUse` through
+`PageStylesheets.link`, for whoever may change the page's settings: the org's admins, site admins for shared pages;
+the page's link is swapped in the browser at once), **Stop using**, and **Delete**, which refuses while any page links
+the sheet (a "Used by" line names them first) and otherwise removes the row and the file; the Media page's Delete
+refuses a linked sheet the same way (`PageStylesheets.usersInWords`, also on a rename and on the API, which answers
+409), so no page ever links a missing file. Any page can also still carry styles as a content section: an org-scoped
+STANDARD template whose body is a `<link rel="stylesheet">` or a `<style>` block, placed once on the page it styles;
+authoring that is the template manager's raw-HTML trust (`contentAdmin`). Either way the rules belong under
+`.contentItem` so the site's
+own chrome is never restyled.
 
 **The marketing page** (`page:unitetrip-home`) is seeded from `MarketingPageBootstrap`: a hero, a
 six-card Features band, three split bands, a four-item Stats band, a five-question FAQ and a dark call to

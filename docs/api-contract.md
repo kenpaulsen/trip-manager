@@ -737,26 +737,27 @@ answers an admin with the items of the site the request is for, hidden included,
 /api/media/{id}` shows an admin a hidden item only when it is theirs to manage on that site (otherwise hidden reads as
 404, as for everyone). `POST /api/media` and `PUT /api/media/{id}` answer 422 `VALIDATION_FAILED` for a `slot` that
 belongs to another feature (`tripChat-...`, `lodging-...`, `receipts-...`) unless a PUT leaves the item's own slot
-unchanged: photos enter an album only through the chat upload. `GET .../invite` also answers `canAdminister`, the
-chat-admin signal the apps use for moderator-only items. Refusals: 429 `RATE_LIMITED` + `Retry-After` (40 uploads / 10
-min per person, shared with the website), 403 with the send codes (`MUTED`, `FORBIDDEN`, `CHANNEL_ARCHIVED`), 400
-`BAD_ATTACHMENT` (photos off, bad crop, empty body), 413 `ATTACHMENT_TOO_LARGE` (the channel's `maxAttachmentBytes`),
-422 `BAD_ATTACHMENT` (not an image). URL bases: `GET /api/media/bases` → `{chatPhotos, profilePhotos, remote}`
-(absolute, end in `/`; a stored `s3Key` resolves as `chatPhotos + key`). Payments: `POST /api/payments/quote` (answers
-`sandboxAllowed` and `processorLabel`, the processor's display name for the screen's footer), `POST /api/payments` →
-`{paymentId, approvalUrl?, publishableKey?, clientSecret?, merchantName}` -- `approvalUrl` set = a redirect processor
-(PayPal): open it and come back through the return URL; `clientSecret` + `publishableKey` set = a Stripe PaymentIntent:
-present the native PaymentSheet with them (`merchantName` is the organization's display name), then `POST
-/api/payments/{paymentId}/complete {token}` (`token` null for Stripe) and read `status` (`recorded`, `sandbox`,
-`pending` = a bank debit is processing and the server will email when it clears, `mismatch` = the money was received but
-the payment is held for an administrator, `failed`, `cancelled`), or `POST /api/payments/{id}/cancel` when the sheet is
-dismissed. The cancel answers 200 `{cancelled, state}`: `cancelled: false` means THIS call did not cancel it -- the
-payment was already finished or already canceled (a replayed cancel), the processor is still settling it (a bank debit
-in flight cannot be canceled, 2026-11) or already holds the money (it is then recorded instead), or the processor could
-not be reached. `state` (2026-11; null for a payment that is unknown or not the caller's, and absent from a server that
-predates it) is the payment's stored status after the call, and with `cancelled` it is what settles the client's
-attempt. The apps follow ONE rule, and a client must not keep an attempt "awaiting confirmation" on any answer but the
-last:
+unchanged: photos enter an album only through the chat upload. `DELETE /api/media/{id}` answers 409 `CONFLICT` for a
+stylesheet a page still links (the message names the pages; 2026-11-26), so no page links a missing file. `GET
+.../invite` also answers `canAdminister`, the chat-admin signal the apps use for moderator-only items. Refusals: 429
+`RATE_LIMITED` + `Retry-After` (40 uploads / 10 min per person, shared with the website), 403 with the send codes
+(`MUTED`, `FORBIDDEN`, `CHANNEL_ARCHIVED`), 400 `BAD_ATTACHMENT` (photos off, bad crop, empty body), 413
+`ATTACHMENT_TOO_LARGE` (the channel's `maxAttachmentBytes`), 422 `BAD_ATTACHMENT` (not an image). URL bases: `GET
+/api/media/bases` → `{chatPhotos, profilePhotos, remote}` (absolute, end in `/`; a stored `s3Key` resolves as
+`chatPhotos + key`). Payments: `POST /api/payments/quote` (answers `sandboxAllowed` and `processorLabel`, the
+processor's display name for the screen's footer), `POST /api/payments` → `{paymentId, approvalUrl?, publishableKey?,
+clientSecret?, merchantName}` -- `approvalUrl` set = a redirect processor (PayPal): open it and come back through the
+return URL; `clientSecret` + `publishableKey` set = a Stripe PaymentIntent: present the native PaymentSheet with them
+(`merchantName` is the organization's display name), then `POST /api/payments/{paymentId}/complete {token}` (`token`
+null for Stripe) and read `status` (`recorded`, `sandbox`, `pending` = a bank debit is processing and the server will
+email when it clears, `mismatch` = the money was received but the payment is held for an administrator, `failed`,
+`cancelled`), or `POST /api/payments/{id}/cancel` when the sheet is dismissed. The cancel answers 200 `{cancelled,
+state}`: `cancelled: false` means THIS call did not cancel it -- the payment was already finished or already canceled (a
+replayed cancel), the processor is still settling it (a bank debit in flight cannot be canceled, 2026-11) or already
+holds the money (it is then recorded instead), or the processor could not be reached. `state` (2026-11; null for a
+payment that is unknown or not the caller's, and absent from a server that predates it) is the payment's stored status
+after the call, and with `cancelled` it is what settles the client's attempt. The apps follow ONE rule, and a client
+must not keep an attempt "awaiting confirmation" on any answer but the last:
 
 - `cancelled: true`, or `state` `CANCELLED` or `FAILED`: the attempt is canceled.
 - `state` `RECORDED` or `CAPTURED`: the money was taken (a `CAPTURED` payment may be held for an administrator

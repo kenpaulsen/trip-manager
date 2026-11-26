@@ -40,6 +40,7 @@ import org.paulsens.trip.model.Registration;
 import org.paulsens.trip.model.RegistrationOption;
 import org.paulsens.trip.model.Transaction;
 import org.paulsens.trip.model.Trip;
+import org.paulsens.trip.model.TripPageOptions;
 import org.paulsens.trip.model.TripEvent;
 import org.paulsens.trip.model.TripKind;
 
@@ -290,6 +291,7 @@ public class TripCommands {
             PageFeedback.warn(Text.get("feedback.tripCommands.notSavedBecause", String.join(" ", links)));
             return false;
         }
+        keepStoredStylesheet(trip, stored);
         final List<String> page = new TripPageCommands().pageProblems(trip);
         if (!page.isEmpty()) {
             // Same for the Trip Page dialog (docs/conference.md, "Look and feel").
@@ -553,6 +555,20 @@ public class TripCommands {
             // The same for the page's top-block stamp: only the page's own code writes it (seeding, the backfill,
             // a copied page), straight onto the stored row, so a working copy taken before must not clear it.
             trip.setPageTopSectionsAt(stored.getPageTopSectionsAt());
+        }
+    }
+
+    /**
+     * An editor's working copy whose stylesheet the editor never changed saves the STORED one: the page's own Styles
+     * editor links a sheet straight onto the stored row ("Use on this page", "Stop using"), and an editor tab opened
+     * before that must not put the older value back (or, for a sheet deleted since, be refused for it). A copy the
+     * editor did change, and every write that is no editor's copy (the API, a page copy), saves what it carries.
+     */
+    static void keepStoredStylesheet(final Trip trip, final Trip stored) {
+        final TripPageOptions page = trip.pageOrNull();
+        if (stored != null && page != null && page.stylesheetUntouchedInDraft()) {
+            page.setStylesheetUrl(stored.pageOrNull() == null ? null : stored.pageOrNull().getStylesheetUrl());
+            page.markDraftStart();
         }
     }
 

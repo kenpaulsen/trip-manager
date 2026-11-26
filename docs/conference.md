@@ -329,13 +329,16 @@ organization's"):
   id="tripLiveCss">` on the page, so it restyles as the designer types; while the sheet being edited is the one the page
   links, the page's own `<link data-trip-stylesheet>` is switched off so a removed rule disappears too, and Close puts
   the page back. **Save stores the stylesheet only** (`saveOnly`: create, or save in place with the title change as the
-  rename; a new sheet is then the one being edited); linking a sheet to the trip stays the Trip Page dialog's menu, so a
-  designer may work on a sheet without touching the trip (the dialog says so when the saved sheet is not the linked
-  one). Who edits: site admins, the org's admins and its `mediaAdmin` holders (`canEdit` = `canManageOrg` or
-  `canViewOrgMedia`); a trip manager only picks. ONE media item per stylesheet, `text/css`, under
-  `org/{orgId}/stylesheets/{slug}.css` (`slugOf` the title, `-2`, `-3` on a collision); Save overwrites the SAME key
-  (every trip's stored URL keeps working), bumps the row's `rev` so the rendered `<link>` carries `?r=N`
-  (`TripPageCommands.lookOf` appends `MediaItem.getCacheBuster()` from the CACHED listing,
+  rename; a new sheet is then the one being edited), so a designer may work on a sheet without touching the trip (the
+  dialog says so when the saved sheet is not the linked one); **Use on this page** saves AND links it to the trip
+  (`saveAndUse`, the org's admins), **Stop using** drops the link, and **Delete** removes a sheet no page links. The
+  Trip Page dialog's menu, the trip managers', still links one too; an editor tab opened before a link made from the
+  page keeps it on Save (`TripCommands.keepStoredStylesheet`). The same editor and button serve every content page
+  (2026-11-26): `content-templates.md`, "A page's own stylesheet". Who edits: site admins, the org's admins and its
+  `mediaAdmin` holders (`canEdit` = `canManageOrg` or `canViewOrgMedia`); a trip manager only picks. ONE media item per
+  stylesheet, `text/css`, under `org/{orgId}/stylesheets/{slug}.css` (`slugOf` the title, `-2`, `-3` on a collision);
+  Save overwrites the SAME key (every trip's stored URL keeps working), bumps the row's `rev` so the rendered `<link>`
+  carries `?r=N` (`TripPageCommands.lookOf` appends `MediaItem.getCacheBuster()` from the CACHED listing,
   `MediaCommands.cachedLibraryItemFor`; the stored value stays bare and `libraryItemFor` ignores a query suffix), and
   invalidates the CDN path once (`invalidateCdn`; CloudFront's cache key ignores query strings). The editor opens and
   saves in place ANY `text/css` library item stored in its organization's own folder as a `.css` file

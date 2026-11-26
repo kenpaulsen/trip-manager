@@ -128,6 +128,15 @@ public final class KnownSettings {
             "site.pages.sidebar", Config.Type.STRING, SIDEBAR_ON)
             .withOrgOverride().withChoices(SIDEBAR_ON, SIDEBAR_OFF, SIDEBAR_FORCED_OFF);
 
+    /**
+     * The stylesheet each of the SHARED site's pages links (its home and {@code page:shared:*}), a JSON object of
+     * page key to a URL in the shared library. Written by the stylesheet editor's "Use on this page"
+     * ({@code PageStylesheets}); a value naming anything but a shared-library stylesheet links nothing. Not an
+     * organization override: an organization's pages keep theirs on the organization row.
+     */
+    public static final SettingDef SITE_PAGE_STYLESHEETS = new SettingDef(
+            "site.pageStylesheets", Config.Type.STRING, "");
+
     /** The stored value of {@link #SITE_LAYOUT} that keeps the content card and the sidebar. */
     public static final String LAYOUT_CLASSIC = "classic";
     /** The stored value of {@link #SITE_LAYOUT} that lets the home page's bands span the whole window. */
@@ -624,7 +633,7 @@ public final class KnownSettings {
     private static final List<SettingSection> SECTIONS = List.of(
             new SettingSection("Site",
                     List.of(SITE_ORG_NAME, SITE_ORGSITES_BASE_DOMAIN, MAIL_SHARED_DOMAINS, SITE_ANALYTICS_ID,
-                            SITE_LANGUAGES, API_LANGUAGES_MIN_APP_VERSION)),
+                            SITE_LANGUAGES, API_LANGUAGES_MIN_APP_VERSION, SITE_PAGE_STYLESHEETS)),
             new SettingSection(BRANDING_SECTION,
                     List.of(SITE_THEME_PALETTE, SITE_THEME_DARK, SITE_LAYOUT, SITE_LOGO_URL, SITE_FAVICON_URL,
                             SITE_OG_IMAGE_URL,

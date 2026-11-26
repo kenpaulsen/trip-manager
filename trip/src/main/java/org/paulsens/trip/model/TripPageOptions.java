@@ -7,6 +7,7 @@ import java.io.Serial;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import lombok.AccessLevel;
 import lombok.Data;
 import lombok.Getter;
@@ -54,6 +55,20 @@ public final class TripPageOptions implements Serializable {
     @Getter(AccessLevel.NONE)
     @Setter(AccessLevel.NONE)
     private transient String backgroundChoice;
+    /**
+     * The stylesheet the trip editor's working copy started with ({@code TripEditDrafts.start}), and whether it
+     * was recorded: the page's own Styles editor may link a sheet straight onto the stored trip while an editor tab
+     * is still open, and that tab's Save must not put the older value back ({@code TripCommands.saveTrip}).
+     * Working-copy state only (drafts live on the heap): never stored, never compared.
+     */
+    @JsonIgnore
+    @Getter(AccessLevel.NONE)
+    @Setter(AccessLevel.NONE)
+    private transient boolean draftStarted;
+    @JsonIgnore
+    @Getter(AccessLevel.NONE)
+    @Setter(AccessLevel.NONE)
+    private transient String draftStylesheetUrl;
 
     @JsonCreator
     public TripPageOptions(
@@ -73,6 +88,17 @@ public final class TripPageOptions implements Serializable {
 
     public TripPageOptions() {
         this(null, null, null, null, null, null);
+    }
+
+    /** Records the stylesheet a trip editor's working copy starts with (see {@link #draftStarted}). */
+    public void markDraftStart() {
+        draftStarted = true;
+        draftStylesheetUrl = stylesheetUrl;
+    }
+
+    /** Whether this is an editor's working copy whose stylesheet the editor never changed. */
+    public boolean stylesheetUntouchedInDraft() {
+        return draftStarted && Objects.equals(stylesheetUrl, draftStylesheetUrl);
     }
 
     /** Whether every option is unset: the page is exactly what the org's Appearance page makes it. */

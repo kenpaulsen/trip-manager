@@ -84,6 +84,8 @@ public class TripEditDrafts {
         if (workingCopy == null || owner == null) {
             return null;
         }
+        // What the copy's stylesheet was when the editor opened: a link made from the page meanwhile survives Save.
+        workingCopy.getPage().markDraftStart();
         final String token = newToken();
         synchronized (byToken) {
             drainIdle();
