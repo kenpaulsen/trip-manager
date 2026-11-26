@@ -1587,7 +1587,7 @@ public class ContentCommands {
         boolean all = true;
         try {
             for (final ContentInstance row : DAO.getInstance().getContentForSection(fromKey, Cached.NO)) {
-                all &= copyRow(caller, row, toKey, fromKey);
+                all &= copyRow(caller, row, toKey, fromKey, true);
             }
         } catch (final RuntimeException ex) {
             log.error("Unable to copy page " + fromKey + " to " + toKey, ex);
@@ -1596,39 +1596,52 @@ public class ContentCommands {
         return all;
     }
 
-    /** One row and, beneath it, its children, into {@code section}; the children's section is the NEW row's id. */
+    /**
+     * One row and, beneath it, its children, into {@code section}; the children's section is the NEW row's id.
+     * {@code keepGrants} as {@link #copyOf} takes it: true for a language version of the same page, whose groups keep
+     * the editors who already edit that page.
+     */
     private boolean copyRow(final Caller caller, final ContentInstance row, final String section,
-            final String copiedFrom) {
-        final ContentInstance copy = copyOf(caller, row, section, row.getPosition());
+            final String copiedFrom, final boolean keepGrants) {
+        final ContentInstance copy = copyOf(caller, row, UUID.randomUUID().toString(), section, row.getPosition(),
+                new HashMap<>(row.getValues()), keepGrants);
         if (!storeContent(copy, retainCount())) {
             return false;
         }
         audit(caller, copy.getId(), "Copied '" + copy.getTitle() + "' into " + section + " from " + copiedFrom);
-        return copyChildren(caller, row, copy);
+        return copyChildren(caller, row, copy, keepGrants);
     }
 
     /** The children of {@code row}, each copied (with its own children) under {@code copy}. */
-    private boolean copyChildren(final Caller caller, final ContentInstance row, final ContentInstance copy) {
+    private boolean copyChildren(final Caller caller, final ContentInstance row, final ContentInstance copy,
+            final boolean keepGrants) {
         boolean all = true;
         for (final ContentInstance child : DAO.getInstance().getContentForSection(row.getId(), Cached.NO)) {
-            all &= copyRow(caller, child, copy.getId(), row.getId());
+            all &= copyRow(caller, child, copy.getId(), row.getId(), keepGrants);
         }
         return all;
     }
 
     /**
-     * A new, unsaved row holding what {@code row} holds, in {@code section} at {@code position}. A seeded
-     * placeholder's copy keeps the seed as its author (with the seed's "Show until"), so it stays hidden from
-     * visitors and its first save publishes it, exactly as the original's would ({@link #publishIfSeededPlaceholder}).
+     * THE row-copy recipe (the Clone button, a page's language version, another trip's page through
+     * {@code TripPageCommands.clonePage}): a new, unsaved row holding what {@code row} holds, under {@code id} in
+     * {@code section} at {@code position}, with {@code values}. A seeded placeholder's copy keeps the seed as its
+     * author (with the seed's "Show until"), so it stays hidden from visitors and its first save publishes it,
+     * exactly as the original's would ({@link #publishIfSeededPlaceholder}). A group's editor privileges are a
+     * contentAdmin's grant ({@link #guardContainerConfig}): a copy that reaches beyond the row's own page carries them
+     * only when a contentAdmin makes it ({@code keepGrants} false), never otherwise, as anyone else's own save of
+     * the copy would drop them.
      */
-    private static ContentInstance copyOf(final Caller caller, final ContentInstance row, final String section,
-            final int position) {
+    static ContentInstance copyOf(final Caller caller, final ContentInstance row, final String id,
+            final String section, final int position, final Map<String, String> values, final boolean keepGrants) {
         final String author = OrgPageBootstrap.isSeededPlaceholder(row) ? row.getModifiedBy()
                 : caller.auditActor().email();
-        return new ContentInstance(UUID.randomUUID().toString(), section, row.getTitle(),
-                row.getTemplateId(), row.getTemplateVersion(), new HashMap<>(row.getValues()), row.getEventDate(),
+        final boolean grants = row.getEditorPrivileges() != null
+                && (keepGrants || caller.has(PrivilegeCommands.CONTENT_ADMIN));
+        return new ContentInstance(id, section, row.getTitle(),
+                row.getTemplateId(), row.getTemplateVersion(), values, row.getEventDate(),
                 position, 0, null, author,
-                row.getEditorPrivileges() == null ? null : new ArrayList<>(row.getEditorPrivileges()),
+                grants ? new ArrayList<>(row.getEditorPrivileges()) : null,
                 row.getAllowedChildTemplateIds() == null ? null : new ArrayList<>(row.getAllowedChildTemplateIds()),
                 row.isStayOnLatest());
     }
@@ -1652,7 +1665,8 @@ public class ContentCommands {
         }
         final ArrayList<String> order = idsFor(original.getSection(), true);
         final int at = order.indexOf(original.getId()) + 1;
-        final ContentInstance copy = copyOf(caller, original, original.getSection(), at > 0 ? at : order.size());
+        final ContentInstance copy = copyOf(caller, original, UUID.randomUUID().toString(), original.getSection(),
+                at > 0 ? at : order.size(), new HashMap<>(original.getValues()), false);
         final ContentInstance parent = storedRow(original.getSection());
         final String problem = parent == null ? null : validateAsChild(copy, parent);
         if (problem != null) {
@@ -1666,7 +1680,7 @@ public class ContentCommands {
             }
             audit(caller, copy.getId(), "Cloned '" + copy.getTitle() + "' in " + copy.getSection() + " from "
                     + original.getId());
-            if (!copyChildren(caller, original, copy)) {
+            if (!copyChildren(caller, original, copy, false)) {
                 PageFeedback.warn(Text.get("feedback.contentCommands.cloneChildrenFailed"));
             }
         } catch (final RuntimeException ex) {

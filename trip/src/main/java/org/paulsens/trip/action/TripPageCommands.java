@@ -602,7 +602,8 @@ public class TripPageCommands {
         try {
             final LocalDateTime now = clock.get();
             final String key = OrgPageBootstrap.tripPageKey(trip.getId());
-            final boolean withTop = topInstalled() && DAO.getInstance().getContentForSection(key, Cached.NO).isEmpty();
+            final List<ContentInstance> before = DAO.getInstance().getContentForSection(key, Cached.NO);
+            final boolean withTop = topInstalled() && before.isEmpty();
             final List<ContentInstance> rows = OrgPageBootstrap.tripRows(trip, orgNameOf(trip),
                     OrgCommands::currentTemplateVersion, now, withTop);
             if (!OrgCommands.seedIfEmpty(key, rows)) {
@@ -610,7 +611,7 @@ public class TripPageCommands {
                 return false;
             }
             trip.setPageSeededAt(now);
-            if (withTop) {
+            if (topAsSections(trip, before, withTop)) {
                 trip.setPageTopSectionsAt(now);
             }
             return DAO.getInstance().saveTrip(trip);
@@ -618,6 +619,17 @@ public class TripPageCommands {
             log.error("Unable to seed the conference page of trip {}", trip.getId(), ex);
             return false;
         }
+    }
+
+    /**
+     * Whether the page shows the trip's pictures and facts as sections once this seed is done: it seeds them now
+     * ({@code withTop}), or an earlier attempt already wrote them (their ids are fixed per trip) and only the trip's
+     * save, with its stamp, was lost. Decided from what the page holds, never only from whether it was empty, or
+     * the retry would stamp the page without them and the fixed block would be drawn above its two sections.
+     */
+    private static boolean topAsSections(final Trip trip, final List<ContentInstance> before, final boolean withTop) {
+        return withTop || before.stream().map(ContentInstance::getId).toList()
+                .containsAll(OrgPageBootstrap.topRowIds(trip));
     }
 
     /** The first starter template the conference page needs that {@code installed} says is missing, or null. */
@@ -729,7 +741,8 @@ public class TripPageCommands {
         }
         try {
             final LocalDateTime now = clock.get();
-            final boolean withTop = topInstalled() && DAO.getInstance().getContentForSection(key, Cached.NO).isEmpty();
+            final List<ContentInstance> before = DAO.getInstance().getContentForSection(key, Cached.NO);
+            final boolean withTop = topInstalled() && before.isEmpty();
             final List<ContentInstance> rows = described
                     ? legacyRowsWithTop(trip, withTop)
                     : OrgPageBootstrap.tripRows(trip, orgNameOf(trip), OrgCommands::currentTemplateVersion, now,
@@ -737,7 +750,7 @@ public class TripPageCommands {
             // A page someone authored by hand before the trip was stamped is kept as it is; only the stamp is new.
             OrgCommands.seedIfEmpty(key, rows);
             trip.setPageSeededAt(now);
-            if (withTop) {
+            if (topAsSections(trip, before, withTop)) {
                 // The old page showed the pictures and facts above the description; the converted one keeps them,
                 // as its first two sections.
                 trip.setPageTopSectionsAt(now);
@@ -990,15 +1003,10 @@ public class TripPageCommands {
             // A row that appeared since the ids were minted is left out rather than saved under a random id.
             return true;
         }
-        // A seeded placeholder keeps the seed's author, so its first save publishes it exactly like the original's.
-        final String author = OrgPageBootstrap.isSeededPlaceholder(row) ? OrgPageBootstrap.SEED_AUTHOR
-                : caller.auditActor().email();
-        final ContentInstance copy = new ContentInstance(copyId, section, row.getTitle(), row.getTemplateId(),
-                row.getTemplateVersion(), rewriteForCopy(row, ids, source, target), row.getEventDate(),
-                row.getPosition(), 0, null, author,
-                row.getEditorPrivileges() == null ? null : new ArrayList<>(row.getEditorPrivileges()),
-                row.getAllowedChildTemplateIds() == null ? null : new ArrayList<>(row.getAllowedChildTemplateIds()),
-                row.isStayOnLatest());
+        // The one row-copy recipe: a seeded placeholder keeps the seed's author, and a group's editor privileges
+        // come along only when a contentAdmin copies (another trip's page is beyond the row's own page).
+        final ContentInstance copy = ContentCommands.copyOf(caller, row, copyId, section, row.getPosition(),
+                rewriteForCopy(row, ids, source, target), false);
         if (!saveCopy(copy, retain)) {
             log.error("Unable to copy row {} of trip {}'s page", row.getId(), source.getId());
             return false;

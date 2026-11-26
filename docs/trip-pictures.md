@@ -191,11 +191,12 @@ names (`tripPage.tripFor`), and in edit mode say so when they have nothing to sh
 
 **The transition.** `WEB-INF/tripPictureHero.xhtml` is the FIXED block above the sections, drawn from the same two
 inner fragments, and a page draws it until its trip is stamped `Trip.pageTopSectionsAt`: by the seed of a new page
-(`OrgPageBootstrap.topRows`, the sections first, then the starters), by a legacy page's conversion, by a page copied
-from a stamped trip (`docs/conference.md`, "Copying a page"), and for pages seeded earlier by the one-time backfill
-`medjugorje/scripts/add-trip-top-sections.sh`. Keyed on the stamp, never on whether the rows are there, so an editor
-who deletes the two sections does not get the fixed block back; only the page's own code writes it, and every other
-save keeps the stored value (`TripCommands.keepStoredPictures`). A legacy page always draws the fixed block.
+(`OrgPageBootstrap.topRows`, the sections first, then the starters; a retried seed whose rows an earlier attempt
+already wrote is stamped too, from the two rows' fixed ids, `topRowIds`), by a legacy page's conversion, by a page
+copied from a stamped trip (`docs/conference.md`, "Copying a page"), and for pages seeded earlier by the one-time
+backfill `medjugorje/scripts/add-trip-top-sections.sh`. Keyed on the stamp, never on whether the rows are there, so an
+editor who deletes the two sections does not get the fixed block back; only the page's own code writes it, and every
+other save keeps the stored value (`TripCommands.keepStoredPictures`). A legacy page always draws the fixed block.
 
 ## Local fixtures
 

@@ -577,7 +577,10 @@ in edit mode.
 after the original, a group's items copied beneath it, and the page reloads on the copy (`cloneLanding`). A group's
 allow-list and size still apply; required prompts are not asked again (it copies what is stored), and a seeded
 placeholder's copy keeps the seed as author and its "Show until", so it stays hidden until its first save, like the
-original.
+original. A group's editor privileges are a contentAdmin's grant (`guardContainerConfig`): the copy keeps them only
+when a contentAdmin clones it (a trip manager's clone of a group has no editors of its own). One recipe builds every
+copy (`ContentCommands.copyOf`): the Clone button, a page's language version (which keeps them: the same page's
+editors) and another trip's page (`TripPageCommands.clonePage`, as Clone).
 
 **The bottom of a page**: once a page has a section, "Add section here" is drawn below the last one too
 (`.addHereEnd`, adding at the end), and the page toolbar keeps only Arrange sections; an empty page keeps the

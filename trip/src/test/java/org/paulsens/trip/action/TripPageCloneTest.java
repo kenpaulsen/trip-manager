@@ -295,6 +295,155 @@ public class TripPageCloneTest {
         assertNull(fresh.getPageTopSectionsAt(), "a brand-new trip has nothing stored to keep");
     }
 
+    /**
+     * A group's editor privileges are a contentAdmin's grant: a trip manager's copy of a page carries the group,
+     * never its editors (who would otherwise reach the other trip's page through it).
+     */
+    @Test
+    public void aCopiedGroupCarriesNoEditorsATripManagerCouldNotGrant() throws IOException {
+        final Trip source = trip("2028 Mar: Granting Source", FakeData.CFPW_ORG_ID);
+        source.setKind(TripKind.CONFERENCE);
+        assertTrue(dao.saveTrip(source));
+        final Trip target = trip("2028 Apr: Granting Target", FakeData.CFPW_ORG_ID);
+        manage(source);
+        manage(target);
+        assertTrue(pages.ensurePage(source));
+        assertTrue(pages.ensurePage(target));
+        final ContentInstance speakers = dao.getContentForSection(OrgPageBootstrap.tripPageKey(source.getId()),
+                Cached.NO).stream().filter(row -> StarterTemplates.PEOPLE_LIST_ID.equals(row.getTemplateId()))
+                .findFirst().orElseThrow();
+        speakers.setEditorPrivileges(new java.util.ArrayList<>(List.of(PrivilegeCommands.EVENT_ADMIN)));
+        assertTrue(dao.saveContent(speakers, 3), "as a contentAdmin's save would leave it");
+
+        assertTrue(pages.clonePage(dao.getTrip(target.getId(), Cached.NO).orElseThrow(), source.getId(), false,
+                MANAGER));
+        final ContentInstance copied = dao.getContentForSection(OrgPageBootstrap.tripPageKey(target.getId()),
+                Cached.NO).stream().filter(row -> StarterTemplates.PEOPLE_LIST_ID.equals(row.getTemplateId()))
+                .findFirst().orElseThrow();
+        assertTrue(copied.getEditorPrivileges() == null || copied.getEditorPrivileges().isEmpty(),
+                "the copy's editors are not the trip manager's to grant: " + copied.getEditorPrivileges());
+    }
+
+    /**
+     * The copy re-checks BOTH pages: a manager of the source alone, and a manager of the target alone, are each
+     * refused, and the target's page stays as it was.
+     */
+    @Test
+    public void aCopyNeedsTheRightToEditBothPages() throws IOException {
+        final Trip source = trip("2028 May: Either Source", FakeData.CFPW_ORG_ID);
+        final Trip target = trip("2028 Jun: Either Target", FakeData.CFPW_ORG_ID);
+        manage(source);
+        manage(target);
+        assertTrue(pages.ensurePage(source));
+        assertTrue(pages.ensurePage(target));
+        final Person.Id sourceOnly = Person.Id.from("clone-source-only");
+        final Person.Id targetOnly = Person.Id.from("clone-target-only");
+        priv.savePrivilege(priv.createPrivilege(PrivilegeCommands.TRIP_MGR, "clone source only", source.getId(),
+                List.of(sourceOnly)));
+        priv.savePrivilege(priv.createPrivilege(PrivilegeCommands.TRIP_MGR, "clone target only", target.getId(),
+                List.of(targetOnly)));
+        final String targetKey = OrgPageBootstrap.tripPageKey(target.getId());
+        final List<String> before = ids(targetKey);
+
+        assertFalse(pages.clonePage(dao.getTrip(target.getId(), Cached.NO).orElseThrow(), source.getId(), false,
+                sourceOnly), "may edit the source only: the target is not theirs to replace");
+        assertFalse(pages.clonePage(dao.getTrip(target.getId(), Cached.NO).orElseThrow(), source.getId(), false,
+                targetOnly), "may edit the target only: the source's rows, hidden ones too, are not theirs to read");
+        assertEquals(ids(targetKey), before, "both refusals leave the page as it was");
+    }
+
+    /**
+     * The top-block stamp follows the SOURCE, at the copy's own time: a source showing its pictures and facts as
+     * sections stamps the target anew; a source still drawing the fixed block clears the target's stamp, on the
+     * stored trip and on the working copy, so the copied page gets the fixed block back.
+     */
+    @Test
+    public void theTopBlockStampFollowsTheSource() throws IOException {
+        final Trip stamped = trip("2028 Jul: Stamped Source", FakeData.CFPW_ORG_ID);
+        final Trip unstamped = trip("2028 Aug: Unstamped Source", FakeData.CFPW_ORG_ID);
+        final Trip target = trip("2028 Sep: Stamp Target", FakeData.CFPW_ORG_ID);
+        for (final Trip each : List.of(stamped, unstamped, target)) {
+            manage(each);
+        }
+        assertTrue(pages.ensurePage(stamped));
+        assertTrue(withoutTopTemplates().ensurePage(unstamped));
+        assertNull(dao.getTrip(unstamped.getId(), Cached.NO).orElseThrow().getPageTopSectionsAt());
+        assertTrue(pages.ensurePage(target));
+        assertEquals(dao.getTrip(target.getId(), Cached.NO).orElseThrow().getPageTopSectionsAt(), NOW);
+
+        final LocalDateTime later = NOW.plusHours(1);
+        final TripPageCommands laterPages = new TripPageCommands(() -> null, () -> later);
+        final Trip draft = dao.getTrip(target.getId(), Cached.NO).orElseThrow();
+        assertTrue(laterPages.clonePage(draft, stamped.getId(), false, MANAGER));
+        assertEquals(dao.getTrip(target.getId(), Cached.NO).orElseThrow().getPageTopSectionsAt(), later,
+                "stamped by the copy itself");
+        assertEquals(draft.getPageTopSectionsAt(), later);
+
+        final Trip again = dao.getTrip(target.getId(), Cached.NO).orElseThrow();
+        assertTrue(laterPages.clonePage(again, unstamped.getId(), false, MANAGER));
+        assertNull(dao.getTrip(target.getId(), Cached.NO).orElseThrow().getPageTopSectionsAt(),
+                "a fixed-block source's copy draws the fixed block");
+        assertNull(again.getPageTopSectionsAt(), "on the working copy too, so its Save cannot restamp it");
+    }
+
+    /**
+     * Between the deploy and the installer run the two top templates are missing: a page still seeds, with the
+     * starter sections alone (or a legacy trip's one converted section), stamped as seeded and NOT as showing its
+     * top block as sections, so the fixed block keeps drawing the pictures and facts.
+     */
+    @Test
+    public void aPageSeedsWithoutItsTopSectionsWhileTheirTemplatesAreMissing() throws IOException {
+        final TripPageCommands missing = withoutTopTemplates();
+        final Trip fresh = trip("2028 Oct: Before The Installer", FakeData.CFPW_ORG_ID);
+        assertTrue(missing.ensurePage(fresh));
+        final Trip seeded = dao.getTrip(fresh.getId(), Cached.NO).orElseThrow();
+        assertNotNull(seeded.getPageSeededAt());
+        assertNull(seeded.getPageTopSectionsAt(), "no sections for them, so no stamp");
+        assertEquals(templatesOf(OrgPageBootstrap.tripPageKey(fresh.getId())),
+                OrgPageBootstrap.tripRows(fresh, "", id -> 1, NOW, false).stream()
+                        .map(ContentInstance::getTemplateId).toList(), "exactly the starters");
+
+        final Trip legacy = trip("2028 Nov: Legacy Before The Installer", FakeData.CFPW_ORG_ID);
+        legacy.setDescription("<p>The old description.</p>");
+        assertTrue(dao.saveTrip(legacy));
+        manage(legacy);
+        assertTrue(missing.convertLegacyPage(legacy.getId(), MANAGER));
+        final Trip converted = dao.getTrip(legacy.getId(), Cached.NO).orElseThrow();
+        assertNotNull(converted.getPageSeededAt());
+        assertNull(converted.getPageTopSectionsAt());
+        assertEquals(templatesOf(OrgPageBootstrap.tripPageKey(legacy.getId())),
+                OrgPageBootstrap.legacyRows(legacy, id -> 1).stream().map(ContentInstance::getTemplateId).toList(),
+                "the description's one section, nothing above it");
+    }
+
+    /**
+     * A seed whose rows were written but whose trip was not (its save failed), retried: the page already holds the
+     * trip's two top rows, so the retry stamps it as showing them, for a new trip's page and a legacy conversion
+     * alike. Stamped from what the page holds, or the fixed block would be drawn above its two sections.
+     */
+    @Test
+    public void aRetriedSeedStampsThePageWhoseTopRowsAreAlreadyThere() throws IOException {
+        final Trip fresh = trip("2028 Dec: Half Seeded", FakeData.CFPW_ORG_ID);
+        writeTopRows(fresh);
+        assertTrue(pages.ensurePage(fresh));
+        assertEquals(dao.getTrip(fresh.getId(), Cached.NO).orElseThrow().getPageTopSectionsAt(), NOW,
+                "the rows an earlier attempt wrote are the page's top sections");
+
+        final Trip legacy = trip("2029 Jan: Half Converted", FakeData.CFPW_ORG_ID);
+        manage(legacy);
+        writeTopRows(legacy);
+        assertTrue(pages.convertLegacyPage(legacy.getId(), MANAGER));
+        assertEquals(dao.getTrip(legacy.getId(), Cached.NO).orElseThrow().getPageTopSectionsAt(), NOW);
+
+        final Trip other = trip("2029 Feb: Someone Else's Rows", FakeData.CFPW_ORG_ID);
+        assertTrue(dao.saveContent(new ContentInstance(UUID.randomUUID().toString(),
+                OrgPageBootstrap.tripPageKey(other.getId()), "", StarterTemplates.TEXT_ONLY_ID, 1,
+                new HashMap<>(Map.of("body", "<p>By hand</p>")), null, 0, 0, null, "test"), 3));
+        assertTrue(pages.ensurePage(other));
+        assertNull(dao.getTrip(other.getId(), Cached.NO).orElseThrow().getPageTopSectionsAt(),
+                "a page authored by hand, without the two rows, keeps the fixed block");
+    }
+
     // ------------------------------------------------------------------ helpers
 
     private Trip trip(final String title, final String orgId) throws IOException {
@@ -307,6 +456,28 @@ public class TripPageCloneTest {
     private void manage(final Trip trip) {
         priv.savePrivilege(priv.createPrivilege(PrivilegeCommands.TRIP_MGR, "clone mgr " + trip.getTitle(),
                 trip.getId(), List.of(MANAGER)));
+    }
+
+    /** A page's code that finds every starter installed but the two top templates (the deploy-before-install gap). */
+    private static TripPageCommands withoutTopTemplates() {
+        return new TripPageCommands(() -> null, () -> NOW) {
+            @Override
+            protected boolean starterInstalled(final String templateId) {
+                return !OrgPageBootstrap.tripTopTemplateIds().contains(templateId)
+                        && super.starterInstalled(templateId);
+            }
+        };
+    }
+
+    /** The two top rows of {@code trip}'s page, stored the way an earlier, unfinished seed left them. */
+    private void writeTopRows(final Trip trip) {
+        for (final ContentInstance row : OrgPageBootstrap.topRows(trip, id -> 1)) {
+            assertTrue(dao.saveContent(row, 3));
+        }
+    }
+
+    private List<String> templatesOf(final String key) {
+        return dao.getContentForSection(key, Cached.NO).stream().map(ContentInstance::getTemplateId).toList();
     }
 
     private List<String> ids(final String key) {

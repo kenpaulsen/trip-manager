@@ -492,6 +492,14 @@ public final class OrgPageBootstrap {
                 tripRow(trip, TOP_FACTS_SLOT, key, "", TripFactsType.TYPE_ID, templateVersion, 1, Map.of(), null));
     }
 
+    /**
+     * The ids {@link #topRows} gives {@code trip}'s two rows. Fixed per trip, so a page can be asked whether it
+     * already holds them (a seed whose rows were written but whose trip was not, retried).
+     */
+    public static List<String> topRowIds(final Trip trip) {
+        return List.of(tripRowId(trip, TOP_PICTURES_SLOT), tripRowId(trip, TOP_FACTS_SLOT));
+    }
+
     /** The slot names of {@link #topRows}' ids; the backfill script names the same two. */
     static final String TOP_PICTURES_SLOT = "pictures";
     static final String TOP_FACTS_SLOT = "details";

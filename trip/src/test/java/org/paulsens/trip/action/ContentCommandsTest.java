@@ -1660,6 +1660,35 @@ public class ContentCommandsTest {
         Assert.assertTrue(OrgPageBootstrap.isSeededPlaceholder(stored));
     }
 
+    /**
+     * A group's editor privileges are a contentAdmin's grant (guardContainerConfig): a trip manager may clone the
+     * group, but the copy carries no editors; a contentAdmin's clone keeps them.
+     */
+    @Test
+    public void aClonedGroupKeepsItsEditorsOnlyWhenAContentAdminClonesIt() {
+        final String tripId = UUID.randomUUID().toString();
+        final Person.Id manager = Person.Id.from("clone-grant-manager");
+        priv.savePrivilege(priv.createPrivilege(PrivilegeCommands.TRIP_MGR, "clone grant mgr", tripId,
+                List.of(manager)));
+        final String page = OrgPageBootstrap.tripPageKey(tripId);
+        final ContentCommands admin = as(ADMIN, false);
+        final ContentInstance group = admin.createContent(page, StarterTemplates.CONTAINER_ID);
+        group.setTitle("Speakers");
+        group.setEditorPrivileges(new ArrayList<>(List.of(PrivilegeCommands.EVENT_ADMIN)));
+        Assert.assertTrue(admin.saveContent(group));
+        Assert.assertEquals(admin.getContent(group.getId()).getEditorPrivileges(),
+                List.of(PrivilegeCommands.EVENT_ADMIN), "a contentAdmin sets them");
+
+        final String byManager = as(manager, false).cloneContent(group.getId());
+        Assert.assertTrue(admin.wasCloned(byManager), "a trip manager may clone the section");
+        final List<String> carried = admin.getContent(byManager).getEditorPrivileges();
+        Assert.assertTrue(carried == null || carried.isEmpty(), "but its editors are not theirs to grant: " + carried);
+
+        final String byAdmin = admin.cloneContent(group.getId());
+        Assert.assertEquals(admin.getContent(byAdmin).getEditorPrivileges(), List.of(PrivilegeCommands.EVENT_ADMIN),
+                "a contentAdmin's clone keeps them");
+    }
+
     private static ContentInstance withBody(final ContentCommands content, final String body) {
         final ContentInstance instance = content.createContent(FakeData.PAGE_KEY, StarterTemplates.TEXT_ONLY_ID);
         instance.setTitle("Body " + body.length());
