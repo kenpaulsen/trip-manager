@@ -9,9 +9,9 @@ import org.paulsens.trip.util.Util;
 
 /**
  * What a people autocomplete answers from a roster its bean has ALREADY scoped: the content dialog's person
- * prompt ({@link ContentCommands#completeForContent}) and the trip editor's Add Manager picker
- * ({@link OrgCommands#completeTripManagerCandidates}) filtered and ordered their organization's members with the
- * same lines.
+ * prompt ({@link ContentCommands#completeForContent}), the trip editor's Add Manager picker
+ * ({@link OrgCommands#completeTripManagerCandidates}) and its staff picker ({@link TripStaffCommands#complete})
+ * filtered and ordered their organization's members with the same lines.
  *
  * <p>Tenancy stays in the bean. This class reads no people and knows no organization: it only narrows the
  * list it is handed, so it can never widen what a caller may search. Whoever calls it decides, and tests, whose

@@ -1,6 +1,8 @@
 package org.paulsens.trip.action;
 
 import java.time.Instant;
+import java.util.UUID;
+import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
 import org.testng.Assert;
@@ -61,6 +63,31 @@ public class TripEditDraftsTest {
         Assert.assertNull(drafts.get(null, OWNER));
         Assert.assertNull(drafts.get(token, null));
         Assert.assertNull(drafts.get("no-such-token", OWNER));
+    }
+
+    @Test
+    public void theEditorTripIsTheStoredTripWhenEditingAndTheOwnDraftWhenCreating() throws Exception {
+        // Canonical UUIDs, like production org ids: this trip stays in the suite's shared DAO.
+        final String storedOrg = UUID.randomUUID().toString();
+        final Trip stored = Trip.builder().title("Stored Trip").build();
+        stored.setOrgId(storedOrg);
+        Assert.assertTrue(DAO.getInstance().saveTrip(stored));
+        // A draft whose org differs must never stand in for the stored trip's org.
+        final Trip working = Trip.builder().title("Working Copy").build();
+        working.setOrgId(UUID.randomUUID().toString());
+        final TripEditDrafts drafts = new TripEditDrafts();
+        final String token = drafts.start(working, OWNER);
+
+        final Trip editing = drafts.editorTrip(stored.getId(), token, OWNER);
+        Assert.assertEquals(editing.getId(), stored.getId());
+        Assert.assertEquals(editing.getOrgId(), storedOrg, "editing: the stored trip's org is the authority");
+        Assert.assertSame(drafts.editorTrip(null, token, OWNER), working,
+                "creating: there is no stored trip, so the owner's own draft answers");
+        Assert.assertNull(drafts.editorTrip(null, token, INTRUDER), "another user's draft never answers");
+        Assert.assertNull(drafts.editorTrip(null, token, null), "an anonymous caller owns no draft");
+        Assert.assertNull(drafts.editorTrip(null, null, OWNER), "no id and no draft: off the editor");
+        Assert.assertNull(drafts.editorTrip("no-such-trip", token, OWNER),
+                "an unknown pinned id answers null, never the draft");
     }
 
     @Test

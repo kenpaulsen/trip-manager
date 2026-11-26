@@ -308,6 +308,14 @@ names for people without an account (the legacy string, shown only while nobody 
 "edit" previews the home page's own line. The home page calls facilitators "Coordinators", and so does the
 editor.
 
+**Picking staff takes People Admin** (owner, 2026-11-26): the staff dialogs search people, so they are for holders of
+`peopleAdmin` in the trip's organization (and site admins) only, through `TripStaffCommands` (`#{tripStaff}`). Being
+the org's admin is not enough by itself (an org admin can grant it to themselves). For anyone else the dialog is not
+rendered at all and the row's "edit" opens a dialog naming the privilege and who to ask. The search, add and remove
+each re-check it, add also refuses a non-member (the person converter loads any id), and every answer reads the trip
+through `TripEditDrafts.editorTrip`: the STORED trip when editing, the caller's own draft when creating (no id is
+pinned yet).
+
 **Adding members** (org People page): site admins keep the whole-directory autocomplete; org admins add
 by EXACT email address instead (`OrgCommands.addMemberByEmail`) -- a name typeahead across every account
 leaked other tenants' people. An address with no account offers an invite dialog: `sendOrgInvite` mails

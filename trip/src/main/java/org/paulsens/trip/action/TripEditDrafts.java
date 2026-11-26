@@ -8,8 +8,11 @@ import java.time.Instant;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import org.paulsens.trip.cache.Cached;
+import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
+import org.paulsens.trip.util.ScopeUtil;
 
 /**
  * Work-in-progress Trip edits, held OUTSIDE every JSF scope. The edit pages accumulate partial ajax submits
@@ -116,6 +119,26 @@ public class TripEditDrafts {
             draft.lastTouched = Instant.now();
             return draft.trip;
         }
+    }
+
+    /**
+     * The trip the editor page is working on, from the view's {@code theTripId} and {@code tripDraftToken}, or
+     * null off-page. Editing pins the id, and the STORED trip answers: its org is the tenancy authority, never a
+     * draft's. Creating pins no id (there is no stored trip yet), so {@code caller}'s own draft answers; reading
+     * only the id once made every staff picker on a new trip come back empty. The draft's org is the one the
+     * page's create gate ({@code trip.canCreate}) passed, and {@link #get} hands a draft only to its owner.
+     */
+    public Trip editorTrip(final Object tripId, final Object draftToken, final Person.Id caller) {
+        if (tripId != null) {
+            return DAO.getInstance().getTrip(tripId.toString(), Cached.YES).orElse(null);
+        }
+        return (draftToken == null) ? null : get(draftToken.toString(), caller);
+    }
+
+    /** {@link #editorTrip} over the current Faces view's {@code theTripId} and {@code tripDraftToken}. */
+    public Trip editorTripInView(final Person.Id caller) {
+        final ScopeUtil scope = ScopeUtil.getInstance();
+        return editorTrip(scope.getViewMap("theTripId"), scope.getViewMap("tripDraftToken"), caller);
     }
 
     /** Ends a draft once it is saved or cancelled. Unknown/null tokens are a no-op, not an error. */
