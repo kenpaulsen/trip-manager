@@ -929,6 +929,36 @@ public class ContentCommandsTest {
                 Cached.NO).orElseThrow().getTemplateVersion(), 2);
     }
 
+    /**
+     * A live section draws its template's CURRENT layout whatever version the row was saved against, so a layout
+     * edit reaches every trip page with no row touched (docs/content-templates.md, "Live sections with a layout").
+     */
+    @Test
+    public void aLayoutFollowsTheTemplatesNewestVersion() {
+        final ContentCommands content = as(ADMIN, false);
+        final String id = "cc-facts-layout";
+        Assert.assertTrue(DAO.getInstance().saveTemplate(new ContentTemplate(id, 0, "Facts", null, "", List.of(),
+                null, null, TemplateKind.PROGRAMMATIC, null, null, StarterTemplates.TRIP_DETAILS_ID), 5));
+        final ContentInstance row = new ContentInstance("cc-facts-row", "cc.section-layout", "", id, 1,
+                new HashMap<>(), null, 0, 0, null, "me");
+        Assert.assertEquals(content.layoutBody(row), "", "a blank body is the built-in layout");
+
+        Assert.assertTrue(DAO.getInstance().saveTemplate(new ContentTemplate(id, 1, "Facts", null,
+                "<p>{{trip:dates}}</p>", List.of(), null, null, TemplateKind.PROGRAMMATIC, null, null,
+                StarterTemplates.TRIP_DETAILS_ID), 5));
+        Assert.assertEquals(content.layoutBody(row), "<p>{{trip:dates}}</p>", "the row is pinned to v1, yet");
+        Assert.assertFalse(row.isStayOnLatest(), "the row itself is left as it was");
+        Assert.assertEquals(row.getTemplateVersion(), 1);
+
+        Assert.assertEquals(content.layoutBody(null), "");
+        Assert.assertEquals(content.layoutBody(new ContentInstance("cc-no-tpl", "s", "", null, 1, new HashMap<>(),
+                null, 0, 0, null, "me")), "");
+        Assert.assertEquals(content.layoutBody(new ContentInstance("cc-gone", "s", "", "cc-no-such-template", 1,
+                new HashMap<>(), null, 0, 0, null, "me")), "", "a template that is gone draws the built-in look");
+        Assert.assertEquals(content.layoutBody(new ContentInstance("cc-plain", "s", "", "cc-test-tpl", 1,
+                new HashMap<>(), null, 0, 0, null, "me")), "", "a hand-written template's body is not a layout");
+    }
+
     @Test
     public void aVersionChangeIsIgnoredWhenThereIsNothingToDo() {
         final ContentCommands content = as(ADMIN, false);
@@ -1349,6 +1379,21 @@ public class ContentCommandsTest {
                 "a group's row shows its item's title");
         Assert.assertFalse(content.isTitleUnseen(null, page));
 
+        // A trip page lists its titled sections in its strip of section links, so there the title is seen, unless the
+        // section is left out of those links; only a trip page's own sections are offered that choice.
+        final String tripPage = OrgPageBootstrap.tripPageKey(UUID.randomUUID().toString());
+        final ContentInstance listed = content.createContent(tripPage, "cc-test-tpl");
+        Assert.assertFalse(content.isTitleUnseen(listed, tripPage));
+        Assert.assertTrue(content.offersLinksChoice(listed, tripPage));
+        listed.setShownInLinks(false);
+        Assert.assertTrue(content.isTitleUnseen(listed, tripPage), "left out of the links, the title shows nowhere");
+        Assert.assertFalse(content.offersLinksChoice(content.createContent(page, "cc-test-tpl"), page),
+                "a page with no section links");
+        Assert.assertFalse(content.offersLinksChoice(content.createContent("some-group", "cc-test-tpl"), tripPage),
+                "a group's item has no link of its own");
+        Assert.assertFalse(content.offersLinksChoice(null, tripPage));
+        Assert.assertFalse(content.offersLinksChoice(listed, null));
+
         // The drawer's heading says what is happening: adding or editing, a section or a group's item.
         final ContentInstance stored = added(content, page, "Kept", null);
         Assert.assertEquals(content.drawerTitle(null, page, page), "Add a section", "the picker step");
@@ -1687,6 +1732,50 @@ public class ContentCommandsTest {
         final String byAdmin = admin.cloneContent(group.getId());
         Assert.assertEquals(admin.getContent(byAdmin).getEditorPrivileges(), List.of(PrivilegeCommands.EVENT_ADMIN),
                 "a contentAdmin's clone keeps them");
+    }
+
+    /**
+     * A language version of the SAME page keeps a group's editors whoever starts it (copyPage, keepGrants): they
+     * already edit that page, so a trip manager's Spanish version must not lose the volunteers' grant.
+     */
+    @Test
+    public void aLanguageVersionKeepsItsGroupsEditorsForATripManager() {
+        final String tripId = UUID.randomUUID().toString();
+        final Person.Id manager = Person.Id.from("version-grant-manager");
+        priv.savePrivilege(priv.createPrivilege(PrivilegeCommands.TRIP_MGR, "version grant mgr", tripId,
+                List.of(manager)));
+        final String page = OrgPageBootstrap.tripPageKey(tripId);
+        final ContentCommands admin = as(ADMIN, false);
+        final ContentInstance group = admin.createContent(page, StarterTemplates.CONTAINER_ID);
+        group.setTitle("Speakers");
+        group.setEditorPrivileges(new ArrayList<>(List.of(PrivilegeCommands.EVENT_ADMIN)));
+        Assert.assertTrue(admin.saveContent(group));
+
+        final String spanish = page + "@es";
+        Assert.assertTrue(as(manager, false).copyPage(page, spanish), "a trip manager starts the Spanish version");
+        final List<ContentInstance> copied = admin.getAllForSection(spanish);
+        Assert.assertEquals(copied.size(), 1);
+        Assert.assertEquals(copied.get(0).getEditorPrivileges(), List.of(PrivilegeCommands.EVENT_ADMIN),
+                "the version keeps the group's editors");
+    }
+
+    /** A section left out of a trip page's links stays out in its Clone and in a language version of the page. */
+    @Test
+    public void aCloneAndALanguageVersionKeepTheSectionLinksChoice() {
+        final String page = OrgPageBootstrap.tripPageKey(UUID.randomUUID().toString());
+        final ContentCommands admin = as(ADMIN, false);
+        final ContentInstance left = admin.createContent(page, StarterTemplates.TEXT_ONLY_ID);
+        left.setTitle("Left out");
+        left.getValues().put("body", "<p>left out</p>");
+        left.setShownInLinks(false);
+        Assert.assertTrue(admin.saveContent(left));
+
+        final String copy = admin.cloneContent(left.getId());
+        Assert.assertEquals(admin.getContent(copy).getInLinks(), Boolean.FALSE, "the Clone keeps the choice");
+        final String spanish = page + "@es";
+        Assert.assertTrue(admin.copyPage(page, spanish));
+        Assert.assertTrue(admin.getAllForSection(spanish).stream()
+                .allMatch(row -> Boolean.FALSE.equals(row.getInLinks())), "the version keeps it too");
     }
 
     private static ContentInstance withBody(final ContentCommands content, final String body) {

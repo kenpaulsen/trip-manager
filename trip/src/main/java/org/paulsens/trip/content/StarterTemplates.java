@@ -188,6 +188,13 @@ public final class StarterTemplates {
     private static final String TONE_HINT = "The section's background: plain, tint, dark or transparent "
             + "(blank = plain)";
 
+    /**
+     * The Spacer's Tone: the bands' menu (owner, 2026-11-25: "the same background options as the Heading and text
+     * template"), but blank is no background at all, the spacer's look before it had a tone.
+     */
+    private static final String SPACER_TONE_HINT = "The spacer's background: plain, tint, dark or transparent "
+            + "(blank = none, the page shows through)";
+
     /** The band tone, a menu of {@link #TONES} since 2026-11-25 (a free-text prompt before). */
     private static Placeholder tone() {
         return choice("tone", "Tone", TONE_HINT, TONES, "tint");
@@ -686,14 +693,54 @@ public final class StarterTemplates {
                 "Registration status, places left, prices, a countdown and the Register button, from the event.");
     }
 
+    /**
+     * The Trip Detail Pictures layout (docs/content-templates.md, "Live sections with a layout"): the built-in hero
+     * of {@code WEB-INF/tripTopPictures.xhtml}, token for token. One picture (or Show: cover only) is the cover in
+     * its placeholder color; two or more are the gallery, the component the page draws at {@code {{trip:gallery}}}.
+     */
+    public static final String TRIP_PICTURES_LAYOUT = """
+            <div class="tripHero">
+                {{#trip:single}}<span class="tripHeroMedia" style="background-color:{{trip:coverColor}}">\
+            {{trip:cover}}</span>{{/trip:single}}
+                {{#trip:gallery}}{{trip:gallery}}{{/trip:gallery}}
+            </div>
+            """;
+
+    /**
+     * The Trip Details layout: the built-in facts line of {@code WEB-INF/tripTopFacts.xhtml}, token for token. Each
+     * fact is a block, kept when the trip has it and the section shows it; the labels are the reader's language.
+     * The line is a flex row, so the line breaks between facts draw nothing.
+     */
+    public static final String TRIP_DETAILS_LAYOUT = """
+            <div class="tripFacts">
+                {{#trip:dates}}<span class="tripFact tripFactDates">\
+            <i class="pi pi-calendar" aria-hidden="true"></i> {{trip:dates}}</span>{{/trip:dates}}
+                {{#trip:destination}}<span class="tripFact">\
+            <i class="pi pi-map-marker" aria-hidden="true"></i> {{trip:destination}}</span>{{/trip:destination}}
+                {{#trip:director}}<span class="tripFact">\
+            <b>{{trip:directorLabel}}:</b>&#160;{{trip:director}}</span>{{/trip:director}}
+                {{#trip:guide}}<span class="tripFact">\
+            <b>{{trip:guideLabel}}:</b>&#160;{{trip:guide}}</span>{{/trip:guide}}
+                {{#trip:coordinators}}<span class="tripFact">\
+            <b>{{trip:coordinatorsLabel}}:</b>&#160;{{trip:coordinators}}</span>{{/trip:coordinators}}
+                {{#trip:price}}<span class="tripFact tripFactPrice"><b>{{trip:priceLabel}}:</b>&#160;{{trip:price}}\
+            <span class="tripFactNote textMuted"> {{trip:priceTerms}}</span></span>{{/trip:price}}
+                {{#trip:flyer}}<a href="{{trip:flyerUrl}}" target="_blank" rel="nofollow noopener" \
+            class="tripFact flyerLink"><i class="pi pi-file" aria-hidden="true"></i> {{trip:flyerLabel}}</a>\
+            {{/trip:flyer}}
+            </div>
+            """;
+
     private static ContentTemplate tripPictures() {
         return programmatic(TRIP_PICTURES_ID, "Trip Detail Pictures",
-                "The trip's pictures: the cover large and the rest as a gallery, or the cover alone.");
+                "The trip's pictures: the cover large and the rest as a gallery, or the cover alone.",
+                TRIP_PICTURES_LAYOUT);
     }
 
     private static ContentTemplate tripDetails() {
         return programmatic(TRIP_DETAILS_ID, "Trip Details",
-                "The trip's facts line (dates, destination, staff, price, flyer), read from the trip.");
+                "The trip's facts line (dates, destination, staff, price, flyer), read from the trip.",
+                TRIP_DETAILS_LAYOUT);
     }
 
     private static ContentTemplate metricGraph() {
@@ -742,9 +789,15 @@ public final class StarterTemplates {
     /** A programmatic starter is a thin row over its registered type: same id, the type's properties. */
     private static ContentTemplate programmatic(final String typeId, final String name,
             final String description) {
+        return programmatic(typeId, name, description, "");
+    }
+
+    /** As above, with a layout body, for a type that draws one ({@link TripLayout}). */
+    private static ContentTemplate programmatic(final String typeId, final String name,
+            final String description, final String layout) {
         final ProgrammaticContentTemplate type = ProgrammaticTypes.byId(typeId)
                 .orElseThrow(() -> new IllegalStateException("No programmatic type: " + typeId));
-        return new ContentTemplate(typeId, 0, name, description, "",
+        return new ContentTemplate(typeId, 0, name, description, layout,
                 type.getProperties(), null, null, TemplateKind.PROGRAMMATIC, null, null, typeId);
     }
 
@@ -804,7 +857,7 @@ public final class StarterTemplates {
      */
     private static ContentTemplate spacer() {
         final String body = """
-                <div class="tripSpacer" style="height:{{height}};width:{{width}};display:{{display}}"
+                <div class="tripSpacer tone-{{tone}}" style="height:{{height}};width:{{width}};display:{{display}}"
                         aria-hidden="true"></div>
                 """;
         return new ContentTemplate(SPACER_ID, 0, "Spacer",
@@ -812,7 +865,8 @@ public final class StarterTemplates {
                 List.of(length("height", "Height", "How tall, such as 20px, 2em or 5vh (blank = 20px)", "40px"),
                         length("width", "Width", "How wide, such as 200px or 50% (blank = the whole width)", null),
                         choice("display", "Layout", "block starts on a line of its own; inline-block and inline "
-                                + "sit beside what is next to them (blank = block)", SPACER_DISPLAYS, null)),
+                                + "sit beside what is next to them (blank = block)", SPACER_DISPLAYS, null),
+                        choice("tone", "Tone", SPACER_TONE_HINT, TONES, null)),
                 null, null);
     }
 

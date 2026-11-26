@@ -315,6 +315,42 @@ public class TemplateCommandsTest {
     }
 
     /**
+     * A live section with a layout (docs/content-templates.md, "Live sections with a layout") keeps its body, checked
+     * as a template body and for words the section does not know; any other programmatic template still has none.
+     */
+    @Test
+    public void aLiveSectionKeepsItsCheckedLayoutAndNoOtherProgrammaticTemplateHasOne() {
+        final TemplateCommands admin = as(true);
+        final ContentTemplate facts = new ContentTemplate("tpl-facts-layout", 0, "Facts Layout", null,
+                "<p>{{trip:destination}}</p>", List.of(), null, null, TemplateKind.PROGRAMMATIC, null, null,
+                StarterTemplates.TRIP_DETAILS_ID);
+        Assert.assertTrue(admin.hasLayout(facts));
+        Assert.assertTrue(admin.layoutWords(facts).contains("{{trip:destination}}"), admin.layoutWords(facts));
+        Assert.assertTrue(admin.saveTemplate(facts));
+        final ContentTemplate stored = admin.getTemplate("tpl-facts-layout");
+        Assert.assertEquals(stored.getBody(), "<p>{{trip:destination}}</p>", "the layout is kept");
+        Assert.assertTrue(stored.getPlaceholders().stream().anyMatch(ph -> "tone".equals(ph.getName())),
+                "the type's properties, the Tone among them");
+        stored.setBody("<p>{{trip:nope}}</p>");
+        Assert.assertFalse(admin.saveTemplate(stored), "a word the section does not know is refused");
+        stored.setBody("<div><span>never closed</div>");
+        Assert.assertFalse(admin.saveTemplate(stored), "and so is broken markup");
+        Assert.assertEquals(admin.getTemplate("tpl-facts-layout").getBody(), "<p>{{trip:destination}}</p>");
+        Assert.assertTrue(admin.deleteTemplate("tpl-facts-layout"));
+
+        final ContentTemplate other = new ContentTemplate("tpl-pilg-body", 0, "Pilg Body", null, "<p>x</p>",
+                List.of(), null, null, TemplateKind.PROGRAMMATIC, null, null, "pilgrimages");
+        Assert.assertFalse(admin.hasLayout(other));
+        Assert.assertEquals(admin.layoutWords(other), "");
+        Assert.assertTrue(admin.saveTemplate(other));
+        Assert.assertEquals(admin.getTemplate("tpl-pilg-body").getBody(), "", "a type with no layout has no body");
+        Assert.assertTrue(admin.deleteTemplate("tpl-pilg-body"));
+        Assert.assertFalse(admin.hasLayout(null));
+        Assert.assertFalse(admin.hasLayout(new ContentTemplate("tpl-plain", 0, "Plain", null, "<p>x</p>",
+                List.of(), null, null)), "a hand-written template's body is not a layout");
+    }
+
+    /**
      * A programmatic row written against an older registry (production's starters predate
      * {@code includeOrgs}) reads with its type's LIVE properties in the manager, the row itself is left
      * alone by reading, and the next save writes the live list back -- the stored list is advisory.

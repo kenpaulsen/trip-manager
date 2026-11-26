@@ -26,6 +26,7 @@ import org.paulsens.trip.content.ProgrammaticContentTemplate;
 import org.paulsens.trip.content.ProgrammaticTypes;
 import org.paulsens.trip.content.RichTextRules;
 import org.paulsens.trip.content.StarterTemplates;
+import org.paulsens.trip.content.TripLayout;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.model.AuditAction;
@@ -967,8 +968,37 @@ public class TemplateCommands {
         // registered (placeholdersOf answers the live list, in the reader's language), so translating the
         // snapshot would buy nothing; it is only a last resort for a row whose type a later build dropped.
         template.setPlaceholders(type.getProperties());
-        template.setBody("");
-        return null;
+        final TripLayout.Vocabulary words = type.layoutVocabulary();
+        if (words == null) {
+            template.setBody("");
+            return null;
+        }
+        // A live section with a layout keeps its body (docs/content-templates.md, "Live sections with a layout"):
+        // checked as any template body is, then for words its renderer would not know. Blank is the built-in look.
+        final String invalid = HtmlCheck.templateProblem(template.getBody());
+        return invalid != null ? invalid : TripLayout.problem(template.getBody(), words);
+    }
+
+    /**
+     * Whether the template editor offers {@code template} a layout body: every kind but a programmatic one has a
+     * body, and a programmatic one has it when its type draws a layout ({@link TripLayout}).
+     */
+    public boolean hasLayout(final ContentTemplate template) {
+        return template != null && template.getKind() == TemplateKind.PROGRAMMATIC
+                && ProgrammaticTypes.byId(template.getProgrammaticTypeId())
+                        .map(type -> type.layoutVocabulary() != null).orElse(false);
+    }
+
+    /**
+     * The words a layout body of {@code template}'s type may use, as the editor's reference card lists them
+     * ({@code {{trip:dates}}}, {@code {{#trip:dates}}...}, {@code {{tone}}}), or "" for a template with none.
+     */
+    public String layoutWords(final ContentTemplate template) {
+        if (!hasLayout(template)) {
+            return "";
+        }
+        return TripLayout.reference(ProgrammaticTypes.byId(template.getProgrammaticTypeId()).orElseThrow()
+                .layoutVocabulary());
     }
 
     private static List<String> allowedIds(final ContentTemplate template) {

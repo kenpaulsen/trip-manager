@@ -1060,12 +1060,22 @@ public class ContentCommands {
      * Whether the Title the form asks for shows nowhere on the page: a plain section template placed straight on
      * a page has no slot for it (a group shows its title, a group's row shows its item's, and a live type titles
      * itself). The title still names the section in Arrange sections and in History, which the form then says.
-     * Never on a trip page: its strip of section links is made of the sections' titles.
+     * On a trip page its strip of section links is made of the sections' titles, so there it is unseen only for
+     * a section left out of those links ({@link ContentInstance#isShownInLinks}).
      */
     public boolean isTitleUnseen(final ContentInstance working, final String pageKey) {
         return working != null && pageKey != null && pageKey.equals(working.getSection())
-                && OrgPageBootstrap.tripOf(pageKey) == null
+                && (OrgPageBootstrap.tripOf(pageKey) == null || !working.isShownInLinks())
                 && TemplateKind.STANDARD.name().equals(getKind(working));
+    }
+
+    /**
+     * Whether the drawer offers "Show in the page's links" (2026-11-25): a section placed straight on a TRIP page,
+     * the only page with a strip of section links. A group's item never has a link of its own.
+     */
+    public boolean offersLinksChoice(final ContentInstance working, final String pageKey) {
+        return working != null && pageKey != null && pageKey.equals(working.getSection())
+                && OrgPageBootstrap.tripOf(pageKey) != null;
     }
 
     /**
@@ -1340,6 +1350,29 @@ public class ContentCommands {
             return own;
         }
         return containerTemplate == null ? null : containerTemplate.getAllowedChildTemplateIds();
+    }
+
+    /**
+     * The layout body a live trip section draws (docs/content-templates.md, "Live sections with a layout"), or ""
+     * for the built-in look. Always the template's CURRENT version, whatever version the row was saved against:
+     * a layout edit reaches every trip page with no row touched, through the same organization guard a Stay on
+     * Latest row follows by ({@link #mayFollow}). Only a programmatic template carries one. Cached reads only, so
+     * a failed read draws the built-in look rather than failing the page.
+     */
+    public String layoutBody(final ContentInstance instance) {
+        if (instance == null || instance.getTemplateId() == null) {
+            return "";
+        }
+        final ContentInstance following = instance.copy();
+        following.setStayOnLatest(true);
+        try {
+            final ContentTemplate template = resolveTemplate(following);
+            return template == null || template.getKind() != TemplateKind.PROGRAMMATIC || template.getBody() == null
+                    ? "" : template.getBody();
+        } catch (final RuntimeException ex) {
+            log.warn("Unable to read the layout of section " + instance.getId(), ex);
+            return "";
+        }
     }
 
     /**
@@ -1643,7 +1676,7 @@ public class ContentCommands {
                 position, 0, null, author,
                 grants ? new ArrayList<>(row.getEditorPrivileges()) : null,
                 row.getAllowedChildTemplateIds() == null ? null : new ArrayList<>(row.getAllowedChildTemplateIds()),
-                row.isStayOnLatest());
+                row.isStayOnLatest(), row.getInLinks());
     }
 
     /**

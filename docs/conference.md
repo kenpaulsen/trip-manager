@@ -313,7 +313,10 @@ organization's"):
   SAME rule as the org's (`BrandCommands.rootStyleOf`, which `getRootStyle` also uses), passed to `template.xhtml` as
   the `rootStyle` ui:param. An image also sets `--layout-full-bg:transparent`, so the full-width layout's own ground
   (`.layoutFull` in `site.css`) no longer hides a background image, the org's or the trip's.
-- `showTitle` (null = no: the hero carries it) and `showNav` (null = yes: the strip of section links).
+- `showTitle` (null = no: the hero carries it) and `showNav` (null = yes: the strip of section links). The strip
+  lists each of the page's own titled sections whose `ContentInstance.isShownInLinks()` holds: the editor's
+  "Section links" box in the content drawer (`inLinks`, written only once chosen), else in for every template but
+  `spacer`, `trip-pictures` and `trip-details` (owner, 2026-11-25: a spacer is nothing to go to).
 - `stylesheetUrl`: a CSS file in the trip's organization's media library, loaded by this page alone. The field rules are
   `TripPageOptions.problems()`; the library rule is `TripPageCommands.pageProblems` (`MediaCommands.libraryItemFor` must
   resolve the URL to an item of that org with `text/css`), because any other URL would let a trip manager load arbitrary

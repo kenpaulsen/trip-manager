@@ -174,6 +174,7 @@ public class RenderPathCacheTest {
         templates.getTemplate(StarterTemplates.FEATURE_CARD_ID, 1);
         templates.getLatestTemplate(StarterTemplates.TEXT_ONLY_ID);
         templates.getLatestTemplate(StarterTemplates.CONTAINER_ID);
+        readLayouts(templates);
 
         // The render pass: what an anonymous page view executes, twice for good measure.
         counting.reads.set(0);
@@ -210,6 +211,8 @@ public class RenderPathCacheTest {
             templates.getLatestTemplate(StarterTemplates.CONTAINER_ID);
             // An aged-out instance whose newest version fails the organization guard walks down the
             // retained versions through the same versioned fields.
+            // A live section's layout follows its template's newest version (ContentCommands.layoutBody).
+            readLayouts(templates);
             templates.getLatestTemplate("rp-walked");
             templates.getTemplate("rp-walked", 2);
             templates.getTemplate("rp-walked", 1);
@@ -224,6 +227,17 @@ public class RenderPathCacheTest {
         templates.getTemplate(StarterTemplates.CONTAINER_ID);
         Assert.assertTrue(counting.reads.get() > 0,
                 "if this ever becomes cache-served, the latest field may be folded into it");
+    }
+
+    /**
+     * What a trip page's two live sections read for their layout: the row's own version, then the template's latest
+     * field, both cached, as a Stay on Latest row reads them.
+     */
+    private static void readLayouts(final TemplateDAO templates) {
+        for (final String id : List.of(StarterTemplates.TRIP_DETAILS_ID, StarterTemplates.TRIP_PICTURES_ID)) {
+            templates.getTemplate(id, 1);
+            templates.getLatestTemplate(id);
+        }
     }
 
     private static ContentInstance instance(final String id, final String section, final String templateId,

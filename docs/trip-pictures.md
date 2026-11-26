@@ -189,6 +189,11 @@ The top block is two of the page's own sections, so an editor can move, hide, cl
 Both are offered on a trip's own page only (`ProgrammaticContentTemplate.onlyTripPage`), read the trip the page key
 names (`tripPage.tripFor`), and in edit mode say so when they have nothing to show; visitors then see nothing.
 
+**Their layout** (2026-11-25): each section's template body is an editable layout over the trip's values, with
+blocks that draw only when the trip has a fact and a slot where the gallery component goes; blank draws the two inner
+fragments above exactly as before. Each also takes the bands' Tone. The words, the save checks and why the layout
+always follows the template's newest version: `docs/content-templates.md`, "Live sections with a layout".
+
 **The transition.** `WEB-INF/tripPictureHero.xhtml` is the FIXED block above the sections, drawn from the same two
 inner fragments, and a page draws it until its trip is stamped `Trip.pageTopSectionsAt`: by the seed of a new page
 (`OrgPageBootstrap.topRows`, the sections first, then the starters; a retried seed whose rows an earlier attempt

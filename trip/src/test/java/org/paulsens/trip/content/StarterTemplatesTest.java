@@ -3,6 +3,7 @@ package org.paulsens.trip.content;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.ContentTemplate;
 import org.paulsens.trip.model.Placeholder;
@@ -316,6 +317,60 @@ public class StarterTemplatesTest {
                 new HashMap<>(Map.of("height", "tall", "width", "0")), null, 0, 1, null, null));
         Assert.assertTrue(blank.contains("style=\"height:;width:0;display:\""), blank);
         Assert.assertNull(HtmlCheck.structureProblem(spacer.getBody()));
+    }
+
+    /** The Spacer's Tone (2026-11-25): the bands' menu, its class on the box; blank keeps the look it had. */
+    @Test
+    public void theSpacerTakesTheBandsTone() {
+        final ContentTemplate spacer = byId(StarterTemplates.SPACER_ID);
+        Assert.assertEquals(prompt(spacer, "tone").getOptions(), StarterTemplates.TONES);
+        Assert.assertNull(prompt(spacer, "tone").getSample(), "blank is no background, as before");
+        final String dark = ContentRenderer.render(spacer, new ContentInstance("p", "s", "", spacer.getId(), 1,
+                new HashMap<>(Map.of("tone", "dark")), null, 0, 1, null, null));
+        Assert.assertTrue(dark.contains("class=\"tripSpacer tone-dark\""), dark);
+        final String blank = ContentRenderer.render(spacer, new ContentInstance("p", "s", "", spacer.getId(), 1,
+                new HashMap<>(), null, 0, 1, null, null));
+        Assert.assertTrue(blank.contains("class=\"tripSpacer tone-\""), "no tone class the stylesheet knows: " + blank);
+    }
+
+    /**
+     * The two live sections ship their layout (docs/content-templates.md, "Live sections with a layout"), and it
+     * draws what the built-in fragments draw ({@code WEB-INF/tripTopFacts.xhtml}, {@code tripTopPictures.xhtml}):
+     * the same elements, classes and text, in the same order.
+     */
+    @Test
+    public void theLiveSectionsShipALayoutThatDrawsTheBuiltInMarkup() {
+        Assert.assertEquals(byId(StarterTemplates.TRIP_DETAILS_ID).getBody(), StarterTemplates.TRIP_DETAILS_LAYOUT);
+        Assert.assertEquals(byId(StarterTemplates.TRIP_PICTURES_ID).getBody(), StarterTemplates.TRIP_PICTURES_LAYOUT);
+        final Map<String, String> text = new HashMap<>(Map.of("dates", "March 1 to 9, 2027", "destination", "Rome",
+                "director", "Fr. A", "guide", "Mira", "coordinators", "Ann and Bo", "price", "$2,000",
+                "flyerUrl", "/flyer.pdf", "directorLabel", "Spiritual Director", "guideLabel", "Guide",
+                "coordinatorsLabel", "Coordinators"));
+        text.putAll(Map.of("priceLabel", "Estimated price", "priceTerms", "(terms)", "flyerLabel", "Flyer"));
+        final TripLayout.Data all = new TripLayout.Data(text, Map.of(), Set.of("dates", "destination",
+                "director", "guide", "coordinators", "price", "flyer"), Map.of());
+        Assert.assertEquals(TripLayout.render(StarterTemplates.TRIP_DETAILS_LAYOUT, all).before(), """
+                <div class="tripFacts">
+                    <span class="tripFact tripFactDates"><i class="pi pi-calendar" aria-hidden="true"></i> \
+                March 1 to 9, 2027</span>
+                    <span class="tripFact"><i class="pi pi-map-marker" aria-hidden="true"></i> Rome</span>
+                    <span class="tripFact"><b>Spiritual Director:</b>&#160;Fr. A</span>
+                    <span class="tripFact"><b>Guide:</b>&#160;Mira</span>
+                    <span class="tripFact"><b>Coordinators:</b>&#160;Ann and Bo</span>
+                    <span class="tripFact tripFactPrice"><b>Estimated price:</b>&#160;$2,000\
+                <span class="tripFactNote textMuted"> (terms)</span></span>
+                    <a href="/flyer.pdf" target="_blank" rel="nofollow noopener" class="tripFact flyerLink">\
+                <i class="pi pi-file" aria-hidden="true"></i> Flyer</a>
+                </div>
+                """);
+        final TripLayout.Data single = new TripLayout.Data(Map.of("coverColor", "#123456"),
+                Map.of("cover", "<img />"), Set.of("single"), Map.of());
+        Assert.assertEquals(TripLayout.render(StarterTemplates.TRIP_PICTURES_LAYOUT, single).before(), """
+                <div class="tripHero">
+                    <span class="tripHeroMedia" style="background-color:#123456"><img /></span>
+                   \s
+                </div>
+                """);
     }
 
     private static Placeholder prompt(final ContentTemplate template, final String name) {

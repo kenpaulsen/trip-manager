@@ -105,6 +105,16 @@ public interface ProgrammaticContentTemplate {
     }
 
     /**
+     * The words a template LAYOUT body of this type may use ({@link TripLayout}; docs/content-templates.md, "Live
+     * sections with a layout"), or null for a type with no layout of its own: its fragment is all it draws, and the
+     * template editor offers no body. A type that answers one draws its template's body when the body is not blank,
+     * and its built-in fragment when it is.
+     */
+    default TripLayout.Vocabulary layoutVocabulary() {
+        return null;
+    }
+
+    /**
      * Whether the Add dialog offers this type to {@code caller}. True for every type but one whose content only some
      * callers can read (the metrics graph, docs/metrics.md).
      */

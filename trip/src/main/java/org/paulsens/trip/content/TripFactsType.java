@@ -39,10 +39,24 @@ final class TripFactsType implements ProgrammaticContentTemplate {
         return Text.get("server.types.tripFacts.description");
     }
 
+    /** The value tokens a layout may use: the facts, the flyer's link, and the labels in the reader's language. */
+    static final List<String> VALUES = List.of("dates", "destination", "director", "guide", "coordinators", "price",
+            "flyerUrl", "directorLabel", "guideLabel", "coordinatorsLabel", "priceLabel", "priceTerms", "flyerLabel");
+
     @Override
     public List<Placeholder> getProperties() {
         return List.of(new Placeholder(TripPageCommands.PROP_FACTS_SHOWN, Placeholder.Type.MULTI_CHOICE,
-                Text.get("server.types.tripFacts.shown"), Text.get("server.types.tripFacts.shownHint"), false));
+                        Text.get("server.types.tripFacts.shown"), Text.get("server.types.tripFacts.shownHint"), false),
+                new Placeholder(TripLayout.PROP_TONE, Placeholder.Type.CHOICE, Text.get("server.types.tone"),
+                        Text.get("server.types.toneHint"), false));
+    }
+
+    /** A block per fact (kept when the trip has it and the section shows it), values, and the Tone property. */
+    @Override
+    public TripLayout.Vocabulary layoutVocabulary() {
+        return new TripLayout.Vocabulary(VALUES,
+                TripPageCommands.FACTS.stream().map(TripPageCommands.Fact::value).toList(),
+                List.of(TripLayout.PROP_TONE));
     }
 
     @Override
@@ -77,6 +91,9 @@ final class TripFactsType implements ProgrammaticContentTemplate {
 
     @Override
     public List<Choice> choicesFor(final String propertyName) {
+        if (TripLayout.PROP_TONE.equals(propertyName)) {
+            return TripLayout.toneChoices();
+        }
         if (!TripPageCommands.PROP_FACTS_SHOWN.equals(propertyName)) {
             return List.of();
         }

@@ -37,10 +37,26 @@ final class TripPicturesType implements ProgrammaticContentTemplate {
         return Text.get("server.types.tripPictures.description");
     }
 
+    /**
+     * The value tokens a layout may use: the cover as a whole picture, or its address, its description and the
+     * color it shows while it loads.
+     */
+    static final List<String> VALUES = List.of("cover", "coverUrl", "coverAlt", "coverColor");
+    /** The blocks: one picture shows (the trip has one, or the section shows the cover only), or the gallery. */
+    static final List<String> BLOCKS = List.of("single", TripLayout.GALLERY);
+
     @Override
     public List<Placeholder> getProperties() {
         return List.of(new Placeholder(TripPageCommands.PROP_PICTURES_SHOW, Placeholder.Type.CHOICE,
-                Text.get("server.types.tripPictures.show"), Text.get("server.types.tripPictures.showHint"), false));
+                        Text.get("server.types.tripPictures.show"), Text.get("server.types.tripPictures.showHint"),
+                        false),
+                new Placeholder(TripLayout.PROP_TONE, Placeholder.Type.CHOICE, Text.get("server.types.tone"),
+                        Text.get("server.types.toneHint"), false));
+    }
+
+    @Override
+    public TripLayout.Vocabulary layoutVocabulary() {
+        return new TripLayout.Vocabulary(VALUES, BLOCKS, List.of(TripLayout.PROP_TONE));
     }
 
     @Override
@@ -72,6 +88,9 @@ final class TripPicturesType implements ProgrammaticContentTemplate {
 
     @Override
     public List<Choice> choicesFor(final String propertyName) {
+        if (TripLayout.PROP_TONE.equals(propertyName)) {
+            return TripLayout.toneChoices();
+        }
         if (!TripPageCommands.PROP_PICTURES_SHOW.equals(propertyName)) {
             return List.of();
         }

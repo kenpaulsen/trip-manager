@@ -19,6 +19,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.AllArgsConstructor;
 import lombok.Data;
+import org.paulsens.trip.content.StarterTemplates;
 
 /**
  * A filled-in {@link ContentTemplate} placed in a page section: the Events list, the Introduction, and any
@@ -95,6 +96,21 @@ public final class ContentInstance implements Serializable {
     @JsonProperty("stayOnLatest")
     @JsonInclude(JsonInclude.Include.NON_DEFAULT)
     private boolean stayOnLatest;
+    /**
+     * Whether a trip page's section links (the strip beside its Register button) list this section, as the editor
+     * chose it (2026-11-25); null, every row written before the choice and every new one, means the template's
+     * default ({@link #isShownInLinks}). Written only when chosen, so an untouched row's JSON is unchanged.
+     */
+    @JsonProperty("inLinks")
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private Boolean inLinks;
+
+    /**
+     * The templates whose sections are left out of the section links unless an editor ticks them: a spacer draws
+     * nothing to go to, and the trip's pictures and facts are the top of the page already.
+     */
+    private static final Set<String> OUT_OF_LINKS_BY_DEFAULT = Set.of(StarterTemplates.SPACER_ID,
+            StarterTemplates.TRIP_PICTURES_ID, StarterTemplates.TRIP_DETAILS_ID);
 
     private ContentInstance() {
     }
@@ -105,6 +121,16 @@ public final class ContentInstance implements Serializable {
             final int position, final int version, final LocalDateTime modified, final String modifiedBy) {
         this(id, section, title, templateId, templateVersion, values, eventDate, position, version,
                 modified, modifiedBy, null, null, false);
+    }
+
+    /** Compatibility constructor for call sites that predate {@link #inLinks}: the template's default applies. */
+    public ContentInstance(final String id, final String section, final String title, final String templateId,
+            final int templateVersion, final Map<String, String> values, final LocalDateTime eventDate,
+            final int position, final int version, final LocalDateTime modified, final String modifiedBy,
+            final List<String> editorPrivileges, final List<String> allowedChildTemplateIds,
+            final boolean stayOnLatest) {
+        this(id, section, title, templateId, templateVersion, values, eventDate, position, version,
+                modified, modifiedBy, editorPrivileges, allowedChildTemplateIds, stayOnLatest, null);
     }
 
     /** Compatibility constructor for call sites that predate {@link #stayOnLatest}: a new row is pinned. */
@@ -225,11 +251,36 @@ public final class ContentInstance implements Serializable {
         return eventDate == null || !now.isAfter(eventDate);
     }
 
+    /**
+     * Whether the section links list this section: the editor's choice, else in for every template but the ones
+     * that draw nothing to go to (a spacer) or are the page's top already (the trip's pictures and facts). The
+     * strip also needs a title to name the link ({@code TripPageCommands} / {@code tripPageBody.xhtml}).
+     */
+    @JsonIgnore
+    public boolean isShownInLinks() {
+        return inLinks != null ? inLinks : shownByDefault();
+    }
+
+    /**
+     * The content drawer's "Section links" box. JSF calls this on every submit of the drawer, changed or not, so the
+     * template's default is stored as "no choice" (null): only an answer that differs from it is the editor's, and a
+     * later change to the defaults still reaches every section nobody chose for.
+     */
+    @JsonIgnore
+    public void setShownInLinks(final boolean shown) {
+        inLinks = shown == shownByDefault() ? null : shown;
+    }
+
+    private boolean shownByDefault() {
+        return templateId == null || !OUT_OF_LINKS_BY_DEFAULT.contains(templateId);
+    }
+
     /** @return a copy safe to hand to the edit dialog without aliasing the cached instance. */
     public ContentInstance copy() {
         return new ContentInstance(id, section, title, templateId, templateVersion,
                 new HashMap<>(getValues()), eventDate, position, version, modified, modifiedBy,
                 editorPrivileges == null ? null : new ArrayList<>(editorPrivileges),
-                allowedChildTemplateIds == null ? null : new ArrayList<>(allowedChildTemplateIds), stayOnLatest);
+                allowedChildTemplateIds == null ? null : new ArrayList<>(allowedChildTemplateIds), stayOnLatest,
+                inLinks);
     }
 }

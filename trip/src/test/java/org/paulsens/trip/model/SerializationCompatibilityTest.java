@@ -434,7 +434,7 @@ public class SerializationCompatibilityTest {
 
     private static ContentInstance contentInstance() {
         return new ContentInstance("content-1", "home.events", "Title", "template-1", 3,
-                new HashMap<>(Map.of("a", "v")), AT, 2, 1, AT, "person-ada", null, null, true);
+                new HashMap<>(Map.of("a", "v")), AT, 2, 1, AT, "person-ada", null, null, true, Boolean.FALSE);
     }
 
     private static ContentTemplate contentTemplate() {

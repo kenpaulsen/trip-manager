@@ -821,6 +821,55 @@ Rules worth knowing before changing this:
   pair, or a second pair is a save error; if such a body somehow reaches the page it degrades to the
   built-in row with NO wrapper, because emitting an unclosed `<ul>` would corrupt everything after it.
 
+## Live sections with a layout (2026-11-25)
+
+The owner: "Why doesn't `trip-details` have a template that I can edit to adjust the layout?" The trip page's two live
+sections, Trip Details (`trip-details`) and Trip Detail Pictures (`trip-pictures`), are PROGRAMMATIC templates whose
+body is a LAYOUT: HTML around the trip's own values, edited in the template editor as raw HTML (like a container's
+row, with a reference line of every word the section knows and a field help card). Every other programmatic type
+still has no body (`ProgrammaticContentTemplate.layoutVocabulary()` answers null, and `TemplateCommands`
+blanks the body on save as before).
+
+- **Blank is the built-in look.** A blank body draws `WEB-INF/tripTopFacts.xhtml` / `tripTopPictures.xhtml` exactly
+  as before layouts; the embed draws neither, whatever the body says. The starters
+  (`StarterTemplates.TRIP_DETAILS_LAYOUT`, `TRIP_PICTURES_LAYOUT`) reproduce those fragments element for element
+  (`StarterTemplatesTest`), so filling a blank body with the starter changes no page.
+- **The words** (`content/TripLayout`, filled by the `tripLayout` bean, `TripLayoutCommands`). Colon forms, which a
+  hand-written template's `{{name}}` pattern never matches:
+  - values `{{trip:dates}}`, `{{trip:destination}}`, `{{trip:director}}`, `{{trip:guide}}`, `{{trip:coordinators}}`,
+    `{{trip:price}}`, `{{trip:flyerUrl}}` (screened, `TripCommands.flyerUrlOf`), and the labels in the READER's
+    language, `{{trip:directorLabel}}`, `{{trip:guideLabel}}`, `{{trip:coordinatorsLabel}}`, `{{trip:priceLabel}}`,
+    `{{trip:priceTerms}}`, `{{trip:flyerLabel}}`; for pictures `{{trip:cover}}` (the cover `<img>` exactly as the
+    built-in hero draws it, srcset, sizes, width and height), `{{trip:coverUrl}}`, `{{trip:coverAlt}}` and
+    `{{trip:coverColor}}` (the placeholder color, only when it is a hex color). Every value is HTML-escaped; a
+    missing one draws nothing;
+  - blocks `{{#trip:x}} ... {{/trip:x}}`, kept only when `x` holds: one per fact (`TripPageCommands.FACTS`: the trip
+    has it AND the section's "Facts shown" picks it), and for pictures `single` (one picture, or Show: cover only)
+    and `gallery` (two or more, not cover only). Blocks nest, eight deep;
+  - `{{trip:gallery}}`, pictures only: a COMPONENT SLOT. The fragment cuts the filled body there and draws the real
+    `p:galleria` (`WEB-INF/tripTopGallery.xhtml`) between the halves, the way a group's row is cut at `{{child}}`;
+    it is drawn only when the `gallery` block holds, so a stray slot never makes a one-picture gallery;
+  - `{{tone}}`, the section's own Tone property (below), escaped and screened to the tones.
+  A save refuses an unknown word, an unknown or unbalanced block, blocks nested too deep, a second gallery slot, a
+  gallery slot in the facts layout, and (as for every body) markup a browser would repair (`HtmlCheck.templateProblem`).
+  A typed trip value is never read again as a word: the section's properties are filled first, then the values.
+- **The layout follows the template's newest version** (`ContentCommands.layoutBody`): the row is resolved as if it
+  were Stay on Latest, through the same organization guard (`mayFollow`), so a layout edit reaches every trip page
+  with no row touched. The row's own pin still decides its properties, as before. Cached reads only: one versioned
+  field and the latest field (`RenderPathCacheTest`), once per section per request (`RequestMemo`).
+- **A template of this type under another id** draws through the same fragment, so `TripLayoutCommands` is asked per
+  fragment (`facts`, `pictures`), never by template id.
+- **Tone** (the owner: "the same background options as the Heading and text template"): both sections and the Spacer
+  take the bands' Tone menu (`StarterTemplates.TONES`: plain, tint, dark, transparent). Blank adds no background, so
+  no page changes until an editor picks one. The class goes on the section's wrapper (`tripLayout.withTone`) whether
+  or not a layout is set; `site.css` shares each band tone's ground and text with a `.tone-*` class, without the
+  band's padding (`.tone-dark` keeps the white text and inherited links).
+- **Installing.** `install-starter-templates.sh` ships the starter layouts and the toned Spacer for a new
+  environment; `refresh-starter-templates.py` (rule 5) gives a stored blank layout the starter one, every version,
+  and moves a Spacer still holding its shipped body to the toned one. Until it runs, nothing on any page changes.
+- **Not built:** an organization's own layout. A "Customize" copy is never what a content page renders (only mail
+  reads `resolveForOrg`), so a per-organization layout needs that first.
+
 ## Bands and the full-width layout (2026-09)
 
 A **band** is a section that spans the whole window with its content capped at a readable 1200px column
@@ -939,7 +988,8 @@ is the datastore).
    place, and since 2026-11-16 that includes the plain band names (only
    where the stored name is still the shipped one), the tags and the two flags (only where the row has none), and
    since 2026-11-25 the band menus (tone, side) and the Opening banner's picture size, each only where the stored
-   prompt or body is still exactly what the starter shipped.
+   prompt or body is still exactly what the starter shipped, and the two live sections' starter layouts (only into a
+   blank body) with the Spacer's Tone (only where its body is still the shipped one).
 3. `bootstrap-home-v2.sh` -- the `page:trip-index` skeleton (JSON generated from `V2PageBootstrap`);
    `--purge-v1` deletes the retired `home.*` rows. New rows appear on their own within ~5 minutes (the
    cache refresh merges); only DELETES need the Settings page's "Clear caches" button (the refresh never
