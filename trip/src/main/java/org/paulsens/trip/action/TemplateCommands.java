@@ -898,10 +898,32 @@ public class TemplateCommands {
             return Text.get("feedback.templateCommands.kindFixed");
         }
         return switch (template.getKind()) {
-            case STANDARD, MAIL -> HtmlCheck.templateProblem(template.getBody());
+            case STANDARD, MAIL -> standardProblem(template);
             case CONTAINER -> normalizeContainer(template);
             case PROGRAMMATIC -> normalizeProgrammatic(template);
         };
+    }
+
+    /**
+     * A hand-written template's body check, then its prompts': a menu (CHOICE) needs its own options, since a
+     * hand-written template has no provider behind it, and a menu's sample must be one of them, or the picker's
+     * thumbnail would show a value nobody can choose.
+     */
+    private static String standardProblem(final ContentTemplate template) {
+        final String body = HtmlCheck.templateProblem(template.getBody());
+        if (body != null) {
+            return body;
+        }
+        for (final Placeholder ph : template.getPlaceholders()) {
+            if (ph.getType() == Placeholder.Type.CHOICE && ph.getOptions().isEmpty()) {
+                return Text.get("feedback.templateCommands.choiceNeedsOptions", ph.getName());
+            }
+            if (ph.getType() == Placeholder.Type.CHOICE && ph.getSample() != null
+                    && !ph.getOptions().contains(ph.getSample())) {
+                return Text.get("feedback.templateCommands.sampleNotAnOption", ph.getName());
+            }
+        }
+        return null;
     }
 
     private String normalizeContainer(final ContentTemplate template) {
@@ -972,13 +994,19 @@ public class TemplateCommands {
     }
 
     /**
-     * The placeholder types, for the type menu (bound at render time, per the dialog rules). CHOICE is
-     * excluded: it only means something with a programmatic type's options provider behind it.
+     * The placeholder types, for the type menu (bound at render time, per the dialog rules). CHOICE is offered
+     * (a menu of the row's own Options, 2026-11-25); MULTI_CHOICE and PERSON are not: they only mean something
+     * with a programmatic type's provider behind them.
      */
     public List<Placeholder.Type> getPlaceholderTypes() {
         return Arrays.stream(Placeholder.Type.values())
-                .filter(type -> !Placeholder.isProviderBacked(type))
+                .filter(type -> type == Placeholder.Type.CHOICE || !Placeholder.isProviderBacked(type))
                 .toList();
+    }
+
+    /** The value checks a prompt may carry, for the template editor's Format menu: none, or a CSS length. */
+    public List<String> getPlaceholderFormats() {
+        return List.of(Placeholder.FORMAT_CSS_LENGTH);
     }
 
     /** Appends an empty placeholder row for the dialog's Add button (JSFT expressions cannot use new). */
@@ -1000,12 +1028,17 @@ public class TemplateCommands {
         final List<Placeholder> cleaned = new ArrayList<>();
         for (final Placeholder ph : template.getPlaceholders()) {
             final Placeholder normalized = new Placeholder(ph.getName(), ph.getType(), ph.getLabel(), ph.getHint(),
-                    ph.isRequired(), ph.getSample());
+                    ph.isRequired(), ph.getSample(), ph.getOptions(), knownFormat(ph.getFormat()));
             if (!normalized.getName().isEmpty()) {
                 cleaned.add(normalized);
             }
         }
         template.setPlaceholders(cleaned);
+    }
+
+    /** A format the renderer knows, or null: a typed or stale one must not pass for a check that is not made. */
+    private static String knownFormat(final String format) {
+        return Placeholder.FORMAT_CSS_LENGTH.equals(format) ? format : null;
     }
 
     /**

@@ -2,6 +2,7 @@ package org.paulsens.trip.action;
 
 import java.io.IOException;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -489,7 +490,11 @@ public class TripPageTest {
         assertNotNull(trip.getPageSeededAt(), "stamped on the caller's own object");
         final String page = OrgPageBootstrap.tripPageKey(trip.getId());
         final List<ContentInstance> sections = dao.getContentForSection(page, Cached.NO);
-        assertEquals(sections.size(), 8, "hero, about, speakers, schedule, registration, venue, questions, cta");
+        assertEquals(sections.size(), 10,
+                "pictures, details, hero, about, speakers, schedule, registration, venue, questions, cta");
+        assertEquals(sections.subList(0, 2).stream().map(ContentInstance::getTemplateId).toList(),
+                OrgPageBootstrap.tripTopTemplateIds(), "the trip's top block comes first, as two sections");
+        assertNotNull(trip.getPageTopSectionsAt(), "so the page stops drawing the fixed block");
         final List<String> templates = sections.stream().map(ContentInstance::getTemplateId).toList();
         assertTrue(templates.containsAll(List.of(StarterTemplates.BAND_HERO_ID, StarterTemplates.TRIP_SCHEDULE_ID,
                 StarterTemplates.TRIP_REGISTRATION_ID, StarterTemplates.PEOPLE_LIST_ID)));
@@ -523,8 +528,10 @@ public class TripPageTest {
         final List<ContentInstance> rows = dao.getContentForSection(OrgPageBootstrap.tripPageKey(plain.getId()),
                 Cached.NO);
         assertEquals(rows.stream().map(ContentInstance::getTemplateId).toList(),
-                List.of(StarterTemplates.BAND_HERO_ID, StarterTemplates.BAND_TEXT_ID,
+                withTop(StarterTemplates.BAND_HERO_ID, StarterTemplates.BAND_TEXT_ID,
                         StarterTemplates.YOUTUBE_VIDEO_ID));
+        assertEquals(plain.getPageTopSectionsAt(), NOW);
+        assertNull(trip.getPageTopSectionsAt(), "an authored page gets no top rows, so it keeps the fixed block");
         assertFalse(new TripPageCommands().ensurePage(null));
     }
 
@@ -538,7 +545,7 @@ public class TripPageTest {
                 .startDate(LocalDateTime.now().plusDays(60)).endDate(LocalDateTime.now().plusDays(70)).build();
         assertTrue(new TripCommands().saveTrip(fresh, siteAdmin));
         assertNotNull(fresh.getPageSeededAt(), "a new trip gets its page at creation");
-        assertEquals(dao.getContentForSection(OrgPageBootstrap.tripPageKey(fresh.getId()), Cached.NO).size(), 3);
+        assertEquals(dao.getContentForSection(OrgPageBootstrap.tripPageKey(fresh.getId()), Cached.NO).size(), 5);
 
         // A NEW trip created with a description seeds too: the description becomes its About section.
         final Trip described = Trip.builder().title("2027 Sep: Described Trip").orgId(FakeData.CFPW_ORG_ID)
@@ -547,7 +554,8 @@ public class TripPageTest {
         assertTrue(new TripCommands().saveTrip(described, siteAdmin));
         assertNotNull(described.getPageSeededAt());
         final ContentInstance about = dao.getContentForSection(OrgPageBootstrap.tripPageKey(described.getId()),
-                Cached.NO).get(1);
+                Cached.NO).stream().filter(r -> StarterTemplates.BAND_TEXT_ID.equals(r.getTemplateId())).findFirst()
+                .orElseThrow();
         assertEquals(about.getValues().get("body"), "<p>Nine days in Rome.</p>");
         assertNull(about.getEventDate(), "shown at once");
 
@@ -592,10 +600,12 @@ public class TripPageTest {
         final Trip stamped = dao.getTrip(legacy.getId(), Cached.NO).orElseThrow();
         assertEquals(stamped.getPageSeededAt(), NOW);
         assertEquals(stamped.getDescription(), "<p>Come <b>along</b>.</p>", "the field itself is kept, read-only");
-        final List<ContentInstance> rows = dao.getContentForSection(OrgPageBootstrap.tripPageKey(legacy.getId()),
+        final List<ContentInstance> all = dao.getContentForSection(OrgPageBootstrap.tripPageKey(legacy.getId()),
                 Cached.NO);
-        assertEquals(rows.size(), 1);
-        assertEquals(rows.get(0).getTemplateId(), StarterTemplates.TEXT_ONLY_ID);
+        assertEquals(all.stream().map(ContentInstance::getTemplateId).toList(), withTop(StarterTemplates.TEXT_ONLY_ID),
+                "the old page's pictures and facts, then its description");
+        assertEquals(stamped.getPageTopSectionsAt(), NOW);
+        final List<ContentInstance> rows = all.subList(2, 3);
         assertEquals(rows.get(0).getTitle(), "");
         assertEquals(rows.get(0).getValues().get("body"), "<p>Come <b>along</b>.</p>");
         assertNull(rows.get(0).getEventDate());
@@ -605,7 +615,7 @@ public class TripPageTest {
 
         // Idempotent: a second click (or a stamped trip) is simply true, and nothing doubles.
         assertTrue(views.convertLegacyPage(legacy.getId(), MANAGER));
-        assertEquals(dao.getContentForSection(OrgPageBootstrap.tripPageKey(legacy.getId()), Cached.NO).size(), 1);
+        assertEquals(dao.getContentForSection(OrgPageBootstrap.tripPageKey(legacy.getId()), Cached.NO).size(), 3);
 
         // A page authored by hand before any conversion wins over the description: not legacy, nothing seeded.
         final Trip authored = pilgrimageTrip("Authored Legacy", "<p>ignored</p>");
@@ -625,7 +635,7 @@ public class TripPageTest {
         assertTrue(later.convertLegacyPage(blank.getId(), MANAGER));
         assertEquals(dao.getContentForSection(OrgPageBootstrap.tripPageKey(blank.getId()), Cached.NO).stream()
                 .map(ContentInstance::getTemplateId).toList(),
-                List.of(StarterTemplates.BAND_HERO_ID, StarterTemplates.BAND_TEXT_ID,
+                withTop(StarterTemplates.BAND_HERO_ID, StarterTemplates.BAND_TEXT_ID,
                         StarterTemplates.YOUTUBE_VIDEO_ID));
         assertEquals(dao.getTrip(blank.getId(), Cached.NO).orElseThrow().getPageSeededAt(), NOW);
     }
@@ -754,6 +764,13 @@ public class TripPageTest {
     }
 
     // ------------------------------------------------------------------ helpers
+
+    /** The trip's two top sections' template ids, then {@code rest}: a seeded page's order. */
+    private static List<String> withTop(final String... rest) {
+        final List<String> all = new ArrayList<>(OrgPageBootstrap.tripTopTemplateIds());
+        all.addAll(List.of(rest));
+        return all;
+    }
 
     private Trip pilgrimageTrip(final String title, final String description) throws IOException {
         final Trip trip = Trip.builder().title(title).orgId(FakeData.CFPW_ORG_ID).openToPublic(true)

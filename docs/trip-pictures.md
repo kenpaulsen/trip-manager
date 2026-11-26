@@ -166,10 +166,36 @@ which keeps a picture's fade-in (opacity is not movement) and swaps a gallery pi
 
 ## The trip page
 
-`WEB-INF/tripPictureHero.xhtml`, included by `tripPageBody.xhtml` on the SITE page only (the app embed draws its own
-from the API): one picture is a hero image, two or more are a `p:galleria` with autoplay off (its thumbnail strip is
-the swipe surface on a phone; medjugorje's `pfPatches.js` makes a tap open the tapped thumbnail), and a facts line under
-it shows the destination, spiritual director, guide, coordinators and flyer, each only when set.
+One picture is a hero image, two or more are a `p:galleria` with autoplay off (its thumbnail strip is the swipe surface
+on a phone; medjugorje's `pfPatches.js` makes a tap open the tapped thumbnail), and a facts line under it shows the
+destination, spiritual director, guide, coordinators, estimated price and flyer, each only when set. The two halves
+are `WEB-INF/tripTopPictures.xhtml` and `WEB-INF/tripTopFacts.xhtml`; nothing of them renders on the app embed, which
+draws its own from the API.
+
+### On the trip page (2026-11-25)
+
+The top block is two of the page's own sections, so an editor can move, hide, clone or drop them like any other:
+
+- **Trip Detail Pictures** (`TripPicturesType`, `trip-pictures`, `ptypes/tripPictures.xhtml`): the gallery, or with
+  its "Show" choice the cover alone (`TripPageCommands.coverOnly`). Its edit panel in the content drawer manages the
+  TRIP's pictures through the same dialog the trip editor's Pictures row opens (`WEB-INF/tripPicturesDialog.xhtml`,
+  mounted by both hosts in `uploadDialogs`; on `tripDetails.xhtml` behind a build-time `c:if` on the signed-in
+  user): every change is saved to the trip at once, as there, and closing the dialog redraws the in-page preview.
+  The pictures are never stored in the section.
+- **Trip Details** (`TripFactsType`, `trip-details`, `ptypes/tripFacts.xhtml`): the facts line, with a pick of which
+  facts show (`TripPageCommands.FACTS`: dates, destination, spiritual director, guide, coordinators, price, flyer;
+  blank is the line as it always was, every fact but the dates, which the opening banner carries).
+
+Both are offered on a trip's own page only (`ProgrammaticContentTemplate.onlyTripPage`), read the trip the page key
+names (`tripPage.tripFor`), and in edit mode say so when they have nothing to show; visitors then see nothing.
+
+**The transition.** `WEB-INF/tripPictureHero.xhtml` is the FIXED block above the sections, drawn from the same two
+inner fragments, and a page draws it until its trip is stamped `Trip.pageTopSectionsAt`: by the seed of a new page
+(`OrgPageBootstrap.topRows`, the sections first, then the starters), by a legacy page's conversion, by a page copied
+from a stamped trip (`docs/conference.md`, "Copying a page"), and for pages seeded earlier by the one-time backfill
+`medjugorje/scripts/add-trip-top-sections.sh`. Keyed on the stamp, never on whether the rows are there, so an editor
+who deletes the two sections does not get the fixed block back; only the page's own code writes it, and every other
+save keeps the stored value (`TripCommands.keepStoredPictures`). A legacy page always draws the fixed block.
 
 ## Local fixtures
 

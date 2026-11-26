@@ -97,6 +97,14 @@ public interface ProgrammaticContentTemplate {
     }
 
     /**
+     * Whether this type belongs on a TRIP's own page and nowhere else: the trip page's pictures and facts read the
+     * trip the page is about, so on any other page they would have nothing to show. False for every other type.
+     */
+    default boolean onlyTripPage() {
+        return false;
+    }
+
+    /**
      * Whether the Add dialog offers this type to {@code caller}. True for every type but one whose content only some
      * callers can read (the metrics graph, docs/metrics.md).
      */

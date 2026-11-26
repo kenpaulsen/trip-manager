@@ -191,13 +191,42 @@ public class TemplateCommandsTest {
 
     @Test
     public void placeholderTypesForTheMenu() {
-        // CHOICE, MULTI_CHOICE and PERSON are dialog-meaningless without a programmatic type behind them,
-        // so the menu excludes all three.
+        // MULTI_CHOICE and PERSON are dialog-meaningless without a programmatic type behind them; CHOICE is a menu
+        // of the row's own Options since 2026-11-25.
         final List<Placeholder.Type> types = as(true).getPlaceholderTypes();
-        Assert.assertFalse(types.contains(Placeholder.Type.CHOICE));
+        Assert.assertTrue(types.contains(Placeholder.Type.CHOICE));
         Assert.assertFalse(types.contains(Placeholder.Type.MULTI_CHOICE));
         Assert.assertFalse(types.contains(Placeholder.Type.PERSON));
-        Assert.assertEquals(types.size(), Placeholder.Type.values().length - 3);
+        Assert.assertEquals(types.size(), Placeholder.Type.values().length - 2);
+        Assert.assertEquals(as(true).getPlaceholderFormats(), List.of(Placeholder.FORMAT_CSS_LENGTH));
+    }
+
+    /** A hand-written menu needs its choices, its sample is one of them, and a save keeps both new fields. */
+    @Test
+    public void aMenuPromptNeedsOptionsAndASaveKeepsThem() {
+        final TemplateCommands admin = as(true);
+        final ContentTemplate bare = new ContentTemplate("tc-menu-" + System.nanoTime(), 0, "Menu", null,
+                "<div class=\"x-{{tone}}\" style=\"height:{{h}}\"></div>",
+                new ArrayList<>(List.of(new Placeholder("tone", Placeholder.Type.CHOICE, "Tone", null, false),
+                        new Placeholder("h", Placeholder.Type.TEXT, "H", null, false))), null, null);
+        Assert.assertFalse(admin.saveTemplate(bare), "a menu with nothing to choose");
+        final Placeholder tone = bare.getPlaceholders().get(0);
+        tone.setOptionsText(" plain, dark,, plain ");
+        Assert.assertEquals(tone.getOptions(), List.of("plain", "dark"));
+        tone.setSample("tint");
+        Assert.assertFalse(admin.saveTemplate(bare), "a sample nobody can choose");
+        tone.setSample("dark");
+        bare.getPlaceholders().get(1).setFormat(Placeholder.FORMAT_CSS_LENGTH);
+        Assert.assertTrue(admin.saveTemplate(bare));
+        final ContentTemplate stored = DAO.getInstance().getTemplate(bare.getId(), Cached.NO).orElseThrow();
+        Assert.assertEquals(stored.getPlaceholders().get(0).getOptions(), List.of("plain", "dark"));
+        Assert.assertEquals(stored.getPlaceholders().get(1).getFormat(), Placeholder.FORMAT_CSS_LENGTH);
+
+        final ContentTemplate edit = stored.copy();
+        edit.getPlaceholders().get(1).setFormat("made-up");
+        Assert.assertTrue(admin.saveTemplate(edit));
+        Assert.assertNull(DAO.getInstance().getTemplate(bare.getId(), Cached.NO).orElseThrow().getPlaceholders()
+                .get(1).getFormat(), "an unknown format is not kept as if it were checked");
     }
 
     @Test

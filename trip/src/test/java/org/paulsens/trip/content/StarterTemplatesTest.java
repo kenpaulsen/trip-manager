@@ -256,6 +256,73 @@ public class StarterTemplatesTest {
         Assert.assertFalse(band.contains("{{"), band);
     }
 
+    /** Owner, 2026-11-25: a band's tone and a split's side are menus, and transparent is a tone. */
+    @Test
+    public void tonesAndSidesAreMenus() {
+        Assert.assertEquals(StarterTemplates.TONES, List.of("plain", "tint", "dark", "transparent"));
+        for (final String id : List.of(StarterTemplates.BAND_SPLIT_ID, StarterTemplates.BAND_CTA_ID,
+                StarterTemplates.BAND_TESTIMONIAL_ID, StarterTemplates.BAND_TEXT_ID)) {
+            final Placeholder tone = prompt(byId(id), "tone");
+            Assert.assertTrue(tone.isFixedChoice(), id);
+            Assert.assertEquals(tone.getOptions(), StarterTemplates.TONES, id);
+        }
+        final Placeholder side = prompt(byId(StarterTemplates.BAND_SPLIT_ID), "side");
+        Assert.assertEquals(side.getType(), Placeholder.Type.CHOICE);
+        Assert.assertEquals(side.getOptions(), List.of("left", "right"));
+        final ContentTemplate text = byId(StarterTemplates.BAND_TEXT_ID);
+        final String out = ContentRenderer.render(text, new ContentInstance("t", "s", "T", text.getId(), 1,
+                new HashMap<>(Map.of("tone", "transparent", "heading", "H")), null, 0, 1, null, null));
+        Assert.assertTrue(out.contains("class=\"band band-transparent\""), out);
+        for (final ContentTemplate starter : StarterTemplates.all()) {
+            for (final Placeholder ph : starter.getPlaceholders()) {
+                Assert.assertFalse(ph.getType() == Placeholder.Type.RICH_TEXT && ph.isRequired(),
+                        "no starter's rich-text prompt is required: " + starter.getId() + "." + ph.getName());
+            }
+        }
+    }
+
+    /** The banner's picture size (2026-11-25): a menu class, or a checked width written as the art's flex-basis. */
+    @Test
+    public void theHeroPictureTakesASizeOrAWidth() {
+        final ContentTemplate hero = byId(StarterTemplates.BAND_HERO_ID);
+        Assert.assertEquals(prompt(hero, "imageSize").getOptions(), StarterTemplates.HERO_PICTURE_SIZES);
+        Assert.assertEquals(prompt(hero, "imageWidth").getFormat(), Placeholder.FORMAT_CSS_LENGTH);
+        final String blank = ContentRenderer.render(hero, new ContentInstance("h", "s", "H", hero.getId(), 1,
+                new HashMap<>(Map.of("headline", "H")), null, 0, 1, null, null));
+        Assert.assertTrue(blank.contains("<div class=\"hero-art hero-art-\" style=\"flex-basis:\">"),
+                "blank reads as the stylesheet's default: " + blank);
+        final String sized = ContentRenderer.render(hero, new ContentInstance("h", "s", "H", hero.getId(), 1,
+                new HashMap<>(Map.of("headline", "H", "imageSize", "half", "imageWidth", "40%")), null, 0, 1, null,
+                null));
+        Assert.assertTrue(sized.contains("<div class=\"hero-art hero-art-half\" style=\"flex-basis:40%\">"), sized);
+        final String hostile = ContentRenderer.render(hero, new ContentInstance("h", "s", "H", hero.getId(), 1,
+                new HashMap<>(Map.of("headline", "H", "imageWidth", "1px;position:fixed")), null, 0, 1, null, null));
+        Assert.assertTrue(hostile.contains("style=\"flex-basis:\""), "only a length reaches the style: " + hostile);
+    }
+
+    /** The Spacer (2026-11-25): every value lands in a style attribute, so each is a checked length or a menu. */
+    @Test
+    public void theSpacerWritesOnlyLengthsAndAKnownDisplay() {
+        final ContentTemplate spacer = byId(StarterTemplates.SPACER_ID);
+        Assert.assertEquals(spacer.getKind(), TemplateKind.STANDARD);
+        Assert.assertFalse(spacer.isFullWidth(), "fits any page");
+        Assert.assertTrue(spacer.getTags().contains("spacer"));
+        Assert.assertEquals(prompt(spacer, "display").getOptions(), StarterTemplates.SPACER_DISPLAYS);
+        final String out = ContentRenderer.render(spacer, new ContentInstance("p", "s", "", spacer.getId(), 1,
+                new HashMap<>(Map.of("height", "40px", "width", "50%", "display", "inline-block")), null, 0, 1,
+                null, null));
+        Assert.assertTrue(out.contains("style=\"height:40px;width:50%;display:inline-block\""), out);
+        final String blank = ContentRenderer.render(spacer, new ContentInstance("p", "s", "", spacer.getId(), 1,
+                new HashMap<>(Map.of("height", "tall", "width", "0")), null, 0, 1, null, null));
+        Assert.assertTrue(blank.contains("style=\"height:;width:0;display:\""), blank);
+        Assert.assertNull(HtmlCheck.structureProblem(spacer.getBody()));
+    }
+
+    private static Placeholder prompt(final ContentTemplate template, final String name) {
+        return template.getPlaceholders().stream().filter(ph -> ph.getName().equals(name)).findFirst()
+                .orElseThrow();
+    }
+
     @Test
     public void imageStarterWidthIsOptional() {
         final ContentTemplate tpl = StarterTemplates.all().get(1);
@@ -304,12 +371,16 @@ public class StarterTemplatesTest {
                         || ph.getType() == Placeholder.Type.RICH_TEXT;
                 if (textual && !"imageAlt".equals(ph.getName()) && !"side".equals(ph.getName())
                         && !"icon".equals(ph.getName()) && !"width".equals(ph.getName())
+                        && !"imageWidth".equals(ph.getName())
                         && !"altText".equals(ph.getName()) && !"caption".equals(ph.getName())
                         && !"linkText".equals(ph.getName()) && !"note".equals(ph.getName())) {
                     org.testng.Assert.assertNotNull(ph.getSample(),
                             template.getId() + "." + ph.getName() + " has no sample");
                 }
-                if (!textual) {
+                if (ph.isFixedChoice() && ph.getSample() != null) {
+                    org.testng.Assert.assertTrue(ph.getOptions().contains(ph.getSample()),
+                            "a menu's sample is one of its choices: " + template.getId() + "." + ph.getName());
+                } else if (!textual) {
                     org.testng.Assert.assertNull(ph.getSample(), template.getId() + "." + ph.getName());
                 }
                 if (ph.getType() == Placeholder.Type.RICH_TEXT && !"quote".equals(ph.getName())

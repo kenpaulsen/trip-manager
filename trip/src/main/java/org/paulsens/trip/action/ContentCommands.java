@@ -514,6 +514,10 @@ public class ContentCommands {
         if (requiredProblem != null) {
             return requiredProblem;
         }
+        final String shapeProblem = validateShapes(instance);
+        if (shapeProblem != null) {
+            return shapeProblem;
+        }
         final String htmlProblem = validateAuthoredHtml(instance);
         if (htmlProblem != null) {
             return htmlProblem;
@@ -543,9 +547,46 @@ public class ContentCommands {
             return null;
         }
         for (final Placeholder ph : ProgrammaticTypes.placeholdersOf(template)) {
-            if (ph.isRequired() && showsProperty(instance, ph.getName())
+            if (isRequired(ph) && showsProperty(instance, ph.getName())
                     && isBlankValue(ph, instance.getValues().get(ph.getName()))) {
                 return Text.get("feedback.contentCommands.required", promptLabel(ph));
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Whether a prompt must be filled in before a save (owner, 2026-11-25): what the template says, except that a
+     * rich-text prompt never is. A blank Content renders an empty section, which is harmless, while refusing the
+     * save cost an editor the whole section; a prompt that would render broken when blank (a video's address)
+     * keeps its rule. The drawer's {@code required=} attributes and {@link #validateRequired} both ask here.
+     */
+    public boolean isRequired(final Placeholder ph) {
+        return ph != null && ph.isRequired() && ph.getType() != Placeholder.Type.RICH_TEXT;
+    }
+
+    /**
+     * A hand-written template's menu value must be one of its options, and a length-format value a CSS length
+     * (2026-11-25), but only a value this save CHANGES: a tone typed by hand before the prompt became a menu
+     * ("Dark") keeps saving and rendering exactly as it did, and the drawer offers it as it is.
+     */
+    private String validateShapes(final ContentInstance instance) {
+        final ContentTemplate template = resolveTemplate(instance);
+        if (template == null || template.getKind() == TemplateKind.PROGRAMMATIC) {
+            return null;
+        }
+        final ContentInstance stored = instance.getVersion() > 0 ? storedRow(instance.getId()) : null;
+        for (final Placeholder ph : template.getPlaceholders()) {
+            final String value = instance.getValues().get(ph.getName());
+            if (value == null || value.isBlank()
+                    || stored != null && value.equals(stored.getValues().get(ph.getName()))) {
+                continue;
+            }
+            if (ph.isFixedChoice() && !ph.getOptions().contains(value)) {
+                return Text.get("feedback.contentCommands.notAnOption", promptLabel(ph));
+            }
+            if (Placeholder.FORMAT_CSS_LENGTH.equals(ph.getFormat()) && !Placeholder.isLength(value)) {
+                return Text.get("feedback.contentCommands.notALength", promptLabel(ph));
             }
         }
         return null;
@@ -680,7 +721,7 @@ public class ContentCommands {
         final List<String> fields = new ArrayList<>();
         for (final Placeholder ph : ProgrammaticTypes.placeholdersOf(template)) {
             if (!hidden.contains(ph.getName())) {
-                fields.add(promptLabel(ph) + (ph.isRequired() ? " *" : ""));
+                fields.add(promptLabel(ph) + (isRequired(ph) ? " *" : ""));
             }
         }
         return List.copyOf(fields);
@@ -1019,11 +1060,67 @@ public class ContentCommands {
      * Whether the Title the form asks for shows nowhere on the page: a plain section template placed straight on
      * a page has no slot for it (a group shows its title, a group's row shows its item's, and a live type titles
      * itself). The title still names the section in Arrange sections and in History, which the form then says.
+     * Never on a trip page: its strip of section links is made of the sections' titles.
      */
     public boolean isTitleUnseen(final ContentInstance working, final String pageKey) {
         return working != null && pageKey != null && pageKey.equals(working.getSection())
+                && OrgPageBootstrap.tripOf(pageKey) == null
                 && TemplateKind.STANDARD.name().equals(getKind(working));
     }
+
+    /**
+     * The name of the template an item is built on, the version it renders with (Stay on Latest followed), for
+     * the drawer's "Template:" line (2026-11-25, so editors learn which templates there are). "" when the item
+     * or its template is gone.
+     */
+    public String templateName(final ContentInstance instance) {
+        final ContentTemplate template = instance == null ? null : resolveTemplate(instance);
+        return template == null || template.getName() == null ? "" : template.getName();
+    }
+
+    /** The id of the template an item is built on, for the drawer's "Edit this template" link; "" without one. */
+    public String templateIdOf(final ContentInstance instance) {
+        return instance == null || instance.getTemplateId() == null ? "" : instance.getTemplateId();
+    }
+
+    /**
+     * How a section with no title is named where sections are listed (Arrange sections, "Adding above ..."):
+     * its template's name and the first words of its text, e.g. 'Opening banner: "A weekend that changes..."'.
+     * A title is optional since 2026-11-25, so a bare id or "untitled" would leave a list of look-alike rows.
+     * "" when even that says nothing.
+     */
+    String untitledLabel(final ContentInstance row) {
+        final ContentTemplate template = row == null ? null : resolveTemplate(row);
+        if (template == null) {
+            return "";
+        }
+        final String name = template.getName() == null ? "" : template.getName().trim();
+        final String words = firstWords(template, row);
+        if (words.isEmpty()) {
+            return name;
+        }
+        return name.isEmpty() ? words : Text.get("feedback.contentCommands.untitledLabel", name, words);
+    }
+
+    /** The first few words of the first text an item holds, in its template's prompt order, as plain text. */
+    private static String firstWords(final ContentTemplate template, final ContentInstance row) {
+        for (final Placeholder ph : template.getPlaceholders()) {
+            final String value = row.getValues().get(ph.getName());
+            if ((ph.getType() == Placeholder.Type.TEXT || ph.getType() == Placeholder.Type.RICH_TEXT)
+                    && ph.getFormat() == null && value != null && !value.isBlank()) {
+                final String plain = value.replaceAll("<[^>]*>", " ").replace("&nbsp;", " ").trim();
+                final String[] split = plain.split("\\s+");
+                if (!plain.isEmpty()) {
+                    return split.length <= FIRST_WORDS ? plain.replaceAll("\\s+", " ")
+                            : String.join(" ", List.of(split).subList(0, FIRST_WORDS)) + "...";
+                }
+            }
+        }
+        return "";
+    }
+
+    /** How many words {@link #untitledLabel} quotes. */
+    private static final int FIRST_WORDS = 6;
 
     /**
      * Where the Add drawer's new item will go, in the author's words: above a named section of the page, at the
@@ -1041,7 +1138,8 @@ public class ContentCommands {
         if (beforeId == null || !idsFor(section, true).contains(beforeId)) {
             return Text.get("feedback.contentCommands.addingAtEnd");
         }
-        final String next = plainTitleOf(beforeId);
+        final String titled = plainTitleOf(beforeId);
+        final String next = titled.isEmpty() ? untitledLabel(storedRow(beforeId)) : titled;
         return next.isEmpty() ? Text.get("feedback.contentCommands.addingAboveUntitled")
                 : Text.get("feedback.contentCommands.addingAbove", next);
     }
@@ -1501,21 +1599,109 @@ public class ContentCommands {
     /** One row and, beneath it, its children, into {@code section}; the children's section is the NEW row's id. */
     private boolean copyRow(final Caller caller, final ContentInstance row, final String section,
             final String copiedFrom) {
-        final ContentInstance copy = new ContentInstance(UUID.randomUUID().toString(), section, row.getTitle(),
-                row.getTemplateId(), row.getTemplateVersion(), new HashMap<>(row.getValues()), row.getEventDate(),
-                row.getPosition(), 0, null, caller.auditActor().email(),
-                row.getEditorPrivileges() == null ? null : new ArrayList<>(row.getEditorPrivileges()),
-                row.getAllowedChildTemplateIds() == null ? null : new ArrayList<>(row.getAllowedChildTemplateIds()),
-                row.isStayOnLatest());
+        final ContentInstance copy = copyOf(caller, row, section, row.getPosition());
         if (!storeContent(copy, retainCount())) {
             return false;
         }
         audit(caller, copy.getId(), "Copied '" + copy.getTitle() + "' into " + section + " from " + copiedFrom);
+        return copyChildren(caller, row, copy);
+    }
+
+    /** The children of {@code row}, each copied (with its own children) under {@code copy}. */
+    private boolean copyChildren(final Caller caller, final ContentInstance row, final ContentInstance copy) {
         boolean all = true;
         for (final ContentInstance child : DAO.getInstance().getContentForSection(row.getId(), Cached.NO)) {
             all &= copyRow(caller, child, copy.getId(), row.getId());
         }
         return all;
+    }
+
+    /**
+     * A new, unsaved row holding what {@code row} holds, in {@code section} at {@code position}. A seeded
+     * placeholder's copy keeps the seed as its author (with the seed's "Show until"), so it stays hidden from
+     * visitors and its first save publishes it, exactly as the original's would ({@link #publishIfSeededPlaceholder}).
+     */
+    private static ContentInstance copyOf(final Caller caller, final ContentInstance row, final String section,
+            final int position) {
+        final String author = OrgPageBootstrap.isSeededPlaceholder(row) ? row.getModifiedBy()
+                : caller.auditActor().email();
+        return new ContentInstance(UUID.randomUUID().toString(), section, row.getTitle(),
+                row.getTemplateId(), row.getTemplateVersion(), new HashMap<>(row.getValues()), row.getEventDate(),
+                position, 0, null, author,
+                row.getEditorPrivileges() == null ? null : new ArrayList<>(row.getEditorPrivileges()),
+                row.getAllowedChildTemplateIds() == null ? null : new ArrayList<>(row.getAllowedChildTemplateIds()),
+                row.isStayOnLatest());
+    }
+
+    /**
+     * The section toolbar's Clone (2026-11-25): a copy of one section or group item, with a group's items copied
+     * beneath it, saved right AFTER the original, which keeps its place. A group's rules still apply to an item's
+     * copy (its allow-list and its size, {@link #validateAsChild}), but required prompts are not asked again: the
+     * copy holds exactly what is already stored, and a seeded placeholder holds blanks on purpose. The new row's
+     * history starts at version 1 and its audit line names the original.
+     *
+     * @return the copy's id, or "" when nothing was copied (the reason is on the page)
+     */
+    public String cloneContent(final String id) {
+        final ContentInstance original = id == null ? null : storedRow(id);
+        final Caller caller = callerSource.get();
+        if (original == null || !mayEdit(caller, original.getSection())) {
+            log.warn("Refusing clone of '{}'", id);
+            PageFeedback.error(Text.get("feedback.contentCommands.cloneFailed"));
+            return "";
+        }
+        final ArrayList<String> order = idsFor(original.getSection(), true);
+        final int at = order.indexOf(original.getId()) + 1;
+        final ContentInstance copy = copyOf(caller, original, original.getSection(), at > 0 ? at : order.size());
+        final ContentInstance parent = storedRow(original.getSection());
+        final String problem = parent == null ? null : validateAsChild(copy, parent);
+        if (problem != null) {
+            PageFeedback.error(Text.get("feedback.shared.notSaved"), problem);
+            return "";
+        }
+        try {
+            if (!storeContent(copy, retainCount())) {
+                PageFeedback.error(Text.get("feedback.contentCommands.cloneFailed"));
+                return "";
+            }
+            audit(caller, copy.getId(), "Cloned '" + copy.getTitle() + "' in " + copy.getSection() + " from "
+                    + original.getId());
+            if (!copyChildren(caller, original, copy)) {
+                PageFeedback.warn(Text.get("feedback.contentCommands.cloneChildrenFailed"));
+            }
+        } catch (final RuntimeException ex) {
+            log.error("Unable to clone content: " + id, ex);
+            PageFeedback.error(Text.get("feedback.contentCommands.cloneFailed"));
+            return "";
+        }
+        if (at > 0) {
+            order.add(at, copy.getId());
+            if (!applyOrder(copy.getSection(), order)) {
+                PageFeedback.warn(Text.get("feedback.contentCommands.savedNotPlaced"));
+            }
+        }
+        return copy.getId();
+    }
+
+    /** Whether {@link #cloneContent} made a copy (a JSFT {@code if} reads a bean call, never {@code not empty}). */
+    public boolean wasCloned(final String copyId) {
+        return copyId != null && !copyId.isEmpty();
+    }
+
+    /**
+     * The anchor to open the page on after {@link #cloneContent}: the copy itself on a page, or its group for an
+     * item inside one (the anchors are the page sections'), as {@link #landingAnchor} answers for an Add. Decided
+     * from the ORIGINAL, which sits where the copy does: a read of the copy right after its write may be stale.
+     */
+    public String cloneLanding(final String copyId, final String originalId, final String pageKey) {
+        if (copyId == null || copyId.isEmpty() || originalId == null || pageKey == null) {
+            return "";
+        }
+        final ContentInstance original = storedRow(originalId);
+        if (original == null) {
+            return "";
+        }
+        return pageKey.equals(original.getSection()) ? copyId : original.getSection();
     }
 
     /**
@@ -2067,20 +2253,23 @@ public class ContentCommands {
         if (container == null) {
             // A page key: any kind may become a section, except a leaf made for one group's row (childOnly:
             // a feature card on its own has no heading and no grid), and except that a trip's page leaves out
-            // the types that list OTHER trips (fitsTripPage, docs/conference.md).
+            // the types that list OTHER trips (fitsTripPage, docs/conference.md), and any other page the types
+            // made for a trip's own page alone (onlyTripPage: its pictures and facts).
             final boolean tripPage = OrgPageBootstrap.tripOf(section) != null;
             return all.stream()
                     .filter(t -> !t.isChildOnly())
-                    .filter(t -> !tripPage || fitsTripPage(t))
+                    .filter(t -> tripPage ? fitsTripPage(t) : !onlyTripPage(t))
                     .filter(this::offeredToCaller)
                     .toList();
         }
+        final boolean groupOnTripPage = OrgPageBootstrap.tripOf(container.getSection()) != null;
         final ContentTemplate containerTemplate =
                 DAO.getInstance().getTemplate(container.getTemplateId(), Cached.NO).orElse(null);
         final List<String> allowed = effectiveAllowList(container, containerTemplate);
         return all.stream()
                 .filter(t -> t.getKind() != TemplateKind.CONTAINER)
                 .filter(t -> allowed == null || allowed.isEmpty() || allowed.contains(t.getId()))
+                .filter(t -> groupOnTripPage || !onlyTripPage(t))
                 .filter(this::offeredToCaller)
                 .toList();
     }
@@ -2096,6 +2285,13 @@ public class ContentCommands {
         final Caller caller = callerSource.get();
         return ProgrammaticTypes.byId(template.getProgrammaticTypeId()).map(type -> type.offeredTo(caller))
                 .orElse(true);
+    }
+
+    /** Whether a template is a type made for a trip's own page alone (its pictures, its facts). */
+    private static boolean onlyTripPage(final ContentTemplate template) {
+        return template.getKind() == TemplateKind.PROGRAMMATIC
+                && ProgrammaticTypes.byId(template.getProgrammaticTypeId())
+                        .map(ProgrammaticContentTemplate::onlyTripPage).orElse(false);
     }
 
     private static boolean fitsTripPage(final ContentTemplate template) {
@@ -2383,8 +2579,12 @@ public class ContentCommands {
     public String titleOf(final String id) {
         // The stored row, not getContent: the arrange dialog's labels must not carry a Stay on Latest row (and
         // report the carry) once per row.
-        final String title = DAO.getInstance().getContent(id, Cached.NO).map(ContentInstance::getTitle).orElse(null);
-        return title == null || title.isBlank() ? id : title;
+        final ContentInstance row = DAO.getInstance().getContent(id, Cached.NO).orElse(null);
+        if (row != null && row.getTitle() != null && !row.getTitle().isBlank()) {
+            return row.getTitle();
+        }
+        final String label = untitledLabel(row);
+        return label.isEmpty() ? id : label;
     }
 
     /** Autocomplete for the Editors chips: global privilege names matching the query (all on empty). */
@@ -2432,16 +2632,61 @@ public class ContentCommands {
                 .orElse(true);
     }
 
-    /** Dropdown options for a CHOICE property of a programmatic instance; empty otherwise. */
+    /**
+     * Dropdown options for a CHOICE property: a programmatic type's provider, or a hand-written template's own
+     * options (2026-11-25). A value already held that is not one of them (a tone typed by hand before the prompt
+     * became a menu) is offered too, last and marked, so the menu shows it and posts it back unchanged: a
+     * PrimeFaces menu whose items omit its value silently posts its first option instead.
+     */
     public List<ProgrammaticContentTemplate.Choice> getChoices(final ContentInstance instance,
             final String propertyName) {
         final String typeId = typeId(instance);
-        if (typeId.isEmpty()) {
+        if (!typeId.isEmpty()) {
+            return ProgrammaticTypes.byId(typeId)
+                    .map(type -> type.choicesFor(propertyName))
+                    .orElse(List.of());
+        }
+        final Placeholder ph = instance == null ? null : placeholderNamed(resolveTemplate(instance), propertyName);
+        if (ph == null || !ph.isFixedChoice()) {
             return List.of();
         }
-        return ProgrammaticTypes.byId(typeId)
-                .map(type -> type.choicesFor(propertyName))
-                .orElse(List.of());
+        final List<ProgrammaticContentTemplate.Choice> choices = new ArrayList<>();
+        ph.getOptions().forEach(option -> choices.add(new ProgrammaticContentTemplate.Choice(option, option)));
+        final String held = instance.getValues().get(propertyName);
+        if (held != null && !held.isBlank() && !ph.getOptions().contains(held)) {
+            choices.add(new ProgrammaticContentTemplate.Choice(held,
+                    Text.get("feedback.contentCommands.notAChoice", held)));
+        }
+        return choices;
+    }
+
+    /**
+     * The values held by this item that its menus do not list, as "Tone: Dark", for the drawer's note when it
+     * opens: such a value still saves as it is, and choosing another one replaces it.
+     */
+    public List<String> unlistedChoices(final ContentInstance instance) {
+        final ContentTemplate template = instance == null ? null : resolveTemplate(instance);
+        if (template == null || template.getKind() == TemplateKind.PROGRAMMATIC) {
+            return List.of();
+        }
+        final List<String> unlisted = new ArrayList<>();
+        for (final Placeholder ph : template.getPlaceholders()) {
+            final String held = instance.getValues().get(ph.getName());
+            if (ph.isFixedChoice() && held != null && !held.isBlank() && !ph.getOptions().contains(held)) {
+                unlisted.add(promptLabel(ph) + ": " + held);
+            }
+        }
+        return unlisted;
+    }
+
+    private static Placeholder placeholderNamed(final ContentTemplate template, final String name) {
+        if (template == null || name == null) {
+            return null;
+        }
+        return template.getPlaceholders().stream()
+                .filter(ph -> name.equals(ph.getName()))
+                .findFirst()
+                .orElse(null);
     }
 
     private List<ContentInstance> readSection(final String section) {

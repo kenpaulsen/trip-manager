@@ -265,6 +265,29 @@ and still carries a description is left alone by `saveTrip` (a brand-new trip cr
 once, the description becoming its About). While any starter is missing (production before
 `install-starter-templates.sh` ran; `tripRowTemplateIds` is the union of both kinds' starters) nothing is seeded or
 stamped, and the next save retries. A trip whose id is not a UUID (imported or hand-made rows) can carry no page.
+Since 2026-11-25 a page is seeded with the trip's top block first, as two sections (the Trip Detail Pictures and Trip
+Details sections, `OrgPageBootstrap.topRows`; `docs/trip-pictures.md`, "On the trip page"), and the trip is stamped
+`pageTopSectionsAt`; those two templates are OPTIONAL for seeding (`tripTopTemplateIds`): before the installer has
+installed them a page still seeds, without them, and keeps the fixed top block. A legacy conversion adds them the same
+way.
+
+**Copying a page** (2026-11-25). The trip editor's Trip Page row offers "Copy from another trip"
+(`WEB-INF/tripPageCloneDialog.xhtml`, not while creating): this trip's page becomes a copy of another trip's, every
+language version, groups with their items (`TripPageCommands.clonePage`). The menu (`cloneSources`) lists the SAME
+organization's trips only (a trip with no organization offers nothing), never the trip itself, only pages that have
+sections, and only those the editor may edit (`ContentCommands.canEdit`: a copy carries hidden rows too); the copy
+re-checks all of it, the target page's edit right included. It COPIES FIRST, then deletes: the target's current rows
+are noted, every copy is saved (ids minted for the whole tree first), and only then are the noted rows deleted
+(`ContentCommands.deleteWithChildren`, one audit line each; permanent, which the confirm says). A copy that fails part
+way deletes what it added and leaves the page as it was. Copied values are made about the new trip
+(`rewriteForCopy`): a `?trip=<source>` link names the target (the Register buttons, a link to the trip's own page), a
+`#<row id>` anchor names that row's copy, a section's explicit pick of the source trip becomes blank ("this page"),
+and the opening banner's headline and date line, where they still read exactly as the source trip's were seeded,
+read as the target's. A seeded placeholder's copy keeps the seed author, so its first save publishes it. The copy
+happens at once (content rows are not part of the editor's working copy); the trip's stamps (`pageSeededAt`, and
+`pageTopSectionsAt` exactly when the source had it) are written on the stored row and on the working copy alike.
+"Also copy the page settings" puts the source's look (layout, background, title, links, stylesheet; same
+organization, so a library stylesheet stays valid) into the working copy only, kept by Save, dropped by Cancel.
 
 **Placeholders start hidden.** The rows that are only placeholders (the sample speaker, the venue, the sample
 question, their two containers, and About when the trip has no description) are seeded with "Show until" set to

@@ -107,6 +107,11 @@ public final class ContentRenderer {
         if (declared == null || raw == null || raw.isBlank()) {
             return "";
         }
+        // A length may be written inside a style attribute (the spacer, the banner picture's width), where escaping
+        // alone would still let a typed "1px;position:fixed" restyle the page: anything but a length renders "".
+        if (Placeholder.FORMAT_CSS_LENGTH.equals(declared.getFormat())) {
+            return Placeholder.isLength(raw) ? raw.trim() : "";
+        }
         return switch (declared.getType()) {
             case TEXT, CHOICE, MULTI_CHOICE, PERSON -> Html.escape(raw);
             case RICH_TEXT -> PageHtml.clean(raw);

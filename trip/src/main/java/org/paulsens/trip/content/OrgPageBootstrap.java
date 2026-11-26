@@ -86,7 +86,11 @@ public final class OrgPageBootstrap {
      * and colon-free so {@link #orgOf} can split an org key unambiguously.
      */
     private static final Pattern PAGE_NAME = Pattern.compile("[a-z][a-z0-9-]{0,39}");
-    static final String SEED_AUTHOR = "org-site-bootstrap";
+    /**
+     * The author every seeded row carries ({@link #isSeededPlaceholder}). Public so that a copy of a seeded
+     * placeholder ({@code TripPageCommands.clonePage}) can keep it, and with it the "first save publishes" rule.
+     */
+    public static final String SEED_AUTHOR = "org-site-bootstrap";
 
     private OrgPageBootstrap() {
     }
@@ -448,6 +452,56 @@ public final class OrgPageBootstrap {
     }
 
     /**
+     * {@link #tripRows}, headed by the trip's top block when {@code withTop}: its pictures and its facts as two
+     * sections ({@link #topRows}), the starter sections after them. The caller passes {@code withTop} only when
+     * both top templates are installed ({@link #tripTopTemplateIds}): a deploy that runs before the installer
+     * still seeds the page, and the page keeps the fixed top block until it holds these rows.
+     */
+    public static List<ContentInstance> tripRows(final Trip trip, final String orgName,
+            final ToIntFunction<String> templateVersion, final LocalDateTime seededAt, final boolean withTop) {
+        final List<ContentInstance> rows = tripRows(trip, orgName, templateVersion, seededAt);
+        return withTop ? withTopRows(trip, rows, templateVersion) : rows;
+    }
+
+    /**
+     * {@code rows} (a page's starter sections, positions from 0) moved down two places, under the trip's top
+     * block. Used for the kinds' starters and for a legacy trip's one converted section alike.
+     */
+    public static List<ContentInstance> withTopRows(final Trip trip, final List<ContentInstance> rows,
+            final ToIntFunction<String> templateVersion) {
+        final List<ContentInstance> all = new ArrayList<>(topRows(trip, templateVersion));
+        for (final ContentInstance row : rows) {
+            row.setPosition(row.getPosition() + all.size());
+        }
+        all.addAll(rows);
+        return List.copyOf(all);
+    }
+
+    /**
+     * The trip's top block as two sections (docs/trip-pictures.md, "On the trip page"): its pictures, then its
+     * facts, both with blank values (the gallery, and the facts the line always showed). Never placeholders: they
+     * show the trip's own data from the start, and render nothing for a trip with no picture or no fact. Ids are
+     * deterministic per trip ({@link #tripRowId}), so the backfill script reproduces them and a retry rewrites the
+     * same rows.
+     */
+    public static List<ContentInstance> topRows(final Trip trip, final ToIntFunction<String> templateVersion) {
+        final String key = tripPageKey(trip.getId());
+        return List.of(
+                tripRow(trip, TOP_PICTURES_SLOT, key, "", TripPicturesType.TYPE_ID, templateVersion, 0, Map.of(),
+                        null),
+                tripRow(trip, TOP_FACTS_SLOT, key, "", TripFactsType.TYPE_ID, templateVersion, 1, Map.of(), null));
+    }
+
+    /** The slot names of {@link #topRows}' ids; the backfill script names the same two. */
+    static final String TOP_PICTURES_SLOT = "pictures";
+    static final String TOP_FACTS_SLOT = "details";
+
+    /** The template ids of {@link #topRows}: optional for seeding, which adds the rows only when both exist. */
+    public static List<String> tripTopTemplateIds() {
+        return List.of(TripPicturesType.TYPE_ID, TripFactsType.TYPE_ID);
+    }
+
+    /**
      * A trip's starter page (every kind but a conference): a hero with the Join button, About, and a video section.
      * About carries the trip's description when it has one; otherwise it and the video are seeded as hidden
      * placeholders ("Show until" = {@code seededAt}, the rule {@link #conferenceRows} explains), so visitors see a
@@ -610,8 +664,11 @@ public final class OrgPageBootstrap {
                 SEED_AUTHOR);
     }
 
-    /** "March 5 - 7, 2027" in English: computed without a FacesContext, since a REST save seeds too. */
-    static String dateRange(final Trip trip) {
+    /**
+     * "March 5 - 7, 2027" in English: computed without a FacesContext, since a REST save seeds too. Public because a
+     * page copied from another trip ({@code TripPageCommands.clonePage}) recognizes the hero line seeded this way.
+     */
+    public static String dateRange(final Trip trip) {
         if (trip.getStartDate() == null || trip.getEndDate() == null) {
             return "";
         }

@@ -12,11 +12,13 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.FormatStyle;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import java.util.function.Predicate;
@@ -27,15 +29,22 @@ import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.checkout.CheckoutValidator;
 import org.paulsens.trip.config.KnownSettings;
+import org.paulsens.trip.audit.Audit;
+import org.paulsens.trip.audit.AuditEventBuilder;
 import org.paulsens.trip.content.EmbedStyles;
 import org.paulsens.trip.content.PageHtml;
+import org.paulsens.trip.content.PageVersions;
+import org.paulsens.trip.content.StarterTemplates;
 import org.paulsens.trip.audit.RequestContext;
 import org.paulsens.trip.i18n.Formats;
 import org.paulsens.trip.i18n.Text;
 import org.paulsens.trip.theme.ThemeResources;
 import org.paulsens.trip.content.OrgPageBootstrap;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.model.AuditAction;
+import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.ContentInstance;
+import org.paulsens.trip.model.Language;
 import org.paulsens.trip.model.MediaItem;
 import org.paulsens.trip.model.OptionChoice;
 import org.paulsens.trip.model.Organization;
@@ -121,6 +130,86 @@ public class TripPageCommands {
             log.error("Unable to read reachable trip " + id, ex);
             return null;
         }
+    }
+
+    // ------------------------------------------------------------------ the top block: pictures and facts
+
+    /** The Trip Detail Pictures section's choice: blank for the gallery, {@value #PICTURES_COVER_ONLY} for one. */
+    public static final String PROP_PICTURES_SHOW = "show";
+    /** The {@value #PROP_PICTURES_SHOW} value that shows the cover alone, however many pictures the trip has. */
+    public static final String PICTURES_COVER_ONLY = "cover";
+    /** The Trip Details section's pick of facts: comma-separated {@link Fact#value}s; blank is the default line. */
+    public static final String PROP_FACTS_SHOWN = "shown";
+
+    /**
+     * One fact the Trip Details section may show: its stored value, its label's message key, and whether the line
+     * shows it when the section picks nothing (every fact but the dates, which the opening banner carries).
+     */
+    public record Fact(String value, String labelKey, boolean byDefault) {
+    }
+
+    /** Every fact, in the order the line shows them. */
+    public static final List<Fact> FACTS = List.of(
+            new Fact("dates", "common.dates", false),
+            new Fact("destination", "tripedit.edit.destination", true),
+            new Fact("director", "common.spiritualDirector", true),
+            new Fact("guide", "trip.page.guide", true),
+            new Fact("coordinators", "common.coordinators", true),
+            new Fact("price", "trip.page.estimatedPrice", true),
+            new Fact("flyer", "trip.page.flyer", true));
+
+    /** Whether a Trip Detail Pictures section shows the cover alone (its choice), rather than the gallery. */
+    public boolean coverOnly(final ContentInstance instance) {
+        return instance != null && PICTURES_COVER_ONLY.equals(instance.getValues().get(PROP_PICTURES_SHOW));
+    }
+
+    /**
+     * Whether a Trip Details section shows {@code fact} (a {@link Fact#value}): the section's pick when it made
+     * one, else the default line. A null instance asks about the default line. Says nothing about whether the trip
+     * HAS the fact ({@link #hasFacts} and the fragment ask that).
+     */
+    public boolean showsFact(final ContentInstance instance, final String fact) {
+        final String picked = instance == null ? null : Util.trimToNull(instance.getValues().get(PROP_FACTS_SHOWN));
+        if (picked == null) {
+            return FACTS.stream().anyMatch(each -> each.value().equals(fact) && each.byDefault());
+        }
+        for (final String part : picked.split(",")) {
+            if (part.trim().equals(fact)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Whether a Trip Details section has anything to show for {@code trip}: some shown fact the trip has. */
+    public boolean hasFacts(final Trip trip, final ContentInstance instance) {
+        return trip != null && FACTS.stream()
+                .anyMatch(fact -> showsFact(instance, fact.value()) && hasFact(trip, fact.value()));
+    }
+
+    /** Whether {@code trip} has a value for {@code fact} (a {@link Fact#value}). */
+    public boolean hasFact(final Trip trip, final String fact) {
+        if (trip == null || fact == null) {
+            return false;
+        }
+        return switch (fact) {
+            case "dates" -> trip.getStartDate() != null;
+            case "destination" -> Util.trimToNull(trip.getDestination()) != null;
+            case "director" -> Util.trimToNull(trip.getDirector()) != null;
+            case "guide" -> Util.trimToNull(trip.getLocalGuide()) != null;
+            case "coordinators" -> Util.trimToNull(trip.getFacilitators()) != null;
+            case "price" -> Util.trimToNull(trip.getEstimatedPrice()) != null;
+            case "flyer" -> !new TripCommands().flyerUrlOf(trip).isEmpty();
+            default -> false;
+        };
+    }
+
+    /** The trip's dates for the facts line, in the reader's language ("March 1, 2027 to March 9, 2027"). */
+    public String factDates(final Trip trip) {
+        if (trip == null || trip.getStartDate() == null) {
+            return "";
+        }
+        return Formats.longDateSpan(trip.getStartDate(), trip.getEndDate(), RequestContext.currentLocale());
     }
 
     // ------------------------------------------------------------------ the public agenda
@@ -512,13 +601,18 @@ public class TripPageCommands {
         }
         try {
             final LocalDateTime now = clock.get();
-            final List<ContentInstance> rows =
-                    OrgPageBootstrap.tripRows(trip, orgNameOf(trip), OrgCommands::currentTemplateVersion, now);
-            if (!OrgCommands.seedIfEmpty(OrgPageBootstrap.tripPageKey(trip.getId()), rows)) {
+            final String key = OrgPageBootstrap.tripPageKey(trip.getId());
+            final boolean withTop = topInstalled() && DAO.getInstance().getContentForSection(key, Cached.NO).isEmpty();
+            final List<ContentInstance> rows = OrgPageBootstrap.tripRows(trip, orgNameOf(trip),
+                    OrgCommands::currentTemplateVersion, now, withTop);
+            if (!OrgCommands.seedIfEmpty(key, rows)) {
                 log.error("Conference page for trip {} could not be saved", trip.getId());
                 return false;
             }
             trip.setPageSeededAt(now);
+            if (withTop) {
+                trip.setPageTopSectionsAt(now);
+            }
             return DAO.getInstance().saveTrip(trip);
         } catch (final RuntimeException | IOException ex) {
             log.error("Unable to seed the conference page of trip {}", trip.getId(), ex);
@@ -538,6 +632,15 @@ public class TripPageCommands {
     /** {@link #installed}, as {@link #convertLegacyPage} asks it. Seam for tests. */
     protected boolean starterInstalled(final String templateId) {
         return installed(templateId);
+    }
+
+    /**
+     * Whether both templates of the trip's top block are installed ({@code OrgPageBootstrap.tripTopTemplateIds}):
+     * only then does a page seed with its pictures and facts as sections. Optional, unlike the starters: before the
+     * installer has run, a page still seeds, and it keeps the fixed top block (docs/trip-pictures.md).
+     */
+    boolean topInstalled() {
+        return OrgPageBootstrap.tripTopTemplateIds().stream().allMatch(this::starterInstalled);
     }
 
     private static String orgNameOf(final Trip trip) {
@@ -626,12 +729,19 @@ public class TripPageCommands {
         }
         try {
             final LocalDateTime now = clock.get();
+            final boolean withTop = topInstalled() && DAO.getInstance().getContentForSection(key, Cached.NO).isEmpty();
             final List<ContentInstance> rows = described
-                    ? OrgPageBootstrap.legacyRows(trip, OrgCommands::currentTemplateVersion)
-                    : OrgPageBootstrap.tripRows(trip, orgNameOf(trip), OrgCommands::currentTemplateVersion, now);
+                    ? legacyRowsWithTop(trip, withTop)
+                    : OrgPageBootstrap.tripRows(trip, orgNameOf(trip), OrgCommands::currentTemplateVersion, now,
+                            withTop);
             // A page someone authored by hand before the trip was stamped is kept as it is; only the stamp is new.
             OrgCommands.seedIfEmpty(key, rows);
             trip.setPageSeededAt(now);
+            if (withTop) {
+                // The old page showed the pictures and facts above the description; the converted one keeps them,
+                // as its first two sections.
+                trip.setPageTopSectionsAt(now);
+            }
             if (!DAO.getInstance().saveTrip(trip)) {
                 PageFeedback.warn(Text.get("feedback.tripPageCommands.createdButTripNotSaved"));
                 return false;
@@ -643,6 +753,344 @@ public class TripPageCommands {
             PageFeedback.warn(Text.get("feedback.tripPageCommands.notCreated"));
             return false;
         }
+    }
+
+    /** A described legacy trip's one converted section, under the trip's top block when {@code withTop}. */
+    private static List<ContentInstance> legacyRowsWithTop(final Trip trip, final boolean withTop) {
+        final List<ContentInstance> rows = OrgPageBootstrap.legacyRows(trip, OrgCommands::currentTemplateVersion);
+        return withTop ? OrgPageBootstrap.withTopRows(trip, rows, OrgCommands::currentTemplateVersion) : rows;
+    }
+
+    // ------------------------------------------------------------------ copying another trip's page
+
+    /** One trip the Trip Page's "Copy from another trip" menu offers. Render-time only, never in a view. */
+    public record CloneSource(String id, String label) {
+    }
+
+    /**
+     * How many recent trips the copy menu looks through, and the most it lists. Generous on purpose: an organization
+     * copies last year's page, the menu has a filter box, and the list is read only once its dialog is opened.
+     */
+    private static final int CLONE_WINDOW = 1000;
+    private static final int CLONE_MAX = 200;
+
+    /**
+     * The trips whose page {@code target}'s page may be copied from: the SAME organization only (the tenancy
+     * boundary: a trip with no organization offers nothing), never the trip itself, a trip whose page has sections
+     * (a legacy or empty page has nothing to copy), and one whose page the signed-in person may edit, since a copy
+     * carries the page's hidden rows too. Newest first. Cached reads, memoized per request: the menu asks at render
+     * and again at decode.
+     */
+    public List<CloneSource> cloneSources(final Trip target, final Person.Id userId) {
+        if (target == null || target.getOrgId() == null || userId == null) {
+            return List.of();
+        }
+        return memo("cloneSources:" + target.getId() + ":" + userId.getValue(),
+                () -> findCloneSources(target, userId));
+    }
+
+    private static List<CloneSource> findCloneSources(final Trip target, final Person.Id userId) {
+        final ContentCommands content = new ContentCommands();
+        final List<CloneSource> found = new ArrayList<>();
+        try {
+            for (final Trip trip : DAO.getInstance().getRecentTrips(CLONE_WINDOW, Cached.YES)) {
+                if (found.size() >= CLONE_MAX) {
+                    break;
+                }
+                if (mayCopyFrom(trip, target, userId, content)) {
+                    found.add(new CloneSource(trip.getId(), trip.getTitle()));
+                }
+            }
+        } catch (final RuntimeException ex) {
+            log.error("Unable to list the pages trip " + target.getId() + " may copy", ex);
+        }
+        return List.copyOf(found);
+    }
+
+    /** {@link #cloneSources}' rule for one trip, and the copy's own re-check of the trip it was handed. */
+    private static boolean mayCopyFrom(final Trip source, final Trip target, final Person.Id userId,
+            final ContentCommands content) {
+        if (source == null || target.getOrgId() == null || !target.getOrgId().equals(source.getOrgId())
+                || source.getId().equals(target.getId()) || !OrgPageBootstrap.isTripId(source.getId())) {
+            return false;
+        }
+        final String key = OrgPageBootstrap.tripPageKey(source.getId());
+        return !DAO.getInstance().getContentForSection(key, Cached.YES).isEmpty() && content.canEdit(key, userId);
+    }
+
+    /**
+     * The Trip Page's "Copy from another trip" (docs/conference.md, "Copying a page"): {@code draft}'s page becomes
+     * a copy of {@code sourceId}'s, every language version of it, groups with their items. Both pages must be the
+     * signed-in person's to edit ({@code ContentCommands.canEdit}) and both trips must belong to the same
+     * organization, re-checked here whatever the menu offered.
+     *
+     * <p>COPY FIRST, then delete: the page's current rows are noted, the copies are saved, and only when every copy
+     * was saved are the noted rows deleted (each with its own audit line, {@code ContentCommands
+     * .deleteWithChildren}). A copy that fails part way deletes what it added and leaves the page as it was.
+     * Deleting is permanent; the editor's confirm says so.
+     *
+     * <p>What names the other trip is rewritten for this one ({@link #rewriteForCopy}). The trip is stamped as
+     * seeded, and as showing its top block in sections exactly when the source did, on the stored row AND on
+     * {@code draft} (the editor's working copy, whose Save would otherwise put back the old stamps). With
+     * {@code withLook}, the source page's look (layout, background, title, links, stylesheet) is copied into
+     * {@code draft} only: the editor's Save keeps it, its Cancel drops it.
+     *
+     * @return whether the page is now the copy
+     */
+    public boolean clonePage(final Trip draft, final String sourceId, final boolean withLook,
+            final Person.Id userId) {
+        final Optional<String> refusal = cloneRefusal(draft, sourceId, userId);
+        if (refusal.isPresent()) {
+            PageFeedback.warn(refusal.get());
+            PageFeedback.callbackParam("cloneOk", false);
+            return false;
+        }
+        final Trip source = DAO.getInstance().getTrip(sourceId.trim(), Cached.NO).orElseThrow();
+        final Trip stored = DAO.getInstance().getTrip(draft.getId(), Cached.NO).orElseThrow();
+        final Caller caller = Caller.current();
+        final LocalDateTime now = clock.get();
+        final String targetBase = OrgPageBootstrap.tripPageKey(stored.getId());
+        final List<String> old = rowIdsOfEveryVersion(targetBase);
+        final List<String> added = new ArrayList<>();
+        if (!copiedEveryVersion(caller, source, stored, added)) {
+            added.forEach(id -> deleteQuietly(caller, id));
+            PageFeedback.warn(Text.get("feedback.tripPageCommands.cloneFailed"));
+            PageFeedback.callbackParam("cloneOk", false);
+            return false;
+        }
+        boolean allGone = true;
+        for (final String id : old) {
+            allGone &= deleteQuietly(caller, id);
+        }
+        stored.setPageSeededAt(stored.getPageSeededAt() == null ? now : stored.getPageSeededAt());
+        stored.setPageTopSectionsAt(source.getPageTopSectionsAt() == null ? null : now);
+        draft.setPageSeededAt(stored.getPageSeededAt());
+        draft.setPageTopSectionsAt(stored.getPageTopSectionsAt());
+        if (withLook) {
+            draft.setPage(copyOf(source.pageOrNull()));
+        }
+        saveStamps(stored, source);
+        PageFeedback.info(Text.get(allGone ? "feedback.tripPageCommands.cloned"
+                : "feedback.tripPageCommands.clonedOldLeft", source.getTitle()));
+        PageFeedback.callbackParam("cloneOk", true);
+        return true;
+    }
+
+    /** {@link #copyEveryVersion}, with a failure of the store counted as a failed copy (logged), never thrown. */
+    private boolean copiedEveryVersion(final Caller caller, final Trip source, final Trip target,
+            final List<String> added) {
+        try {
+            return copyEveryVersion(caller, source, target, added);
+        } catch (final RuntimeException ex) {
+            log.error("Unable to copy the page of trip " + source.getId() + " to trip " + target.getId(), ex);
+            return false;
+        }
+    }
+
+    /**
+     * Saves a copied page's trip with its new stamps. The page is already the copy by then, so a failure is logged
+     * rather than reported as a failed copy (the editor's Save still writes {@code pageSeededAt} from its working
+     * copy; a lost top-block stamp only means the fixed block is drawn above the copied sections).
+     */
+    private static void saveStamps(final Trip stored, final Trip source) {
+        try {
+            if (!DAO.getInstance().saveTrip(stored)) {
+                log.error("Page of trip {} copied from {}, but its stamps were not saved", stored.getId(),
+                        source.getId());
+            }
+        } catch (final RuntimeException | IOException ex) {
+            log.error("Page of trip " + stored.getId() + " copied, but its stamps were not saved", ex);
+        }
+    }
+
+    /** Why {@link #clonePage} refuses, in the editor's words; empty when the copy may go ahead. */
+    private Optional<String> cloneRefusal(final Trip draft, final String sourceId, final Person.Id userId) {
+        if (draft == null || userId == null || sourceId == null || sourceId.isBlank()) {
+            return Optional.of(Text.get("feedback.tripPageCommands.clonePickTrip"));
+        }
+        if (!OrgPageBootstrap.isTripId(draft.getId())) {
+            return Optional.of(Text.get("feedback.tripPageCommands.cannotCarryPage"));
+        }
+        final Trip stored = DAO.getInstance().getTrip(draft.getId(), Cached.NO).orElse(null);
+        final Trip source = DAO.getInstance().getTrip(sourceId.trim(), Cached.NO).orElse(null);
+        if (stored == null || source == null) {
+            return Optional.of(Text.get("feedback.shared.unknownTrip"));
+        }
+        final ContentCommands content = new ContentCommands();
+        if (!content.canEdit(OrgPageBootstrap.tripPageKey(stored.getId()), userId)
+                || !mayCopyFrom(source, stored, userId, content)) {
+            return Optional.of(Text.get("feedback.tripPageCommands.cloneRefused"));
+        }
+        return Optional.empty();
+    }
+
+    /** The top-level row ids of a trip page and of each of its language versions. */
+    private static List<String> rowIdsOfEveryVersion(final String baseKey) {
+        final List<String> ids = new ArrayList<>();
+        for (final String key : versionKeys(baseKey)) {
+            DAO.getInstance().getContentForSection(key, Cached.NO).forEach(row -> ids.add(row.getId()));
+        }
+        return ids;
+    }
+
+    /** A page's own key, then the key of each language version, whether or not it holds rows. */
+    private static List<String> versionKeys(final String baseKey) {
+        final List<String> keys = new ArrayList<>();
+        keys.add(baseKey);
+        for (final Language language : Language.values()) {
+            keys.add(PageVersions.keyFor(baseKey, language));
+        }
+        return keys;
+    }
+
+    /**
+     * Copies every version of {@code source}'s page into the same version of {@code target}'s, noting each new
+     * top-level row in {@code added}. Ids are minted for the whole tree first, so an anchor or a group's child
+     * section can be rewritten to the copy's own row whatever order the rows are saved in.
+     */
+    private boolean copyEveryVersion(final Caller caller, final Trip source, final Trip target,
+            final List<String> added) {
+        final String sourceBase = OrgPageBootstrap.tripPageKey(source.getId());
+        final String targetBase = OrgPageBootstrap.tripPageKey(target.getId());
+        final List<String> sourceKeys = versionKeys(sourceBase);
+        final List<String> targetKeys = versionKeys(targetBase);
+        final Map<String, List<ContentInstance>> rowsByKey = new LinkedHashMap<>();
+        final Map<String, String> ids = new LinkedHashMap<>();
+        for (final String key : sourceKeys) {
+            final List<ContentInstance> rows = DAO.getInstance().getContentForSection(key, Cached.NO);
+            rowsByKey.put(key, rows);
+            mintIds(rows, ids);
+        }
+        final int retain = ContentCommands.retainCount(new ConfigCommands());
+        for (int i = 0; i < sourceKeys.size(); i++) {
+            for (final ContentInstance row : rowsByKey.get(sourceKeys.get(i))) {
+                // Noted before it is saved: a row whose children then fail is still taken back out, with them.
+                added.add(ids.get(row.getId()));
+                if (!copyTree(caller, row, targetKeys.get(i), ids, source, target, retain)) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    /** A new id for every row of {@code rows} and, beneath each, of its children, recorded old to new. */
+    private static void mintIds(final List<ContentInstance> rows, final Map<String, String> ids) {
+        for (final ContentInstance row : rows) {
+            ids.put(row.getId(), UUID.randomUUID().toString());
+            mintIds(DAO.getInstance().getContentForSection(row.getId(), Cached.NO), ids);
+        }
+    }
+
+    /** One row into {@code section} under its minted id, then its children beneath the copy. */
+    private boolean copyTree(final Caller caller, final ContentInstance row, final String section,
+            final Map<String, String> ids, final Trip source, final Trip target, final int retain) {
+        final String copyId = ids.get(row.getId());
+        if (copyId == null) {
+            // A row that appeared since the ids were minted is left out rather than saved under a random id.
+            return true;
+        }
+        // A seeded placeholder keeps the seed's author, so its first save publishes it exactly like the original's.
+        final String author = OrgPageBootstrap.isSeededPlaceholder(row) ? OrgPageBootstrap.SEED_AUTHOR
+                : caller.auditActor().email();
+        final ContentInstance copy = new ContentInstance(copyId, section, row.getTitle(), row.getTemplateId(),
+                row.getTemplateVersion(), rewriteForCopy(row, ids, source, target), row.getEventDate(),
+                row.getPosition(), 0, null, author,
+                row.getEditorPrivileges() == null ? null : new ArrayList<>(row.getEditorPrivileges()),
+                row.getAllowedChildTemplateIds() == null ? null : new ArrayList<>(row.getAllowedChildTemplateIds()),
+                row.isStayOnLatest());
+        if (!saveCopy(copy, retain)) {
+            log.error("Unable to copy row {} of trip {}'s page", row.getId(), source.getId());
+            return false;
+        }
+        auditCopy(caller, copy.getId(), "Copied '" + copy.getTitle() + "' into " + section + " from the page of trip "
+                + source.getId());
+        for (final ContentInstance child : DAO.getInstance().getContentForSection(row.getId(), Cached.NO)) {
+            if (!copyTree(caller, child, copyId, ids, source, target, retain)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * A copied row's values made about the trip it is copied to: a link naming the source trip by {@code ?trip=}
+     * (its registration page, its own page) names the target; an anchor to a row of the source page ({@code #id})
+     * names that row's copy; a trip section's explicit pick of the source trip becomes blank ("this page"); and the
+     * opening banner's headline and date line, where they still read exactly as the source trip's were seeded
+     * ({@code OrgPageBootstrap}), read as the target's. Everything else is copied as it is.
+     */
+    static Map<String, String> rewriteForCopy(final ContentInstance row, final Map<String, String> ids,
+            final Trip source, final Trip target) {
+        final Map<String, String> values = new HashMap<>();
+        for (final Map.Entry<String, String> entry : row.getValues().entrySet()) {
+            values.put(entry.getKey(), rewriteValue(entry.getValue(), ids, source, target));
+        }
+        if (source.getId().equals(values.get(PROP_TRIP_ID))) {
+            values.put(PROP_TRIP_ID, "");
+        }
+        if (StarterTemplates.BAND_HERO_ID.equals(row.getTemplateId())) {
+            replaceIfSeeded(values, "headline", source.getShortTitle(), target.getShortTitle());
+            replaceIfSeeded(values, "subheadline", OrgPageBootstrap.dateRange(source),
+                    OrgPageBootstrap.dateRange(target));
+        }
+        return values;
+    }
+
+    private static String rewriteValue(final String value, final Map<String, String> ids, final Trip source,
+            final Trip target) {
+        if (value == null || value.isEmpty()) {
+            return value;
+        }
+        String out = value.replace("?trip=" + source.getId(), "?trip=" + target.getId());
+        for (final Map.Entry<String, String> id : ids.entrySet()) {
+            out = out.replace("#" + id.getKey(), "#" + id.getValue());
+        }
+        return out;
+    }
+
+    private static void replaceIfSeeded(final Map<String, String> values, final String name, final String seeded,
+            final String replacement) {
+        final String now = values.get(name);
+        if (now != null && !now.isEmpty() && now.equals(seeded)) {
+            values.put(name, replacement == null ? "" : replacement);
+        }
+    }
+
+    /**
+     * Stores one copied row. Seam for tests: the store refuses no well-formed new row, so a copy that fails part way
+     * (and must take back what it added) can only be shown by a store that says no.
+     */
+    protected boolean saveCopy(final ContentInstance copy, final int retain) {
+        return DAO.getInstance().saveContent(copy, retain);
+    }
+
+    /** A row and its children, deleted with an audit line each; false when it could not be (logged). */
+    private static boolean deleteQuietly(final Caller caller, final String id) {
+        try {
+            final ContentInstance row = DAO.getInstance().getContent(id, Cached.NO).orElse(null);
+            return row == null || ContentCommands.deleteWithChildren(caller, row);
+        } catch (final RuntimeException ex) {
+            log.error("Unable to delete row " + id + " while copying a trip page", ex);
+            return false;
+        }
+    }
+
+    private static void auditCopy(final Caller caller, final String id, final String message) {
+        Audit.builder(AuditAction.CONTENT, AuditOutcome.SUCCESS)
+                .actor(caller.auditActor())
+                .target(AuditEventBuilder.TARGET_CONTENT, id)
+                .message(message)
+                .log();
+    }
+
+    /** An independent copy of a page's look, or null for none (the organization's). */
+    private static TripPageOptions copyOf(final TripPageOptions look) {
+        if (look == null) {
+            return null;
+        }
+        return new TripPageOptions(look.getLayout(), look.getBackgroundUrl(), look.getBackgroundColor(),
+                look.getShowTitle(), look.getShowNav(), look.getStylesheetUrl());
     }
 
     // ------------------------------------------------------------------ the embed render (the apps)

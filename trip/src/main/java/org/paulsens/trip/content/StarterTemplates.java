@@ -28,6 +28,10 @@ public final class StarterTemplates {
     /** A conference's public schedule and its registration block (docs/conference.md). */
     public static final String TRIP_SCHEDULE_ID = "trip-schedule";
     public static final String TRIP_REGISTRATION_ID = "trip-registration";
+    /** A trip page's pictures (cover, gallery): the trip's own, offered on trip pages only. */
+    public static final String TRIP_PICTURES_ID = TripPicturesType.TYPE_ID;
+    /** A trip page's facts line (dates, destination, staff, price, flyer), offered on trip pages only. */
+    public static final String TRIP_DETAILS_ID = TripFactsType.TYPE_ID;
     /** One graph of the app's own metrics (docs/metrics.md); the metrics dashboard is built from these. */
     public static final String METRIC_GRAPH_ID = MetricGraphType.TYPE_ID;
     /** The grid metric graphs compose on: four columns, each graph spanning its own width and height. */
@@ -47,6 +51,8 @@ public final class StarterTemplates {
     // place their heading with {{container:title}}. Leaf templates come before the containers that admit
     // them: the installer puts rows in this order, and a container's allow-list must name installed ids.
     public static final String BAND_HERO_ID = "band-hero";
+    /** Empty room between sections (2026-11-25): a height, an optional width and how it lays out. */
+    public static final String SPACER_ID = "spacer";
     public static final String BAND_SPLIT_ID = "band-split";
     public static final String BAND_CTA_ID = "band-cta";
     public static final String BAND_TESTIMONIAL_ID = "band-testimonial";
@@ -69,18 +75,30 @@ public final class StarterTemplates {
      */
     public static final String SAMPLE_PICTURE = "/jakarta.faces.resource/images/samplePicture.svg.jsf";
 
-    /** The values the band templates' {@code tone} prompt understands, each a stylesheet class suffix. */
-    public static final List<String> TONES = List.of("plain", "tint", "dark");
+    /**
+     * The values the band templates' {@code tone} prompt offers, each a stylesheet class suffix ({@code site.css},
+     * {@code .band-*}); transparent (2026-11-25) lets the page's own ground or background picture show through.
+     */
+    public static final List<String> TONES = List.of("plain", "tint", "dark", "transparent");
+
+    /** The sides a {@link #BAND_SPLIT_ID} band's picture may take. */
+    public static final List<String> SIDES = List.of("left", "right");
+
+    /** The picture sizes the {@link #BAND_HERO_ID} banner offers ({@code site.css}, {@code .hero-art-*}). */
+    public static final List<String> HERO_PICTURE_SIZES = List.of("small", "medium", "large", "half");
+
+    /** How a {@link #SPACER_ID} lays out: the CSS {@code display} values it offers. */
+    public static final List<String> SPACER_DISPLAYS = List.of("block", "inline-block", "inline");
 
     /** Ids never deleted by the cleanup script without {@code --include-starters}. */
     public static final List<String> IDS = withVersions(List.of(YOUTUBE_VIDEO_ID, IMAGE_ID, TEXT_ONLY_ID,
-            CONTAINER_ID, PILGRIMAGES_ID, PHOTO_ALBUMS_ID, FILE_ID, PERSON_ID, PEOPLE_LIST_ID,
+            CONTAINER_ID, PILGRIMAGES_ID, PHOTO_ALBUMS_ID, FILE_ID, PERSON_ID, PEOPLE_LIST_ID, SPACER_ID,
             REGISTRATION_RECEIVED_ID, REGISTRATION_APPROVED_ID, SUPPORT_REQUEST_ID,
             PAYMENT_CONFIRMATION_ID, PAYMENT_FAILED_ID, CHECKOUT_CONFIRMATION_ID, ORG_INVITE_ID,
             BAND_HERO_ID, BAND_SPLIT_ID, BAND_CTA_ID, BAND_TESTIMONIAL_ID, BAND_TEXT_ID,
             FEATURE_CARD_ID, STAT_ITEM_ID,
             BAND_FEATURES_ID, BAND_STATS_ID, BAND_FAQ_ID, BAND_LOGOS_ID,
-            TRIP_SCHEDULE_ID, TRIP_REGISTRATION_ID, METRIC_GRAPH_ID, GRAPH_GRID_ID,
+            TRIP_SCHEDULE_ID, TRIP_REGISTRATION_ID, TRIP_PICTURES_ID, TRIP_DETAILS_ID, METRIC_GRAPH_ID, GRAPH_GRID_ID,
             ReminderDefaults.BALANCE_DUE_ID, ReminderDefaults.WAIVER_ID, ReminderDefaults.PASSPORT_ID,
             ReminderDefaults.COUNTDOWN_ID));
 
@@ -92,6 +110,7 @@ public final class StarterTemplates {
                 tagged(youtubeVideo(), "video"), tagged(image(), "picture"), tagged(textOnly(), "text"),
                 tagged(container(), "group"), tagged(pilgrimages(), "trips"), tagged(photoAlbums(), "photos", "trips"),
                 tagged(file(), "documents"), tagged(person(), "people"), tagged(peopleList(), "people", "group"),
+                tagged(spacer(), "spacer", "space", "layout"),
                 registrationReceived(), registrationApproved(), supportRequest(),
                 paymentConfirmation(), paymentFailed(), checkoutConfirmation(), orgInvite(),
                 band(bandHero(), "hero", "header", "banner"), band(bandSplit(), "text", "picture"),
@@ -101,6 +120,7 @@ public final class StarterTemplates {
                 band(bandFeatures(), "features", "cards", "group"), band(bandStats(), "stats", "numbers", "group"),
                 band(bandFaq(), "faq", "questions", "group"), band(bandLogos(), "logos", "partners", "group"),
                 tagged(tripSchedule(), "events"), tagged(tripRegistration(), "events"),
+                tagged(tripPictures(), "trip", "pictures"), tagged(tripDetails(), "trip", "details"),
                 tagged(metricGraph(), "metrics", "graph", "chart"), tagged(graphGrid(), "metrics", "graph", "group")));
         // The trip reminders' starting texts (docs/reminders.md): MAIL kind, so an org rewords its own copy.
         for (final ReminderDefaults.Text text : ReminderDefaults.TEXTS) {
@@ -165,10 +185,25 @@ public final class StarterTemplates {
 
     // --- the band family ---
 
-    private static final String TONE_HINT = "plain, tint or dark (blank = plain)";
+    private static final String TONE_HINT = "The section's background: plain, tint, dark or transparent "
+            + "(blank = plain)";
 
+    /** The band tone, a menu of {@link #TONES} since 2026-11-25 (a free-text prompt before). */
     private static Placeholder tone() {
-        return new Placeholder("tone", Placeholder.Type.TEXT, "Tone", TONE_HINT, false, "tint");
+        return choice("tone", "Tone", TONE_HINT, TONES, "tint");
+    }
+
+    /** A pick-one prompt of a hand-written template: a menu of exactly {@code options}. */
+    private static Placeholder choice(final String name, final String label, final String hint,
+            final List<String> options, final String sample) {
+        return new Placeholder(name, Placeholder.Type.CHOICE, label, hint, false, sample, options, null);
+    }
+
+    /** A CSS length prompt ({@link Placeholder#FORMAT_CSS_LENGTH}): safe to write inside a style attribute. */
+    private static Placeholder length(final String name, final String label, final String hint,
+            final String sample) {
+        return new Placeholder(name, Placeholder.Type.TEXT, label, hint, false, sample, null,
+                Placeholder.FORMAT_CSS_LENGTH);
     }
 
     private static Placeholder text(final String name, final String label, final String hint,
@@ -213,7 +248,9 @@ public final class StarterTemplates {
      * Each button is ONE anchor whose whole content is its text, written tight (no whitespace inside), so a
      * blank text leaves an empty element that the stylesheet's {@code :empty} rule hides; the picture's
      * element likewise disappears on a blank URL ({@code img[src=""]}). No tone: the hero always wears the
-     * deep gradient of the site's own colors.
+     * deep gradient of the site's own colors. The picture's size (2026-11-25) is a class from a menu, or a typed
+     * width written as the art's {@code flex-basis}, which a percentage resolves against the banner's own width;
+     * a blank width leaves exactly {@code style="flex-basis:"}, which the stylesheet reads as "no width given".
      */
     private static ContentTemplate bandHero() {
         final String body = """
@@ -226,7 +263,8 @@ public final class StarterTemplates {
                             <div class="cta-row"><a class="cta cta-primary" href="{{primaryUrl}}">{{primaryText}}</a>
                                 <a class="cta cta-secondary" href="{{secondaryUrl}}">{{secondaryText}}</a></div>
                         </div>
-                        <div class="hero-art"><img src="{{imageUrl}}" alt="{{imageAlt}}" loading="lazy" /></div>
+                        <div class="hero-art hero-art-{{imageSize}}" style="flex-basis:{{imageWidth}}">
+                            <img src="{{imageUrl}}" alt="{{imageAlt}}" loading="lazy" /></div>
                     </div>
                 </section>
                 """;
@@ -249,7 +287,11 @@ public final class StarterTemplates {
                         image("imageUrl", "Picture URL", "Shown beside the text; blank lets the text span "
                                 + "the band"),
                         text("imageAlt", "Picture description", "For screen readers, when there is a "
-                                + "picture", false)));
+                                + "picture", false),
+                        choice("imageSize", "Picture size", "How much of the banner the picture takes: small, "
+                                + "medium, large or half (blank = large)", HERO_PICTURE_SIZES, null),
+                        length("imageWidth", "Picture width", "A width such as 320px or 40%, instead of the "
+                                + "size above; blank uses the size", null)));
     }
 
     /**
@@ -274,13 +316,13 @@ public final class StarterTemplates {
                 "A heading and rich text on one side, a picture (or a large icon) on the other; a full-width "
                         + "section in the page's chosen tone.",
                 body, List.of(tone(),
-                        text("side", "Picture side", "left or right (blank = left)", false),
+                        choice("side", "Picture side", "Which side the picture is on (blank = left)", SIDES, null),
                         image("imageUrl", "Picture URL", "Blank shows the icon instead, or nothing"),
                         text("imageAlt", "Picture description", "For screen readers", false),
                         text("icon", "Icon", "A PrimeIcons class such as pi-users, shown when there is no "
                                 + "picture; blank shows nothing", false),
                         text("heading", "Heading", "The section's heading", true, "Who this is for"),
-                        richText("body", "Content", "The section's text", true,
+                        richText("body", "Content", "The section's text", false,
                                 "<p>Families, students and parish groups travel together; first-timers are"
                                 + " paired with someone who has been before.</p>"),
                         text("linkText", "Link text", "An optional link under the text; blank hides it",
@@ -328,7 +370,7 @@ public final class StarterTemplates {
         return standard(BAND_TESTIMONIAL_ID, "Quote",
                 "A centered quotation with the speaker's name, role and optional photo.",
                 body, List.of(tone(),
-                        richText("quote", "Quotation", "What they said", true,
+                        richText("quote", "Quotation", "What they said", false,
                                 "<p>I came for the talks and left with friends for life.</p>"),
                         text("name", "Name", "Who said it; blank shows nothing", false, "Maria S."),
                         text("role", "Role", "Their role or organization; blank shows nothing", false,
@@ -350,7 +392,7 @@ public final class StarterTemplates {
                 "A full-width section holding a heading and rich text in a readable column.",
                 body, List.of(tone(),
                         text("heading", "Heading", "Blank shows no heading", false, "About"),
-                        richText("body", "Content", "The section's text", true,
+                        richText("body", "Content", "The section's text", false,
                                 "<p>Tell visitors what this is about: who it is for, what happens and why it"
                                 + " matters.</p>")));
     }
@@ -373,7 +415,7 @@ public final class StarterTemplates {
                 body, List.of(
                         text("icon", "Icon", "A PrimeIcons class such as pi-globe; blank shows no icon",
                                 false),
-                        richText("text", "Content", "A sentence or two", true,
+                        richText("text", "Content", "A sentence or two", false,
                                 "<p>A sentence or two about this feature.</p>")));
     }
 
@@ -644,6 +686,16 @@ public final class StarterTemplates {
                 "Registration status, places left, prices, a countdown and the Register button, from the event.");
     }
 
+    private static ContentTemplate tripPictures() {
+        return programmatic(TRIP_PICTURES_ID, "Trip Detail Pictures",
+                "The trip's pictures: the cover large and the rest as a gallery, or the cover alone.");
+    }
+
+    private static ContentTemplate tripDetails() {
+        return programmatic(TRIP_DETAILS_ID, "Trip Details",
+                "The trip's facts line (dates, destination, staff, price, flyer), read from the trip.");
+    }
+
     private static ContentTemplate metricGraph() {
         return programmatic(METRIC_GRAPH_ID, "Metric graph",
                 "One of the app's own per-minute numbers over the last hours or days, for site admins only.");
@@ -744,6 +796,26 @@ public final class StarterTemplates {
                 null, null);
     }
 
+    /**
+     * Empty room on a page (2026-11-25, the owner's request, for what a plain-text section holding an empty
+     * styled div did before). Every value lands inside a {@code style} attribute, so each is checked: the
+     * lengths are {@link Placeholder#FORMAT_CSS_LENGTH} (anything else renders as nothing) and {@code display}
+     * is a menu. Blank height is the stylesheet's default ({@code .tripSpacer}); blank width spans the page.
+     */
+    private static ContentTemplate spacer() {
+        final String body = """
+                <div class="tripSpacer" style="height:{{height}};width:{{width}};display:{{display}}"
+                        aria-hidden="true"></div>
+                """;
+        return new ContentTemplate(SPACER_ID, 0, "Spacer",
+                "Empty room between sections: as tall (and as wide) as you say.", body,
+                List.of(length("height", "Height", "How tall, such as 20px, 2em or 5vh (blank = 20px)", "40px"),
+                        length("width", "Width", "How wide, such as 200px or 50% (blank = the whole width)", null),
+                        choice("display", "Layout", "block starts on a line of its own; inline-block and inline "
+                                + "sit beside what is next to them (blank = block)", SPACER_DISPLAYS, null)),
+                null, null);
+    }
+
     private static ContentTemplate textOnly() {
         final String body = """
                 <div class="contentItem contentText">{{body}}</div>
@@ -751,7 +823,7 @@ public final class StarterTemplates {
         return new ContentTemplate(TEXT_ONLY_ID, 0, "Text Only",
                 "A free-form rich-text block.", body,
                 List.of(new Placeholder("body", Placeholder.Type.RICH_TEXT, "Content",
-                        "The text to show", true, "<p>A free-form block of text, formatted as you like.</p>")),
+                        "The text to show", false, "<p>A free-form block of text, formatted as you like.</p>")),
                 null, null);
     }
 }

@@ -314,7 +314,9 @@ shows), `getFragmentPath()` (`/WEB-INF/ptypes/*.xhtml` in the medjugorje repo), 
 `Placeholder.Type.CHOICE` dropdowns (e.g. the File type's media picker, the pilgrimage language menu). Registry:
 `ProgrammaticTypes.ALL` (KnownSettings pattern). Shipped types: `pilgrimages`, `photo-albums`, `file` (one media item by
 id -- title/size/URL read LIVE from the cached media table; hidden or deleted media renders nothing), `person`, the
-conference page's `trip-schedule` and `trip-registration` (`docs/conference.md`), and `metric-graph`, one graph of the
+conference page's `trip-schedule` and `trip-registration` (`docs/conference.md`), Trip Detail Pictures
+(`trip-pictures`) and Trip Details (`trip-details`), the trip page's top block (`onlyTripPage()`: offered on a trip's
+own page alone; `docs/trip-pictures.md`, "On the trip page"), and `metric-graph`, one graph of the
 app's own metrics, the metrics dashboard's building block (`docs/metrics.md`), laid out by the `graph-grid` CONTAINER
 (four columns; each child cell spans its graph's own width and height). `offeredTo(Caller)` (default true) keeps a type
 out of the Add dialog for an editor it does not serve: `metric-graph` answers with `MetricsCommands.mayViewMetrics`, the
@@ -542,6 +544,44 @@ registry never changes at runtime.
   contract in `contentSections.xhtml`): the include iterates viewScope-frozen lists, so in-place ajax
   cannot reflect adds/deletes/reorders.
 
+
+### Fixed choices and lengths (2026-11-25)
+
+Two optional fields on a prompt (`Placeholder`), both written only when set, so older rows read and re-save
+byte for byte (and `ContentTemplate.ser` keeps its `serialVersionUID`):
+
+- **`options`**: a hand-written template's prompt with options is a `CHOICE`, shown as a menu of exactly those
+  values (`content.getChoices`, which answers a programmatic type's provider otherwise). The template editor has an
+  Options column (comma-separated) and offers CHOICE in its type menu; a save refuses a CHOICE with no options and a
+  sample that is not one of them. A content save refuses a value that is not a choice, but only a value the save
+  CHANGES: a value typed by hand before the prompt became a menu keeps saving and rendering as typed, and the menu
+  offers it last, marked "(not one of the choices)", because a PrimeFaces menu whose items omit its value posts its
+  first option instead. The drawer lists such values when it opens (`content.unlistedChoices`).
+- **`format`**, one value: `css-length` (a number with px, em, rem, %, vh or vw, or 0; `Placeholder.isLength`). Such
+  a value is the only kind a template may write inside a `style` attribute: the renderer writes it only when it is a
+  length and writes nothing otherwise (escaping alone would let `1px;position:fixed` restyle the page), and a save
+  refuses a changed value that is not one. The Spacer and the Opening banner's width use it.
+
+**Required** (owner, 2026-11-25): a section's Title is optional for every kind, and a rich-text prompt is never
+required whatever its template says (`content.isRequired`, the one rule for the drawer's `required=` and
+`validateRequired`; the template editor's Required box is disabled on a RICH_TEXT row). An untitled section is
+named where sections are listed (Arrange sections, "Adding above ...") by its template's name and the first words
+of its text (`titleOf`, `untitledLabel`). The drawer names the template an item is built on, adding and editing
+alike ("Template: ...", `content.templateName`), with "Edit this template" for a template designer.
+
+**Spacer** (`spacer`, STANDARD): empty room with `height` and `width` (css-length) and `display` (a menu: block,
+inline-block, inline), all inside its `style`; `.tripSpacer` in `site.css` gives a blank height 20px and outlines it
+in edit mode.
+
+**Clone** (`content.cloneContent`): the Clone button beside a section's (or a group item's) Edit saves a copy right
+after the original, a group's items copied beneath it, and the page reloads on the copy (`cloneLanding`). A group's
+allow-list and size still apply; required prompts are not asked again (it copies what is stored), and a seeded
+placeholder's copy keeps the seed as author and its "Show until", so it stays hidden until its first save, like the
+original.
+
+**The bottom of a page**: once a page has a section, "Add section here" is drawn below the last one too
+(`.addHereEnd`, adding at the end), and the page toolbar keeps only Arrange sections; an empty page keeps the
+toolbar's Add section.
 
 ### Adding a section (2026-11-16)
 
@@ -790,20 +830,25 @@ and the old words (hero, testimonial, stats, faq) are tags:
 
 | Template | Kind | Placeholders / children |
 |----------|------|-------------------------|
-| `band-hero` | STANDARD | `eyebrow`, `headline`*, `subheadline`, `primaryText`/`primaryUrl`, `secondaryText`/`secondaryUrl`, `imageUrl`/`imageAlt`. No tone: always the deep gradient of the site's colors |
-| `band-split` | STANDARD | `tone`, `side` (left/right), `imageUrl`/`imageAlt`, `icon` (PrimeIcons class, shown when there is no picture), `heading`*, `body`* (RICH_TEXT), `linkText`/`linkUrl` |
+| `band-hero` | STANDARD | `eyebrow`, `headline`*, `subheadline`, `primaryText`/`primaryUrl`, `secondaryText`/`secondaryUrl`, `imageUrl`/`imageAlt`, `imageSize` (menu: small, medium, large, half; blank = large) and `imageWidth` (a CSS length that overrides the size). No tone: always the deep gradient of the site's colors |
+| `band-split` | STANDARD | `tone`, `side` (menu: left, right), `imageUrl`/`imageAlt`, `icon` (PrimeIcons class, shown when there is no picture), `heading`*, `body` (RICH_TEXT), `linkText`/`linkUrl` |
 | `band-cta` | STANDARD | `tone`, `heading`*, `text` (RICH_TEXT), `buttonText`*, `buttonUrl`*, `note` |
-| `band-testimonial` | STANDARD | `tone`, `quote`* (RICH_TEXT), `name`, `role`, `photoUrl` |
-| `band-text` | STANDARD | `tone`, `heading`, `body`* (RICH_TEXT) |
-| `feature-card` | STANDARD (leaf) | `icon`, `text`* (RICH_TEXT); its HEADING is the instance title, written by the Features row |
+| `band-testimonial` | STANDARD | `tone`, `quote` (RICH_TEXT), `name`, `role`, `photoUrl` |
+| `band-text` | STANDARD | `tone`, `heading`, `body` (RICH_TEXT) |
+| `feature-card` | STANDARD (leaf) | `icon`, `text` (RICH_TEXT); its HEADING is the instance title, written by the Features row |
 | `stat-item` | STANDARD (leaf) | `value`*, `label`* |
 | `band-features` | CONTAINER | children `feature-card` only; a responsive card grid under `{{container:title}}` |
 | `band-stats` | CONTAINER | children `stat-item` only, max 4; dark tone |
 | `band-faq` | CONTAINER | children `text-only` only: the child's TITLE is the question, its body the answer, as `<details>` rows |
 | `band-logos` | CONTAINER | children `image` only; a centered strip of small logos |
 
-`tone` is a TEXT prompt whose value becomes a class (`band-plain`, `band-tint`, `band-dark`; blank = plain),
-so it is escaped like any text. Every optional part is written so that a blank value leaves an EMPTY
+`tone` is a menu (since 2026-11-25; a TEXT prompt before) whose value becomes a class (`band-plain`,
+`band-tint`, `band-dark`, `band-transparent`; blank = plain), escaped like any text. Transparent paints no ground
+of its own, so the page's ground or background picture shows through and the text keeps the theme's color. A
+tone typed by hand before the menu existed keeps rendering as typed and is offered in the menu as it is ("Fixed
+choices and lengths", below). The banner's typed width is written as the picture's `flex-basis`, so a percentage
+is a share of the banner; a blank width leaves exactly `style="flex-basis:"`, which `site.css` reads as "no width
+given". Every optional part is written so that a blank value leaves an EMPTY
 element (`<a class="cta">…</a>` with no whitespace inside, `img[src=""]`, `data-icon=""`) that the
 stylesheet hides -- the reason the hero's buttons are one tight anchor each. Single-child allow-lists mean
 a band's Add button skips the template picker. The stylesheet is `medjugorje/webapp/resources/css/site.css`
@@ -884,11 +929,14 @@ is the datastore).
 1. Privilege rows (hand-created in `/admin/editPrivs.jsf`): `contentAdmin` (writes template BODIES,
    which reach pages as stored: grant like script access; typed values go through the allowlist),
    `eventAdmin`, `mediaAdmin`.
-2. `install-starter-templates.sh` -- the THIRTY-THREE starters (JSON generated from `StarterTemplates` by
-   the test-scope `BootstrapScriptJson` tool: the originals, the seven MAIL bodies, the four reminder texts, the
-   eleven bands and the two conference types). It never overwrites a row; `refresh-starter-templates.py` brings
-   rows installed earlier up to date in place, and since 2026-11-16 that includes the plain band names (only
-   where the stored name is still the shipped one), the tags and the two flags (only where the row has none).
+2. `install-starter-templates.sh` -- every starter (`StarterTemplates.IDS`; JSON generated from `StarterTemplates`
+   by the test-scope `BootstrapScriptJson` tool: the originals, the Spacer, the seven MAIL bodies, the four reminder
+   texts, the eleven bands, the conference types, the trip page's pictures and details types, and the language
+   versions). It never overwrites a row; `refresh-starter-templates.py` brings rows installed earlier up to date in
+   place, and since 2026-11-16 that includes the plain band names (only
+   where the stored name is still the shipped one), the tags and the two flags (only where the row has none), and
+   since 2026-11-25 the band menus (tone, side) and the Opening banner's picture size, each only where the stored
+   prompt or body is still exactly what the starter shipped.
 3. `bootstrap-home-v2.sh` -- the `page:trip-index` skeleton (JSON generated from `V2PageBootstrap`);
    `--purge-v1` deletes the retired `home.*` rows. New rows appear on their own within ~5 minutes (the
    cache refresh merges); only DELETES need the Settings page's "Clear caches" button (the refresh never

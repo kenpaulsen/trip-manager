@@ -237,6 +237,16 @@ public final class Trip implements Serializable {
     @JsonProperty("pageSeededAt")
     private LocalDateTime pageSeededAt;
     /**
+     * When this trip's page started showing its pictures and facts as two of its sections (docs/trip-pictures.md,
+     * "On the trip page"): set by the seed of a new page, by the backfill script for an older one and by a page
+     * copied from such a trip. Null on every trip before that, whose page keeps the fixed top block above its
+     * sections, so nothing disappears before the backfill runs. Keyed on this stamp, never on whether the rows are
+     * there: an editor who deletes the two sections does not get the fixed block back. Only ever set or cleared by
+     * the page's own code: every other save keeps the stored value ({@code TripCommands.saveTrip}).
+     */
+    @JsonProperty("pageTopSectionsAt")
+    private LocalDateTime pageTopSectionsAt;
+    /**
      * The priced-checkout policy (docs/checkout.md): on/off, auto-confirm, the window, age bands and codes. Read
      * through the lazy getter (the {@code getPaymentConfig} pattern) so the editor's dialog can bind before
      * anything was saved; absent on every trip stored before checkout existed, which reads as off.

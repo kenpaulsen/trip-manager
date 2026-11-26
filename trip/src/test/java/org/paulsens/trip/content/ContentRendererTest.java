@@ -340,4 +340,33 @@ public class ContentRendererTest {
         Assert.assertEquals(ContentRenderer.requireHttpUrl("//x.example"), "");
         Assert.assertEquals(ContentRenderer.requireHttpUrl("::::"), "");
     }
+
+    /** A length may sit inside a style attribute: only a CSS length gets there, anything else renders as nothing. */
+    @Test
+    public void aLengthPromptRendersOnlyALength() {
+        final Placeholder height = new Placeholder("h", Placeholder.Type.TEXT, "H", null, false, null, null,
+                Placeholder.FORMAT_CSS_LENGTH);
+        final ContentTemplate tpl = template("<div style=\"height:{{h}}\"></div>", height);
+        for (final String good : List.of("20px", "1.5em", "2rem", "50%", "10vh", "33vw", "0", " 12px ")) {
+            Assert.assertEquals(ContentRenderer.render(tpl, instance(Map.of("h", good))),
+                    "<div style=\"height:" + good.trim() + "\"></div>", good);
+        }
+        for (final String bad : List.of("20", "1px;position:fixed", "calc(1px)", "-5px", "20 px", "url(x)",
+                "\"><script>", "123456px")) {
+            Assert.assertEquals(ContentRenderer.render(tpl, instance(Map.of("h", bad))),
+                    "<div style=\"height:\"></div>", bad);
+        }
+        Assert.assertTrue(Placeholder.isLength("4px"));
+        Assert.assertFalse(Placeholder.isLength(null));
+    }
+
+    /** A menu value renders escaped, exactly like text: an old hand-typed value is never screened out. */
+    @Test
+    public void aMenuValueRendersEscapedAsTyped() {
+        final Placeholder tone = new Placeholder("tone", Placeholder.Type.CHOICE, "Tone", null, false, null,
+                List.of("plain", "dark"), null);
+        final ContentTemplate tpl = template("<b class=\"band-{{tone}}\"></b>", tone);
+        Assert.assertEquals(ContentRenderer.render(tpl, instance(Map.of("tone", "Dark x\""))),
+                "<b class=\"band-Dark x&quot;\"></b>");
+    }
 }

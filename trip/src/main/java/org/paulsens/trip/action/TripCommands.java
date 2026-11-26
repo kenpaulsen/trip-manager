@@ -550,6 +550,9 @@ public class TripCommands {
     static void keepStoredPictures(final Trip trip, final Trip stored) {
         if (stored != null) {
             trip.setPictures(stored.getPictures());
+            // The same for the page's top-block stamp: only the page's own code writes it (seeding, the backfill,
+            // a copied page), straight onto the stored row, so a working copy taken before must not clear it.
+            trip.setPageTopSectionsAt(stored.getPageTopSectionsAt());
         }
     }
 

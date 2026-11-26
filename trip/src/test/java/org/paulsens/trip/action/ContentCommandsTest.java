@@ -8,6 +8,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.regex.Pattern;
 import org.paulsens.trip.audit.AuditActor;
+import org.paulsens.trip.content.OrgPageBootstrap;
 import org.paulsens.trip.content.ProgrammaticTypes;
 import org.paulsens.trip.content.StarterTemplates;
 import org.paulsens.trip.dynamo.DAO;
@@ -1380,7 +1381,8 @@ public class ContentCommandsTest {
 
         final ContentInstance untitled = content.createContent(page, StarterTemplates.CONTAINER_ID);
         Assert.assertTrue(content.saveContent(untitled));
-        Assert.assertEquals(content.insertLabel(page, page, untitled.getId()), "Adding above an untitled section");
+        Assert.assertEquals(content.insertLabel(page, page, untitled.getId()), "Adding above \u201cContainer\u201d",
+                "an untitled section is named by its template");
 
         Assert.assertEquals(content.moveInsertPoint(page, "", true), untitled.getId(), "up from the end");
         Assert.assertEquals(content.moveInsertPoint(page, untitled.getId(), true), second);
@@ -1452,12 +1454,210 @@ public class ContentCommandsTest {
     @Test
     public void aBlankRequiredPromptIsRefusedOnSave() {
         final ContentCommands content = as(Person.Id.newInstance(), true);
-        final ContentInstance blank = content.createContent(FakeData.PAGE_KEY, StarterTemplates.TEXT_ONLY_ID);
-        blank.setTitle("Blank body");
+        final ContentInstance blank = content.createContent(FakeData.PAGE_KEY, "cc-test-tpl");
+        blank.getValues().put("msg", " ");
+        Assert.assertFalse(content.saveContent(blank), "a required plain-text prompt left blank");
+        blank.getValues().put("msg", "Something");
+        Assert.assertTrue(content.saveContent(blank), "a filled prompt saves, with no title at all");
+    }
+
+    /** Owner, 2026-11-25: a rich-text prompt is never required, whatever its template says. */
+    @Test
+    public void aRichTextPromptIsNeverRequired() {
+        final ContentCommands content = as(Person.Id.newInstance(), true);
+        final ContentTemplate strict = new ContentTemplate("cc-strict-rich", 0, "Strict rich", null,
+                "<div>{{body}}</div>",
+                List.of(new Placeholder("body", Placeholder.Type.RICH_TEXT, "Content", null, true)), null, null);
+        Assert.assertTrue(DAO.getInstance().saveTemplate(strict, 5));
+        final ContentInstance blank = content.createContent(FakeData.PAGE_KEY, "cc-strict-rich");
         blank.getValues().put("body", "<p><br></p>");
-        Assert.assertFalse(content.saveContent(blank), "an empty paragraph is no content");
-        Assert.assertFalse(content.saveContent(withBody(content, "")), "nothing typed");
-        Assert.assertTrue(content.saveContent(withBody(content, "<p>Something</p>")), "a filled prompt saves");
+        Assert.assertTrue(content.saveContent(blank), "an empty Content saves");
+        Assert.assertTrue(content.saveContent(withBody(content, "")), "nothing typed");
+        Assert.assertFalse(content.isRequired(strict.getPlaceholders().get(0)));
+        Assert.assertTrue(content.isRequired(new Placeholder("u", Placeholder.Type.VIDEO_URL, "U", null, true)));
+        Assert.assertFalse(content.isRequired(new Placeholder("t", Placeholder.Type.TEXT, "T", null, false)));
+        Assert.assertFalse(content.isRequired(null));
+    }
+
+    private static final String SHAPES_TPL = "cc-shapes-tpl";
+
+    /**
+     * A template with a menu (tone) and a length (height), the two value shapes of 2026-11-25. Saved once per suite:
+     * a second version-0 save of the same id is refused.
+     */
+    private static void shapesTemplate() {
+        if (DAO.getInstance().getTemplate(SHAPES_TPL, Cached.NO).isPresent()) {
+            return;
+        }
+        final ContentTemplate tpl = new ContentTemplate(SHAPES_TPL, 0, "Shapes", null,
+                "<div class=\"band-{{tone}}\" style=\"height:{{height}}\">{{text}}</div>",
+                List.of(new Placeholder("tone", Placeholder.Type.CHOICE, "Tone", null, false, null,
+                                List.of("plain", "dark"), null),
+                        new Placeholder("height", Placeholder.Type.TEXT, "Height", null, false, null, null,
+                                Placeholder.FORMAT_CSS_LENGTH),
+                        new Placeholder("text", Placeholder.Type.TEXT, "Text", null, false)), null, null);
+        Assert.assertTrue(DAO.getInstance().saveTemplate(tpl, 5));
+    }
+
+    @Test
+    public void aMenuValueMustBeAChoiceAndALengthALengthButOnlyWhenChanged() {
+        shapesTemplate();
+        final ContentCommands content = as(ADMIN, false);
+        final String page = "cc.page-shapes-" + UUID.randomUUID();
+        final ContentInstance item = content.createContent(page, SHAPES_TPL);
+        item.getValues().put("tone", "Dark");
+        Assert.assertFalse(content.saveContent(item), "not one of the choices");
+        item.getValues().put("tone", "dark");
+        item.getValues().put("height", "1px;position:fixed");
+        Assert.assertFalse(content.saveContent(item), "not a length");
+        item.getValues().put("height", "2.5em");
+        Assert.assertTrue(content.saveContent(item));
+        Assert.assertEquals(content.getChoices(item, "tone").stream()
+                .map(choice -> choice.value()).toList(), List.of("plain", "dark"));
+        Assert.assertEquals(content.unlistedChoices(item), List.of());
+
+        // A value typed by hand before the prompt became a menu: stored as it is, it keeps saving and is offered.
+        final ContentInstance stored = DAO.getInstance().getContentRecord(item.getId(), Cached.NO).orElseThrow()
+                .getCurrent();
+        stored.getValues().put("tone", "Dark");
+        Assert.assertTrue(DAO.getInstance().saveContent(stored, 5), "as an older row would hold it");
+        final ContentInstance reopened = content.getContent(item.getId());
+        reopened.getValues().put("text", "edited");
+        Assert.assertTrue(content.saveContent(reopened), "an unchanged unlisted value saves");
+        Assert.assertEquals(content.getChoices(reopened, "tone").get(2).value(), "Dark");
+        Assert.assertEquals(content.getChoices(reopened, "tone").get(2).label(), "Dark (not one of the choices)");
+        Assert.assertEquals(content.unlistedChoices(reopened), List.of("Tone: Dark"));
+        reopened.getValues().put("tone", "Darker");
+        Assert.assertFalse(content.saveContent(reopened), "changing it to another unlisted value is refused");
+
+        Assert.assertEquals(content.getChoices(reopened, "text"), List.of(), "a plain prompt has no menu");
+        Assert.assertEquals(content.getChoices(null, "tone"), List.of());
+        Assert.assertEquals(content.unlistedChoices(null), List.of());
+    }
+
+    @Test
+    public void theDrawerNamesTheTemplateAndAnUntitledSectionIsNamedByIt() {
+        shapesTemplate();
+        final ContentCommands content = as(ADMIN, false);
+        final String page = "cc.page-named-" + UUID.randomUUID();
+        final ContentInstance item = content.createContent(page, SHAPES_TPL);
+        Assert.assertEquals(content.templateName(item), "Shapes");
+        Assert.assertEquals(content.templateIdOf(item), SHAPES_TPL);
+        Assert.assertEquals(content.templateName(null), "");
+        Assert.assertEquals(content.templateIdOf(null), "");
+        item.getValues().put("text", "<b>one</b> two three four five six seven eight");
+        Assert.assertTrue(content.saveContent(item));
+        Assert.assertEquals(content.titleOf(item.getId()), "Shapes: \"one two three four five six...\"");
+        final ContentInstance shortOne = content.createContent(page, SHAPES_TPL);
+        shortOne.getValues().put("text", "Hello   world");
+        Assert.assertTrue(content.saveContent(shortOne));
+        Assert.assertEquals(content.titleOf(shortOne.getId()), "Shapes: \"Hello world\"");
+        Assert.assertEquals(content.insertLabel(page, page, shortOne.getId()),
+                "Adding above \u201cShapes: \"Hello world\"\u201d");
+        final ContentInstance wordless = content.createContent(page, SHAPES_TPL);
+        Assert.assertTrue(content.saveContent(wordless));
+        Assert.assertEquals(content.titleOf(wordless.getId()), "Shapes", "no words: the template's name");
+
+        // A trip page lists its sections by title, so a title there is never "unseen".
+        final String tripPage = "page:trip:" + UUID.randomUUID() + ":home";
+        Assert.assertFalse(content.isTitleUnseen(content.createContent(tripPage, "cc-test-tpl"), tripPage));
+    }
+
+    @Test
+    public void aCloneIsSavedRightAfterItsOriginalWithItsItems() {
+        final ContentCommands content = as(ADMIN, false);
+        final String page = "cc.page-clone-" + UUID.randomUUID();
+        final String a = added(content, page, "A", null).getId();
+        final String b = added(content, page, "B", null).getId();
+        final ContentInstance group = content.createContent(page, StarterTemplates.CONTAINER_ID);
+        group.setTitle("Group");
+        Assert.assertTrue(content.saveContent(group));
+        final ContentInstance item = content.createContent(group.getId(), "cc-test-tpl");
+        item.setTitle("Inside");
+        item.getValues().put("msg", "inside");
+        Assert.assertTrue(content.saveContent(item));
+
+        final String copyOfA = content.cloneContent(a);
+        Assert.assertTrue(content.wasCloned(copyOfA));
+        Assert.assertEquals(content.idsFor(page, true), List.of(a, copyOfA, b, group.getId()), "right after A");
+        Assert.assertEquals(content.getContent(copyOfA).getValues().get("msg"), "A");
+        Assert.assertEquals(content.getContent(copyOfA).getTitle(), "A");
+        Assert.assertEquals(content.cloneLanding(copyOfA, a, page), copyOfA);
+
+        final String copyOfGroup = content.cloneContent(group.getId());
+        Assert.assertEquals(content.idsFor(page, true).get(4), copyOfGroup, "the last section's copy is last");
+        final List<String> copiedItems = content.idsFor(copyOfGroup, true);
+        Assert.assertEquals(copiedItems.size(), 1, "the group's item came along");
+        Assert.assertNotEquals(copiedItems.get(0), item.getId());
+        Assert.assertEquals(content.getContent(copiedItems.get(0)).getTitle(), "Inside");
+
+        final String copyOfItem = content.cloneContent(item.getId());
+        Assert.assertEquals(content.idsFor(group.getId(), true), List.of(item.getId(), copyOfItem));
+        Assert.assertEquals(content.cloneLanding(copyOfItem, item.getId(), page), group.getId(),
+                "an item lands on its group");
+
+        Assert.assertFalse(content.wasCloned(content.cloneContent("no-such-item")));
+        Assert.assertFalse(content.wasCloned(content.cloneContent(null)));
+        Assert.assertFalse(content.wasCloned(as(NOBODY, false).cloneContent(a)), "no edit rights");
+        Assert.assertEquals(content.cloneLanding("", a, page), "");
+        Assert.assertEquals(content.cloneLanding(copyOfA, "no-such-item", page), "");
+        Assert.assertEquals(content.cloneLanding(copyOfA, a, null), "");
+        Assert.assertEquals(content.cloneLanding(copyOfA, null, page), "");
+    }
+
+    /** A trip's pictures and facts read the trip a page is about: offered on a trip's own page and nowhere else. */
+    @Test
+    public void theTripPagesOwnTypesAreOfferedOnATripPageOnly() {
+        for (final String typeId : List.of("trip-pictures", "trip-details")) {
+            if (DAO.getInstance().getTemplate(typeId, Cached.NO).isEmpty()) {
+                Assert.assertTrue(DAO.getInstance().saveTemplate(new ContentTemplate(typeId, 0, typeId, null, "",
+                        ProgrammaticTypes.byId(typeId).orElseThrow().getProperties(), null, null,
+                        TemplateKind.PROGRAMMATIC, null, null, typeId), 5));
+            }
+        }
+        final ContentCommands content = as(ADMIN, true);
+        final String tripPage = "page:trip:" + UUID.randomUUID() + ":home";
+        Assert.assertTrue(ids(content.getTemplateChoicesFor(tripPage)).containsAll(
+                List.of("trip-pictures", "trip-details")), "on a trip's page");
+        Assert.assertFalse(ids(content.getTemplateChoicesFor("cc.page-not-a-trip")).contains("trip-pictures"),
+                "not on any other page");
+        final ContentInstance group = content.createContent(tripPage, StarterTemplates.CONTAINER_ID);
+        Assert.assertTrue(content.saveContent(group));
+        Assert.assertTrue(ids(content.getTemplateChoicesFor(group.getId())).contains("trip-details"),
+                "inside a group on a trip's page");
+        final ContentInstance elsewhere = content.createContent("cc.page-not-a-trip", StarterTemplates.CONTAINER_ID);
+        Assert.assertTrue(content.saveContent(elsewhere));
+        Assert.assertFalse(ids(content.getTemplateChoicesFor(elsewhere.getId())).contains("trip-details"),
+                "and not inside a group anywhere else");
+    }
+
+    @Test
+    public void aFullGroupRefusesACloneAndASeededPlaceholderCopyStaysHidden() {
+        final ContentCommands content = as(ADMIN, false);
+        final String page = "cc.page-clone-full-" + UUID.randomUUID();
+        final ContentTemplate pair = new ContentTemplate("cc-pair", 0, "Pair", null, "<li>{{child}}</li>",
+                List.of(), null, null, TemplateKind.CONTAINER, null, 2, null);
+        Assert.assertTrue(DAO.getInstance().saveTemplate(pair, 5));
+        final ContentInstance group = content.createContent(page, "cc-pair");
+        Assert.assertTrue(content.saveContent(group));
+        final String first = added(content, group.getId(), "One", null).getId();
+        added(content, group.getId(), "Two", null);
+        Assert.assertFalse(content.wasCloned(content.cloneContent(first)), "the group holds two at most");
+        Assert.assertEquals(content.idsFor(group.getId(), true).size(), 2);
+
+        // A seeded placeholder (blank required prompt, the seed's passed date): copied as it is, still hidden.
+        final LocalDateTime seeded = LocalDateTime.now().minusDays(1).withNano(0);
+        final ContentInstance seed = new ContentInstance(UUID.randomUUID().toString(), page, "Video",
+                StarterTemplates.YOUTUBE_VIDEO_ID, starter(StarterTemplates.YOUTUBE_VIDEO_ID).getVersion(),
+                new HashMap<>(Map.of("videoUrl", "", "caption", "")), seeded, 5, 0, null,
+                OrgPageBootstrap.SEED_AUTHOR);
+        Assert.assertTrue(DAO.getInstance().saveContent(seed, 5));
+        final String copy = content.cloneContent(seed.getId());
+        Assert.assertTrue(content.wasCloned(copy), "required prompts are not asked again");
+        final ContentInstance stored = DAO.getInstance().getContentRecord(copy, Cached.NO).orElseThrow().getCurrent();
+        Assert.assertEquals(stored.getModifiedBy(), OrgPageBootstrap.SEED_AUTHOR);
+        Assert.assertEquals(stored.getEventDate(), seeded);
+        Assert.assertTrue(OrgPageBootstrap.isSeededPlaceholder(stored));
     }
 
     private static ContentInstance withBody(final ContentCommands content, final String body) {

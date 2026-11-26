@@ -10,6 +10,7 @@ import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.model.ContentTemplate;
 import org.paulsens.trip.model.Placeholder;
 import org.paulsens.trip.model.TemplateKind;
+import org.paulsens.trip.model.Trip;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
@@ -265,5 +266,17 @@ public class ProgrammaticTypesTest {
         final Map<String, String> withAgenda = schedule.previewValues(elsewhere);
         Assert.assertTrue(withAgenda == null || !withAgenda.get("tripId").isBlank(),
                 "a trip with sessions, or the sample when the site lists none");
+    }
+
+    /** Trip Detail Pictures previews a trip's real pictures only when the trip has some; else its sample. */
+    @Test
+    public void tripPicturesPreviewsOnlyATripWithPictures() throws java.io.IOException {
+        final TripPicturesType type = new TripPicturesType();
+        Assert.assertEquals(type.getIcon(), "pi-images");
+        final Trip bare = Trip.builder().title("2027 Dec: No Pictures").orgId(FakeData.CFPW_ORG_ID).build();
+        Assert.assertTrue(DAO.getInstance().saveTrip(bare));
+        Assert.assertNull(type.previewValues(new ProgrammaticContentTemplate.PreviewContext(bare.getId(), null)),
+                "no pictures yet: the sample");
+        Assert.assertNull(type.previewValues(new ProgrammaticContentTemplate.PreviewContext(null, null)));
     }
 }
